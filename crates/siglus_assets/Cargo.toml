@@ -1,0 +1,34 @@
+[package]
+name = "siglus_assets"
+version = "0.1.0"
+edition = "2021"
+license = "MPL-2.0"
+
+[dependencies]
+anyhow = "1"
+encoding_rs = "0.8"
+hex = "0.4"
+
+# Audio: Ogg/Vorbis decoding (pure Rust).
+lewton = { version = "0.10", optional = true }
+
+# Video: MPEG-2 decoding via FFmpeg.
+#
+# Default behavior is to link against system FFmpeg libraries.
+# If you want cargo to build FFmpeg from source (static), enable the
+# `ffmpeg_build` feature, which turns on `ffmpeg-next/build`.
+ffmpeg-next = { version = "8", optional = true }
+
+[features]
+# Decode helpers.
+#
+# NOTE: `mpeg2_ffmpeg` requires system FFmpeg (or enabling `ffmpeg_build`).
+# Keep it OFF by default so the workspace builds without external deps.
+default = ["vorbis"]
+
+vorbis = ["dep:lewton"]
+mpeg2_ffmpeg = ["dep:ffmpeg-next"]
+
+# Build FFmpeg from source (static). This is significantly heavier than
+# linking system FFmpeg.
+ffmpeg_build = ["mpeg2_ffmpeg", "ffmpeg-next/build"]
