@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::runtime::forms::stub;
-use crate::runtime::{CommandContext, OpCode, Value};
+use crate::runtime::forms::prop_access;
+use crate::runtime::{CommandContext, Value};
 
 const TNM_ANGLE_UNIT: f64 = 10.0;
 
@@ -69,16 +69,12 @@ fn xorshift32(state: &mut u32) -> u32 {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+    let parsed = prop_access::parse_element_chain(form_id, args);
     let mut chain_pos: Option<usize> = None;
     let mut chain: Option<&[i32]> = None;
-    for (i, v) in args.iter().enumerate() {
-        if let Value::Element(ch) = v {
-            if ch.first().copied() == Some(form_id as i32) {
-                chain_pos = Some(i);
-                chain = Some(ch.as_slice());
-                break;
-            }
-        }
+    if let Some((pos, ch)) = parsed {
+        chain_pos = Some(pos);
+        chain = Some(ch);
     }
 
     let (op, params, al_id) = if let Some(pos) = chain_pos {
@@ -100,7 +96,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     let p_str = |i: usize| -> &str { params.get(i).and_then(|v| v.as_str()).unwrap_or("") };
 
     let Some(op) = op else {
-        return stub::dispatch(ctx, form_id, args);
+        if let Some(direct_op) = args.get(0).and_then(|v| v.as_i64()) {
+            prop_access::store_or_push_direct_prop(ctx, form_id, direct_op as i32, args, 1);
+            return Ok(true);
+        }
+        ctx.push(Value::Int(0));
+        return Ok(true);
     };
 
     // MAX
@@ -311,10 +312,6 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         return Ok(true);
     }
 
-    // Unknown op.
-    ctx.unknown.record_code(OpCode::form(form_id));
-    if let Some(ch) = chain {
-        ctx.unknown.record_element_chain(form_id, ch, "MATH");
-    }
-    stub::dispatch(ctx, form_id, args)
+    prop_access::dispatch_stateful_form(ctx, form_id, args);
+    Ok(true)
 }

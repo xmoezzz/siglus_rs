@@ -41,7 +41,13 @@ impl Hash for ImageKey {
 pub struct ImageManager {
     project_dir: PathBuf,
     key_to_id: HashMap<ImageKey, ImageId>,
-    images: Vec<Arc<RgbaImage>>,
+    images: Vec<ImageEntry>,
+}
+
+#[derive(Debug, Clone)]
+struct ImageEntry {
+    img: Arc<RgbaImage>,
+    version: u64,
 }
 
 impl ImageManager {
@@ -58,7 +64,11 @@ impl ImageManager {
     }
 
     pub fn get(&self, id: ImageId) -> Option<&Arc<RgbaImage>> {
-        self.images.get(id.index())
+        self.images.get(id.index()).map(|e| &e.img)
+    }
+
+    pub fn get_entry(&self, id: ImageId) -> Option<(&Arc<RgbaImage>, u64)> {
+        self.images.get(id.index()).map(|e| (&e.img, e.version))
     }
 
     /// Create a 1x1 solid RGBA image and return its image id.
@@ -73,7 +83,7 @@ impl ImageManager {
             rgba: vec![rgba.0, rgba.1, rgba.2, rgba.3],
         };
         let id = ImageId(self.images.len() as u32);
-        self.images.push(Arc::new(img));
+        self.images.push(ImageEntry { img: Arc::new(img), version: 0 });
         id
     }
 
@@ -129,7 +139,34 @@ impl ImageManager {
     /// Insert an already-decoded image into the manager and return a new ImageId.
     pub fn insert_image(&mut self, img: RgbaImage) -> ImageId {
         let id = ImageId(self.images.len() as u32);
-        self.images.push(Arc::new(img));
+        self.images.push(ImageEntry { img: Arc::new(img), version: 0 });
         id
+    }
+
+    pub fn insert_image_arc(&mut self, img: Arc<RgbaImage>) -> ImageId {
+        let id = ImageId(self.images.len() as u32);
+        self.images.push(ImageEntry { img, version: 0 });
+        id
+    }
+
+    /// Replace an existing image in-place and bump its version.
+    ///
+    /// This allows the renderer to update the GPU texture without changing the ImageId.
+    pub fn replace_image(&mut self, id: ImageId, img: RgbaImage) -> Result<()> {
+        let Some(entry) = self.images.get_mut(id.index()) else {
+            anyhow::bail!("replace_image: invalid ImageId {}", id.index());
+        };
+        entry.img = Arc::new(img);
+        entry.version = entry.version.wrapping_add(1);
+        Ok(())
+    }
+
+    pub fn replace_image_arc(&mut self, id: ImageId, img: Arc<RgbaImage>) -> Result<()> {
+        let Some(entry) = self.images.get_mut(id.index()) else {
+            anyhow::bail!("replace_image_arc: invalid ImageId {}", id.index());
+        };
+        entry.img = img;
+        entry.version = entry.version.wrapping_add(1);
+        Ok(())
     }
 }

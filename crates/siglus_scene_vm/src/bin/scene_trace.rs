@@ -29,32 +29,40 @@ fn main() -> Result<()> {
                     .context("parse --max-steps")?;
             }
             "--help" | "-h" => {
-                eprintln!(
-                    "Usage: scene_trace --project <dir> [--pck <Scene.pck>] [--scene <name|index>] [--max-steps N]\n\
-                     \n\
-                     Notes:\n\
-                       - This runs the VM directly on Scene.pck bytecode (no script compilation).\n\
-                       - TEXT/NAME are printed to stdout; unknown opcodes/forms are summarized at the end.\n\
-                     \n\
-                     Environment variables (optional):\n\
-                       SIGLUS_SCN_EXE_ANGOU_ELEMENT_HEX (16 bytes hex)\n\
-                       SIGLUS_SCN_EASY_ANGOU_CODE_HEX (N bytes hex, commonly 256)\n\
-                       SIGLUS_FM_LABEL (i32)\n\
-                       SIGLUS_FM_LIST (i32)\n"
-                );
+                eprintln!(r#"Usage: scene_trace [--project <dir>] [--pck <Scene.pck>] [--scene <name|index>] [--max-steps N]
+
+Notes:
+  - If --project is omitted, the app base path is used.
+  - Default app base path is the executable directory.
+  - When SIG_TEST=1, the app base path becomes <Cargo.toml sibling>/testcase.
+  - This runs the VM directly on Scene.pck bytecode (no script compilation).
+  - TEXT/NAME are printed to stdout; unknown opcodes/forms are summarized at the end.
+
+Key file (optional):
+  <project>/key.toml
+  key = [0x00, 0x11, ..., 0xFF]
+
+Other controls:
+  SIG_TEST=1
+  SIGLUS_FM_LABEL (i32)
+  SIGLUS_FM_LIST (i32)
+"#);
                 return Ok(());
             }
             other => return Err(anyhow!("unknown arg: {}", other)),
         }
     }
 
-    let project_dir = project_dir.ok_or_else(|| anyhow!("--project is required"))?;
+    let project_dir = match project_dir {
+        Some(p) => p,
+        None => siglus_scene_vm::app_path::resolve_app_base_path()?,
+    };
     let pck_path = match pck_path {
         Some(p) => p,
         None => find_scene_pck_in_project(&project_dir)?,
     };
 
-    let decode_opt = ScenePckDecodeOptions::from_env()?;
+    let decode_opt = ScenePckDecodeOptions::from_project_dir(&project_dir)?;
     let pack = ScenePck::load_and_rebuild(&pck_path, &decode_opt)
         .with_context(|| format!("load Scene.pck from {}", pck_path.display()))?;
 

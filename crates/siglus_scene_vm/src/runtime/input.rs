@@ -43,6 +43,11 @@ struct KeyState {
     down_stock: bool,
     up_stock: bool,
     down_up_stock: bool,
+    flick_stock: bool,
+    flick_angle: f32,
+    flick_pixel: f32,
+    flick_mm: f32,
+    flick_start: Option<(i32, i32)>,
 }
 
 impl KeyState {
@@ -52,6 +57,11 @@ impl KeyState {
             down_stock: false,
             up_stock: false,
             down_up_stock: false,
+            flick_stock: false,
+            flick_angle: 0.0,
+            flick_pixel: 0.0,
+            flick_mm: 0.0,
+            flick_start: None,
         }
     }
 
@@ -60,12 +70,18 @@ impl KeyState {
         self.down_stock = false;
         self.up_stock = false;
         self.down_up_stock = false;
+        self.flick_stock = false;
+        self.flick_angle = 0.0;
+        self.flick_pixel = 0.0;
+        self.flick_mm = 0.0;
+        self.flick_start = None;
     }
 
     fn clear_stocks(&mut self) {
         self.down_stock = false;
         self.up_stock = false;
         self.down_up_stock = false;
+        self.flick_stock = false;
     }
 }
 
@@ -122,6 +138,26 @@ impl InputState {
         self.keys[vk as usize].down_up_stock
     }
 
+    /// Returns true if a flick was detected since the last `next_frame`.
+    pub fn vk_flick_stock(&self, vk: u8) -> bool {
+        self.keys[vk as usize].flick_stock
+    }
+
+    /// Returns flick angle (radians) for the last flick on this key.
+    pub fn vk_flick_angle(&self, vk: u8) -> f32 {
+        self.keys[vk as usize].flick_angle
+    }
+
+    /// Returns flick distance in pixels for the last flick on this key.
+    pub fn vk_flick_pixel(&self, vk: u8) -> f32 {
+        self.keys[vk as usize].flick_pixel
+    }
+
+    /// Returns flick distance in millimeters for the last flick on this key.
+    pub fn vk_flick_mm(&self, vk: u8) -> f32 {
+        self.keys[vk as usize].flick_mm
+    }
+
     fn vk_set_down(&mut self, vk: u8) {
         let st = &mut self.keys[vk as usize];
         if !st.down {
@@ -145,6 +181,36 @@ impl InputState {
         }
     }
 
+    fn vk_set_flick_start(&mut self, vk: u8) {
+        if !is_mouse_vk(vk) {
+            return;
+        }
+        let st = &mut self.keys[vk as usize];
+        st.flick_stock = false;
+        st.flick_start = Some((self.mouse_x, self.mouse_y));
+    }
+
+    fn vk_set_flick_end(&mut self, vk: u8) {
+        if !is_mouse_vk(vk) {
+            return;
+        }
+        let st = &mut self.keys[vk as usize];
+        let Some((sx, sy)) = st.flick_start.take() else {
+            return;
+        };
+        let dx = (self.mouse_x - sx) as f32;
+        let dy = (self.mouse_y - sy) as f32;
+        let dist = (dx * dx + dy * dy).sqrt();
+        if dist < FLICK_MIN_PIXEL {
+            return;
+        }
+        // Note: the original engine seems to treat angle as atan2(dx, dy).
+        st.flick_angle = dx.atan2(dy);
+        st.flick_pixel = dist;
+        st.flick_mm = dist * MM_PER_PX;
+        st.flick_stock = true;
+    }
+
     /// Clears all keys (including held-down state) and all edge stocks.
     pub fn clear_all(&mut self) {
         for st in &mut self.keys {
@@ -155,12 +221,52 @@ impl InputState {
         self.last_mouse_down = None;
     }
 
+    /// Clears only keyboard-visible state and leaves mouse state intact.
+    pub fn clear_keyboard(&mut self) {
+        for (idx, st) in self.keys.iter_mut().enumerate() {
+            if matches!(idx as u8, 0x01 | 0x02 | 0x04) {
+                continue;
+            }
+            st.clear_all();
+        }
+        self.last_key_down = None;
+    }
+
+    /// Clears only mouse-visible state and leaves keyboard state intact.
+    pub fn clear_mouse(&mut self) {
+        for vk in [0x01usize, 0x02usize, 0x04usize] {
+            self.keys[vk].clear_all();
+        }
+        self.wheel_delta = 0;
+        self.last_mouse_down = None;
+    }
+
     /// Advances to the next frame: clears edge stocks but keeps held-down state.
     pub fn next_frame(&mut self) {
         for st in &mut self.keys {
             st.clear_stocks();
         }
         self.wheel_delta = 0;
+    }
+
+    /// Advances only keyboard state to the next frame.
+    pub fn next_keyboard_frame(&mut self) {
+        for (idx, st) in self.keys.iter_mut().enumerate() {
+            if matches!(idx as u8, 0x01 | 0x02 | 0x04) {
+                continue;
+            }
+            st.clear_stocks();
+        }
+        self.last_key_down = None;
+    }
+
+    /// Advances only mouse state to the next frame.
+    pub fn next_mouse_frame(&mut self) {
+        for vk in [0x01usize, 0x02usize, 0x04usize] {
+            self.keys[vk].clear_stocks();
+        }
+        self.wheel_delta = 0;
+        self.last_mouse_down = None;
     }
 
     // ---------------------------------------------------------------------
@@ -210,9 +316,18 @@ impl InputState {
 
     pub fn on_mouse_down(&mut self, b: VmMouseButton) {
         match b {
-            VmMouseButton::Left => self.vk_set_down(0x01),
-            VmMouseButton::Right => self.vk_set_down(0x02),
-            VmMouseButton::Middle => self.vk_set_down(0x04),
+            VmMouseButton::Left => {
+                self.vk_set_down(0x01);
+                self.vk_set_flick_start(0x01);
+            }
+            VmMouseButton::Right => {
+                self.vk_set_down(0x02);
+                self.vk_set_flick_start(0x02);
+            }
+            VmMouseButton::Middle => {
+                self.vk_set_down(0x04);
+                self.vk_set_flick_start(0x04);
+            }
             VmMouseButton::Other(_) => {}
         }
         self.last_mouse_down = Some(b);
@@ -220,9 +335,18 @@ impl InputState {
 
     pub fn on_mouse_up(&mut self, b: VmMouseButton) {
         match b {
-            VmMouseButton::Left => self.vk_set_up(0x01),
-            VmMouseButton::Right => self.vk_set_up(0x02),
-            VmMouseButton::Middle => self.vk_set_up(0x04),
+            VmMouseButton::Left => {
+                self.vk_set_flick_end(0x01);
+                self.vk_set_up(0x01);
+            }
+            VmMouseButton::Right => {
+                self.vk_set_flick_end(0x02);
+                self.vk_set_up(0x02);
+            }
+            VmMouseButton::Middle => {
+                self.vk_set_flick_end(0x04);
+                self.vk_set_up(0x04);
+            }
             VmMouseButton::Other(_) => {}
         }
     }
@@ -281,3 +405,10 @@ fn vmkey_to_vk(k: VmKey) -> Option<u8> {
         _ => None,
     }
 }
+
+fn is_mouse_vk(vk: u8) -> bool {
+    matches!(vk, 0x01 | 0x02 | 0x04)
+}
+
+const FLICK_MIN_PIXEL: f32 = 30.0;
+const MM_PER_PX: f32 = 25.4 / 96.0;

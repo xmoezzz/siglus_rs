@@ -169,7 +169,7 @@ impl CgTableData {
 
         // IMPORTANT: build into a local root first.
         //
-        // The naive translation from C++ tends to call something like:
+        // The naive translation from the original implementation tends to call something like:
         //   self.create_group_tree_rec(&mut self.group_tree_root, ...)
         // which triggers E0499 (multiple mutable borrows of `self`).
         //
@@ -372,7 +372,7 @@ fn expand_cgm_in_place(buf: &mut [u8]) -> Result<Vec<CgTableEntry>> {
     let wp = &mut buf[off..];
     tpc_angou_in_place(wp);
 
-    let expand_data = lzss::lzss_unpack(wp)?;
+    let expand_data = lzss::lzss_unpack_lenient(wp)?;
 
     match ident.as_str() {
         "CGTABLE2" => parse_table2(&expand_data, header.cnt as usize),
@@ -475,7 +475,8 @@ fn decode_name(name_raw: &[u8]) -> String {
 
 fn c_string_prefix(buf: &[u8]) -> String {
     let end = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
-    String::from_utf8_lossy(&buf[..end]).into_owned()
+    let (cow, _, _) = SHIFT_JIS.decode(&buf[..end]);
+    cow.into_owned()
 }
 
 /// `tpc_angou` is XOR with a 256-byte repeating table.

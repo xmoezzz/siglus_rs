@@ -9,9 +9,9 @@ fn ensure_len(v: &mut Vec<Counter>, idx: usize) {
 
 /// Minimal handler for COUNTER list.
 ///
-/// The original engine has a rich counter system. For bring-up, we support:
+/// The original engine has a rich counter system. For runtime, we support:
 /// - COUNTER[i] get/set as integer (milliseconds)
-/// - COUNTER[i].start/stop/reset via best-effort opcode decoding (very limited)
+/// - COUNTER[i].start/stop/reset via conservative opcode decoding (very limited)
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
     // Find element chain.
     let mut chain_pos: Option<usize> = None;

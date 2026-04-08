@@ -2,7 +2,9 @@ use anyhow::Result;
 
 use crate::runtime::{CommandContext, Value};
 
-use super::key;
+use super::{key, prop_access};
+
+const INPUT_FORM_STATE: u32 = 0xFF00_0001;
 
 fn find_chain(args: &[Value]) -> Option<Vec<i32>> {
     for v in args.iter().rev() {
@@ -52,9 +54,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         _ => {
-            ctx.unknown
-                .record_unimplemented(&format!("INPUT/op={op}"));
-            ctx.push(Value::Int(0));
+            let form_key = if ctx.ids.form_global_input != 0 { ctx.ids.form_global_input } else { INPUT_FORM_STATE };
+            prop_access::store_or_push_direct_prop(ctx, form_key, op as i32, args, 1);
             Ok(true)
         }
     }

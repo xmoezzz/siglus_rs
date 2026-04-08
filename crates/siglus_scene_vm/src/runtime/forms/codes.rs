@@ -165,7 +165,7 @@ pub mod se_op {
 //
 // Note: The VM provides these numeric IDs in element chains or as the first
 // argument for call-form style. We keep sequential defaults here, but they are
-// treated as legacy bring-up values.
+// treated as legacy runtime values.
 // -----------------------------------------------------------------------------
 
 pub mod pcmch_op {

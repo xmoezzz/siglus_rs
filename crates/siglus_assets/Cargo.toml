@@ -8,6 +8,7 @@ license = "MPL-2.0"
 anyhow = "1"
 encoding_rs = "0.8"
 hex = "0.4"
+image.workspace = true
 
 # Audio: Ogg/Vorbis decoding (pure Rust).
 lewton = { version = "0.10", optional = true }

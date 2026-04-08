@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 
@@ -51,6 +51,12 @@ pub struct BgmDecoded {
     pub description: String,
 }
 
+#[derive(Debug, Clone)]
+pub enum KoeSource {
+    File(PathBuf),
+    OvkEntryByNo { path: PathBuf, entry_no: u32 },
+}
+
 /// Decode various Siglus audio containers into WAV (PCM16).
 ///
 /// * For `.ovk`, `entry_idx` selects which entry to decode.
@@ -62,9 +68,9 @@ pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>
 
     match kind {
         BgmContainer::Nwa => {
-			let mut reader =
-				nwa::NwaReader::open(input).with_context(|| format!("open NWA: {}", input.display()))?;
-			let wav_bytes = reader.to_wav_bytes().context("decode NWA -> WAV")?;
+            let mut reader =
+                nwa::NwaReader::open(input).with_context(|| format!("open NWA: {}", input.display()))?;
+            let wav_bytes = reader.to_wav_bytes().context("decode NWA -> WAV")?;
             Ok(BgmDecoded {
                 container: kind,
                 wav_bytes,
@@ -72,12 +78,12 @@ pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>
             })
         }
         BgmContainer::Ovk => {
-			let pack = ovk::OvkPack::open(input)
-				.with_context(|| format!("open OVK: {}", input.display()))?;
+            let pack = ovk::OvkPack::open(input)
+                .with_context(|| format!("open OVK: {}", input.display()))?;
             let idx = entry_idx.unwrap_or(0);
-			let entry_cnt = pack.entries().len();
-			if idx >= entry_cnt {
-				bail!("OVK entry out of range: idx={} entries={}", idx, entry_cnt);
+            let entry_cnt = pack.entries().len();
+            if idx >= entry_cnt {
+                bail!("OVK entry out of range: idx={} entries={}", idx, entry_cnt);
             }
             #[cfg(feature = "assets-vorbis")]
             {
@@ -145,6 +151,34 @@ pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>
     }
 }
 
+pub fn decode_ovk_entry_by_no_to_wav_bytes(input: impl AsRef<Path>, entry_no: u32) -> Result<BgmDecoded> {
+    let input = input.as_ref();
+    let pack = ovk::OvkPack::open(input)
+        .with_context(|| format!("open OVK: {}", input.display()))?;
+    let idx = pack
+        .entries()
+        .iter()
+        .position(|e| e.no == entry_no)
+        .with_context(|| format!("OVK entry not found: no={} file={}", entry_no, input.display()))?;
+
+    #[cfg(feature = "assets-vorbis")]
+    {
+        let wav_bytes = pack
+            .decode_entry_vorbis_wav(idx)
+            .with_context(|| format!("decode OVK(entry no={entry_no}) -> WAV"))?;
+        Ok(BgmDecoded {
+            container: BgmContainer::Ovk,
+            wav_bytes,
+            description: format!("OVK:{}#{}", input.display(), entry_no),
+        })
+    }
+    #[cfg(not(feature = "assets-vorbis"))]
+    {
+        let _ = idx;
+        bail!("OVK Vorbis decode requires feature `siglus_scene_vm/assets-vorbis`");
+    }
+}
+
 /// Extract raw Ogg bytes from Siglus containers.
 ///
 /// * `.ovk`: extracts the Ogg segment at `entry_idx`.
@@ -155,14 +189,14 @@ pub fn extract_ogg_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>) -> R
 
     match kind {
         BgmContainer::Ovk => {
-			let pack = ovk::OvkPack::open(input)
-				.with_context(|| format!("open OVK: {}", input.display()))?;
+            let pack = ovk::OvkPack::open(input)
+                .with_context(|| format!("open OVK: {}", input.display()))?;
             let idx = entry_idx.unwrap_or(0);
-			let entry_cnt = pack.entries().len();
-			if idx >= entry_cnt {
-				bail!("OVK entry out of range: idx={} entries={}", idx, entry_cnt);
+            let entry_cnt = pack.entries().len();
+            if idx >= entry_cnt {
+                bail!("OVK entry out of range: idx={} entries={}", idx, entry_cnt);
             }
-			let ogg = pack.extract_entry(idx).context("extract OVK entry")?;
+            let ogg = pack.extract_entry(idx).context("extract OVK entry")?;
             Ok((ogg, format!("OVK:{}[{}]", input.display(), idx)))
         }
         BgmContainer::Owp => {
@@ -178,3 +212,30 @@ pub fn extract_ogg_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>) -> R
     }
 }
 
+pub fn resolve_koe_source(project_dir: &Path, koe_no: i64) -> Result<KoeSource> {
+    if koe_no < 0 {
+        bail!("invalid koe number: {koe_no}");
+    }
+
+    let koe_no_u32 = koe_no as u32;
+    let scn_no = koe_no_u32 / 100_000;
+    let base = project_dir.join("koe");
+    let nested_stem = format!("{:04}/z{:09}", scn_no, koe_no_u32);
+
+    for ext in ["wav", "nwa"] {
+        let p = base.join(format!("{}.{}", nested_stem, ext));
+        if p.exists() {
+            return Ok(KoeSource::File(p));
+        }
+    }
+
+    let ovk = base.join(format!("z{:04}.ovk", scn_no));
+    if ovk.exists() {
+        return Ok(KoeSource::OvkEntryByNo {
+            path: ovk,
+            entry_no: koe_no_u32,
+        });
+    }
+
+    bail!("koe resource not found: koe_no={koe_no}")
+}

@@ -24,6 +24,11 @@ image.workspace = true
 log.workspace = true
 env_logger.workspace = true
 kira.workspace = true
+chrono.workspace = true
+fontdue = "0.9.3"
+encoding_rs = "0.8"
+theorafile-rs = { path = "../theorafile_rs" }
+na_mpeg2_decoder = { path = "../na_mpeg2_decoder" }
 
 siglus_assets = { path = "../siglus_assets", default-features = false }
 
@@ -39,6 +44,11 @@ required-features = ["wgpu-winit"]
 [[bin]]
 name = "scene_player_wgpu"
 path = "src/bin/scene_player_wgpu.rs"
+required-features = ["wgpu-winit"]
+
+[[bin]]
+name = "siglus_engine"
+path = "src/bin/siglus_engine.rs"
 required-features = ["wgpu-winit"]
 
 [[bin]]

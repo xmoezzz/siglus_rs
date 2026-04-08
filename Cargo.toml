@@ -3,6 +3,8 @@ resolver = "2"
 members = [
   "crates/siglus_scene_vm",
   "crates/siglus_assets",
+  "crates/na_mpeg2_decoder",
+  "crates/theorafile_rs",
 ]
 
 [workspace.package]
@@ -16,7 +18,8 @@ bytemuck = { version = "1", features = ["derive"] }
 wgpu = { version = "0.20", features = ["wgsl"] }
 winit = "0.30"
 pollster = "0.3"
-image = { version = "0.24", default-features = false, features = ["png", "jpeg", "bmp"] }
+image = { version = "0.24", default-features = false, features = ["png", "jpeg", "bmp", "dds"] }
 log = "0.4"
 env_logger = "0.11"
 kira = "0.9"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

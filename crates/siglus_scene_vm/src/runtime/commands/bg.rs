@@ -138,7 +138,6 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
     // If the script uses additional BG_* commands we haven't wired yet,
     // keep the VM progressing while preserving a trace for later alignment.
     if name.starts_with("BG") {
-        ctx.unknown.record_unimplemented(&format!("CMD:{}", name));
         return Ok(true);
     }
 

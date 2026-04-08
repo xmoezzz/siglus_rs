@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::runtime::int_event::IntEvent;
+use crate::runtime::gan::GanState;
+use crate::assets::RgbaImage;
 use std::time::{Duration, Instant};
 
 use crate::image_manager::ImageId;
@@ -14,6 +16,7 @@ use crate::layer::{LayerId, SpriteId};
 #[derive(Debug, Clone)]
 pub struct WipeState {
     pub mask_file: Option<String>,
+    pub mask_image_id: Option<ImageId>,
     pub wipe_type: i32,
     pub wipe_time_ms: i32,
     pub speed_mode: i32,
@@ -29,6 +32,8 @@ pub struct WipeState {
     pub key_wait_mode: i32,
     pub with_low_order: i32,
 
+    pub mask_cache: HashMap<(ImageId, u64, ImageId, u64, u16), ImageId>,
+
     started_at: Instant,
     end_at: Instant,
 }
@@ -37,6 +42,7 @@ impl WipeState {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         mask_file: Option<String>,
+        mask_image_id: Option<ImageId>,
         wipe_type: i32,
         wipe_time_ms: i32,
         start_time_ms: i32,
@@ -62,6 +68,7 @@ impl WipeState {
 
         Self {
             mask_file,
+            mask_image_id,
             wipe_type,
             wipe_time_ms,
             speed_mode,
@@ -74,6 +81,7 @@ impl WipeState {
             wait_flag,
             key_wait_mode,
             with_low_order,
+            mask_cache: HashMap::new(),
             started_at,
             end_at,
         }
@@ -81,6 +89,20 @@ impl WipeState {
 
     pub fn is_done(&self) -> bool {
         Instant::now() >= self.end_at
+    }
+
+    pub fn progress(&self) -> f32 {
+        let total = self
+            .end_at
+            .saturating_duration_since(self.started_at)
+            .as_secs_f32();
+        if total <= 0.0 {
+            return 1.0;
+        }
+        let elapsed = Instant::now()
+            .saturating_duration_since(self.started_at)
+            .as_secs_f32();
+        (elapsed / total).clamp(0.0, 1.0)
     }
 
     #[allow(dead_code)]
@@ -91,6 +113,224 @@ impl WipeState {
             self.end_at.duration_since(Instant::now()).as_millis() as u64
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ScriptRuntimeState {
+    pub dont_set_save_point: bool,
+    pub skip_disable: bool,
+    pub ctrl_disable: bool,
+    pub not_stop_skip_by_click: bool,
+    pub not_skip_msg_by_click: bool,
+    pub skip_unread_message: bool,
+
+    pub auto_mode_flag: bool,
+    pub auto_mode_moji_wait: i64,
+    pub auto_mode_min_wait: i64,
+    pub auto_mode_moji_cnt: i64,
+
+    pub mouse_cursor_hide_onoff: i64,
+    pub mouse_cursor_hide_time: i64,
+
+    pub msg_speed: i64,
+    pub msg_nowait: bool,
+    pub async_msg_mode: bool,
+    pub async_msg_mode_once: bool,
+
+    pub hide_mwnd_disable: bool,
+    pub msg_back_disable: bool,
+    pub msg_back_off: bool,
+    pub msg_back_disp_off: bool,
+
+    pub cursor_disp_off: bool,
+    pub cursor_move_by_key_disable: bool,
+    pub key_disable: HashSet<u8>,
+
+    pub mwnd_anime_off_flag: bool,
+    pub mwnd_anime_on_flag: bool,
+    pub mwnd_disp_off_flag: bool,
+
+    pub koe_dont_stop_on_flag: bool,
+    pub koe_dont_stop_off_flag: bool,
+
+    pub shortcut_disable: bool,
+    pub quake_stop_flag: bool,
+    pub emote_mouth_stop_flag: bool,
+    pub bgmfade_flag: bool,
+    pub wait_display_vsync_off_flag: bool,
+    pub skip_trigger: bool,
+    pub ignore_r_flag: bool,
+    pub cursor_no: i64,
+
+    pub time_stop_flag: bool,
+    pub counter_time_stop_flag: bool,
+    pub frame_action_time_stop_flag: bool,
+    pub stage_time_stop_flag: bool,
+
+    pub font_name: String,
+    pub font_bold: i64,
+    pub font_shadow: i64,
+}
+
+impl Default for ScriptRuntimeState {
+    fn default() -> Self {
+        Self {
+            dont_set_save_point: false,
+            skip_disable: false,
+            ctrl_disable: false,
+            not_stop_skip_by_click: false,
+            not_skip_msg_by_click: false,
+            skip_unread_message: false,
+            auto_mode_flag: false,
+            auto_mode_moji_wait: -1,
+            auto_mode_min_wait: -1,
+            auto_mode_moji_cnt: 0,
+            mouse_cursor_hide_onoff: -1,
+            mouse_cursor_hide_time: -1,
+            msg_speed: -1,
+            msg_nowait: false,
+            async_msg_mode: false,
+            async_msg_mode_once: false,
+            hide_mwnd_disable: false,
+            msg_back_disable: false,
+            msg_back_off: false,
+            msg_back_disp_off: false,
+            cursor_disp_off: false,
+            cursor_move_by_key_disable: false,
+            key_disable: HashSet::new(),
+            mwnd_anime_off_flag: false,
+            mwnd_anime_on_flag: false,
+            mwnd_disp_off_flag: false,
+            koe_dont_stop_on_flag: false,
+            koe_dont_stop_off_flag: false,
+            shortcut_disable: false,
+            quake_stop_flag: false,
+            emote_mouth_stop_flag: false,
+            bgmfade_flag: false,
+            wait_display_vsync_off_flag: false,
+            skip_trigger: false,
+            ignore_r_flag: false,
+            cursor_no: 0,
+            time_stop_flag: false,
+            counter_time_stop_flag: false,
+            frame_action_time_stop_flag: false,
+            stage_time_stop_flag: false,
+            font_name: String::new(),
+            font_bold: -1,
+            font_shadow: -1,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct SystemRuntimeState {
+    pub active_flag: bool,
+    pub debug_flag: bool,
+    pub language_code: String,
+    pub debug_logs: Vec<String>,
+    pub dummy_checks: HashSet<String>,
+    pub bench_dialogs: Vec<String>,
+}
+
+impl Default for SystemRuntimeState {
+    fn default() -> Self {
+        Self {
+            active_flag: true,
+            debug_flag: false,
+            language_code: std::env::var("SIGLUS_LANGUAGE").unwrap_or_else(|_| "JP".to_string()),
+            debug_logs: Vec::new(),
+            dummy_checks: HashSet::new(),
+            bench_dialogs: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ToggleFeatureState {
+    pub onoff: bool,
+    pub enable: bool,
+    pub exist: bool,
+}
+
+impl ToggleFeatureState {
+    pub fn check_enabled(&self) -> i64 {
+        if self.enable && self.exist { 1 } else { 0 }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ValueFeatureState {
+    pub value: i64,
+    pub enable: bool,
+    pub exist: bool,
+}
+
+impl ValueFeatureState {
+    pub fn check_enabled(&self) -> i64 {
+        if self.enable && self.exist { 1 } else { 0 }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SaveSlotState {
+    pub exist: bool,
+    pub year: i64,
+    pub month: i64,
+    pub day: i64,
+    pub weekday: i64,
+    pub hour: i64,
+    pub minute: i64,
+    pub second: i64,
+    pub millisecond: i64,
+    pub title: String,
+    pub message: String,
+    pub full_message: String,
+    pub comment: String,
+    pub append_dir: String,
+    pub append_name: String,
+    pub values: HashMap<i32, i64>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SyscomRuntimeState {
+    pub syscom_menu_disable: bool,
+    pub menu_open: bool,
+    pub menu_kind: Option<i32>,
+    pub menu_result: Option<i64>,
+    pub menu_cursor: usize,
+    pub font_list: Vec<String>,
+    pub mwnd_btn_disable_all: bool,
+    pub mwnd_btn_touch_disable: bool,
+    pub mwnd_btn_disable: HashMap<i64, bool>,
+    pub read_skip: ToggleFeatureState,
+    pub auto_skip: ToggleFeatureState,
+    pub auto_mode: ToggleFeatureState,
+    pub hide_mwnd: ToggleFeatureState,
+    pub local_extra_switch: ToggleFeatureState,
+    pub local_extra_mode: ValueFeatureState,
+    pub msg_back: ToggleFeatureState,
+    pub msg_back_open: bool,
+    pub return_to_sel: ToggleFeatureState,
+    pub return_to_menu: ToggleFeatureState,
+    pub end_game: ToggleFeatureState,
+    pub save_feature: ToggleFeatureState,
+    pub load_feature: ToggleFeatureState,
+    pub replay_koe: Option<(i64, i64)>,
+    pub current_save_scene_title: String,
+    pub current_save_message: String,
+    pub total_play_time: i64,
+    pub save_slots: Vec<SaveSlotState>,
+    pub quick_save_slots: Vec<SaveSlotState>,
+    pub inner_save_exists: bool,
+    pub end_save_exists: bool,
+    pub last_menu_call: i32,
+    pub system_extra_int_value: i64,
+    pub system_extra_str_value: String,
+    pub config_int: HashMap<i32, i64>,
+    pub config_str: HashMap<i32, String>,
+    pub capture_buffer: Option<RgbaImage>,
+    pub capture_size: Option<(u32, u32)>,
+    pub return_scene_once: Option<(String, i64)>,
 }
 
 /// Global mutable state used by various "global element" (form) handlers.
@@ -110,6 +350,11 @@ pub struct GlobalState {
     pub int_props: HashMap<u32, HashMap<i32, i64>>,
     /// Generic string properties keyed by (form_id -> op_id).
     pub str_props: HashMap<u32, HashMap<i32, String>>,
+
+    /// Learned bit-width selectors for int lists (form_id/op -> bit width).
+    pub intlist_bit_widths: HashMap<(u32, i32), i32>,
+    /// First-seen ordering of bit selectors per int list form.
+    pub intlist_bit_order: HashMap<u32, Vec<i32>>,
 
     /// CGTABLE global disable flag.
     pub cg_table_off: bool,
@@ -148,8 +393,23 @@ pub struct GlobalState {
     /// Message backlog (MSGBK) subsystem state keyed by the form ID.
     pub msgbk_forms: HashMap<u32, MsgBackState>,
 
+    /// Script/global runtime state translated from the original the original implementation command handlers.
+    pub script: ScriptRuntimeState,
+
+    /// System helper runtime state.
+    pub system: SystemRuntimeState,
+
+    /// System-command runtime state.
+    pub syscom: SyscomRuntimeState,
+
+    /// BGM table listened flags keyed by registered name.
+    pub bgm_table_listened: HashMap<String, bool>,
+    /// Default flag applied to names not seen yet via BGMTABLE.SET_ALL_FLAG.
+    pub bgm_table_all_flag: bool,
+
     /// Active wipe transition (WIPE / MASK_WIPE).
     pub wipe: Option<WipeState>,
+
 }
 
 impl Default for GlobalState {
@@ -160,6 +420,8 @@ impl Default for GlobalState {
             counter_lists: HashMap::new(),
             int_props: HashMap::new(),
             str_props: HashMap::new(),
+            intlist_bit_widths: HashMap::new(),
+            intlist_bit_order: HashMap::new(),
             cg_table_off: false,
             database_off: false,
             g00buf: Vec::new(),
@@ -177,6 +439,13 @@ impl Default for GlobalState {
 
             screen_forms: HashMap::new(),
             msgbk_forms: HashMap::new(),
+
+            script: ScriptRuntimeState::default(),
+            system: SystemRuntimeState::default(),
+            syscom: SyscomRuntimeState::default(),
+
+            bgm_table_listened: HashMap::new(),
+            bgm_table_all_flag: false,
 
             wipe: None,
         }
@@ -290,6 +559,17 @@ pub struct MaskListState {
     pub confirmed: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct MaskedSpriteCache {
+    pub base_image_id: ImageId,
+    pub base_version: u64,
+    pub mask_image_id: ImageId,
+    pub mask_version: u64,
+    pub mask_x: i32,
+    pub mask_y: i32,
+    pub masked_image_id: ImageId,
+}
+
 /// EditBox state (bring-up level).
 ///
 /// We only model the minimum script-visible behavior needed to avoid deadlocks:
@@ -301,6 +581,7 @@ pub struct EditBoxState {
     pub text: String,
     pub decided: bool,
     pub canceled: bool,
+    pub moji_size: i32,
 }
 
 impl Default for EditBoxState {
@@ -310,6 +591,7 @@ impl Default for EditBoxState {
             text: String::new(),
             decided: false,
             canceled: false,
+            moji_size: 0,
         }
     }
 }
@@ -369,7 +651,275 @@ pub enum StageChildKind {
     ObjectList,
     GroupList,
     MwndList,
+    WorldList,
     Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorldListOpKind {
+    GetSize,
+    Create,
+    Destroy,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorldOpKind {
+    Init,
+    GetNo,
+    CameraEyeX,
+    CameraEyeY,
+    CameraEyeZ,
+    CameraPintX,
+    CameraPintY,
+    CameraPintZ,
+    CameraUpX,
+    CameraUpY,
+    CameraUpZ,
+    CameraEyeXEve,
+    CameraEyeYEve,
+    CameraEyeZEve,
+    CameraPintXEve,
+    CameraPintYEve,
+    CameraPintZEve,
+    CameraUpXEve,
+    CameraUpYEve,
+    CameraUpZEve,
+    CameraViewAngle,
+    SetCameraEye,
+    CalcCameraEye,
+    SetCameraPint,
+    CalcCameraPint,
+    SetCameraUp,
+    Mono,
+    SetCameraEveXzRotate,
+    Order,
+    Layer,
+    WipeCopy,
+    WipeErase,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct WorldRotateEvent {
+    pub loop_type: i32,
+    pub cur_time: i32,
+    pub end_time: i32,
+    pub delay_time: i32,
+    pub speed_type: i32,
+    pub start_x: i32,
+    pub start_z: i32,
+    pub end_x: i32,
+    pub end_z: i32,
+}
+
+impl WorldRotateEvent {
+    pub fn new() -> Self {
+        Self {
+            loop_type: -1,
+            cur_time: 0,
+            end_time: 0,
+            delay_time: 0,
+            speed_type: 0,
+            start_x: 0,
+            start_z: 0,
+            end_x: 0,
+            end_z: 0,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.loop_type != -1
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorldState {
+    pub world_no: i32,
+    pub camera_eye_x: IntEvent,
+    pub camera_eye_y: IntEvent,
+    pub camera_eye_z: IntEvent,
+    pub camera_pint_x: IntEvent,
+    pub camera_pint_y: IntEvent,
+    pub camera_pint_z: IntEvent,
+    pub camera_up_x: IntEvent,
+    pub camera_up_y: IntEvent,
+    pub camera_up_z: IntEvent,
+    pub camera_view_angle: i32,
+    pub mono: i32,
+    pub order: i32,
+    pub layer: i32,
+    pub wipe_copy: i32,
+    pub wipe_erase: i32,
+    pub camera_eye_xz_eve: WorldRotateEvent,
+    pub extra_events: HashMap<i32, IntEvent>,
+    pub extra_int: HashMap<i32, i64>,
+    pub extra_str: HashMap<i32, String>,
+}
+
+impl WorldState {
+    pub fn new(world_no: i32) -> Self {
+        let mut out = Self {
+            world_no,
+            camera_eye_x: IntEvent::new(0),
+            camera_eye_y: IntEvent::new(0),
+            camera_eye_z: IntEvent::new(-1000),
+            camera_pint_x: IntEvent::new(0),
+            camera_pint_y: IntEvent::new(0),
+            camera_pint_z: IntEvent::new(0),
+            camera_up_x: IntEvent::new(0),
+            camera_up_y: IntEvent::new(1),
+            camera_up_z: IntEvent::new(0),
+            camera_view_angle: 450,
+            mono: 0,
+            order: 0,
+            layer: 0,
+            wipe_copy: 0,
+            wipe_erase: 0,
+            camera_eye_xz_eve: WorldRotateEvent::new(),
+            extra_events: HashMap::new(),
+            extra_int: HashMap::new(),
+            extra_str: HashMap::new(),
+        };
+        out.reinit();
+        out
+    }
+
+    pub fn reinit(&mut self) {
+        self.camera_eye_x = IntEvent::new(0);
+        self.camera_eye_y = IntEvent::new(0);
+        self.camera_eye_z = IntEvent::new(-1000);
+        self.camera_pint_x = IntEvent::new(0);
+        self.camera_pint_y = IntEvent::new(0);
+        self.camera_pint_z = IntEvent::new(0);
+        self.camera_up_x = IntEvent::new(0);
+        self.camera_up_y = IntEvent::new(1);
+        self.camera_up_z = IntEvent::new(0);
+        self.camera_view_angle = 450;
+        self.mono = 0;
+        self.order = 0;
+        self.layer = 0;
+        self.wipe_copy = 0;
+        self.wipe_erase = 0;
+        self.camera_eye_xz_eve = WorldRotateEvent::new();
+    }
+
+    pub fn update_time(&mut self, past_game_time: i32, past_real_time: i32) {
+        self.camera_eye_x.update_time(past_game_time, past_real_time);
+        self.camera_eye_y.update_time(past_game_time, past_real_time);
+        self.camera_eye_z.update_time(past_game_time, past_real_time);
+        self.camera_pint_x.update_time(past_game_time, past_real_time);
+        self.camera_pint_y.update_time(past_game_time, past_real_time);
+        self.camera_pint_z.update_time(past_game_time, past_real_time);
+        self.camera_up_x.update_time(past_game_time, past_real_time);
+        self.camera_up_y.update_time(past_game_time, past_real_time);
+        self.camera_up_z.update_time(past_game_time, past_real_time);
+        if self.camera_eye_xz_eve.is_active() {
+            self.camera_eye_xz_eve.cur_time = self
+                .camera_eye_xz_eve
+                .cur_time
+                .saturating_add(past_game_time);
+        }
+    }
+
+    pub fn frame(&mut self) {
+        self.camera_eye_x.frame();
+        self.camera_eye_y.frame();
+        self.camera_eye_z.frame();
+        self.camera_pint_x.frame();
+        self.camera_pint_y.frame();
+        self.camera_pint_z.frame();
+        self.camera_up_x.frame();
+        self.camera_up_y.frame();
+        self.camera_up_z.frame();
+
+        if self.camera_eye_xz_eve.is_active() {
+            self.frame_xz_rotate();
+        }
+    }
+
+    fn frame_xz_rotate(&mut self) {
+        let mut cur_time = self.camera_eye_xz_eve.cur_time - self.camera_eye_xz_eve.delay_time;
+        let end_time = self.camera_eye_xz_eve.end_time;
+
+        if self.camera_eye_xz_eve.loop_type == 0 && cur_time - end_time >= 0 {
+            self.camera_eye_xz_eve.loop_type = -1;
+            return;
+        }
+
+        if cur_time <= 0 {
+            self.camera_eye_x.cur_value = self.camera_eye_x.start_value;
+            self.camera_eye_z.cur_value = self.camera_eye_z.start_value;
+            return;
+        }
+
+        if end_time <= 0 {
+            return;
+        }
+
+        if self.camera_eye_xz_eve.loop_type == 1 {
+            cur_time %= end_time;
+        }
+        if self.camera_eye_xz_eve.loop_type == 2 {
+            cur_time %= end_time * 2;
+            if cur_time - end_time > 0 {
+                cur_time = end_time - (cur_time - end_time);
+            }
+        }
+
+        match self.camera_eye_xz_eve.speed_type {
+            1 => {
+                cur_time = (cur_time as f64 * cur_time as f64 / end_time as f64) as i32;
+            }
+            2 => {
+                let ct = (cur_time - end_time) as f64;
+                let et = end_time as f64;
+                cur_time = (-ct * ct / et + et) as i32;
+            }
+            _ => {}
+        }
+
+        let px = self.camera_pint_x.get_total_value() as f64;
+        let pz = self.camera_pint_z.get_total_value() as f64;
+        let sx = self.camera_eye_x.start_value as f64;
+        let sz = self.camera_eye_z.start_value as f64;
+        let ex = self.camera_eye_x.end_value as f64;
+        let ez = self.camera_eye_z.end_value as f64;
+
+        let sdx = sx - px;
+        let sdz = sz - pz;
+        let edx = ex - px;
+        let edz = ez - pz;
+
+        let s_len = (sdx * sdx + sdz * sdz).sqrt();
+        let e_len = (edx * edx + edz * edz).sqrt();
+        let t_len = linear(cur_time, s_len, end_time, e_len);
+
+        let mut s_theta = sdz.atan2(sdx);
+        let mut e_theta = edz.atan2(edx);
+        if (s_theta - e_theta).abs() > std::f64::consts::PI {
+            if e_theta < 0.0 {
+                e_theta += std::f64::consts::PI * 2.0;
+            } else {
+                e_theta -= std::f64::consts::PI * 2.0;
+            }
+        }
+        let t_theta = linear(cur_time, s_theta, end_time, e_theta);
+
+        let tmp_x = t_len * t_theta.cos() + px;
+        let tmp_z = t_len * t_theta.sin() + pz;
+
+        self.camera_eye_x.cur_value = tmp_x as i32;
+        self.camera_eye_z.cur_value = tmp_z as i32;
+    }
+}
+
+fn linear(cur: i32, start_value: f64, end_time: i32, end_value: f64) -> f64 {
+    if end_time <= 0 {
+        return end_value;
+    }
+    let t = cur as f64 / end_time as f64;
+    start_value + (end_value - start_value) * t
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -422,10 +972,25 @@ pub enum ObjectBackend {
         width: u32,
         height: u32,
     },
+    /// STRING object backend: a single sprite with rendered text.
+    String {
+        layer_id: LayerId,
+        sprite_id: SpriteId,
+        width: u32,
+        height: u32,
+    },
     /// NUMBER object backend: a fixed sprite list (16) with per-digit sprites.
     Number {
         layer_id: LayerId,
         sprite_ids: Vec<SpriteId>,
+    },
+    /// MOVIE object backend: a single sprite updated with video frames.
+    Movie {
+        layer_id: LayerId,
+        sprite_id: SpriteId,
+        image_id: Option<ImageId>,
+        width: u32,
+        height: u32,
     },
 }
 
@@ -433,6 +998,43 @@ impl Default for ObjectBackend {
     fn default() -> Self {
         Self::None
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObjectEventTarget {
+    X,
+    Y,
+    Alpha,
+    Patno,
+    Order,
+    Layer,
+    Z,
+    CenterX,
+    CenterY,
+    ScaleX,
+    ScaleY,
+    RotateZ,
+    ClipLeft,
+    ClipTop,
+    ClipRight,
+    ClipBottom,
+    SrcClipLeft,
+    SrcClipTop,
+    SrcClipRight,
+    SrcClipBottom,
+    Tr,
+    Mono,
+    Reverse,
+    Bright,
+    Dark,
+    ColorRate,
+    ColorAddR,
+    ColorAddG,
+    ColorAddB,
+    ColorR,
+    ColorG,
+    ColorB,
+    Unknown,
 }
 
 #[derive(Debug, Clone)]
@@ -559,13 +1161,18 @@ pub struct ObjectMovieState {
     pub real_time_flag: bool,
     pub pause_flag: bool,
 
-    /// Current playback timer in milliseconds (C++: m_omv_timer).
+    /// Current playback timer in milliseconds (the original implementation: m_omv_timer).
     pub timer_ms: u64,
     /// Total movie time in milliseconds if known.
     pub total_ms: Option<u64>,
 
     pub playing: bool,
     pub last_tick: Option<std::time::Instant>,
+    pub last_frame_idx: Option<usize>,
+    pub audio_id: Option<u64>,
+    pub just_finished: bool,
+    pub just_looped: bool,
+    pub seeked: bool,
 }
 
 impl Default for ObjectMovieState {
@@ -579,6 +1186,11 @@ impl Default for ObjectMovieState {
             total_ms: None,
             playing: false,
             last_tick: None,
+            last_frame_idx: None,
+            audio_id: None,
+            just_finished: false,
+            just_looped: false,
+            seeked: false,
         }
     }
 }
@@ -604,9 +1216,16 @@ impl ObjectMovieState {
         self.timer_ms = 0;
         self.playing = !ready_only;
         self.last_tick = Some(std::time::Instant::now());
+        self.last_frame_idx = None;
+        self.audio_id = None;
+        self.just_finished = false;
+        self.just_looped = false;
+        self.seeked = false;
     }
 
     pub fn tick(&mut self) {
+        self.just_finished = false;
+        self.just_looped = false;
         if !self.playing || self.pause_flag {
             self.last_tick = Some(std::time::Instant::now());
             return;
@@ -624,8 +1243,10 @@ impl ObjectMovieState {
             if total > 0 && self.timer_ms >= total {
                 if self.loop_flag {
                     self.timer_ms %= total;
+                    self.just_looped = true;
                 } else {
                     self.playing = false;
+                    self.just_finished = true;
                 }
             }
         }
@@ -639,6 +1260,8 @@ impl ObjectMovieState {
             }
         }
         self.last_tick = Some(std::time::Instant::now());
+        self.last_frame_idx = None;
+        self.seeked = true;
     }
 
     pub fn get_seek_time(&self) -> u64 {
@@ -697,6 +1320,11 @@ pub struct ObjectCompatState {
 
     /// Best-effort: last loaded GAN file.
     pub gan_file: Option<String>,
+    /// GAN runtime state.
+    pub gan: GanState,
+
+    /// Cached masked sprite images keyed by (layer_id, sprite_id).
+    pub mask_cache: HashMap<(LayerId, SpriteId), MaskedSpriteCache>,
 
     pub button: ObjectButtonState,
 
@@ -711,12 +1339,17 @@ pub struct ObjectCompatState {
     pub extra_events: HashMap<i32, IntEvent>,
     pub rep_int_lists: HashMap<i32, Vec<i64>>,
     pub rep_int_event_lists: HashMap<i32, Vec<IntEvent>>,
+
+    /// Learned event-op -> target property mapping (for animation bring-up).
+    pub event_targets: HashMap<i32, ObjectEventTarget>,
+    /// First-seen ordering of event ops (used to guess X/Y/Alpha/etc.).
+    pub confirmed_event_ops: Vec<i32>,
 }
 
 impl ObjectCompatState {
-    /// Reset type-specific parameters (approximation of C++ C_elm_object::init_type(true)).
+    /// Reset type-specific parameters (approximation of the original implementation C_elm_object::init_type(true)).
     ///
-    /// Important: this does NOT clear button/groups/events (those are part of init_param/reinit in C++).
+    /// Important: this does NOT clear button/groups/events (those are part of init_param/reinit in the original implementation).
     pub fn init_type_like(&mut self) {
         self.backend = ObjectBackend::None;
         self.file_name = None;
@@ -733,6 +1366,8 @@ impl ObjectCompatState {
         self.emote = ObjectEmoteParam::default();
 
         self.gan_file = None;
+        self.gan.reset();
+        self.mask_cache.clear();
     }
 
     pub fn tick(&mut self, delta: i32) {
@@ -745,14 +1380,12 @@ impl ObjectCompatState {
             }
         }
         self.movie.tick();
+        self.gan.update_time(delta, delta);
 
-        // When a MOVIE ends, auto_free resets type; otherwise it stays paused.
-        if self.object_type == 9 && !self.movie.playing {
-            if self.movie.auto_free_flag {
-                self.init_type_like();
-            } else {
-                self.movie.pause_flag = true;
-            }
+        // When a MOVIE ends, non-auto-free stays paused. Auto-free is handled by runtime
+        // so we can release sprites/audio cleanly.
+        if self.object_type == 9 && self.movie.just_finished && !self.movie.auto_free_flag {
+            self.movie.pause_flag = true;
         }
     }
 
@@ -777,6 +1410,32 @@ impl ObjectCompatState {
                 ev.end_event();
             }
         }
+    }
+
+    pub fn event_target(&mut self, op: i32) -> ObjectEventTarget {
+        if let Some(&t) = self.event_targets.get(&op) {
+            return t;
+        }
+        if !self.confirmed_event_ops.contains(&op) {
+            self.confirmed_event_ops.push(op);
+        }
+        let idx = self
+            .confirmed_event_ops
+            .iter()
+            .position(|&v| v == op)
+            .unwrap_or(usize::MAX);
+        let t = match idx {
+            0 => ObjectEventTarget::X,
+            1 => ObjectEventTarget::Y,
+            2 => ObjectEventTarget::Alpha,
+            3 => ObjectEventTarget::Patno,
+            4 => ObjectEventTarget::Order,
+            5 => ObjectEventTarget::Layer,
+            6 => ObjectEventTarget::Z,
+            _ => ObjectEventTarget::Unknown,
+        };
+        self.event_targets.insert(op, t);
+        t
     }
 }
 
@@ -823,6 +1482,8 @@ pub struct GroupState {
     pub order: i64,
     pub layer: i64,
     pub cancel_priority: i64,
+    pub props: HashMap<i32, i64>,
+    pub str_props: HashMap<i32, String>,
 }
 
 impl GroupState {
@@ -897,8 +1558,9 @@ pub struct MwndState {
     /// proceed-like ops (PP/R/PAGE/WAIT) as structural ops (OPEN/CLOSE/CLEAR).
     pub text_dirty: bool,
 
-    /// Unknown integer properties (best-effort storage).
+    /// Additional integer properties for unmapped MWND ops.
     pub props: HashMap<i32, i64>,
+    pub str_props: HashMap<i32, String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -920,6 +1582,13 @@ pub struct StageFormState {
     /// Auto-learned mapping: mwnd op-id -> semantic kind.
     pub mwnd_op_map: HashMap<i32, MwndOpKind>,
 
+    /// World list storage per stage index.
+    pub world_lists: HashMap<i64, Vec<WorldState>>,
+    /// Auto-learned mapping: world-list op-id -> semantic kind.
+    pub world_list_op_map: HashMap<i32, WorldListOpKind>,
+    /// Auto-learned mapping: world op-id -> semantic kind.
+    pub world_op_map: HashMap<i32, WorldOpKind>,
+
     // --- OBJECT / OBJECTLIST ---
 
     /// Per-stage object compat state (used for property fallback, string objects, rect objects, etc.).
@@ -936,6 +1605,9 @@ pub struct StageFormState {
     /// Ops that have been observed to return or accept strings.
     pub object_str_ops: HashSet<i32>,
 
+    /// Generic stateful fallback storage for unresolved stage child chains.
+    pub child_int_props: HashMap<String, i64>,
+    pub child_str_props: HashMap<String, String>,
 }
 
 // -----------------------------------------------------------------------------
@@ -973,6 +1645,11 @@ pub struct ScreenItemState {
     //
     // We model quake activity as a wall-clock deadline.
     pub quake_until: Option<Instant>,
+    pub quake_type: i32,
+    pub quake_power: i32,
+    pub quake_vec: i32,
+    pub quake_center_x: i32,
+    pub quake_center_y: i32,
 }
 
 impl ScreenItemState {
@@ -982,6 +1659,11 @@ impl ScreenItemState {
         self.confirmed_event_ops.clear();
         self.prop_to_event.clear();
         self.quake_until = None;
+        self.quake_type = 0;
+        self.quake_power = 0;
+        self.quake_vec = 0;
+        self.quake_center_x = 0;
+        self.quake_center_y = 0;
     }
 
     pub fn quake_start_ms(&mut self, time_ms: i64) {
@@ -991,6 +1673,14 @@ impl ScreenItemState {
         } else {
             self.quake_until = Some(Instant::now() + Duration::from_millis(ms));
         }
+    }
+
+    pub fn quake_set_params(&mut self, quake_type: i32, power: i32, vec: i32, cx: i32, cy: i32) {
+        self.quake_type = quake_type;
+        self.quake_power = power;
+        self.quake_vec = vec;
+        self.quake_center_x = cx;
+        self.quake_center_y = cy;
     }
 
     pub fn quake_end_ms(&mut self, time_ms: i64) {
@@ -1076,6 +1766,10 @@ pub struct ScreenFormState {
 
     /// Last seen shake argument (debugging only).
     pub last_shake: i64,
+    /// Learned per-item INIT op codes.
+    pub effect_init_ops: HashSet<i32>,
+    /// Active screen shake timer (for SCREEN.SHAKE).
+    pub shake_until: Option<Instant>,
 }
 
 impl ScreenFormState {
@@ -1085,6 +1779,11 @@ impl ScreenFormState {
         }
         for list in self.lists.values_mut() {
             list.tick(delta);
+        }
+        if let Some(t) = self.shake_until {
+            if Instant::now() >= t {
+                self.shake_until = None;
+            }
         }
     }
 }
@@ -1253,6 +1952,12 @@ impl GlobalState {
             for objs in st.object_lists.values_mut() {
                 for obj in objs {
                     obj.tick(1);
+                }
+            }
+            for worlds in st.world_lists.values_mut() {
+                for w in worlds {
+                    w.update_time(1, 1);
+                    w.frame();
                 }
             }
         }

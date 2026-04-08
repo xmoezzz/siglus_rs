@@ -36,7 +36,7 @@ pub fn load_image_any(path: &Path, g00_frame_index: usize) -> Result<RgbaImage> 
             let idx = g00_frame_index.min(decoded.frames.len() - 1);
             Ok(decoded.frames[idx].clone())
         }
-        "png" | "jpg" | "jpeg" | "bmp" => {
+        "png" | "jpg" | "jpeg" | "bmp" | "dds" => {
             let img = image::open(path).with_context(|| format!("decode image {:?}", path))?;
             let rgba = img.to_rgba8();
             let (w, h) = rgba.dimensions();
@@ -45,9 +45,6 @@ pub fn load_image_any(path: &Path, g00_frame_index: usize) -> Result<RgbaImage> 
                 height: h,
                 rgba: rgba.into_raw(),
             })
-        }
-        "dds" => {
-            bail!("DDS is not decoded in BG stage yet: {:?}", path);
         }
         _ => {
             bail!("unsupported image extension: {:?}", path);

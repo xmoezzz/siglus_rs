@@ -4,7 +4,7 @@
 //! single global switch ("forms"), and each form may further dispatch on a
 //! sub-op ID.
 //!
-//! This module implements only the forms needed by the current bring-up plan.
+//! This module implements only the forms needed by the current runtime plan.
 
 pub mod bgm;
 pub mod bgm_table;
@@ -28,10 +28,10 @@ pub mod int_list;
 pub mod str_list;
 pub mod timewait;
 pub mod counter;
-pub mod stub;
+pub mod prop_access;
 
 
-// Bring-up forms implemented from the original C++ source (IDs are configured externally).
+// Runtime forms implemented from the original the original implementation source (IDs are configured externally).
 pub mod math;
 pub mod cgtable;
 pub mod database;

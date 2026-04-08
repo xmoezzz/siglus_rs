@@ -1,18 +1,16 @@
 #![cfg(feature = "wgpu-winit")]
 
 use std::path::PathBuf;
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 use clap::Parser;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes};
 
-use siglus_assets::scene_pck::ScenePck;
+use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
 use siglus_scene_vm::render::Renderer;
 use siglus_scene_vm::runtime::CommandContext;
@@ -24,11 +22,11 @@ use siglus_scene_vm::vm::{SceneVm, VmConfig};
 struct Args {
     /// The game's extracted root directory (contains g00/bg/etc).
     #[arg(long)]
-    project_dir: PathBuf,
+    project_dir: Option<PathBuf>,
 
     /// Path to scene.pck.
     #[arg(long)]
-    scene_pck: PathBuf,
+    scene_pck: Option<PathBuf>,
 
     /// Scene chunk index.
     #[arg(long, default_value_t = 0)]
@@ -53,7 +51,7 @@ struct Args {
 
 struct App {
     args: Args,
-    window: Option<Arc<Window>>,
+    window: Option<&'static Window>,
     renderer: Option<Renderer>,
     vm: Option<SceneVm<'static>>,
 
@@ -154,16 +152,27 @@ impl App {
     }
 
     fn init_vm(&self) -> Result<SceneVm<'static>> {
-        let pck = ScenePck::open(&self.args.scene_pck)
-            .with_context(|| format!("open scene.pck: {}", self.args.scene_pck.display()))?;
+        let project_dir = self
+            .args
+            .project_dir
+            .clone()
+            .unwrap_or(siglus_scene_vm::app_path::resolve_app_base_path()?);
+        let scene_pck = match self.args.scene_pck.clone() {
+            Some(p) => p,
+            None => find_scene_pck_in_project(&project_dir)?,
+        };
+
+        let opt = ScenePckDecodeOptions::from_project_dir(&project_dir)?;
+        let pck = ScenePck::load_and_rebuild(&scene_pck, &opt)
+            .with_context(|| format!("open scene.pck: {}", scene_pck.display()))?;
         let chunk = pck
-            .get_chunk(self.args.scene_id)
+            .scn_data_slice(self.args.scene_id)
             .with_context(|| format!("scene_id out of range: {}", self.args.scene_id))?;
 
         // The VM borrows the chunk data. We keep it alive by leaking it.
         let chunk_leaked: &'static [u8] = Box::leak(chunk.to_vec().into_boxed_slice());
         let stream = SceneStream::new(chunk_leaked)?;
-        let ctx = CommandContext::new(self.args.project_dir.clone());
+        let ctx = CommandContext::new(project_dir);
 
         Ok(SceneVm::with_config(VmConfig::from_env(), stream, ctx))
     }
@@ -198,11 +207,12 @@ impl App {
         let Some(renderer) = self.renderer.as_mut() else {
             return Ok(());
         };
-        let Some(vm) = self.vm.as_ref() else {
+        let Some(vm) = self.vm.as_mut() else {
             return Ok(());
         };
 
-        let list = vm.ctx.layers.render_list();
+        vm.ctx.tick_frame();
+        let list = vm.ctx.render_list_with_effects();
         renderer.render_sprites(&vm.ctx.images, &list)?;
         Ok(())
     }
@@ -214,9 +224,9 @@ impl ApplicationHandler for App {
         let window = elwt
             .create_window(WindowAttributes::default().with_inner_size(size).with_title("Siglus Scene Player"))
             .expect("create window");
-        let window = Arc::new(window);
+        let window: &'static Window = Box::leak(Box::new(window));
 
-        let renderer = pollster::block_on(Renderer::new(window.clone()))
+        let renderer = pollster::block_on(Renderer::new(window))
             .expect("renderer init");
         let vm = self.init_vm().expect("vm init");
 
@@ -255,6 +265,7 @@ impl ApplicationHandler for App {
                     KeyEvent {
                         state: ElementState::Pressed,
                         physical_key: PhysicalKey::Code(code),
+                        text,
                         ..
                     },
                 ..
@@ -266,6 +277,11 @@ impl ApplicationHandler for App {
                         // Still treat as generic input for waits.
                         if vm.ctx.wait.notify_key() {
                             vm.ctx.globals.finish_wipe();
+                        }
+                    }
+                    if let Some(t) = text.as_ref() {
+                        if t.chars().any(|c| !c.is_control()) {
+                            vm.ctx.on_text_input(t);
                         }
                     }
                 }
@@ -308,6 +324,14 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+            WindowEvent::Ime(Ime::Commit(text)) => {
+                if let Some(vm) = self.vm.as_mut() {
+                    vm.ctx.on_text_input(&text);
+                }
+                if let Some(w) = self.window.as_ref() {
+                    w.request_redraw();
+                }
+            }
             WindowEvent::RedrawRequested => {
                 if let Err(e) = self.redraw() {
                     eprintln!("render error: {e:?}");
@@ -318,7 +342,6 @@ impl ApplicationHandler for App {
                     let x = position.x.round() as i32;
                     let y = position.y.round() as i32;
                     vm.ctx.on_mouse_move(x, y);
-                    vm.ctx.gfx.set_cursor(x as f32, y as f32);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {

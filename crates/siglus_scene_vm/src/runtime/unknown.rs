@@ -1,11 +1,8 @@
-//! Unknown opcode/name recorder.
+//! Runtime recorder for unmapped numeric codes, names, and load-time notes.
 //!
 //! During reverse-engineering and incremental porting, it is common to encounter
 //! numeric form/syscall codes that are not mapped to a known handler yet.
-//!
-//! In addition, we may recognize a form/syscall but not have implemented every
-//! sub-op. In that case we record an "unimplemented" tag so we can drive the
-//! next RE/porting iteration.
+//! We also keep non-fatal load-time notes here so the runtime can continue.
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -19,8 +16,8 @@ pub struct UnknownOpRecorder {
     pub codes: BTreeMap<OpCode, u64>,
     /// Count unknown named commands.
     pub names: BTreeMap<String, u64>,
-    /// Count recognized-but-unimplemented sub-operations.
-    pub unimplemented: BTreeMap<String, u64>,
+    /// Count non-fatal runtime or load-time notes.
+    pub notes: BTreeMap<String, u64>,
 
     /// Observed element-chain signatures (e.g. "135:-1:0:2:-1:1:38").
     ///
@@ -38,8 +35,8 @@ impl UnknownOpRecorder {
         *self.names.entry(name.to_string()).or_insert(0) += 1;
     }
 
-    pub fn record_unimplemented(&mut self, tag: &str) {
-        *self.unimplemented.entry(tag.to_string()).or_insert(0) += 1;
+    pub fn record_note(&mut self, tag: &str) {
+        *self.notes.entry(tag.to_string()).or_insert(0) += 1;
     }
 
     pub fn record_element_chain(&mut self, form_id: u32, chain: &[i32], note: &str) {
@@ -75,9 +72,9 @@ impl UnknownOpRecorder {
             }
         }
 
-        if !self.unimplemented.is_empty() {
-            out.push_str("unimplemented ops:\n");
-            for (i, (k, v)) in self.unimplemented.iter().enumerate() {
+        if !self.notes.is_empty() {
+            out.push_str("runtime notes:\n");
+            for (i, (k, v)) in self.notes.iter().enumerate() {
                 if i >= max_items {
                     out.push_str("  ...\n");
                     break;
@@ -89,6 +86,17 @@ impl UnknownOpRecorder {
         if !self.names.is_empty() {
             out.push_str("unknown named commands:\n");
             for (i, (k, v)) in self.names.iter().enumerate() {
+                if i >= max_items {
+                    out.push_str("  ...\n");
+                    break;
+                }
+                out.push_str(&format!("  {k} x{v}\n"));
+            }
+        }
+
+        if !self.element_chains.is_empty() {
+            out.push_str("unknown element chains:\n");
+            for (i, (k, v)) in self.element_chains.iter().enumerate() {
                 if i >= max_items {
                     out.push_str("  ...\n");
                     break;

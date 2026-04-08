@@ -10,8 +10,9 @@ pub struct ScnHeader {
     pub scn_ofs: i32,
     pub scn_size: i32,
     pub str_index_list_ofs: i32,
-    pub str_cnt: i32,
+    pub str_index_cnt: i32,
     pub str_list_ofs: i32,
+    pub str_cnt: i32,
     pub label_list_ofs: i32,
     pub label_cnt: i32,
     pub z_label_list_ofs: i32,
@@ -36,8 +37,9 @@ impl ScnHeader {
         let scn_ofs = rd();
         let scn_size = rd();
         let str_index_list_ofs = rd();
-        let str_cnt = rd();
+        let str_index_cnt = rd();
         let str_list_ofs = rd();
+        let str_cnt = rd();
         let label_list_ofs = rd();
         let label_cnt = rd();
         let z_label_list_ofs = rd();
@@ -48,6 +50,7 @@ impl ScnHeader {
             scn_ofs,
             scn_size,
             str_index_list_ofs,
+            str_index_cnt,
             str_cnt,
             str_list_ofs,
             label_list_ofs,
@@ -84,9 +87,9 @@ impl<'a> SceneStream<'a> {
         let scn = &chunk[scn_ofs..scn_end];
 
         let str_index_list_ofs = header.str_index_list_ofs.max(0) as usize;
-        let str_cnt = header.str_cnt.max(0) as usize;
+        let str_index_cnt = header.str_index_cnt.max(0) as usize;
         let str_index_list_end = str_index_list_ofs
-            .checked_add(str_cnt * 8)
+            .checked_add(str_index_cnt * 8)
             .ok_or_else(|| anyhow!("scn: str_index_list overflow"))?;
         if str_index_list_end > chunk.len() {
             bail!("scn: str_index_list out of bounds");

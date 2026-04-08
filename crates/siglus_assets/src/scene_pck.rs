@@ -30,65 +30,85 @@ pub struct PackScnHeader {
     pub inc_prop_list_ofs: i32,
     pub inc_prop_cnt: i32,
     pub inc_prop_name_index_list_ofs: i32,
-    pub inc_prop_name_cnt: i32,
+    pub inc_prop_name_index_cnt: i32,
     pub inc_prop_name_list_ofs: i32,
+    pub inc_prop_name_cnt: i32,
     pub inc_cmd_list_ofs: i32,
     pub inc_cmd_cnt: i32,
     pub inc_cmd_name_index_list_ofs: i32,
-    pub inc_cmd_name_cnt: i32,
+    pub inc_cmd_name_index_cnt: i32,
     pub inc_cmd_name_list_ofs: i32,
+    pub inc_cmd_name_cnt: i32,
     pub scn_name_index_list_ofs: i32,
-    pub scn_name_cnt: i32,
+    pub scn_name_index_cnt: i32,
     pub scn_name_list_ofs: i32,
+    pub scn_name_cnt: i32,
     pub scn_data_index_list_ofs: i32,
-    pub scn_data_cnt: i32,
+    pub scn_data_index_cnt: i32,
     pub scn_data_list_ofs: i32,
+    pub scn_data_cnt: i32,
     pub scn_data_exe_angou_mod: i32,
-    pub scn_data_easy_angou_mod: i32,
     pub original_source_header_size: i32,
-    pub old_argv_index_list_ofs: i32,
-    pub old_argv_cnt: i32,
-    pub old_argv_list_ofs: i32,
 }
 
 impl PackScnHeader {
-    pub fn read(buf: &[u8], off: usize) -> Result<Self> {
-        // signature[8] + 23 * i32
-        let need = 8 + 23 * 4;
-        if off + need > buf.len() {
+    pub fn read(buf: &[u8], off: usize, has_signature: bool) -> Result<Self> {
+        // header size is stored in the first i32 (no signature in older builds).
+        let min_need = if has_signature { 8 + 4 } else { 4 };
+        if off + min_need > buf.len() {
             bail!("scene_pck: header out of bounds");
         }
-        let mut p = off + 8;
+        let mut p = off;
+        if has_signature {
+            if &buf[off..off + 8] != b"pack_scn" {
+                bail!("scene_pck: bad signature (expected pack_scn)");
+            }
+            p += 8;
+        }
         let mut rd = || {
             let v = i32::from_le_bytes(buf[p..p + 4].try_into().unwrap());
             p += 4;
             v
         };
-        Ok(Self {
-            header_size: rd(),
+        let header_size = rd();
+        let mut out = Self {
+            header_size,
             inc_prop_list_ofs: rd(),
             inc_prop_cnt: rd(),
             inc_prop_name_index_list_ofs: rd(),
-            inc_prop_name_cnt: rd(),
+            inc_prop_name_index_cnt: rd(),
             inc_prop_name_list_ofs: rd(),
+            inc_prop_name_cnt: rd(),
             inc_cmd_list_ofs: rd(),
             inc_cmd_cnt: rd(),
             inc_cmd_name_index_list_ofs: rd(),
-            inc_cmd_name_cnt: rd(),
+            inc_cmd_name_index_cnt: rd(),
             inc_cmd_name_list_ofs: rd(),
+            inc_cmd_name_cnt: rd(),
             scn_name_index_list_ofs: rd(),
-            scn_name_cnt: rd(),
+            scn_name_index_cnt: rd(),
             scn_name_list_ofs: rd(),
+            scn_name_cnt: rd(),
             scn_data_index_list_ofs: rd(),
-            scn_data_cnt: rd(),
+            scn_data_index_cnt: rd(),
             scn_data_list_ofs: rd(),
+            scn_data_cnt: rd(),
             scn_data_exe_angou_mod: rd(),
-            scn_data_easy_angou_mod: rd(),
             original_source_header_size: rd(),
-            old_argv_index_list_ofs: rd(),
-            old_argv_cnt: rd(),
-            old_argv_list_ofs: rd(),
-        })
+        };
+
+        // Optional extra fields in newer headers (ignored for now).
+        let header_bytes = header_size.max(0) as usize;
+        let base_fields_bytes = 23 * 4;
+        let extra_bytes = header_bytes.saturating_sub(base_fields_bytes);
+        let extra_fields = extra_bytes / 4;
+        if extra_fields > 0 {
+            for _ in 0..extra_fields {
+                let _ = rd();
+            }
+        }
+
+        Ok(out)
     }
 }
 
@@ -110,46 +130,11 @@ impl Default for ScenePckDecodeOptions {
 }
 
 impl ScenePckDecodeOptions {
-    /// Create options from environment variables.
-    ///
-    /// - `SIGLUS_SCN_EXE_ANGOU_ELEMENT_HEX`: hex string of 16 bytes
-    /// - `SIGLUS_SCN_EASY_ANGOU_CODE_HEX`: hex string of N bytes (commonly 256)
-    ///
-    /// Compatibility fallbacks:
-    /// - `SIGLUS_EXE_ANGOU_HEX` for exe element (16 bytes)
-    /// - `SIGLUS_BASE_ANGOU_CODE_HEX` for easy code
-    pub fn from_env() -> Result<Self> {
-        fn parse_hex_env(key: &str) -> Result<Option<Vec<u8>>> {
-            let Some(s) = std::env::var_os(key) else {
-                return Ok(None);
-            };
-            let s = s
-                .to_string_lossy()
-                .chars()
-                .filter(|c| !c.is_whitespace())
-                .collect::<String>();
-            if s.is_empty() {
-                return Ok(None);
-            }
-            if s.len() % 2 != 0 {
-                bail!("{}: hex length must be even", key);
-            }
-            let mut out = Vec::with_capacity(s.len() / 2);
-            for i in (0..s.len()).step_by(2) {
-                let b = u8::from_str_radix(&s[i..i + 2], 16)
-                    .with_context(|| format!("{}: invalid hex at {}", key, i))?;
-                out.push(b);
-            }
-            Ok(Some(out))
-        }
-
-        let exe = parse_hex_env("SIGLUS_SCN_EXE_ANGOU_ELEMENT_HEX")?
-            .or(parse_hex_env("SIGLUS_EXE_ANGOU_HEX")?);
-        let easy = parse_hex_env("SIGLUS_SCN_EASY_ANGOU_CODE_HEX")?
-            .or(parse_hex_env("SIGLUS_BASE_ANGOU_CODE_HEX")?);
+    pub fn from_project_dir(project_dir: &Path) -> Result<Self> {
+        let exe = crate::key_toml::load_key16_from_project_dir(project_dir)?.map(|v| v.to_vec());
         Ok(Self {
             exe_angou_element: exe,
-            easy_angou_code: easy,
+            easy_angou_code: Some(crate::keys::SCENE_KEY.to_vec()),
         })
     }
 }
@@ -164,27 +149,27 @@ pub struct ScenePck {
 impl ScenePck {
     pub fn load_and_rebuild(path: &Path, opt: &ScenePckDecodeOptions) -> Result<Self> {
         let mut tmp = fs::read(path).with_context(|| format!("read {}", path.display()))?;
-
-        if tmp.len() < 8 {
+        if tmp.len() < 4 {
             bail!("scene_pck: file too short");
         }
-        if &tmp[0..8] != b"pack_scn" {
-            bail!("scene_pck: bad signature (expected pack_scn)");
-        }
-
-        let header = PackScnHeader::read(&tmp, 0)?;
+        let has_signature = tmp.len() >= 8 && &tmp[0..8] == b"pack_scn";
+        let header = PackScnHeader::read(&tmp, 0, has_signature)?;
         let scn_data_list_ofs = header.scn_data_list_ofs as usize;
         if scn_data_list_ofs > tmp.len() {
             bail!("scene_pck: scn_data_list_ofs out of bounds");
         }
 
-        // Rebuild m_scn_data exactly like C++: keep everything before scn_data_list_ofs,
+        // Rebuild m_scn_data exactly like the original implementation: keep everything before scn_data_list_ofs,
         // then append decrypted/decompressed scene chunks contiguously.
         let mut out = tmp[..scn_data_list_ofs].to_vec();
 
         // Load original index list from the input.
         let idx_ofs = header.scn_data_index_list_ofs as usize;
-        let scn_cnt = header.scn_data_cnt as usize;
+        let scn_cnt = if header.scn_data_cnt > 0 {
+            header.scn_data_cnt as usize
+        } else {
+            header.scn_data_index_cnt.max(0) as usize
+        };
         if idx_ofs + scn_cnt * 8 > tmp.len() {
             bail!("scene_pck: scn_data_index_list out of bounds");
         }

@@ -4,10 +4,13 @@
 
 pub mod assets;
 pub mod audio;
+pub mod app_path;
 pub mod movie;
 pub mod image_manager;
 pub mod layer;
 pub mod resource;
+pub mod soft_render;
+pub mod text_render;
 pub mod runtime;
 
 pub mod elm_code;

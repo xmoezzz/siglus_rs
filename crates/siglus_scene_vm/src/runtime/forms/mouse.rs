@@ -2,7 +2,9 @@ use anyhow::Result;
 
 use crate::runtime::{CommandContext, Value};
 
-use super::key;
+use super::{key, prop_access};
+
+const MOUSE_FORM_STATE: u32 = 0xFF00_0002;
 
 fn find_chain(args: &[Value]) -> Option<Vec<i32>> {
     for v in args.iter().rev() {
@@ -47,7 +49,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_clear as i64 => {
-            ctx.input.clear_all();
+            ctx.input.clear_mouse();
             ctx.push(Value::Int(0));
             Ok(true)
         }
@@ -67,17 +69,36 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_next as i64 => {
-            ctx.input.next_frame();
+            ctx.input.next_mouse_frame();
             ctx.push(Value::Int(0));
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_get_pos as i64 => {
-            ctx.push(Value::Int(ctx.input.mouse_x as i64));
-            ctx.push(Value::Int(ctx.input.mouse_y as i64));
+            let x = ctx.input.mouse_x as i64;
+            let y = ctx.input.mouse_y as i64;
+            let mut assigned = 0usize;
+            for v in args.iter() {
+                if let Value::Element(chain) = v {
+                    if assigned == 0 {
+                        super::prop_access::assign_to_chain(ctx, chain, Value::Int(x));
+                        assigned += 1;
+                    } else if assigned == 1 {
+                        super::prop_access::assign_to_chain(ctx, chain, Value::Int(y));
+                        assigned += 1;
+                        break;
+                    }
+                }
+            }
+            if assigned >= 2 {
+                ctx.push(Value::Int(0));
+            } else {
+                ctx.push(Value::Int(x));
+                ctx.push(Value::Int(y));
+            }
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_set_pos as i64 => {
-            // Best-effort: allow scripts to reposition the stored cursor.
+            // Conservative: allow scripts to reposition the stored cursor.
             // This does not warp the OS cursor; it only changes VM-visible state.
             let x = arg_int(args, 1).unwrap_or(ctx.input.mouse_x as i64) as i32;
             let y = arg_int(args, 2).unwrap_or(ctx.input.mouse_y as i64) as i32;
@@ -86,9 +107,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         _ => {
-            ctx.unknown
-                .record_unimplemented(&format!("MOUSE/op={op}"));
-            ctx.push(Value::Int(0));
+            let form_key = if ctx.ids.form_global_mouse != 0 { ctx.ids.form_global_mouse } else { MOUSE_FORM_STATE };
+            prop_access::store_or_push_direct_prop(ctx, form_key, op as i32, args, 1);
             Ok(true)
         }
     }

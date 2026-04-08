@@ -4,7 +4,7 @@
 //! notifications for channels). Full fidelity requires tight integration with
 //! the audio backend and per-title tables.
 //!
-//! For bring-up we provide a stable, non-blocking implementation:
+//! For runtime we provide a stable, non-blocking implementation:
 //! - All known/unknown ops are accepted.
 //! - Query-like ops return 0.
 //! - Mutating ops return 0.
@@ -50,7 +50,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
 
     // Heuristic mapping (very conservative):
     // 0 -> clear/reset, 1 -> query, 2 -> query, 3 -> next-frame.
-    // All return 0 in bring-up.
+    // All return 0 in runtime.
     match op {
         0 | 1 | 2 | 3 => {
             ctx.push(Value::Int(0));

@@ -5,8 +5,8 @@
 //! Stage form (Stage/Object/MWND/Group). We implement:
 //!   - Stage list count
 //!   - Stage.OBJECT[*] subset (wired to `GfxRuntime`)
-//!   - Stage.MWND[*] bring-up (text / wait)
-//!   - Stage.OBJBTNGROUP[*] bring-up (selection / wait)
+//!   - Stage.MWND[*] runtime (text / wait)
+//!   - Stage.OBJBTNGROUP[*] runtime (selection / wait)
 //!
 //! IMPORTANT: Many element/op numeric codes are not mapped for all games.
 //! For non-object stage children we auto-learn op meanings by (arg signature + return form)
@@ -20,14 +20,17 @@ use std::path::{Path, PathBuf};
 use crate::runtime::globals::{
     GroupListOpKind, GroupOpKind, MwndListOpKind, MwndOpKind,
     MsgBackAtom, MsgBackState,
-    ObjectBackend, ObjectCompatState, ObjectListOpKind, ObjectOpKind, ObjectWeatherParam,
-    StageChildKind, StageFormState,
+    ObjectBackend, ObjectCompatState, ObjectEventTarget, ObjectListOpKind, ObjectOpKind, ObjectWeatherParam,
+    StageChildKind, StageFormState, WorldState,
 };
 use crate::runtime::Value;
 use crate::runtime::int_event::IntEvent;
+use crate::runtime::id_map;
 use crate::layer::{SpriteFit, SpriteId, SpriteSizeMode};
+use crate::image_manager::ImageId;
 
 use super::super::CommandContext;
+use super::prop_access;
 
 #[derive(Debug, Clone)]
 enum StageTarget {
@@ -38,6 +41,75 @@ enum StageTarget {
     ChildListOp { stage: i64, child: i32, op: i64 },
     /// [FORM_STAGE, ELM_ARRAY, stage_idx, child_code, ELM_ARRAY, idx, op, tail...]
     ChildItemOp { stage: i64, child: i32, idx: i64, op: i64, tail: Vec<i32> },
+}
+
+fn register_known_event_target(ids: &id_map::IdMap, obj: &mut ObjectCompatState, op: i32) {
+    let mut target: Option<ObjectEventTarget> = None;
+    if ids.obj_x_eve != 0 && op == ids.obj_x_eve {
+        target = Some(ObjectEventTarget::X);
+    } else if ids.obj_y_eve != 0 && op == ids.obj_y_eve {
+        target = Some(ObjectEventTarget::Y);
+    } else if ids.obj_tr_eve != 0 && op == ids.obj_tr_eve {
+        target = Some(ObjectEventTarget::Alpha);
+    } else if ids.obj_patno_eve != 0 && op == ids.obj_patno_eve {
+        target = Some(ObjectEventTarget::Patno);
+    } else if ids.obj_z_eve != 0 && op == ids.obj_z_eve {
+        target = Some(ObjectEventTarget::Z);
+    } else if ids.obj_center_x_eve != 0 && op == ids.obj_center_x_eve {
+        target = Some(ObjectEventTarget::CenterX);
+    } else if ids.obj_center_y_eve != 0 && op == ids.obj_center_y_eve {
+        target = Some(ObjectEventTarget::CenterY);
+    } else if ids.obj_scale_x_eve != 0 && op == ids.obj_scale_x_eve {
+        target = Some(ObjectEventTarget::ScaleX);
+    } else if ids.obj_scale_y_eve != 0 && op == ids.obj_scale_y_eve {
+        target = Some(ObjectEventTarget::ScaleY);
+    } else if ids.obj_rotate_z_eve != 0 && op == ids.obj_rotate_z_eve {
+        target = Some(ObjectEventTarget::RotateZ);
+    } else if ids.obj_clip_left_eve != 0 && op == ids.obj_clip_left_eve {
+        target = Some(ObjectEventTarget::ClipLeft);
+    } else if ids.obj_clip_top_eve != 0 && op == ids.obj_clip_top_eve {
+        target = Some(ObjectEventTarget::ClipTop);
+    } else if ids.obj_clip_right_eve != 0 && op == ids.obj_clip_right_eve {
+        target = Some(ObjectEventTarget::ClipRight);
+    } else if ids.obj_clip_bottom_eve != 0 && op == ids.obj_clip_bottom_eve {
+        target = Some(ObjectEventTarget::ClipBottom);
+    } else if ids.obj_src_clip_left_eve != 0 && op == ids.obj_src_clip_left_eve {
+        target = Some(ObjectEventTarget::SrcClipLeft);
+    } else if ids.obj_src_clip_top_eve != 0 && op == ids.obj_src_clip_top_eve {
+        target = Some(ObjectEventTarget::SrcClipTop);
+    } else if ids.obj_src_clip_right_eve != 0 && op == ids.obj_src_clip_right_eve {
+        target = Some(ObjectEventTarget::SrcClipRight);
+    } else if ids.obj_src_clip_bottom_eve != 0 && op == ids.obj_src_clip_bottom_eve {
+        target = Some(ObjectEventTarget::SrcClipBottom);
+    } else if ids.obj_tr_eve != 0 && op == ids.obj_tr_eve {
+        target = Some(ObjectEventTarget::Tr);
+    } else if ids.obj_mono_eve != 0 && op == ids.obj_mono_eve {
+        target = Some(ObjectEventTarget::Mono);
+    } else if ids.obj_reverse_eve != 0 && op == ids.obj_reverse_eve {
+        target = Some(ObjectEventTarget::Reverse);
+    } else if ids.obj_bright_eve != 0 && op == ids.obj_bright_eve {
+        target = Some(ObjectEventTarget::Bright);
+    } else if ids.obj_dark_eve != 0 && op == ids.obj_dark_eve {
+        target = Some(ObjectEventTarget::Dark);
+    } else if ids.obj_color_rate_eve != 0 && op == ids.obj_color_rate_eve {
+        target = Some(ObjectEventTarget::ColorRate);
+    } else if ids.obj_color_add_r_eve != 0 && op == ids.obj_color_add_r_eve {
+        target = Some(ObjectEventTarget::ColorAddR);
+    } else if ids.obj_color_add_g_eve != 0 && op == ids.obj_color_add_g_eve {
+        target = Some(ObjectEventTarget::ColorAddG);
+    } else if ids.obj_color_add_b_eve != 0 && op == ids.obj_color_add_b_eve {
+        target = Some(ObjectEventTarget::ColorAddB);
+    } else if ids.obj_color_r_eve != 0 && op == ids.obj_color_r_eve {
+        target = Some(ObjectEventTarget::ColorR);
+    } else if ids.obj_color_g_eve != 0 && op == ids.obj_color_g_eve {
+        target = Some(ObjectEventTarget::ColorG);
+    } else if ids.obj_color_b_eve != 0 && op == ids.obj_color_b_eve {
+        target = Some(ObjectEventTarget::ColorB);
+    }
+
+    if let Some(t) = target {
+        obj.event_targets.insert(op, t);
+    }
 }
 
 fn parse_target(ctx: &CommandContext, chain: &[i32]) -> Option<StageTarget> {
@@ -107,7 +179,7 @@ fn as_str(v: &Value) -> Option<&str> {
 }
 
 fn default_for_ret_form(ret_form: i64) -> Value {
-    // Bring-up heuristic used across the port: ret_form==2 is string.
+    // Runtime heuristic used across the port: ret_form==2 is string.
     if ret_form == 2 {
         Value::Str(String::new())
     } else {
@@ -119,6 +191,81 @@ fn push_ok(ctx: &mut CommandContext, ret_form: Option<i64>) {
     match ret_form {
         Some(0) | None => ctx.stack.push(Value::Int(0)),
         Some(rf) => ctx.stack.push(default_for_ret_form(rf)),
+    }
+}
+
+fn dispatch_int_event_like(ev: &mut IntEvent, params: &[Value], ret_form: Option<i64>) -> Option<Value> {
+    match params.len() {
+        0 => {
+            if ret_form.unwrap_or(0) != 0 {
+                return Some(Value::Int(if ev.check_event() { 1 } else { 0 }));
+            }
+            ev.end_event();
+            return Some(Value::Int(0));
+        }
+        4 => {
+            let value = params.get(0).and_then(as_i64).unwrap_or(0) as i32;
+            let total_time = params.get(1).and_then(as_i64).unwrap_or(0) as i32;
+            let delay_time = params.get(2).and_then(as_i64).unwrap_or(0) as i32;
+            let speed_type = params.get(3).and_then(as_i64).unwrap_or(0) as i32;
+            ev.set_event(value, total_time, delay_time, speed_type, 0);
+            return Some(Value::Int(0));
+        }
+        5 => {
+            let start_value = params.get(0).and_then(as_i64).unwrap_or(0) as i32;
+            let end_value = params.get(1).and_then(as_i64).unwrap_or(0) as i32;
+            let loop_time = params.get(2).and_then(as_i64).unwrap_or(0) as i32;
+            let delay_time = params.get(3).and_then(as_i64).unwrap_or(0) as i32;
+            let speed_type = params.get(4).and_then(as_i64).unwrap_or(0) as i32;
+            ev.loop_event(start_value, end_value, loop_time, delay_time, speed_type, 0);
+            return Some(Value::Int(0));
+        }
+        _ => {}
+    }
+    None
+}
+
+fn stage_chain_fallback(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    chain: &[i32],
+    script_args: &[Value],
+    rhs: Option<&Value>,
+    al_id: Option<i64>,
+    ret_form: Option<i64>,
+) {
+    let key = prop_access::chain_key(chain);
+    let key_str = key.to_string();
+    if let Some(s) = rhs.and_then(|v| v.as_str()) {
+        st.child_str_props.insert(key_str.clone(), s.to_string());
+        ctx.stack.push(Value::Int(0));
+        return;
+    }
+    if let Some(v) = rhs.and_then(|v| v.as_i64()) {
+        st.child_int_props.insert(key_str.clone(), v);
+        ctx.stack.push(Value::Int(0));
+        return;
+    }
+    if rhs.is_none() && script_args.len() == 1 {
+        if let Some(v) = script_args[0].as_i64() {
+            if matches!(al_id, Some(1)) {
+                st.child_int_props.insert(key_str.clone(), v);
+                ctx.stack.push(Value::Int(0));
+                return;
+            }
+        }
+        if let Some(s) = script_args[0].as_str() {
+            if matches!(al_id, Some(1)) {
+                st.child_str_props.insert(key_str.clone(), s.to_string());
+                ctx.stack.push(Value::Int(0));
+                return;
+            }
+        }
+    }
+    match ret_form {
+        Some(2) => ctx.stack.push(Value::Str(st.child_str_props.get(&key_str).cloned().unwrap_or_default())),
+        Some(rf) if rf != 0 => ctx.stack.push(Value::Int(*st.child_int_props.get(&key_str).unwrap_or(&0))),
+        _ => ctx.stack.push(Value::Int(0)),
     }
 }
 
@@ -174,7 +321,7 @@ fn try_set_ui_bg_from_name(ctx: &mut CommandContext, name: &str) {
         return;
     }
 
-    // Best-effort: try direct file, then g00, then bg.
+    // Conservative: try direct file, then g00, then bg.
     if ctx.images.load_file(Path::new(name), 0).map(|id| {
         ctx.ui.set_message_bg(id);
     }).is_ok() {
@@ -188,6 +335,20 @@ fn try_set_ui_bg_from_name(ctx: &mut CommandContext, name: &str) {
     let _ = ctx.images.load_bg(name).map(|id| {
         ctx.ui.set_message_bg(id);
     });
+}
+
+fn try_set_ui_filter_from_name(ctx: &mut CommandContext, name: &str) {
+    if name.is_empty() {
+        ctx.ui.set_message_filter(None);
+        return;
+    }
+    if let Some(path) = resolve_filter_path(&ctx.project_dir, name) {
+        if let Ok(id) = ctx.images.load_file(&path, 0) {
+            ctx.ui.set_message_filter(Some(id));
+            return;
+        }
+    }
+    ctx.ui.set_message_filter(None);
 }
 
 fn stage_state_mut(ctx: &mut CommandContext, form_id: u32) -> &mut StageFormState {
@@ -224,7 +385,7 @@ fn msgbk_add_text(ctx: &mut CommandContext, s: &str) {
 
 fn msgbk_add_name(ctx: &mut CommandContext, s: &str) {
     let Some(st) = msgbk_state_mut(ctx) else { return; };
-    // The original engine records name separately; for bring-up we store it as a distinct atom.
+    // The original engine records name separately; for runtime we store it as a distinct atom.
     st.cur.atoms.push(MsgBackAtom::Name(s.to_string()));
 }
 
@@ -340,29 +501,78 @@ fn ensure_rect_layer(ctx: &mut CommandContext, st: &mut StageFormState, stage_id
 }
 
 fn object_clear_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState, stage_idx: i64, obj_idx: usize) {
+    if let Some(id) = obj.movie.audio_id.take() {
+        ctx.movie.stop_audio(id);
+    }
     if matches!(obj.backend, ObjectBackend::Gfx) {
 		let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
 		let _ = gfx.object_clear(images, layers, stage_idx, obj_idx as i64);
     }
-    if let ObjectBackend::Rect { layer_id, sprite_id, .. } = obj.backend {
-        if let Some(layer) = ctx.layers.layer_mut(layer_id) {
-            if let Some(spr) = layer.sprite_mut(sprite_id) {
-                spr.visible = false;
-                spr.image_id = None;
-            }
-        }
-    }
-    if let ObjectBackend::Number { layer_id, ref sprite_ids } = obj.backend {
-        if let Some(layer) = ctx.layers.layer_mut(layer_id) {
-            for &sid in sprite_ids {
-                if let Some(spr) = layer.sprite_mut(sid) {
+    match obj.backend {
+        ObjectBackend::Rect { layer_id, sprite_id, .. }
+        | ObjectBackend::String { layer_id, sprite_id, .. }
+        | ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+            if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                if let Some(spr) = layer.sprite_mut(sprite_id) {
                     spr.visible = false;
                     spr.image_id = None;
                 }
             }
         }
+        ObjectBackend::Number { layer_id, ref sprite_ids } => {
+            if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                for &sid in sprite_ids {
+                    if let Some(spr) = layer.sprite_mut(sid) {
+                        spr.visible = false;
+                        spr.image_id = None;
+                    }
+                }
+            }
+        }
+        _ => {}
     }
     obj.backend = ObjectBackend::None;
+}
+
+fn bind_capture_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState, stage_idx: i64, img_id: ImageId) {
+    let Some(img) = ctx.images.get(img_id) else { return; };
+    let Some(layer_id) = ctx.gfx.ensure_stage_layer_id(&mut ctx.layers, stage_idx) else {
+        return;
+    };
+    let Some(layer) = ctx.layers.layer_mut(layer_id) else { return; };
+    let sprite_id = layer.create_sprite();
+    if let Some(spr) = layer.sprite_mut(sprite_id) {
+        spr.visible = true;
+        spr.image_id = Some(img_id);
+        spr.fit = SpriteFit::PixelRect;
+        spr.size_mode = SpriteSizeMode::Intrinsic;
+        if ctx.ids.obj_x != 0 {
+            if let Some(v) = obj.extra_int_props.get(&ctx.ids.obj_x) {
+                spr.x = *v as i32;
+            }
+        }
+        if ctx.ids.obj_y != 0 {
+            if let Some(v) = obj.extra_int_props.get(&ctx.ids.obj_y) {
+                spr.y = *v as i32;
+            }
+        }
+        if ctx.ids.obj_alpha != 0 {
+            if let Some(v) = obj.extra_int_props.get(&ctx.ids.obj_alpha) {
+                spr.alpha = (*v).clamp(0, 255) as u8;
+            }
+        }
+        if ctx.ids.obj_order != 0 {
+            if let Some(v) = obj.extra_int_props.get(&ctx.ids.obj_order) {
+                spr.order = *v as i32;
+            }
+        }
+    }
+    obj.backend = ObjectBackend::Rect {
+        layer_id,
+        sprite_id,
+        width: img.width,
+        height: img.height,
+    };
 }
 
 
@@ -386,7 +596,7 @@ fn split_pos_named<'a>(args: &'a [Value]) -> (Vec<&'a Value>, Vec<(i32, &'a Valu
     (pos, named)
 }
 
-fn resolve_omv_path(project_dir: &Path, file_name: &str) -> Option<PathBuf> {
+fn resolve_movie_path(project_dir: &Path, file_name: &str) -> Option<PathBuf> {
     let p = Path::new(file_name);
     if p.is_absolute() {
         return p.exists().then(|| p.to_path_buf());
@@ -401,22 +611,39 @@ fn resolve_omv_path(project_dir: &Path, file_name: &str) -> Option<PathBuf> {
         }
     }
 
-    let cand = mov_dir.join(format!("{}.omv", file_name));
-    if cand.exists() {
-        return Some(cand);
+    for ext in ["omv", "mpg", "mpeg", "wmv", "avi"] {
+        let cand = mov_dir.join(format!("{}.{}", file_name, ext));
+        if cand.exists() {
+            return Some(cand);
+        }
     }
 
     None
 }
 
-fn omv_total_time_ms(path: &Path) -> Option<u64> {
-    let omv = siglus_assets::omv::OmvFile::open(path).ok()?;
-    let fps = omv.header.fps as u64;
-    let frames = omv.header.frame_count as u64;
-    if fps == 0 {
-        return None;
+fn resolve_filter_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
+    let mut norm = raw.replace('\\', "/");
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    if !norm.contains('.') {
+        for ext in ["png", "bmp", "jpg", "jpeg", "g00"] {
+            candidates.push(project_dir.join(format!("{}.{}", norm, ext)));
+            candidates.push(project_dir.join("dat").join(format!("{}.{}", norm, ext)));
+        }
     }
-    Some(frames.saturating_mul(1000) / fps)
+    candidates.push(project_dir.join(&norm));
+    candidates.push(project_dir.join("dat").join(&norm));
+
+    for c in candidates {
+        if c.exists() {
+            return Some(c);
+        }
+    }
+    None
+}
+
+fn movie_total_time_ms(ctx: &mut CommandContext, file: &str) -> Option<u64> {
+    ctx.movie.prepare(file).ok().and_then(|info| info.duration_ms())
 }
 
 fn digits_most_significant(mut n: u64) -> Vec<i64> {
@@ -570,6 +797,105 @@ fn update_number_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState) 
     }
 }
 
+fn string_layout(obj: &ObjectCompatState) -> (u32, u32, u32) {
+    let font_px = obj.string_param.moji_size.max(0) as u32;
+    let font_px = if font_px == 0 { 26 } else { font_px };
+
+    let max_chars = obj.string_param.moji_cnt.max(0) as u32;
+    let max_chars = if max_chars == 0 { 40 } else { max_chars };
+
+    let max_w = (font_px.saturating_mul(max_chars)).max(font_px * 4);
+
+    let text = obj.string_value.as_deref().unwrap_or("");
+    let mut line_cnt = 1u32;
+    if !text.is_empty() {
+        let mut cur = 0u32;
+        line_cnt = 0;
+        for ch in text.chars() {
+            if ch == '\n' {
+                line_cnt += 1;
+                cur = 0;
+                continue;
+            }
+            cur += 1;
+            if cur >= max_chars {
+                line_cnt += 1;
+                cur = 0;
+            }
+        }
+        line_cnt += 1;
+    }
+    let line_h = (font_px * 8 / 7).max(font_px);
+    let max_h = (line_cnt.max(1)).saturating_mul(line_h).max(line_h * 2);
+    (font_px, max_w, max_h)
+}
+
+fn update_string_backend(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    obj: &mut ObjectCompatState,
+    stage_idx: i64,
+) {
+    let text = obj.string_value.clone().unwrap_or_default();
+    let (font_px, max_w, max_h) = string_layout(obj);
+
+    let disp = if ctx.ids.obj_disp != 0 {
+        obj.extra_int_props.get(&ctx.ids.obj_disp).copied().unwrap_or(0) != 0
+    } else {
+        true
+    };
+    let x = if ctx.ids.obj_x != 0 {
+        obj.extra_int_props.get(&ctx.ids.obj_x).copied().unwrap_or(0) as i32
+    } else {
+        0
+    };
+    let y = if ctx.ids.obj_y != 0 {
+        obj.extra_int_props.get(&ctx.ids.obj_y).copied().unwrap_or(0) as i32
+    } else {
+        0
+    };
+
+    let layer_id = match obj.backend {
+        ObjectBackend::String { layer_id, .. } => layer_id,
+        _ => ensure_rect_layer(ctx, st, stage_idx),
+    };
+
+    let sprite_id = match obj.backend {
+        ObjectBackend::String { sprite_id, .. } => sprite_id,
+        _ => {
+            let Some(sid) = ctx.layers.layer_mut(layer_id).map(|l| l.create_sprite()) else {
+                return;
+            };
+            sid
+        }
+    };
+
+    if !ctx.font_cache.is_loaded() {
+        let _ = ctx.font_cache.load_from_font_dir(&ctx.project_dir.join("font"));
+    }
+    let img_id = ctx
+        .font_cache
+        .render_text(&mut ctx.images, &text, font_px as f32, max_w, max_h);
+
+    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+        if let Some(spr) = layer.sprite_mut(sprite_id) {
+            spr.fit = SpriteFit::PixelRect;
+            spr.size_mode = SpriteSizeMode::Explicit { width: max_w, height: max_h };
+            spr.visible = disp;
+            spr.x = x;
+            spr.y = y;
+            spr.image_id = img_id;
+        }
+    }
+
+    obj.backend = ObjectBackend::String {
+        layer_id,
+        sprite_id,
+        width: max_w,
+        height: max_h,
+    };
+}
+
 fn learn_object_op(
     st: &mut StageFormState,
     op: i32,
@@ -702,7 +1028,7 @@ fn dispatch_object_op(
         return true;
     }
 
-    // Best-effort: support CREATE_COPY_FROM (one Element argument) by copying compat state.
+    // Conservative: support CREATE_COPY_FROM (one Element argument) by copying compat state.
     // We avoid sharing backend resources (sprites) across objects.
     let mut copy_from_snapshot: Option<(i64, usize, ObjectCompatState)> = None;
     if rhs.is_none() && ret_form == Some(0) && script_args.len() == 1 {
@@ -845,6 +1171,8 @@ fn dispatch_object_op(
 
             let looks_like_event = !t.is_empty() || obj.rep_int_event_lists.contains_key(&op);
             if looks_like_event {
+                register_known_event_target(&ctx.ids, obj, op);
+                let _ = obj.event_target(op);
                 let ent = obj.rep_int_event_lists.entry(op).or_default();
                 if ent.len() <= ri {
                     ent.resize_with(ri + 1, || IntEvent::new(0));
@@ -944,6 +1272,8 @@ fn dispatch_object_op(
         if arr_idx.is_none() {
             if t.is_empty() {
                 if obj.extra_events.contains_key(&op) {
+                    register_known_event_target(&ctx.ids, obj, op);
+                    let _ = obj.event_target(op);
                     let ev = obj.extra_events.entry(op).or_insert_with(|| IntEvent::new(0));
                     if let Some(Value::Int(v)) = rhs {
                         ev.set_value(*v as i32);
@@ -954,6 +1284,8 @@ fn dispatch_object_op(
                     return true;
                 }
             } else if (0..=4).contains(&t[0]) {
+                register_known_event_target(&ctx.ids, obj, op);
+                let _ = obj.event_target(op);
                 let ev = obj.extra_events.entry(op).or_insert_with(|| IntEvent::new(0));
                 match t[0] {
                     0 => {
@@ -1058,7 +1390,7 @@ fn dispatch_object_op(
     }
 
     if op == ctx.ids.obj_init_param {
-        // The bring-up port does not implement def-param tables yet;
+        // The runtime port does not implement def-param tables yet;
         // keep as a no-op but do not break scripts.
         push_ok(ctx, ret_form);
         return true;
@@ -1141,6 +1473,14 @@ fn dispatch_object_op(
                     obj.extra_int_props.insert(op, if b { 1 } else { 0 });
                     update_number_backend(ctx, obj);
                 }
+                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.visible = b;
+                        }
+                    }
+                    obj.extra_int_props.insert(op, if b { 1 } else { 0 });
+                }
                 _ => {
                     obj.extra_int_props.insert(op, if b { 1 } else { 0 });
                 }
@@ -1156,6 +1496,12 @@ fn dispatch_object_op(
                     .unwrap_or(0),
                 ObjectBackend::Gfx => ctx.gfx.object_peek_disp(stage_idx, obj_u as i64).unwrap_or(0),
                 ObjectBackend::Number { .. } => *obj.extra_int_props.get(&op).unwrap_or(&0),
+                ObjectBackend::String { layer_id, sprite_id, .. } => ctx
+                    .layers
+                    .layer(layer_id)
+                    .and_then(|layer| layer.sprite(sprite_id))
+                    .map(|spr| if spr.visible { 1 } else { 0 })
+                    .unwrap_or(0),
                 _ => *obj.extra_int_props.get(&op).unwrap_or(&0),
             };
             ctx.stack.push(Value::Int(v));
@@ -1272,7 +1618,7 @@ fn dispatch_object_op(
             }
         });
         if let Some(v) = set_v {
-            // The bring-up renderer does not use Z for sorting (project constraint),
+            // The runtime renderer does not use Z for sorting (project constraint),
             // Keep Z in sync for callers that treat it as a property.
             if obj.backend == ObjectBackend::Gfx {
                 let _ = ctx.gfx.object_set_z(stage_idx, obj_u as i64, v);
@@ -1508,7 +1854,7 @@ fn dispatch_object_op(
     }
 
     // Single-arg command compatibility (SET_STRING/SET_NUMBER/CHANGE_FILE/...):
-    // If we cannot map the op, we still preserve state to keep scripts progressing.
+    // If we cannot map the op, preserve the observed state directly.
     if rhs.is_none() && ret_form == Some(0) && script_args.len() == 1 {
         if let Some(s) = script_args.get(0).and_then(as_str) {
             if looks_like_path(s) {
@@ -1530,7 +1876,7 @@ fn dispatch_object_op(
                     obj.file_name = Some(s.to_string());
                     obj.string_value = None;
                 } else if matches!(obj.backend, ObjectBackend::Gfx) {
-                    // Best-effort: preserve current base params.
+                    // Conservative: preserve current base params.
                     let disp = ctx.gfx.object_peek_disp(stage_idx, obj_u as i64).unwrap_or(0) != 0;
                     let (x, y) = ctx.gfx.object_peek_pos(stage_idx, obj_u as i64).unwrap_or((0, 0));
                     let pat = ctx.gfx.object_peek_patno(stage_idx, obj_u as i64).unwrap_or(0);
@@ -1561,7 +1907,7 @@ fn dispatch_object_op(
     }
 
     if rhs.is_none() && ret_form == Some(2) && script_args.is_empty() {
-        // Best-effort string getter.
+        // Conservative string getter.
         if let Some(s) = obj.extra_str_props.get(&op) {
             ctx.stack.push(Value::Str(s.clone()));
         } else if let Some(t) = &obj.string_value {
@@ -1577,7 +1923,7 @@ fn dispatch_object_op(
 
 
     // ---------------------------------------------------------------------
-    // Button (minimal bring-up)
+    // Button (minimal runtime)
     // ---------------------------------------------------------------------
 
     // Detect SET_BUTTON_GROUP(element) by a unique signature: al_id==1 and one Element argument.
@@ -1642,7 +1988,7 @@ fn dispatch_object_op(
             obj.button.group_no = group_no;
             obj.button.action_no = action_no;
             obj.button.se_no = se_no;
-            // Best-effort: clear runtime hover state when params change.
+            // Conservative: clear runtime hover state when params change.
             obj.button.hit = false;
             obj.button.pushed = false;
 
@@ -1709,6 +2055,9 @@ fn dispatch_object_op(
             return true;
         };
         obj.string_value = Some(v.to_string());
+        if obj.object_type == 3 {
+            update_string_backend(ctx, st, obj, stage_idx);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -1731,6 +2080,9 @@ fn dispatch_object_op(
         }
         if script_args.len() >= 8 {
             obj.string_param.fuchi_color = script_args.get(7).and_then(as_i64).unwrap_or(obj.string_param.fuchi_color);
+        }
+        if obj.object_type == 3 {
+            update_string_backend(ctx, st, obj, stage_idx);
         }
         push_ok(ctx, ret_form);
         return true;
@@ -1778,7 +2130,7 @@ fn dispatch_object_op(
 
         object_clear_backend(ctx, obj, stage_idx, obj_u);
 
-        // Reset compatibility state (matches C++ reinit(true)).
+        // Reset compatibility state (matches the original implementation reinit(true)).
         obj.used = true;
         obj.object_type = 5;
         obj.number_value = 0;
@@ -1863,6 +2215,11 @@ fn dispatch_object_op(
         obj.rep_int_lists.clear();
         obj.rep_int_event_lists.clear();
         obj.cmd_int_args.clear();
+        {
+            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+            let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, 1, 0, 0, 0);
+        }
+        obj.backend = ObjectBackend::Gfx;
         push_ok(ctx, ret_form);
         return true;
     }
@@ -1885,6 +2242,11 @@ fn dispatch_object_op(
         obj.rep_int_lists.clear();
         obj.rep_int_event_lists.clear();
         obj.cmd_int_args.clear();
+        {
+            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+            let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, 1, 0, 0, 0);
+        }
+        obj.backend = ObjectBackend::Gfx;
         push_ok(ctx, ret_form);
         return true;
     }
@@ -1907,6 +2269,11 @@ fn dispatch_object_op(
         obj.rep_int_lists.clear();
         obj.rep_int_event_lists.clear();
         obj.cmd_int_args.clear();
+        {
+            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+            let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, 1, 0, 0, 0);
+        }
+        obj.backend = ObjectBackend::Gfx;
         push_ok(ctx, ret_form);
         return true;
     }
@@ -1940,6 +2307,9 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0));
             }
         }
+        let cap = ctx.capture_frame_rgba();
+        let img_id = ctx.images.insert_image(cap);
+        bind_capture_backend(ctx, obj, stage_idx, img_id);
         push_ok(ctx, ret_form);
         return true;
     }
@@ -1973,6 +2343,9 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0));
             }
         }
+        let cap = ctx.capture_frame_rgba();
+        let img_id = ctx.images.insert_image(cap);
+        bind_capture_backend(ctx, obj, stage_idx, img_id);
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2004,6 +2377,9 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0));
             }
         }
+        let cap = ctx.capture_frame_rgba();
+        let img_id = ctx.images.insert_image(cap);
+        bind_capture_backend(ctx, obj, stage_idx, img_id);
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2062,8 +2438,8 @@ fn dispatch_object_op(
             obj.rep_int_event_lists.clear();
             obj.cmd_int_args.clear();
 
-            let total_ms = resolve_omv_path(&ctx.project_dir, file)
-                .and_then(|p| omv_total_time_ms(&p));
+            let total_ms = resolve_movie_path(&ctx.project_dir, file)
+                .and_then(|_| movie_total_time_ms(ctx, file));
             obj.movie.start(total_ms, loop_flag, auto_free_flag, real_time_flag, ready_only_flag);
 
             // Optional (disp, x, y) via al_id.
@@ -2216,6 +2592,11 @@ fn dispatch_object_op(
         }
 
         obj.weather_param = wp;
+        if matches!(obj.backend, ObjectBackend::Gfx) {
+            let pat = obj.weather_param.pat_no_00;
+            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+            let _ = gfx.object_set_patno(images, layers, stage_idx, obj_u as i64, pat);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2276,6 +2657,11 @@ fn dispatch_object_op(
         }
 
         obj.weather_param = wp;
+        if matches!(obj.backend, ObjectBackend::Gfx) {
+            let pat = obj.weather_param.pat_no_00;
+            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+            let _ = gfx.object_set_patno(images, layers, stage_idx, obj_u as i64, pat);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2286,6 +2672,9 @@ fn dispatch_object_op(
 
     if ctx.ids.obj_pause_movie != 0 && op == ctx.ids.obj_pause_movie {
         obj.movie.pause_flag = true;
+        if let Some(id) = obj.movie.audio_id {
+            ctx.movie.pause_audio(id);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2293,12 +2682,18 @@ fn dispatch_object_op(
         obj.movie.pause_flag = false;
         // If a movie was created in ready-only mode, resume starts playback.
         obj.movie.playing = true;
+        if let Some(id) = obj.movie.audio_id {
+            ctx.movie.resume_audio(id);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
     if ctx.ids.obj_seek_movie != 0 && op == ctx.ids.obj_seek_movie {
         let t = script_args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as u64;
         obj.movie.seek(t);
+        if let Some(id) = obj.movie.audio_id.take() {
+            ctx.movie.stop_audio(id);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2451,7 +2846,7 @@ fn dispatch_object_op(
     }
 
     if ctx.ids.obj_get_button_real_state != 0 && op == ctx.ids.obj_get_button_real_state {
-        // Best-effort: incorporate group selection.
+        // Conservative: incorporate group selection.
         let mut stt = obj.button.state;
         if stt != TNM_BTN_STATE_SELECT && stt != TNM_BTN_STATE_DISABLE {
             if let Some(gidx) = obj.button.group_idx() {
@@ -2503,6 +2898,27 @@ fn dispatch_object_op(
             return true;
         };
         obj.gan_file = Some(name.to_string());
+        if let Err(err) = obj.gan.load_gan(&ctx.project_dir, &ctx.globals.append_dir, name) {
+            eprintln!("[GAN] load failed: {} ({})", name, err);
+        }
+        push_ok(ctx, ret_form);
+        return true;
+    }
+
+    if ctx.ids.obj_start_gan != 0 && op == ctx.ids.obj_start_gan {
+        let mut set_no = 0i64;
+        let mut loop_flag = true;
+        let mut real_time_flag = false;
+        if let Some(v) = script_args.get(0).and_then(as_i64) {
+            set_no = v;
+        }
+        if let Some(v) = script_args.get(1).and_then(as_i64) {
+            loop_flag = v != 0;
+        }
+        if let Some(v) = script_args.get(2).and_then(as_i64) {
+            real_time_flag = v != 0;
+        }
+        obj.gan.start_anm(set_no as i32, loop_flag, real_time_flag);
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2555,6 +2971,21 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(ctx.ids.obj_center_z, zv);
             }
         }
+        match obj.backend {
+            ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                    if let Some(spr) = layer.sprite_mut(sprite_id) {
+                        spr.pivot_x = x as f32;
+                        spr.pivot_y = y as f32;
+                    }
+                }
+            }
+            ObjectBackend::Gfx => {
+                let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                let _ = gfx.object_set_center(images, layers, stage_idx, obj_u as i64, x, y);
+            }
+            _ => {}
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2593,6 +3024,21 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(ctx.ids.obj_scale_z, zv);
             }
         }
+        match obj.backend {
+            ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                    if let Some(spr) = layer.sprite_mut(sprite_id) {
+                        spr.scale_x = x as f32 / 1000.0;
+                        spr.scale_y = y as f32 / 1000.0;
+                    }
+                }
+            }
+            ObjectBackend::Gfx => {
+                let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                let _ = gfx.object_set_scale(images, layers, stage_idx, obj_u as i64, x, y);
+            }
+            _ => {}
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2612,6 +3058,22 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(ctx.ids.obj_rotate_z, zv);
             }
         }
+        if let Some(zv) = z {
+            match obj.backend {
+                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.rotate = zv as f32 * std::f32::consts::PI / 1800.0;
+                        }
+                    }
+                }
+                ObjectBackend::Gfx => {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_rotate(images, layers, stage_idx, obj_u as i64, zv);
+                }
+                _ => {}
+            }
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2619,20 +3081,48 @@ fn dispatch_object_op(
     if ctx.ids.obj_set_clip != 0 && op == ctx.ids.obj_set_clip {
         // (use, left, top, right, bottom)
         if script_args.len() >= 5 {
+            let use_flag = script_args.get(0).and_then(as_i64).unwrap_or(0);
+            let left = script_args.get(1).and_then(as_i64).unwrap_or(0);
+            let top = script_args.get(2).and_then(as_i64).unwrap_or(0);
+            let right = script_args.get(3).and_then(as_i64).unwrap_or(0);
+            let bottom = script_args.get(4).and_then(as_i64).unwrap_or(0);
             if ctx.ids.obj_clip_use != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_clip_use, script_args.get(0).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_clip_use, use_flag);
             }
             if ctx.ids.obj_clip_left != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_clip_left, script_args.get(1).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_clip_left, left);
             }
             if ctx.ids.obj_clip_top != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_clip_top, script_args.get(2).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_clip_top, top);
             }
             if ctx.ids.obj_clip_right != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_clip_right, script_args.get(3).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_clip_right, right);
             }
             if ctx.ids.obj_clip_bottom != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_clip_bottom, script_args.get(4).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_clip_bottom, bottom);
+            }
+            match obj.backend {
+                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.dst_clip = if use_flag != 0 {
+                                Some(crate::layer::ClipRect {
+                                    left: left as i32,
+                                    top: top as i32,
+                                    right: right as i32,
+                                    bottom: bottom as i32,
+                                })
+                            } else {
+                                None
+                            };
+                        }
+                    }
+                }
+                ObjectBackend::Gfx => {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_clip(images, layers, stage_idx, obj_u as i64, use_flag, left, top, right, bottom);
+                }
+                _ => {}
             }
         }
         push_ok(ctx, ret_form);
@@ -2642,20 +3132,48 @@ fn dispatch_object_op(
     if ctx.ids.obj_set_src_clip != 0 && op == ctx.ids.obj_set_src_clip {
         // (use, left, top, right, bottom)
         if script_args.len() >= 5 {
+            let use_flag = script_args.get(0).and_then(as_i64).unwrap_or(0);
+            let left = script_args.get(1).and_then(as_i64).unwrap_or(0);
+            let top = script_args.get(2).and_then(as_i64).unwrap_or(0);
+            let right = script_args.get(3).and_then(as_i64).unwrap_or(0);
+            let bottom = script_args.get(4).and_then(as_i64).unwrap_or(0);
             if ctx.ids.obj_src_clip_use != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_src_clip_use, script_args.get(0).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_src_clip_use, use_flag);
             }
             if ctx.ids.obj_src_clip_left != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_src_clip_left, script_args.get(1).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_src_clip_left, left);
             }
             if ctx.ids.obj_src_clip_top != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_src_clip_top, script_args.get(2).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_src_clip_top, top);
             }
             if ctx.ids.obj_src_clip_right != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_src_clip_right, script_args.get(3).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_src_clip_right, right);
             }
             if ctx.ids.obj_src_clip_bottom != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_src_clip_bottom, script_args.get(4).and_then(as_i64).unwrap_or(0));
+                obj.extra_int_props.insert(ctx.ids.obj_src_clip_bottom, bottom);
+            }
+            match obj.backend {
+                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.src_clip = if use_flag != 0 {
+                                Some(crate::layer::ClipRect {
+                                    left: left as i32,
+                                    top: top as i32,
+                                    right: right as i32,
+                                    bottom: bottom as i32,
+                                })
+                            } else {
+                                None
+                            };
+                        }
+                    }
+                }
+                ObjectBackend::Gfx => {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_src_clip(images, layers, stage_idx, obj_u as i64, use_flag, left, top, right, bottom);
+                }
+                _ => {}
             }
         }
         push_ok(ctx, ret_form);
@@ -2722,6 +3240,99 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(op, v);
                 if ctx.ids.obj_alpha_test != 0 && op == ctx.ids.obj_alpha_test {
                     obj.button.alpha_test = v != 0;
+                }
+                if op == ctx.ids.obj_tr
+                    || op == ctx.ids.obj_mono
+                    || op == ctx.ids.obj_reverse
+                    || op == ctx.ids.obj_bright
+                    || op == ctx.ids.obj_dark
+                    || op == ctx.ids.obj_color_rate
+                    || op == ctx.ids.obj_color_add_r
+                    || op == ctx.ids.obj_color_add_g
+                    || op == ctx.ids.obj_color_add_b
+                    || op == ctx.ids.obj_color_r
+                    || op == ctx.ids.obj_color_g
+                    || op == ctx.ids.obj_color_b
+                    || op == ctx.ids.obj_blend
+                {
+                    match obj.backend {
+                        ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                            if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                                if let Some(spr) = layer.sprite_mut(sprite_id) {
+                                    if op == ctx.ids.obj_tr {
+                                        spr.tr = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_mono {
+                                        spr.mono = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_reverse {
+                                        spr.reverse = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_bright {
+                                        spr.bright = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_dark {
+                                        spr.dark = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_color_rate {
+                                        spr.color_rate = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_color_add_r {
+                                        spr.color_add_r = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_color_add_g {
+                                        spr.color_add_g = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_color_add_b {
+                                        spr.color_add_b = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_color_r {
+                                        spr.color_r = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_color_g {
+                                        spr.color_g = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_color_b {
+                                        spr.color_b = v.clamp(0, 255) as u8;
+                                    } else if op == ctx.ids.obj_blend {
+                                        spr.blend = crate::layer::SpriteBlend::from_i64(v);
+                                    }
+                                }
+                            }
+                        }
+                        ObjectBackend::Gfx => {
+                            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                            if op == ctx.ids.obj_tr {
+                                let _ = gfx.object_set_tr(images, layers, stage_idx, obj_u as i64, v);
+                            } else if op == ctx.ids.obj_mono {
+                                let _ = gfx.object_set_mono(images, layers, stage_idx, obj_u as i64, v);
+                            } else if op == ctx.ids.obj_reverse {
+                                let _ = gfx.object_set_reverse(images, layers, stage_idx, obj_u as i64, v);
+                            } else if op == ctx.ids.obj_bright {
+                                let _ = gfx.object_set_bright(images, layers, stage_idx, obj_u as i64, v);
+                            } else if op == ctx.ids.obj_dark {
+                                let _ = gfx.object_set_dark(images, layers, stage_idx, obj_u as i64, v);
+                            } else if op == ctx.ids.obj_color_rate {
+                                let _ = gfx.object_set_color_rate(images, layers, stage_idx, obj_u as i64, v);
+                            } else if op == ctx.ids.obj_color_add_r {
+                                let g = *obj.extra_int_props.get(&ctx.ids.obj_color_add_g).unwrap_or(&0);
+                                let b = *obj.extra_int_props.get(&ctx.ids.obj_color_add_b).unwrap_or(&0);
+                                let _ = gfx.object_set_color_add(images, layers, stage_idx, obj_u as i64, v, g, b);
+                            } else if op == ctx.ids.obj_color_add_g {
+                                let r = *obj.extra_int_props.get(&ctx.ids.obj_color_add_r).unwrap_or(&0);
+                                let b = *obj.extra_int_props.get(&ctx.ids.obj_color_add_b).unwrap_or(&0);
+                                let _ = gfx.object_set_color_add(images, layers, stage_idx, obj_u as i64, r, v, b);
+                            } else if op == ctx.ids.obj_color_add_b {
+                                let r = *obj.extra_int_props.get(&ctx.ids.obj_color_add_r).unwrap_or(&0);
+                                let g = *obj.extra_int_props.get(&ctx.ids.obj_color_add_g).unwrap_or(&0);
+                                let _ = gfx.object_set_color_add(images, layers, stage_idx, obj_u as i64, r, g, v);
+                            } else if op == ctx.ids.obj_color_r {
+                                let g = *obj.extra_int_props.get(&ctx.ids.obj_color_g).unwrap_or(&0);
+                                let b = *obj.extra_int_props.get(&ctx.ids.obj_color_b).unwrap_or(&0);
+                                let _ = gfx.object_set_color(images, layers, stage_idx, obj_u as i64, v, g, b);
+                            } else if op == ctx.ids.obj_color_g {
+                                let r = *obj.extra_int_props.get(&ctx.ids.obj_color_r).unwrap_or(&0);
+                                let b = *obj.extra_int_props.get(&ctx.ids.obj_color_b).unwrap_or(&0);
+                                let _ = gfx.object_set_color(images, layers, stage_idx, obj_u as i64, r, v, b);
+                            } else if op == ctx.ids.obj_color_b {
+                                let r = *obj.extra_int_props.get(&ctx.ids.obj_color_r).unwrap_or(&0);
+                                let g = *obj.extra_int_props.get(&ctx.ids.obj_color_g).unwrap_or(&0);
+                                let _ = gfx.object_set_color(images, layers, stage_idx, obj_u as i64, r, g, v);
+                            } else if op == ctx.ids.obj_blend {
+                                let _ = gfx.object_set_blend(images, layers, stage_idx, obj_u as i64, v);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
                 ctx.stack.push(Value::Int(0));
             } else {
@@ -3024,6 +3635,7 @@ fn dispatch_object_op(
             obj.extra_int_props.insert(ctx.ids.obj_x, x);
             obj.extra_int_props.insert(ctx.ids.obj_y, y);
 
+            update_string_backend(ctx, st, obj, stage_idx);
             push_ok(ctx, ret_form);
             true
         }
@@ -3093,6 +3705,16 @@ fn dispatch_object_op(
                         }
                     }
                 }
+                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.x = x as i32;
+                            spr.y = y as i32;
+                        }
+                    }
+                    obj.extra_int_props.insert(ctx.ids.obj_x, x);
+                    obj.extra_int_props.insert(ctx.ids.obj_y, y);
+                }
                 ObjectBackend::Gfx => {
 					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
 					let _ = gfx.object_set_pos(images, layers, stage_idx, obj_u as i64, x, y);
@@ -3112,29 +3734,207 @@ fn dispatch_object_op(
             push_ok(ctx, ret_form);
             true
         }
-        ObjectOpKind::SetCenter | ObjectOpKind::SetScale | ObjectOpKind::SetRotate => {
-            // These affect rendering in the original engine. The current renderer does not
-            // support pivot/scale/rotation, so we keep them as state for script compatibility.
-            let mut v = Vec::new();
-            for a in script_args.iter().take(3) {
-                v.push(a.as_i64().unwrap_or(0));
+        ObjectOpKind::SetCenter => {
+            let x = script_args.get(0).and_then(as_i64).unwrap_or(0);
+            let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
+            let z = script_args.get(2).and_then(as_i64).unwrap_or(0);
+            obj.cmd_int_args.insert(op, vec![x, y, z]);
+
+            match obj.backend.clone() {
+                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.pivot_x = x as f32;
+                            spr.pivot_y = y as f32;
+                        }
+                    }
+                }
+                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.pivot_x = x as f32;
+                            spr.pivot_y = y as f32;
+                        }
+                    }
+                }
+                ObjectBackend::Gfx => {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_center(images, layers, stage_idx, obj_u as i64, x, y);
+                }
+                _ => {}
             }
-            obj.cmd_int_args.insert(op, v);
+
             push_ok(ctx, ret_form);
             true
         }
-        ObjectOpKind::SetClip | ObjectOpKind::SetSrcClip => {
-            // Clip rectangles are stored for compatibility; rendering-side clipping is not implemented.
-            let mut v = Vec::new();
-            for a in script_args.iter().take(4) {
-                v.push(a.as_i64().unwrap_or(0));
+        ObjectOpKind::SetScale => {
+            let x = script_args.get(0).and_then(as_i64).unwrap_or(0);
+            let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
+            let z = script_args.get(2).and_then(as_i64).unwrap_or(0);
+            obj.cmd_int_args.insert(op, vec![x, y, z]);
+
+            match obj.backend.clone() {
+                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.scale_x = x as f32 / 1000.0;
+                            spr.scale_y = y as f32 / 1000.0;
+                        }
+                    }
+                }
+                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.scale_x = x as f32 / 1000.0;
+                            spr.scale_y = y as f32 / 1000.0;
+                        }
+                    }
+                }
+                ObjectBackend::Gfx => {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_scale(images, layers, stage_idx, obj_u as i64, x, y);
+                }
+                _ => {}
             }
-            obj.cmd_int_args.insert(op, v);
+
+            push_ok(ctx, ret_form);
+            true
+        }
+        ObjectOpKind::SetRotate => {
+            let x = script_args.get(0).and_then(as_i64).unwrap_or(0);
+            let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
+            let z = script_args.get(2).and_then(as_i64).unwrap_or(0);
+            obj.cmd_int_args.insert(op, vec![x, y, z]);
+
+            match obj.backend.clone() {
+                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.rotate = z as f32 * std::f32::consts::PI / 1800.0;
+                        }
+                    }
+                }
+                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.rotate = z as f32 * std::f32::consts::PI / 1800.0;
+                        }
+                    }
+                }
+                ObjectBackend::Gfx => {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_rotate(images, layers, stage_idx, obj_u as i64, z);
+                }
+                _ => {}
+            }
+
+            push_ok(ctx, ret_form);
+            true
+        }
+        ObjectOpKind::SetClip => {
+            let use_flag = script_args.get(0).and_then(as_i64).unwrap_or(0);
+            let left = script_args.get(1).and_then(as_i64).unwrap_or(0);
+            let top = script_args.get(2).and_then(as_i64).unwrap_or(0);
+            let right = script_args.get(3).and_then(as_i64).unwrap_or(0);
+            let bottom = script_args.get(4).and_then(as_i64).unwrap_or(0);
+            obj.cmd_int_args.insert(op, vec![use_flag, left, top, right, bottom]);
+
+            match obj.backend.clone() {
+                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.dst_clip = if use_flag != 0 {
+                                Some(crate::layer::ClipRect {
+                                    left: left as i32,
+                                    top: top as i32,
+                                    right: right as i32,
+                                    bottom: bottom as i32,
+                                })
+                            } else {
+                                None
+                            };
+                        }
+                    }
+                }
+                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.dst_clip = if use_flag != 0 {
+                                Some(crate::layer::ClipRect {
+                                    left: left as i32,
+                                    top: top as i32,
+                                    right: right as i32,
+                                    bottom: bottom as i32,
+                                })
+                            } else {
+                                None
+                            };
+                        }
+                    }
+                }
+                ObjectBackend::Gfx => {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_clip(images, layers, stage_idx, obj_u as i64, use_flag, left, top, right, bottom);
+                }
+                _ => {}
+            }
+
+            push_ok(ctx, ret_form);
+            true
+        }
+        ObjectOpKind::SetSrcClip => {
+            let use_flag = script_args.get(0).and_then(as_i64).unwrap_or(0);
+            let left = script_args.get(1).and_then(as_i64).unwrap_or(0);
+            let top = script_args.get(2).and_then(as_i64).unwrap_or(0);
+            let right = script_args.get(3).and_then(as_i64).unwrap_or(0);
+            let bottom = script_args.get(4).and_then(as_i64).unwrap_or(0);
+            obj.cmd_int_args.insert(op, vec![use_flag, left, top, right, bottom]);
+
+            match obj.backend.clone() {
+                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.src_clip = if use_flag != 0 {
+                                Some(crate::layer::ClipRect {
+                                    left: left as i32,
+                                    top: top as i32,
+                                    right: right as i32,
+                                    bottom: bottom as i32,
+                                })
+                            } else {
+                                None
+                            };
+                        }
+                    }
+                }
+                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                        if let Some(spr) = layer.sprite_mut(sprite_id) {
+                            spr.src_clip = if use_flag != 0 {
+                                Some(crate::layer::ClipRect {
+                                    left: left as i32,
+                                    top: top as i32,
+                                    right: right as i32,
+                                    bottom: bottom as i32,
+                                })
+                            } else {
+                                None
+                            };
+                        }
+                    }
+                }
+                ObjectBackend::Gfx => {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_src_clip(images, layers, stage_idx, obj_u as i64, use_flag, left, top, right, bottom);
+                }
+                _ => {}
+            }
+
             push_ok(ctx, ret_form);
             true
         }
         _ => {
-            // Generic property storage fallback (supports both int and string).
+            // Generic property storage path (supports both int and string).
             if let Some(Value::Int(v)) = rhs {
                 obj.extra_int_props.insert(op, *v);
                 ctx.stack.push(Value::Int(0));
@@ -3147,7 +3947,7 @@ fn dispatch_object_op(
                 return true;
             }
 
-            // Property-get fallback.
+            // Property-get path.
             if rhs.is_none() && ret_form.is_none() {
                 if st.object_str_ops.contains(&op) {
                     if let Some(sv) = obj.extra_str_props.get(&op) {
@@ -3170,6 +3970,413 @@ fn dispatch_object_op(
             true
         }
     }
+}
+
+fn ensure_world_list(st: &mut StageFormState, stage_idx: i64, cnt: usize) {
+    let list = st.world_lists.entry(stage_idx).or_insert_with(Vec::new);
+    if list.len() < cnt {
+        for i in list.len()..cnt {
+            list.push(WorldState::new(i as i32));
+        }
+    } else if list.len() > cnt {
+        list.truncate(cnt);
+    }
+}
+
+fn dispatch_world_list_op(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    op: i32,
+    script_args: &[Value],
+    ret_form: Option<i64>,
+) -> bool {
+    let ids = ctx.ids.clone();
+    let list = st.world_lists.entry(stage_idx).or_insert_with(Vec::new);
+
+    if ids.worldlist_create != 0 && op == ids.worldlist_create {
+        let old = list.len() as i64;
+        list.push(WorldState::new(list.len() as i32));
+        ctx.stack.push(Value::Int(old));
+        return true;
+    }
+
+    if ids.worldlist_destroy != 0 && op == ids.worldlist_destroy {
+        if !list.is_empty() {
+            list.pop();
+        }
+        ctx.stack.push(Value::Int(0));
+        return true;
+    }
+
+    if script_args.is_empty() && ret_form.unwrap_or(0) != 0 {
+        ctx.stack.push(Value::Int(list.len() as i64));
+        return true;
+    }
+
+    if script_args.is_empty() && ret_form.unwrap_or(0) == 0 {
+        let old = list.len() as i64;
+        list.push(WorldState::new(list.len() as i32));
+        ctx.stack.push(Value::Int(old));
+        return true;
+    }
+
+    false
+}
+
+fn dispatch_world_item_op(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    idx: usize,
+    op: i32,
+    tail: &[i32],
+    script_args: &[Value],
+    rhs: Option<&Value>,
+    al_id: Option<i64>,
+    ret_form: Option<i64>,
+) -> bool {
+    ensure_world_list(st, stage_idx, idx + 1);
+    let list = st.world_lists.get_mut(&stage_idx).unwrap();
+    let w = &mut list[idx];
+    let ids = ctx.ids.clone();
+
+    let set_v = rhs.and_then(as_i64).or_else(|| {
+        if ret_form.is_some() && al_id == Some(1) && script_args.len() == 1 {
+            script_args.get(0).and_then(as_i64)
+        } else {
+            None
+        }
+    });
+
+    let is_event_tail = !tail.is_empty() && (0..=4).contains(&tail[0]);
+
+    let mut handle_event = |ev: &mut IntEvent| {
+        world_handle_event(ctx, ev, set_v, is_event_tail, script_args, ret_form)
+    };
+
+    if ids.world_init != 0 && op == ids.world_init {
+        w.reinit();
+        push_ok(ctx, ret_form);
+        return true;
+    }
+    if ids.world_get_no != 0 && op == ids.world_get_no {
+        ctx.stack.push(Value::Int(w.world_no as i64));
+        return true;
+    }
+
+    if ids.world_camera_eye_x_eve != 0 && op == ids.world_camera_eye_x_eve {
+        return handle_event(&mut w.camera_eye_x);
+    }
+    if ids.world_camera_eye_y_eve != 0 && op == ids.world_camera_eye_y_eve {
+        return handle_event(&mut w.camera_eye_y);
+    }
+    if ids.world_camera_eye_z_eve != 0 && op == ids.world_camera_eye_z_eve {
+        return handle_event(&mut w.camera_eye_z);
+    }
+    if ids.world_camera_pint_x_eve != 0 && op == ids.world_camera_pint_x_eve {
+        return handle_event(&mut w.camera_pint_x);
+    }
+    if ids.world_camera_pint_y_eve != 0 && op == ids.world_camera_pint_y_eve {
+        return handle_event(&mut w.camera_pint_y);
+    }
+    if ids.world_camera_pint_z_eve != 0 && op == ids.world_camera_pint_z_eve {
+        return handle_event(&mut w.camera_pint_z);
+    }
+    if ids.world_camera_up_x_eve != 0 && op == ids.world_camera_up_x_eve {
+        return handle_event(&mut w.camera_up_x);
+    }
+    if ids.world_camera_up_y_eve != 0 && op == ids.world_camera_up_y_eve {
+        return handle_event(&mut w.camera_up_y);
+    }
+    if ids.world_camera_up_z_eve != 0 && op == ids.world_camera_up_z_eve {
+        return handle_event(&mut w.camera_up_z);
+    }
+
+    if ids.world_camera_eye_x != 0 && op == ids.world_camera_eye_x {
+        if let Some(v) = set_v {
+            w.camera_eye_x.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_eye_x.get_value() as i64));
+        }
+        return true;
+    }
+    if ids.world_camera_eye_y != 0 && op == ids.world_camera_eye_y {
+        if let Some(v) = set_v {
+            w.camera_eye_y.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_eye_y.get_value() as i64));
+        }
+        return true;
+    }
+    if ids.world_camera_eye_z != 0 && op == ids.world_camera_eye_z {
+        if let Some(v) = set_v {
+            w.camera_eye_z.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_eye_z.get_value() as i64));
+        }
+        return true;
+    }
+    if ids.world_camera_pint_x != 0 && op == ids.world_camera_pint_x {
+        if let Some(v) = set_v {
+            w.camera_pint_x.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_pint_x.get_value() as i64));
+        }
+        return true;
+    }
+    if ids.world_camera_pint_y != 0 && op == ids.world_camera_pint_y {
+        if let Some(v) = set_v {
+            w.camera_pint_y.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_pint_y.get_value() as i64));
+        }
+        return true;
+    }
+    if ids.world_camera_pint_z != 0 && op == ids.world_camera_pint_z {
+        if let Some(v) = set_v {
+            w.camera_pint_z.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_pint_z.get_value() as i64));
+        }
+        return true;
+    }
+    if ids.world_camera_up_x != 0 && op == ids.world_camera_up_x {
+        if let Some(v) = set_v {
+            w.camera_up_x.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_up_x.get_value() as i64));
+        }
+        return true;
+    }
+    if ids.world_camera_up_y != 0 && op == ids.world_camera_up_y {
+        if let Some(v) = set_v {
+            w.camera_up_y.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_up_y.get_value() as i64));
+        }
+        return true;
+    }
+    if ids.world_camera_up_z != 0 && op == ids.world_camera_up_z {
+        if let Some(v) = set_v {
+            w.camera_up_z.set_value(v as i32);
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_up_z.get_value() as i64));
+        }
+        return true;
+    }
+
+    if ids.world_camera_view_angle != 0 && op == ids.world_camera_view_angle {
+        if let Some(v) = set_v {
+            w.camera_view_angle = v as i32;
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.camera_view_angle as i64));
+        }
+        return true;
+    }
+    if ids.world_mono != 0 && op == ids.world_mono {
+        if let Some(v) = set_v {
+            w.mono = v as i32;
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.mono as i64));
+        }
+        return true;
+    }
+    if ids.world_order != 0 && op == ids.world_order {
+        if let Some(v) = set_v {
+            w.order = v as i32;
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.order as i64));
+        }
+        return true;
+    }
+    if ids.world_layer != 0 && op == ids.world_layer {
+        if let Some(v) = set_v {
+            w.layer = v as i32;
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.layer as i64));
+        }
+        return true;
+    }
+    if ids.world_wipe_copy != 0 && op == ids.world_wipe_copy {
+        if let Some(v) = set_v {
+            w.wipe_copy = v as i32;
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.wipe_copy as i64));
+        }
+        return true;
+    }
+    if ids.world_wipe_erase != 0 && op == ids.world_wipe_erase {
+        if let Some(v) = set_v {
+            w.wipe_erase = v as i32;
+            ctx.stack.push(Value::Int(0));
+        } else {
+            ctx.stack.push(Value::Int(w.wipe_erase as i64));
+        }
+        return true;
+    }
+
+    if ids.world_set_camera_eye != 0 && op == ids.world_set_camera_eye {
+        let x = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
+        let y = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
+        let z = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
+        w.camera_eye_x.set_value(x);
+        w.camera_eye_y.set_value(y);
+        w.camera_eye_z.set_value(z);
+        push_ok(ctx, ret_form);
+        return true;
+    }
+
+    if ids.world_set_camera_pint != 0 && op == ids.world_set_camera_pint {
+        let x = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
+        let y = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
+        let z = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
+        w.camera_pint_x.set_value(x);
+        w.camera_pint_y.set_value(y);
+        w.camera_pint_z.set_value(z);
+        push_ok(ctx, ret_form);
+        return true;
+    }
+
+    if ids.world_set_camera_up != 0 && op == ids.world_set_camera_up {
+        let x = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
+        let y = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
+        let z = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
+        w.camera_up_x.set_value(x);
+        w.camera_up_y.set_value(y);
+        w.camera_up_z.set_value(z);
+        push_ok(ctx, ret_form);
+        return true;
+    }
+
+    if ids.world_calc_camera_eye != 0 && op == ids.world_calc_camera_eye {
+        let distance = script_args.get(0).and_then(as_i64).unwrap_or(0) as f64;
+        let rotate_h = (script_args.get(1).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
+        let rotate_v = (script_args.get(2).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
+        let px = w.camera_pint_x.get_value() as f64;
+        let py = w.camera_pint_y.get_value() as f64;
+        let pz = w.camera_pint_z.get_value() as f64;
+        let x = (px - distance * rotate_h.sin() * rotate_v.cos()) as i32;
+        let y = (py + distance * rotate_v.sin()) as i32;
+        let z = (pz - distance * rotate_h.cos() * rotate_v.cos()) as i32;
+        w.camera_eye_x.set_value(x);
+        w.camera_eye_y.set_value(y);
+        w.camera_eye_z.set_value(z);
+        push_ok(ctx, ret_form);
+        return true;
+    }
+
+    if ids.world_calc_camera_pint != 0 && op == ids.world_calc_camera_pint {
+        let distance = script_args.get(0).and_then(as_i64).unwrap_or(0) as f64;
+        let rotate_h = (script_args.get(1).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
+        let rotate_v = (script_args.get(2).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
+        let ex = w.camera_eye_x.get_value() as f64;
+        let ey = w.camera_eye_y.get_value() as f64;
+        let ez = w.camera_eye_z.get_value() as f64;
+        let x = (ex + distance * rotate_h.sin() * rotate_v.cos()) as i32;
+        let y = (ey + distance * rotate_v.sin()) as i32;
+        let z = (ez + distance * rotate_h.cos() * rotate_v.cos()) as i32;
+        w.camera_pint_x.set_value(x);
+        w.camera_pint_y.set_value(y);
+        w.camera_pint_z.set_value(z);
+        push_ok(ctx, ret_form);
+        return true;
+    }
+
+    if ids.world_set_camera_eve_xz_rotate != 0 && op == ids.world_set_camera_eve_xz_rotate {
+        let x = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
+        let z = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
+        let time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
+        let rep_time = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
+        let speed_type = script_args.get(4).and_then(as_i64).unwrap_or(0) as i32;
+
+        w.camera_eye_xz_eve.loop_type = 0;
+        w.camera_eye_xz_eve.cur_time = 0;
+        w.camera_eye_xz_eve.end_time = time;
+        w.camera_eye_xz_eve.delay_time = rep_time;
+        w.camera_eye_xz_eve.speed_type = speed_type;
+
+        w.camera_eye_x.start_value = w.camera_eye_x.value;
+        w.camera_eye_z.start_value = w.camera_eye_z.value;
+        w.camera_eye_x.end_value = x;
+        w.camera_eye_z.end_value = z;
+
+        w.camera_eye_x.set_value(x);
+        w.camera_eye_z.set_value(z);
+        push_ok(ctx, ret_form);
+        return true;
+    }
+
+    if is_event_tail {
+        let ev = w.extra_events.entry(op).or_insert_with(|| IntEvent::new(0));
+        if let Some(v) = dispatch_int_event_like(ev, script_args, ret_form) {
+            ctx.stack.push(v);
+        } else {
+            push_ok(ctx, ret_form);
+        }
+        return true;
+    }
+
+    if let Some(Value::Str(v)) = rhs {
+        w.extra_str.insert(op, v.clone());
+        ctx.stack.push(Value::Int(0));
+        return true;
+    }
+    if let Some(Value::Int(v)) = rhs {
+        w.extra_int.insert(op, *v);
+        ctx.stack.push(Value::Int(0));
+        return true;
+    }
+    if rhs.is_none() {
+        if let Some(s) = w.extra_str.get(&op) {
+            ctx.stack.push(Value::Str(s.clone()));
+        } else {
+            ctx.stack.push(Value::Int(*w.extra_int.get(&op).unwrap_or(&0)));
+        }
+        return true;
+    }
+
+    push_ok(ctx, ret_form);
+    true
+}
+
+fn world_handle_event(
+    ctx: &mut CommandContext,
+    ev: &mut IntEvent,
+    set_v: Option<i64>,
+    is_event_tail: bool,
+    script_args: &[Value],
+    ret_form: Option<i64>,
+) -> bool {
+    if is_event_tail {
+        if let Some(v) = dispatch_int_event_like(ev, script_args, ret_form) {
+            ctx.stack.push(v);
+        } else {
+            push_ok(ctx, ret_form);
+        }
+        return true;
+    }
+    if let Some(v) = set_v {
+        ev.set_value(v as i32);
+        ctx.stack.push(Value::Int(0));
+    } else {
+        ctx.stack.push(Value::Int(ev.get_value() as i64));
+    }
+    true
 }
 
 fn learn_group_list_op(st: &mut StageFormState, op: i32, argc: usize) -> GroupListOpKind {
@@ -3381,7 +4588,7 @@ fn dispatch_group_item_op(
             g.wait_flag = true;
             g.start();
 
-            // Focus this group for bring-up key mapping (see runtime::CommandContext::on_key_down).
+            // Focus this group for runtime key mapping (see runtime::CommandContext::on_key_down).
             ctx.globals.focused_stage_group = Some((ctx.ids.form_global_stage, stage_idx, group_idx));
 
             // Block VM until a key is pressed.
@@ -3430,7 +4637,55 @@ fn dispatch_group_item_op(
             ctx.stack.push(Value::Int(g.result_button_no));
             true
         }
-        GroupOpKind::Unknown => false,
+        GroupOpKind::Unknown => {
+            if let Some(s) = rhs.and_then(as_str) {
+                g.str_props.insert(op, s.to_string());
+                ctx.stack.push(Value::Int(0));
+                true
+            } else if let Some(v) = rhs.and_then(as_i64) {
+                g.props.insert(op, v);
+                ctx.stack.push(Value::Int(0));
+                true
+            } else if rhs.is_none() && script_args.len() == 1 {
+                if let Some(v) = script_args[0].as_i64() {
+                    if matches!(al_id, Some(1)) {
+                        g.props.insert(op, v);
+                        ctx.stack.push(Value::Int(0));
+                        return true;
+                    }
+                }
+                if let Some(s) = script_args[0].as_str() {
+                    if matches!(al_id, Some(1)) {
+                        g.str_props.insert(op, s.to_string());
+                        ctx.stack.push(Value::Int(0));
+                        return true;
+                    }
+                }
+                if let Some(rf) = ret_form {
+                    if rf == 2 {
+                        ctx.stack.push(Value::Str(g.str_props.get(&op).cloned().unwrap_or_default()));
+                        return true;
+                    }
+                    if rf != 0 {
+                        ctx.stack.push(Value::Int(*g.props.get(&op).unwrap_or(&0)));
+                        return true;
+                    }
+                }
+                false
+            } else if let Some(rf) = ret_form {
+                if rf == 2 {
+                    ctx.stack.push(Value::Str(g.str_props.get(&op).cloned().unwrap_or_default()));
+                    true
+                } else if rf != 0 {
+                    ctx.stack.push(Value::Int(*g.props.get(&op).unwrap_or(&0)));
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        },
     }
 }
 
@@ -3648,6 +4903,9 @@ match k {
             if !m.waku_file.is_empty() {
                 try_set_ui_bg_from_name(ctx, &m.waku_file);
             }
+            if !m.filter_file.is_empty() {
+                try_set_ui_filter_from_name(ctx, &m.filter_file);
+            }
             ctx.ui.show_message_bg(true);
             push_ok(ctx, ret_form);
             true
@@ -3681,7 +4939,7 @@ match k {
             true
         }
         MwndOpKind::Print => {
-            // Best-effort: pick the first string argument as message text.
+            // Conservative: pick the first string argument as message text.
             let msg = rhs
                 .and_then(|v| v.as_str())
                 .or_else(|| script_args.iter().find_map(|v| v.as_str()))
@@ -3718,12 +4976,12 @@ match k {
         }
         MwndOpKind::AddMsgCheck => {
             // Original behavior depends on internal layout and remaining capacity.
-            // Bring-up: always allow.
+            // Runtime: always allow.
             ctx.stack.push(Value::Int(1));
             true
         }
         MwndOpKind::WaitMsg => {
-            // Bring-up: wait for any key / mouse.
+            // Runtime: wait for any key / mouse.
             ctx.ui.begin_wait_message();
             ctx.wait.wait_key();
             m.text_dirty = false;
@@ -3789,6 +5047,7 @@ match k {
         }
         MwndOpKind::InitFilterFile => {
             m.filter_file.clear();
+            ctx.ui.set_message_filter(None);
             push_ok(ctx, ret_form);
             true
         }
@@ -3798,6 +5057,9 @@ match k {
                 .or_else(|| script_args.iter().find_map(|v| v.as_str()))
                 .unwrap_or("");
             m.filter_file = s.to_string();
+            if m.open {
+                try_set_ui_filter_from_name(ctx, &m.filter_file);
+            }
             push_ok(ctx, ret_form);
             true
         }
@@ -3806,8 +5068,11 @@ match k {
             true
         }
         MwndOpKind::Unknown => {
-            // Best-effort generic property storage to keep scripts progressing.
-            // Many MWND properties are int-valued (e.g., speed, flags, layout).
+            if let Some(s) = rhs.and_then(|v| v.as_str()) {
+                m.str_props.insert(op, s.to_string());
+                ctx.stack.push(Value::Int(0));
+                return true;
+            }
             if let Some(v) = rhs.and_then(|v| v.as_i64()) {
                 m.props.insert(op, v);
                 ctx.stack.push(Value::Int(0));
@@ -3822,13 +5087,19 @@ match k {
                         return true;
                     }
                 }
+                if let Some(s) = script_args[0].as_str() {
+                    if matches!(al_id, Some(1)) {
+                        m.str_props.insert(op, s.to_string());
+                        ctx.stack.push(Value::Int(0));
+                        return true;
+                    }
+                }
             }
 
             if rhs.is_none() {
                 if let Some(rf) = ret_form {
                     if rf == 2 {
-                        // String return: keep it empty.
-                        ctx.stack.push(Value::Str(String::new()));
+                        ctx.stack.push(Value::Str(m.str_props.get(&op).cloned().unwrap_or_default()));
                         return true;
                     }
                     if rf != 0 {
@@ -3893,7 +5164,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         }
         StageTarget::StageOp { stage: _, op: _ } => {
             // CreateObject/CreateMwnd exist on the stage itself in the original engine.
-            // Without a reliable id-map, we keep this as a stub that returns 0.
+            // Without a reliable id-map, we keep this as a conservative path that returns 0.
             if let Some(rf) = ret_form {
                 if rf != 0 {
                     ctx.stack.push(default_for_ret_form(rf));
@@ -3908,6 +5179,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         StageTarget::ChildListOp { stage, child, op } => {
             let form_id = ctx.ids.form_global_stage;
             let stage_elm_object = ctx.ids.stage_elm_object;
+            let stage_elm_world = ctx.ids.stage_elm_world;
 
             with_stage_state(ctx, form_id, |ctx, st| {
                 // Route by learned kind (or try to learn).
@@ -3937,18 +5209,17 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     }
                 }
 
-                if !handled {
-                    // Keep VM moving with a conservative default.
-                    ctx.unknown.record_element_chain(form_id, &chain, "STAGE");
-                    if let Some(rf) = ret_form {
-                        if rf != 0 {
-                            ctx.stack.push(default_for_ret_form(rf));
-                        } else {
-                            ctx.stack.push(Value::Int(0));
+                if !handled && (kind == StageChildKind::WorldList || kind == StageChildKind::Unknown) {
+                    if (stage_elm_world != 0 && child == stage_elm_world) || stage_elm_world == 0 {
+                        if dispatch_world_list_op(ctx, st, stage, op as i32, script_args, ret_form) {
+                            st.child_kind.insert(child, StageChildKind::WorldList);
+                            handled = true;
                         }
-                    } else {
-                        ctx.stack.push(Value::Int(0));
                     }
+                }
+
+                if !handled {
+                    stage_chain_fallback(ctx, st, &chain, script_args, rhs, al_id, ret_form);
                 }
             });
 
@@ -3957,6 +5228,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         StageTarget::ChildItemOp { stage, child, idx, op, tail } => {
             let form_id = ctx.ids.form_global_stage;
             let stage_elm_object = ctx.ids.stage_elm_object;
+            let stage_elm_world = ctx.ids.stage_elm_world;
 
             with_stage_state(ctx, form_id, |ctx, st| {
                 // Known object list path (compat).
@@ -3978,16 +5250,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                         return;
                     }
 
-                    ctx.unknown.record_element_chain(form_id, &chain, "STAGE");
-                    if let Some(rf) = ret_form {
-                        if rf != 0 {
-                            ctx.stack.push(default_for_ret_form(rf));
-                        } else {
-                            ctx.stack.push(Value::Int(0));
-                        }
-                    } else {
-                        ctx.stack.push(Value::Int(0));
-                    }
+                    stage_chain_fallback(ctx, st, &chain, script_args, rhs, al_id, ret_form);
                     return;
                 }
 
@@ -4033,17 +5296,28 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     }
                 }
 
-                if !handled {
-                    ctx.unknown.record_element_chain(form_id, &chain, "STAGE");
-                    if let Some(rf) = ret_form {
-                        if rf != 0 {
-                            ctx.stack.push(default_for_ret_form(rf));
-                        } else {
-                            ctx.stack.push(Value::Int(0));
+                if !handled && (kind == StageChildKind::WorldList || kind == StageChildKind::Unknown) {
+                    if (stage_elm_world != 0 && child == stage_elm_world) || stage_elm_world == 0 {
+                        if dispatch_world_item_op(
+                            ctx,
+                            st,
+                            stage,
+                            idx.max(0) as usize,
+                            op as i32,
+                            &tail,
+                            script_args,
+                            rhs,
+                            al_id,
+                            ret_form,
+                        ) {
+                            st.child_kind.insert(child, StageChildKind::WorldList);
+                            handled = true;
                         }
-                    } else {
-                        ctx.stack.push(Value::Int(0));
                     }
+                }
+
+                if !handled {
+                    stage_chain_fallback(ctx, st, &chain, script_args, rhs, al_id, ret_form);
                 }
             });
 

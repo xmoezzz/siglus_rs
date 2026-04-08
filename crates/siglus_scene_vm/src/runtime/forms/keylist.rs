@@ -2,7 +2,9 @@ use anyhow::Result;
 
 use crate::runtime::{CommandContext, Value};
 
-use super::key;
+use super::{key, prop_access};
+
+const KEYLIST_FORM_STATE: u32 = 0xFF00_0003;
 
 fn find_chain(args: &[Value]) -> Option<Vec<i32>> {
     for v in args.iter().rev() {
@@ -73,12 +75,12 @@ fn dispatch_op(ctx: &mut CommandContext, op: i64, args: &[Value]) -> Result<bool
             Ok(true)
         }
         o if o == ctx.ids.keylist_op_clear as i64 => {
-            ctx.input.clear_all();
+            ctx.input.clear_keyboard();
             ctx.push(Value::Int(0));
             Ok(true)
         }
         o if o == ctx.ids.keylist_op_next as i64 => {
-            ctx.input.next_frame();
+            ctx.input.next_keyboard_frame();
             ctx.push(Value::Int(0));
             Ok(true)
         }
@@ -92,9 +94,8 @@ fn dispatch_op(ctx: &mut CommandContext, op: i64, args: &[Value]) -> Result<bool
             Ok(true)
         }
         _ => {
-            ctx.unknown
-                .record_unimplemented(&format!("KEYLIST/op={op}"));
-            ctx.push(Value::Int(0));
+            let form_key = if ctx.ids.form_global_keylist != 0 { ctx.ids.form_global_keylist } else { KEYLIST_FORM_STATE };
+            prop_access::store_or_push_direct_prop(ctx, form_key, op as i32, args, 1);
             Ok(true)
         }
     }

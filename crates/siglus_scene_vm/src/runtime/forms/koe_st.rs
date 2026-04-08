@@ -3,7 +3,7 @@
 //! In the original engine, the KOE/voice subsystem is routed through a global
 //! form ID, but in some builds it is intentionally stubbed.
 //!
-//! For bring-up we implement a conservative subset that never blocks:
+//! For runtime we implement a conservative subset that never blocks:
 //! - op 0: stop
 //! - op 1: play by file name (if a string arg is provided)
 //! - op 2: check playing
@@ -47,6 +47,13 @@ fn find_name(args: &[Value]) -> Option<&str> {
     })
 }
 
+fn find_int(args: &[Value]) -> Option<i64> {
+    args.iter().find_map(|v| match v {
+        Value::Int(v) => Some(*v),
+        _ => None,
+    })
+}
+
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let Some(op) = parse_op(ctx, args) else {
         return Ok(false);
@@ -59,11 +66,14 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             ctx.push(Value::Int(0));
             Ok(true)
         }
-        // Play by file name (best-effort)
+        // Play by file name or koe number.
         1 => {
-            if let Some(name) = find_name(args) {
-				let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-				let _ = se.play_file_name(audio, name);
+            if let Some(name) = find_name(&args[1..]) {
+                let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+                let _ = se.play_file_name(audio, name);
+            } else if let Some(koe_no) = find_int(&args[1..]) {
+                let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+                let _ = se.play_koe_no(audio, koe_no);
             }
             ctx.push(Value::Int(0));
             Ok(true)

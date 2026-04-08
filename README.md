@@ -16,3 +16,19 @@ Environment variables (hex strings):
 - `SIGLUS_GAME_ANGOU_CODE_HEX` (often 256 bytes)
 - `SIGLUS_ANGOU_CHAIN_ORDER` (comma-separated: `exe,base,game`)
 
+key.toml (project root) overrides:
+
+```toml
+key = [0x00, 0x11, ...]               # 16 bytes
+base_angou_code = [0x00, 0x11, ...]   # optional
+game_angou_code = [0x00, 0x11, ...]   # optional
+chain_order = ["exe", "base", "game"] # optional
+```
+
+Hex string variants are also accepted:
+
+```toml
+key_hex = "001122...ff"
+base_angou_hex = "001122...ff"
+game_angou_hex = "001122...ff"
+```

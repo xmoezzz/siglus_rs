@@ -5,7 +5,7 @@ use crate::runtime::int_event::IntEvent;
 use crate::runtime::{CommandContext, Value};
 
 fn default_for_ret_form(ret_form: i32) -> Value {
-    // Bring-up heuristic used by stub: ret_form == 2 is string.
+    // Runtime heuristic used by property access: ret_form == 2 is string.
     if ret_form == 2 {
         Value::Str(String::new())
     } else {
@@ -17,8 +17,7 @@ fn mask_cnt(ctx: &CommandContext) -> usize {
     ctx.tables
         .gameexe
         .as_ref()
-        .and_then(|cfg| cfg.get("MASK.CNT"))
-        .and_then(|s| s.parse::<usize>().ok())
+        .map(|cfg| cfg.indexed_count("MASK"))
         .unwrap_or(0)
 }
 
@@ -71,7 +70,7 @@ fn confirm_if_probably_mask(ctx: &mut CommandContext, form_id: u32, params: &[Va
 }
 
 fn dispatch_int_event(ev: &mut IntEvent, params: &[Value], ret_form: i32) -> Option<Value> {
-    // Bring-up interpretation (no element-code table):
+    // Runtime interpretation (no element-code table):
     // - 4 args: SET-like (value, total_time, delay_time, speed_type)
     // - 5 args: LOOP/TURN-like (start_value, end_value, loop_time, delay_time, speed_type)
     // - 0 args: if returns non-void => CHECK, else END.
@@ -81,7 +80,7 @@ fn dispatch_int_event(ev: &mut IntEvent, params: &[Value], ret_form: i32) -> Opt
                 let v = if ev.check_event() { 1 } else { 0 };
                 return Some(Value::Int(v as i64));
             } else {
-                // Treat as END to keep scripts progressing.
+                // Treat as END.
                 ev.end_event();
             }
         }
@@ -100,7 +99,7 @@ fn dispatch_int_event(ev: &mut IntEvent, params: &[Value], ret_form: i32) -> Opt
             let delay_time = params.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
             let speed_type = params.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
             // Without the element-code table, we cannot distinguish LOOP vs TURN reliably.
-            // LOOP is the safer default for bring-up.
+            // LOOP is the safer default for runtime.
             let real_flag = 0;
             ev.loop_event(start_value, end_value, loop_time, delay_time, speed_type, real_flag);
         }
@@ -299,7 +298,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     Ok(handled)
 }
 
-/// Best-effort dispatch for unknown global forms.
+/// Conservative dispatch for unknown global forms.
 ///
 /// This is used when `form_global_mask` is not mapped in `IdMap`.
 pub fn maybe_dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {

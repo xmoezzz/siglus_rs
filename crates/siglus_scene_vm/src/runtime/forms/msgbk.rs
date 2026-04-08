@@ -9,9 +9,9 @@
 //!
 //! Titles differ in element-code assignments, so this implementation:
 //!   - relies on element-chain structure rather than numeric codes
-//!   - does best-effort operation classification from argument shapes
+//!   - does conservative operation classification from argument shapes
 //!
-//! There are no getters in the public script surface for this object, so bring-up
+//! There are no getters in the public script surface for this object, so runtime
 //! focuses on storing enough state for future UI integration.
 
 use anyhow::Result;
@@ -73,7 +73,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     }
     let _op = chain[1];
 
-    // Best-effort classification by parameter shape.
+    // Conservative classification by parameter shape.
     // - 0 args: GO_NEXT_MSG
     // - int args: ADD_KOE
     // - string args: ADD_NAMAE/ADD_MSG/INSERT_MSG (treated as text atom)

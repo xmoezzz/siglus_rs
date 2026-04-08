@@ -7,7 +7,7 @@
 use anyhow::{bail, Context, Result};
 
 use crate::image_manager::{ImageId, ImageManager};
-use crate::layer::{LayerId, LayerManager, SpriteFit, SpriteId, SpriteSizeMode};
+use crate::layer::{ClipRect, LayerId, LayerManager, SpriteBlend, SpriteFit, SpriteId, SpriteSizeMode};
 
 #[derive(Debug, Clone)]
 struct ObjectState {
@@ -28,6 +28,34 @@ struct ObjectState {
     alpha: i64,
     /// Stored but not used for sorting (Siglus draw order follows tree traversal).
     z: i64,
+    center_x: i64,
+    center_y: i64,
+    scale_x: i64,
+    scale_y: i64,
+    rotate_z: i64,
+    clip_use: i64,
+    clip_left: i64,
+    clip_top: i64,
+    clip_right: i64,
+    clip_bottom: i64,
+    src_clip_use: i64,
+    src_clip_left: i64,
+    src_clip_top: i64,
+    src_clip_right: i64,
+    src_clip_bottom: i64,
+    tr: i64,
+    mono: i64,
+    reverse: i64,
+    bright: i64,
+    dark: i64,
+    color_rate: i64,
+    color_add_r: i64,
+    color_add_g: i64,
+    color_add_b: i64,
+    color_r: i64,
+    color_g: i64,
+    color_b: i64,
+    blend: i64,
 }
 
 impl Default for ObjectState {
@@ -45,6 +73,34 @@ impl Default for ObjectState {
             order: 0,
             alpha: 255,
             z: 0,
+            center_x: 0,
+            center_y: 0,
+            scale_x: 1000,
+            scale_y: 1000,
+            rotate_z: 0,
+            clip_use: 0,
+            clip_left: 0,
+            clip_top: 0,
+            clip_right: 0,
+            clip_bottom: 0,
+            src_clip_use: 0,
+            src_clip_left: 0,
+            src_clip_top: 0,
+            src_clip_right: 0,
+            src_clip_bottom: 0,
+            tr: 255,
+            mono: 0,
+            reverse: 0,
+            bright: 0,
+            dark: 0,
+            color_rate: 0,
+            color_add_r: 0,
+            color_add_g: 0,
+            color_add_b: 0,
+            color_r: 0,
+            color_g: 0,
+            color_b: 0,
+            blend: 0,
         }
     }
 }
@@ -100,6 +156,14 @@ impl GfxRuntime {
         id
     }
 
+    /// Expose stage layer allocation for non-Gfx backends (e.g., movie sprites).
+    pub fn ensure_stage_layer_id(&mut self, layers: &mut LayerManager, stage: i64) -> Option<LayerId> {
+        if stage < 0 || stage > 2 {
+            return None;
+        }
+        Some(self.ensure_stage_layer(layers, stage as usize))
+    }
+
     fn ensure_object_mut(&mut self, stage: usize, obj_idx: usize) -> &mut ObjectState {
         let st = self.ensure_stage(stage);
         if st.objects.len() <= obj_idx {
@@ -110,6 +174,21 @@ impl GfxRuntime {
 
     fn object(&self, stage: usize, obj_idx: usize) -> Option<&ObjectState> {
         self.stages.get(stage)?.objects.get(obj_idx)
+    }
+
+    pub fn object_sprite_binding(&self, stage: i64, obj_idx: i64) -> Option<(LayerId, SpriteId)> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return None;
+        }
+        let obj = self.object(stage_i as usize, obj_idx as usize)?;
+        if obj.is_bg {
+            return None;
+        }
+        match (obj.layer_id, obj.sprite_id) {
+            (Some(lid), Some(sid)) => Some((lid, sid)),
+            _ => None,
+        }
     }
 
     fn load_any_image(images: &mut ImageManager, file: &str, patno: i64) -> Result<ImageId> {
@@ -180,6 +259,32 @@ impl GfxRuntime {
             bg.alpha = obj.alpha.clamp(0, 255) as u8;
             bg.fit = SpriteFit::FullScreen;
             bg.size_mode = SpriteSizeMode::Intrinsic;
+            bg.scale_x = obj.scale_x as f32 / 1000.0;
+            bg.scale_y = obj.scale_y as f32 / 1000.0;
+            bg.rotate = obj.rotate_z as f32 * std::f32::consts::PI / 1800.0;
+            bg.pivot_x = obj.center_x as f32;
+            bg.pivot_y = obj.center_y as f32;
+            bg.dst_clip = clip_rect(obj.clip_use, obj.clip_left, obj.clip_top, obj.clip_right, obj.clip_bottom);
+            bg.src_clip = clip_rect(
+                obj.src_clip_use,
+                obj.src_clip_left,
+                obj.src_clip_top,
+                obj.src_clip_right,
+                obj.src_clip_bottom,
+            );
+            bg.tr = obj.tr.clamp(0, 255) as u8;
+            bg.mono = obj.mono.clamp(0, 255) as u8;
+            bg.reverse = obj.reverse.clamp(0, 255) as u8;
+            bg.bright = obj.bright.clamp(0, 255) as u8;
+            bg.dark = obj.dark.clamp(0, 255) as u8;
+            bg.color_rate = obj.color_rate.clamp(0, 255) as u8;
+            bg.color_add_r = obj.color_add_r.clamp(0, 255) as u8;
+            bg.color_add_g = obj.color_add_g.clamp(0, 255) as u8;
+            bg.color_add_b = obj.color_add_b.clamp(0, 255) as u8;
+            bg.color_r = obj.color_r.clamp(0, 255) as u8;
+            bg.color_g = obj.color_g.clamp(0, 255) as u8;
+            bg.color_b = obj.color_b.clamp(0, 255) as u8;
+            bg.blend = SpriteBlend::from_i64(obj.blend);
 
             if let Some(file) = &obj.file {
                 let img_id = Self::load_any_image(images, file, obj.patno)?;
@@ -198,6 +303,32 @@ impl GfxRuntime {
         sprite.x = obj.x as i32;
         sprite.y = obj.y as i32;
         sprite.alpha = obj.alpha.clamp(0, 255) as u8;
+        sprite.scale_x = obj.scale_x as f32 / 1000.0;
+        sprite.scale_y = obj.scale_y as f32 / 1000.0;
+        sprite.rotate = obj.rotate_z as f32 * std::f32::consts::PI / 1800.0;
+        sprite.pivot_x = obj.center_x as f32;
+        sprite.pivot_y = obj.center_y as f32;
+        sprite.dst_clip = clip_rect(obj.clip_use, obj.clip_left, obj.clip_top, obj.clip_right, obj.clip_bottom);
+        sprite.src_clip = clip_rect(
+            obj.src_clip_use,
+            obj.src_clip_left,
+            obj.src_clip_top,
+            obj.src_clip_right,
+            obj.src_clip_bottom,
+        );
+        sprite.tr = obj.tr.clamp(0, 255) as u8;
+        sprite.mono = obj.mono.clamp(0, 255) as u8;
+        sprite.reverse = obj.reverse.clamp(0, 255) as u8;
+        sprite.bright = obj.bright.clamp(0, 255) as u8;
+        sprite.dark = obj.dark.clamp(0, 255) as u8;
+        sprite.color_rate = obj.color_rate.clamp(0, 255) as u8;
+        sprite.color_add_r = obj.color_add_r.clamp(0, 255) as u8;
+        sprite.color_add_g = obj.color_add_g.clamp(0, 255) as u8;
+        sprite.color_add_b = obj.color_add_b.clamp(0, 255) as u8;
+        sprite.color_r = obj.color_r.clamp(0, 255) as u8;
+        sprite.color_g = obj.color_g.clamp(0, 255) as u8;
+        sprite.color_b = obj.color_b.clamp(0, 255) as u8;
+        sprite.blend = SpriteBlend::from_i64(obj.blend);
 
         // Order: stage layer_no is treated as a coarse z, order as fine z.
         let coarse = obj.layer_no.clamp(-10000, 10000) as i32;
@@ -210,6 +341,131 @@ impl GfxRuntime {
         }
 
         Ok(())
+    }
+
+    pub fn object_set_center(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        x: i64,
+        y: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.center_x = x;
+            obj.center_y = y;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_scale(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        x: i64,
+        y: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.scale_x = x;
+            obj.scale_y = y;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_rotate(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        z: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.rotate_z = z;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_clip(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        use_flag: i64,
+        left: i64,
+        top: i64,
+        right: i64,
+        bottom: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.clip_use = use_flag;
+            obj.clip_left = left;
+            obj.clip_top = top;
+            obj.clip_right = right;
+            obj.clip_bottom = bottom;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_src_clip(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        use_flag: i64,
+        left: i64,
+        top: i64,
+        right: i64,
+        bottom: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.src_clip_use = use_flag;
+            obj.src_clip_left = left;
+            obj.src_clip_top = top;
+            obj.src_clip_right = right;
+            obj.src_clip_bottom = bottom;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
     }
 
     pub fn stage_clear(
@@ -455,6 +711,203 @@ impl GfxRuntime {
         self.sync_object_sprite(images, layers, stage_u, obj_u)
     }
 
+    pub fn object_set_tr(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        tr: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.tr = tr;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_mono(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        mono: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.mono = mono;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_reverse(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        reverse: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.reverse = reverse;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_bright(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        bright: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.bright = bright;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_dark(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        dark: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.dark = dark;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_color_rate(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        rate: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.color_rate = rate;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_color_add(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        r: i64,
+        g: i64,
+        b: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.color_add_r = r;
+            obj.color_add_g = g;
+            obj.color_add_b = b;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_color(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        r: i64,
+        g: i64,
+        b: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.color_r = r;
+            obj.color_g = g;
+            obj.color_b = b;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_blend(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        blend: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.blend = blend;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
     pub fn object_set_z(&mut self, stage: i64, obj_idx: i64, z: i64) -> Result<()> {
         let stage_i = stage as isize;
         if !(0..3).contains(&stage_i) || obj_idx < 0 {
@@ -617,4 +1070,27 @@ impl GfxRuntime {
         let obj = self.object(stage_u, obj_u)?;
         Some(obj.alpha)
     }
+
+    pub fn object_peek_file(&self, stage: i64, obj_idx: i64) -> Option<String> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return None;
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        let obj = self.object(stage_u, obj_u)?;
+        obj.file.clone()
+    }
+}
+
+fn clip_rect(use_flag: i64, left: i64, top: i64, right: i64, bottom: i64) -> Option<ClipRect> {
+    if use_flag == 0 {
+        return None;
+    }
+    Some(ClipRect {
+        left: left as i32,
+        top: top as i32,
+        right: right as i32,
+        bottom: bottom as i32,
+    })
 }

@@ -3,6 +3,7 @@ use anyhow::Result;
 use crate::runtime::commands::util;
 use crate::runtime::globals::WipeState;
 use crate::runtime::{Command, CommandContext, Value};
+use std::path::{Path, PathBuf};
 
 fn is_noop_cmd(name: &str) -> bool {
     matches!(
@@ -174,8 +175,15 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
                 end_order = i32::MAX;
             }
 
+            let mask_image_id = if let Some(ref f) = mask_file {
+                resolve_mask_path(&ctx.project_dir, f)
+                    .and_then(|p| ctx.images.load_file(&p, 0).ok())
+            } else {
+                None
+            };
             ctx.globals.start_wipe(WipeState::new(
                 mask_file,
+                mask_image_id,
                 wipe_type,
                 wipe_time,
                 start_time,
@@ -259,4 +267,30 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
     }
 
     Ok(false)
+}
+
+fn resolve_mask_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
+    if raw.is_empty() {
+        return None;
+    }
+    let norm = raw.replace('\\', "/");
+    let p = Path::new(&norm);
+    if p.is_absolute() && p.is_file() {
+        return Some(p.to_path_buf());
+    }
+    let mut candidates = Vec::new();
+    candidates.push(project_dir.join(&norm));
+    candidates.push(project_dir.join("dat").join(&norm));
+    if p.extension().is_none() {
+        for ext in ["png", "bmp", "jpg"] {
+            candidates.push(project_dir.join(format!("{}.{}", norm, ext)));
+            candidates.push(project_dir.join("dat").join(format!("{}.{}", norm, ext)));
+        }
+    }
+    for c in candidates {
+        if c.is_file() {
+            return Some(c);
+        }
+    }
+    None
 }

@@ -1,6 +1,6 @@
 //! G00 decoder.
 //!
-//! Implemented based on the C++ extractor logic provided by the user.
+//! Implemented based on the the original implementation extractor logic provided by the user.
 //!
 //! Output format: RGBA8.
 
@@ -13,6 +13,7 @@ pub enum G00Type {
     Type24bit = 0,
     Type8bit = 1,
     TypeDir = 2,
+    TypeJpeg = 3,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +56,7 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
         0 => G00Type::Type24bit,
         1 => G00Type::Type8bit,
         2 => G00Type::TypeDir,
+        3 => G00Type::TypeJpeg,
         other => bail!("unknown g00 type: {other}"),
     };
 
@@ -178,6 +180,30 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 width,
                 height,
                 frames,
+            })
+        }
+        G00Type::TypeJpeg => {
+            if off > data.len() {
+                bail!("g00 type3 header out of bounds");
+            }
+            let jpeg = &data[off..];
+            let img = image::load_from_memory_with_format(jpeg, image::ImageFormat::Jpeg)
+                .or_else(|_| image::load_from_memory(jpeg))
+                .context("decode g00 jpeg")?;
+            let rgba = img.to_rgba8();
+            let (w, h) = rgba.dimensions();
+            if w != width || h != height {
+                bail!("g00 jpeg size mismatch: got={w}x{h}, expect={width}x{height}");
+            }
+            Ok(DecodedG00 {
+                kind,
+                width,
+                height,
+                frames: vec![RgbaImage {
+                    width,
+                    height,
+                    rgba: rgba.into_raw(),
+                }],
             })
         }
     }
@@ -325,7 +351,7 @@ fn lzss_decompress(src: &[u8], dst: &mut [u8]) -> Result<()> {
 }
 
 fn lzss_decompress_24bit(src: &[u8], dst: &mut [u8]) -> Result<()> {
-    // C++ extractor emits BGRA (alpha byte set to 0xFF).
+    // the original implementation extractor emits BGRA (alpha byte set to 0xFF).
     let mut s = 0usize;
     let mut d = 0usize;
     while d < dst.len() {
@@ -431,7 +457,7 @@ fn parse_g02_block(buf: &[u8]) -> Result<G02BlockInfo> {
 
 fn parse_g02_part_info_prefix(buf: &[u8]) -> Result<G02PartInfo> {
     // We only rely on the fixed prefix fields used by the extractor.
-    // Offset mapping follows the struct layout in the provided C++ code.
+    // Offset mapping follows the struct layout in the provided the original implementation code.
     if buf.len() < 0x24 {
         bail!("g02_part_info prefix too small");
     }

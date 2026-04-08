@@ -1,11 +1,15 @@
+#![cfg(feature = "wgpu-winit")]
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use winit::event::{ElementState, Event, KeyEvent, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
+use winit::application::ApplicationHandler;
+use winit::dpi::LogicalSize;
+use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
-use winit::window::WindowBuilder;
+use winit::window::{Window, WindowAttributes};
 
 use siglus_scene_vm::assets::g00;
 use siglus_scene_vm::image_manager::ImageManager;
@@ -18,7 +22,7 @@ use siglus_scene_vm::render::Renderer;
 struct Args {
     /// Game root directory (contains g00/ and bg/).
     #[arg(long)]
-    project_dir: PathBuf,
+    project_dir: Option<PathBuf>,
 
     /// BG name (without extension), e.g. bg_001
     #[arg(long)]
@@ -76,113 +80,143 @@ impl BgSource {
     }
 }
 
-fn main() -> Result<()> {
-    env_logger::init();
-    let args = Args::parse();
-
-    let (path, _ty) = find_bg_image(&args.project_dir, &args.bg)
-        .with_context(|| format!("find bg {}", args.bg))?;
-
-    let mut bg = BgSource::load(&path).with_context(|| format!("load bg {:?}", path))?;
-
-    let event_loop = EventLoop::new().context("create EventLoop")?;
-    let window = WindowBuilder::new()
-        .with_title(format!("Siglus BG Viewer - {}", args.bg))
-        .build(&event_loop)
-        .context("create window")?;
-
-    // Avoid self-referential Window+Surface storage by leaking the window.
-    let window: &'static winit::window::Window = Box::leak(Box::new(window));
-
-    let mut renderer = pollster::block_on(Renderer::new(window)).context("init renderer")?;
-
-    let mut images = ImageManager::new(args.project_dir.clone());
-    let mut layers = LayerManager::default();
-
-    let img_id = images.load_file(&path, bg.current_frame()).with_context(|| "load initial frame")?;
-    layers.set_bg_image(img_id);
-
-    window.request_redraw();
-
-    event_loop.run(move |event, elwt| {
-        elwt.set_control_flow(ControlFlow::Wait);
-
-        match event {
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => {
-                    elwt.exit();
-                }
-                WindowEvent::Resized(size) => {
-                    renderer.resize(size.width, size.height);
-                    window.request_redraw();
-                }
-                WindowEvent::RedrawRequested => {
-                    let sprites = layers.build_render_list();
-                    if let Err(e) = renderer.render_sprites(&images, &sprites) {
-                        log::error!("render error: {:#}", e);
-                    }
-                }
-                WindowEvent::KeyboardInput { event, .. } => {
-                    if let Some(action) = map_key(event) {
-                        match action {
-                            Action::Quit => elwt.exit(),
-                            Action::Prev => {
-                                bg.prev();
-                                if let Ok(id) = images.load_file(&path, bg.current_frame()) {
-                                    layers.set_bg_image(id);
-                                    window.request_redraw();
-                                }
-                            }
-                            Action::Next => {
-                                bg.next();
-                                if let Ok(id) = images.load_file(&path, bg.current_frame()) {
-                                    layers.set_bg_image(id);
-                                    window.request_redraw();
-                                }
-                            }
-                            Action::Reload => {
-                                match bg.reload() {
-                                    Ok(()) => {
-                                        if let Ok(id) = images.load_file(&path, bg.current_frame()) {
-                                            layers.set_bg_image(id);
-                                            window.request_redraw();
-                                        }
-                                    }
-                                    Err(e) => {
-                                        log::error!("reload failed: {:#}", e);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            },
-            Event::AboutToWait => {}
-            _ => {}
-        }
-    })?;
-
-    Ok(())
-}
-
 #[derive(Debug, Clone, Copy)]
 enum Action {
+    Quit,
     Prev,
     Next,
     Reload,
-    Quit,
 }
 
-fn map_key(ev: KeyEvent) -> Option<Action> {
-    if ev.state != ElementState::Pressed {
+fn map_key(event: KeyEvent) -> Option<Action> {
+    if event.state != ElementState::Pressed {
         return None;
     }
-    match ev.physical_key {
+    match event.physical_key {
+        PhysicalKey::Code(KeyCode::Escape) => Some(Action::Quit),
         PhysicalKey::Code(KeyCode::ArrowLeft) => Some(Action::Prev),
         PhysicalKey::Code(KeyCode::ArrowRight) => Some(Action::Next),
         PhysicalKey::Code(KeyCode::KeyR) => Some(Action::Reload),
-        PhysicalKey::Code(KeyCode::Escape) => Some(Action::Quit),
         _ => None,
     }
+}
+
+struct App {
+    args: Args,
+    project_dir: PathBuf,
+    bg: BgSource,
+    window: Option<&'static Window>,
+    renderer: Option<Renderer>,
+    images: ImageManager,
+    layers: LayerManager,
+}
+
+impl App {
+    fn new(args: Args, project_dir: PathBuf, bg: BgSource) -> Result<Self> {
+        Ok(Self {
+            args,
+            project_dir: project_dir.clone(),
+            bg,
+            window: None,
+            renderer: None,
+            images: ImageManager::new(project_dir),
+            layers: LayerManager::default(),
+        })
+    }
+
+    fn load_current(&mut self) {
+        if let Ok(id) = self.images.load_file(&self.bg.path, self.bg.current_frame()) {
+            self.layers.set_bg_image(id);
+        }
+    }
+
+    fn redraw(&mut self) {
+        let Some(renderer) = self.renderer.as_mut() else {
+            return;
+        };
+        let sprites = self.layers.render_list();
+        if let Err(e) = renderer.render_sprites(&self.images, &sprites) {
+            eprintln!("render error: {e:#}");
+        }
+    }
+}
+
+impl ApplicationHandler for App {
+    fn resumed(&mut self, elwt: &ActiveEventLoop) {
+        let size = LogicalSize::new(1280.0, 720.0);
+        let window = elwt
+            .create_window(WindowAttributes::default().with_inner_size(size).with_title(format!("Siglus BG Viewer - {}", self.args.bg)))
+            .expect("create window");
+        let window: &'static Window = Box::leak(Box::new(window));
+
+        let renderer = pollster::block_on(Renderer::new(window)).expect("init renderer");
+
+        self.window = Some(window);
+        self.renderer = Some(renderer);
+        self.load_current();
+
+        window.request_redraw();
+    }
+
+    fn window_event(&mut self, elwt: &ActiveEventLoop, _id: winit::window::WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => elwt.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = self.renderer.as_mut() {
+                    renderer.resize(size.width, size.height);
+                }
+                if let Some(w) = self.window.as_ref() {
+                    w.request_redraw();
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                self.redraw();
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let Some(action) = map_key(event) {
+                    match action {
+                        Action::Quit => elwt.exit(),
+                        Action::Prev => {
+                            self.bg.prev();
+                            self.load_current();
+                        }
+                        Action::Next => {
+                            self.bg.next();
+                            self.load_current();
+                        }
+                        Action::Reload => {
+                            if let Err(e) = self.bg.reload() {
+                                eprintln!("reload failed: {e:#}");
+                            } else {
+                                self.load_current();
+                            }
+                        }
+                    }
+                    if let Some(w) = self.window.as_ref() {
+                        w.request_redraw();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn main() -> Result<()> {
+    env_logger::init();
+    let args = Args::parse();
+    let project_dir = args
+        .project_dir
+        .clone()
+        .unwrap_or(siglus_scene_vm::app_path::resolve_app_base_path()?);
+
+    let (path, _ty) = find_bg_image(&project_dir, &args.bg)
+        .with_context(|| format!("find bg {}", args.bg))?;
+
+    let bg = BgSource::load(&path).with_context(|| format!("load bg {:?}", path))?;
+
+    let el = EventLoop::new()?;
+    let mut app = App::new(args, project_dir, bg)?;
+    el.run_app(&mut app)?;
+    Ok(())
 }

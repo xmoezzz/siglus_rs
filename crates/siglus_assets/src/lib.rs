@@ -12,6 +12,8 @@ pub mod dbs;
 pub mod thumb_table;
 
 pub mod angou;
+pub mod keys;
+pub mod key_toml;
 pub mod gameexe;
 
 pub mod scene_pck;

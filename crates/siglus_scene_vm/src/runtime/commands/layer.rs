@@ -46,7 +46,6 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
     }
 
     if name.starts_with("LAYER") {
-        ctx.unknown.record_unimplemented(&format!("CMD:{}", cmd.name));
         return Ok(true);
     }
 

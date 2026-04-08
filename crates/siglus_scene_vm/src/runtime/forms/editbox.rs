@@ -4,7 +4,7 @@ use crate::runtime::globals::{EditBoxListState, EditBoxOpKind};
 use crate::runtime::{CommandContext, Value};
 
 fn default_for_ret_form(ret_form: i32) -> Value {
-    // Bring-up heuristic used by stub: ret_form == 2 is string.
+    // Runtime heuristic used by property access: ret_form == 2 is string.
     if ret_form == 2 {
         Value::Str(String::new())
     } else {
@@ -16,8 +16,7 @@ fn editbox_cnt(ctx: &CommandContext) -> usize {
     ctx.tables
         .gameexe
         .as_ref()
-        .and_then(|cfg| cfg.get("EDITBOX.CNT"))
-        .and_then(|s| s.parse::<usize>().ok())
+        .map(|cfg| cfg.indexed_count("EDITBOX"))
         .unwrap_or(0)
 }
 
@@ -128,6 +127,11 @@ fn apply_op(
             eb.alive = true;
             eb.decided = false;
             eb.canceled = false;
+            if params.len() >= 5 {
+                if let Some(v) = params.get(4).and_then(|v| v.as_i64()) {
+                    eb.moji_size = v as i32;
+                }
+            }
             if let Some(s) = params.iter().find_map(|v| v.as_str()) {
                 eb.text = s.to_string();
             }
@@ -270,13 +274,18 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
 
         // EDITBOX.GET_SIZE
-		if chain.len() == 2 && !is_array_code(elm_array, chain[1]) {
-            let r = if ret_form != 0 {
-                Some(Value::Int(list.boxes.len() as i64))
-            } else {
-                None
-            };
-            break 'blk (true, r, None);
+        if chain.len() == 2 && !is_array_code(elm_array, chain[1]) {
+            if ret_form != 0 {
+                let r = Some(Value::Int(list.boxes.len() as i64));
+                break 'blk (true, r, None);
+            }
+            // EDITBOXLIST_CLEAR_INPUT
+            for eb in list.boxes.iter_mut() {
+                eb.text.clear();
+                eb.decided = false;
+                eb.canceled = false;
+            }
+            break 'blk (true, None, Some(None));
         }
 
         // EDITBOX[idx]
@@ -345,7 +354,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     Ok(handled)
 }
 
-/// Best-effort dispatch for unknown global forms.
+/// Conservative dispatch for unknown global forms.
 ///
 /// This is used when `form_global_editbox` is not mapped in `IdMap`.
 pub fn maybe_dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {

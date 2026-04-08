@@ -76,6 +76,10 @@ pub struct BgmEngine {
     until: Option<Instant>,
 
     current_name: Option<String>,
+
+    start_time: Option<Instant>,
+    paused_at: Option<Instant>,
+    paused_total: Duration,
 }
 
 impl std::fmt::Debug for BgmEngine {
@@ -97,6 +101,9 @@ impl BgmEngine {
             handle: None,
             until: None,
             current_name: None,
+            start_time: None,
+            paused_at: None,
+            paused_total: Duration::from_millis(0),
         }
     }
 
@@ -137,6 +144,12 @@ impl BgmEngine {
         Ok(())
     }
 
+	pub fn set_volume_raw_fade(&mut self, audio: &mut AudioHub, volume_raw: u8, fade_ms: i64) -> Result<()> {
+        self.volume_raw = volume_raw;
+		audio.set_track_volume_raw_fade(TrackKind::Bgm, volume_raw, fade_ms);
+        Ok(())
+    }
+
     pub fn set_looping(&mut self, looping: bool) -> Result<()> {
         self.looping = looping;
         Ok(())
@@ -146,6 +159,9 @@ impl BgmEngine {
         if let Some(h) = &mut self.handle {
             let _ = h.pause(Tween::default());
         }
+        if self.start_time.is_some() && self.paused_at.is_none() {
+            self.paused_at = Some(Instant::now());
+        }
         Ok(())
     }
 
@@ -153,14 +169,37 @@ impl BgmEngine {
         if let Some(h) = &mut self.handle {
             let _ = h.resume(Tween::default());
         }
+        if let Some(p) = self.paused_at.take() {
+            self.paused_total += Instant::now().saturating_duration_since(p);
+        }
         Ok(())
     }
 
     pub fn stop(&mut self) -> Result<()> {
         self.current_name = None;
         self.until = None;
+        self.start_time = None;
+        self.paused_at = None;
+        self.paused_total = Duration::from_millis(0);
         if let Some(mut h) = self.handle.take() {
             let _ = h.stop(Tween::default());
+        }
+        Ok(())
+    }
+
+    pub fn stop_fade(&mut self, fade_ms: i64) -> Result<()> {
+        self.current_name = None;
+        self.until = None;
+        self.start_time = None;
+        self.paused_at = None;
+        self.paused_total = Duration::from_millis(0);
+        if let Some(mut h) = self.handle.take() {
+            let tween = if fade_ms > 0 {
+                Tween::new(Duration::from_millis(fade_ms as u64))
+            } else {
+                Tween::default()
+            };
+            let _ = h.stop(tween);
         }
         Ok(())
     }
@@ -190,6 +229,9 @@ impl BgmEngine {
         self.handle = Some(handle);
 		self.set_volume_raw(audio, self.volume_raw)?;
         self.current_name = Some(name.to_string());
+        self.start_time = Some(Instant::now());
+        self.paused_at = None;
+        self.paused_total = Duration::from_millis(0);
 
         // If looping is enabled, WAIT should not block forever in bring-up.
         // For one-shot, use best-effort duration from the decoded WAV.
@@ -199,6 +241,16 @@ impl BgmEngine {
             self.until = duration_ms.map(|ms| Instant::now() + Duration::from_millis(ms));
         }
         Ok(())
+    }
+
+    pub fn play_pos_ms(&self) -> u64 {
+        let Some(start) = self.start_time else {
+            return 0;
+        };
+        let now = self.paused_at.unwrap_or_else(Instant::now);
+        let elapsed = now.saturating_duration_since(start);
+        let elapsed = elapsed.saturating_sub(self.paused_total);
+        elapsed.as_millis() as u64
     }
 
     fn resolve_bgm_path(&self, name: &str) -> Result<PathBuf> {

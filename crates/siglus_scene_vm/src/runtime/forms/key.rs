@@ -4,7 +4,7 @@
 //! operations (down/up, edge "stocks", flick, direction, etc.). Other forms
 //! (INPUT/MOUSE/KEYLIST) forward to these helpers.
 //!
-//! For bring-up we implement a pragmatic subset:
+//! For runtime we implement a pragmatic subset:
 //! - "is down" / "is up"
 //! - "on down" / "on up" / "on down+up"
 //! - "dir" as an arrow-key bitmask
@@ -53,7 +53,7 @@ enum ExKey {
 }
 
 fn query_ex(ctx: &mut CommandContext, which: ExKey, op: i64) -> i64 {
-    // Best-effort defaults derived from RE:
+    // Conservative defaults derived from RE:
     // - EX_DECIDE: mouse left OR Enter OR X
     // - EX_CANCEL: mouse right OR Escape OR Z
     let keys: &[u8] = match which {
@@ -83,9 +83,13 @@ fn query_vk(ctx: &mut CommandContext, vk: u8, op: i64) -> i64 {
         o if o == ctx.ids.key_op_on_down_up as i64 => bool_i64(ctx.input.vk_down_up_stock(vk)),
         o if o == ctx.ids.key_op_is_down as i64 => bool_i64(ctx.input.vk_is_down(vk)),
         o if o == ctx.ids.key_op_is_up as i64 => bool_i64(!ctx.input.vk_is_down(vk)),
-        o if o == ctx.ids.key_op_on_flick as i64 => 0,
-        o if o == ctx.ids.key_op_flick as i64 => 0,
-        o if o == ctx.ids.key_op_flick_angle as i64 => 0,
+        o if o == ctx.ids.key_op_on_flick as i64 => bool_i64(ctx.input.vk_flick_stock(vk)),
+        o if o == ctx.ids.key_op_flick as i64 => ctx.input.vk_flick_pixel(vk).trunc() as i64,
+        o if o == ctx.ids.key_op_flick_angle as i64 => {
+            let angle = ctx.input.vk_flick_angle(vk) as f64;
+            let deg = 180.0 - angle.to_degrees();
+            (deg * 10.0).trunc() as i64
+        }
         _ => 0,
     }
 }
@@ -110,7 +114,7 @@ fn is_key_op(ctx: &CommandContext, v: i64) -> bool {
 ///
 /// The original engine routes KEY queries through a dedicated form. Titles may
 /// call it in multiple shapes depending on whether the call site is a direct
-/// function call or an element-chain evaluation. For bring-up, we accept both:
+/// function call or an element-chain evaluation. For runtime, we accept both:
 /// - KEY(op, vk)
 /// - KEY(vk, op)
 ///

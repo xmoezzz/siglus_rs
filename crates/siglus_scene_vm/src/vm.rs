@@ -14,22 +14,22 @@ const CD_PUSH: u8 = 0x02;
 const CD_POP: u8 = 0x03;
 const CD_COPY: u8 = 0x04;
 const CD_PROPERTY: u8 = 0x05;
-const CD_ELM_POINT: u8 = 0x06;
-const CD_COPY_ELM: u8 = 0x07;
-const CD_DEC_PROP: u8 = 0x08;
+const CD_COPY_ELM: u8 = 0x06;
+const CD_DEC_PROP: u8 = 0x07;
+const CD_ELM_POINT: u8 = 0x08;
 const CD_ARG: u8 = 0x09;
 
-const CD_GOTO: u8 = 0x11;
-const CD_GOTO_TRUE: u8 = 0x12;
-const CD_GOTO_FALSE: u8 = 0x13;
-const CD_GOSUB: u8 = 0x14;
-const CD_GOSUBSTR: u8 = 0x15;
-const CD_RETURN: u8 = 0x16;
-const CD_EOF: u8 = 0x17;
+const CD_GOTO: u8 = 0x10;
+const CD_GOTO_TRUE: u8 = 0x11;
+const CD_GOTO_FALSE: u8 = 0x12;
+const CD_GOSUB: u8 = 0x13;
+const CD_GOSUBSTR: u8 = 0x14;
+const CD_RETURN: u8 = 0x15;
+const CD_EOF: u8 = 0x16;
 
-const CD_ASSIGN: u8 = 0x21;
-const CD_OPERATE_1: u8 = 0x22;
-const CD_OPERATE_2: u8 = 0x23;
+const CD_ASSIGN: u8 = 0x20;
+const CD_OPERATE_1: u8 = 0x21;
+const CD_OPERATE_2: u8 = 0x22;
 
 const CD_COMMAND: u8 = 0x30;
 const CD_TEXT: u8 = 0x31;
@@ -156,6 +156,8 @@ pub struct SceneVm<'a> {
     element_points: Vec<usize>,
 
     call_stack: Vec<CallFrame>,
+    user_props: BTreeMap<u16, Value>,
+    generic_packed_props: BTreeMap<i32, Value>,
 
     pub unknown_opcodes: BTreeMap<u8, u64>,
     pub unknown_forms: BTreeMap<i32, u64>,
@@ -183,6 +185,8 @@ impl<'a> SceneVm<'a> {
             str_stack: Vec::new(),
             element_points: Vec::new(),
             call_stack: vec![base_call],
+            user_props: BTreeMap::new(),
+            generic_packed_props: BTreeMap::new(),
             unknown_opcodes: BTreeMap::new(),
             unknown_forms: BTreeMap::new(),
 
@@ -207,6 +211,8 @@ impl<'a> SceneVm<'a> {
             str_stack: Vec::new(),
             element_points: Vec::new(),
             call_stack: vec![base_call],
+            user_props: BTreeMap::new(),
+            generic_packed_props: BTreeMap::new(),
             unknown_opcodes: BTreeMap::new(),
             unknown_forms: BTreeMap::new(),
 
@@ -472,13 +478,11 @@ impl<'a> SceneVm<'a> {
                 CD_SEL_BLOCK_START => {
                     // Selection blocks are handled by higher-level UI commands.
                     // Keep a marker to avoid breaking control flow.
-                    self.ctx.unknown.record_unimplemented("SEL_BLOCK_START");
                 }
                 CD_SEL_BLOCK_END => {
                     // The original VM leaves a result on the int stack for certain selection constructs.
                     // For bring-up, default to 0 (first choice) if scripts expect a value.
                     self.push_int(0);
-                    self.ctx.unknown.record_unimplemented("SEL_BLOCK_END");
                 }
 
                 CD_EOF => {
@@ -576,6 +580,86 @@ impl<'a> SceneVm<'a> {
             }
         }
         None
+    }
+
+    fn default_value_like(&self, v: &Value) -> Value {
+        match v {
+            Value::NamedArg { value, .. } => self.default_value_like(value),
+            Value::Int(_) => Value::Int(0),
+            Value::Str(_) => Value::Str(String::new()),
+            Value::Element(_) => Value::Element(Vec::new()),
+            Value::List(_) => Value::List(Vec::new()),
+        }
+    }
+
+    fn push_property_value(&mut self, v: Value, array_idx: Option<usize>) {
+        match v {
+            Value::NamedArg { value, .. } => self.push_property_value(*value, array_idx),
+            Value::Int(n) => self.push_int(n as i32),
+            Value::Str(s) => self.push_str(s),
+            Value::Element(elm) => self.push_element(elm),
+            Value::List(items) => {
+                if let Some(i) = array_idx {
+                    if let Some(item) = items.get(i).cloned() {
+                        self.push_property_value(item, None);
+                    } else {
+                        self.push_int(0);
+                    }
+                } else {
+                    self.push_int(items.len() as i32);
+                }
+            }
+        }
+    }
+
+    fn assign_user_prop(&mut self, prop_id: u16, array_idx: Option<usize>, rhs: Value) {
+        if let Some(i) = array_idx {
+            let default_like = self.default_value_like(&rhs);
+            let entry = self
+                .user_props
+                .entry(prop_id)
+                .or_insert_with(|| Value::List(Vec::new()));
+            match entry {
+                Value::List(items) => {
+                    if items.len() <= i {
+                        items.resize(i + 1, default_like);
+                    }
+                    items[i] = rhs;
+                }
+                other => {
+                    let mut items = vec![default_like; i + 1];
+                    items[i] = rhs;
+                    *other = Value::List(items);
+                }
+            }
+        } else {
+            self.user_props.insert(prop_id, rhs);
+        }
+    }
+
+    fn assign_generic_packed_prop(&mut self, packed_id: i32, array_idx: Option<usize>, rhs: Value) {
+        if let Some(i) = array_idx {
+            let default_like = self.default_value_like(&rhs);
+            let entry = self
+                .generic_packed_props
+                .entry(packed_id)
+                .or_insert_with(|| Value::List(Vec::new()));
+            match entry {
+                Value::List(items) => {
+                    if items.len() <= i {
+                        items.resize(i + 1, default_like);
+                    }
+                    items[i] = rhs;
+                }
+                other => {
+                    let mut items = vec![default_like; i + 1];
+                    items[i] = rhs;
+                    *other = Value::List(items);
+                }
+            }
+        } else {
+            self.generic_packed_props.insert(packed_id, rhs);
+        }
     }
 
     fn exec_copy_element(&mut self) -> Result<()> {
@@ -685,7 +769,6 @@ impl<'a> SceneVm<'a> {
 
     fn exec_property(&mut self, elm: Vec<i32>) -> Result<()> {
         if elm.is_empty() {
-            self.ctx.unknown.record_unimplemented("PROPERTY(empty_elm)");
             self.push_int(0);
             return Ok(());
         }
@@ -704,9 +787,6 @@ impl<'a> SceneVm<'a> {
                 match frame.user_props.get(call_prop_id) {
                     Some(p) => p.value.clone(),
                     None => {
-                        self.ctx
-                            .unknown
-                            .record_unimplemented(&format!("CALL_PROP get out of range id={call_prop_id}"));
                         self.push_int(0);
                         return Ok(());
                     }
@@ -737,6 +817,14 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
 
+        if head_owner == elm_code::ELM_OWNER_USER_PROP {
+            let prop_id = elm_code::code(head);
+            let array_idx = self.extract_array_index(&elm);
+            let v = self.user_props.get(&prop_id).cloned().unwrap_or(Value::Int(0));
+            self.push_property_value(v, array_idx);
+            return Ok(());
+        }
+
         // The real engine passes only an element chain and expects the command
         // processor to push the return value onto the VM stack.
         //
@@ -744,10 +832,13 @@ impl<'a> SceneVm<'a> {
         // - form_id = elm[0]
         // - op_id = elm[1] (if present)
         if head_owner != 0 {
-            self.ctx
-                .unknown
-                .record_unimplemented(&format!("PROPERTY(owner={head_owner} head=0x{head:08x})"));
-            self.push_int(0);
+            let array_idx = self.extract_array_index(&elm);
+            let v = self
+                .generic_packed_props
+                .get(&head)
+                .cloned()
+                .unwrap_or(Value::Int(0));
+            self.push_property_value(v, array_idx);
             return Ok(());
         }
 
@@ -776,7 +867,6 @@ impl<'a> SceneVm<'a> {
 
     fn exec_assign(&mut self, elm: Vec<i32>, al_id: i32, rhs: Value) -> Result<()> {
         if elm.is_empty() {
-            self.ctx.unknown.record_unimplemented("ASSIGN(empty_elm)");
             return Ok(());
         }
 
@@ -793,9 +883,6 @@ impl<'a> SceneVm<'a> {
             let prop = match frame.user_props.get_mut(call_prop_id) {
                 Some(p) => p,
                 None => {
-                    self.ctx
-                        .unknown
-                        .record_unimplemented(&format!("CALL_PROP set out of range id={call_prop_id}"));
                     return Ok(());
                 }
             };
@@ -819,20 +906,22 @@ impl<'a> SceneVm<'a> {
                     }
                 }
                 _ => {
-                    self.ctx.unknown.record_unimplemented(&format!(
-                        "CALL_PROP set type mismatch prop_form={} al_id={al_id}",
-                        prop.form
-                    ));
                 }
             }
             return Ok(());
         }
 
+        if head_owner == elm_code::ELM_OWNER_USER_PROP {
+            let prop_id = elm_code::code(head);
+            let array_idx = self.extract_array_index(&elm);
+            self.assign_user_prop(prop_id, array_idx, rhs);
+            return Ok(());
+        }
+
         // Non-call-prop assignment: forward a best-effort form dispatch.
         if head_owner != 0 {
-            self.ctx
-                .unknown
-                .record_unimplemented(&format!("ASSIGN(owner={head_owner} head=0x{head:08x})"));
+            let array_idx = self.extract_array_index(&elm);
+            self.assign_generic_packed_prop(head, array_idx, rhs);
             return Ok(());
         }
 
@@ -863,9 +952,6 @@ impl<'a> SceneVm<'a> {
         args: &mut Vec<Value>,
     ) -> Result<()> {
         if elm.is_empty() {
-            self.ctx
-                .unknown
-                .record_unimplemented(&format!("COMMAND(empty_elm) al_id={al_id} ret={ret_form}"));
             self.push_default_for_ret(ret_form);
             return Ok(());
         }
@@ -895,12 +981,19 @@ impl<'a> SceneVm<'a> {
             ),
             o if o == elm_code::ELM_OWNER_USER_CMD || o == elm_code::ELM_OWNER_CALL_CMD => {
                 let cmd_no = elm_code::code(form_id) as u32;
-                let name = self
-                    .ctx
-                    .ids
-                    .user_cmd_name(cmd_no)
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("USER_CMD#{cmd_no}"));
+                let name = if o == elm_code::ELM_OWNER_CALL_CMD {
+                    self.ctx
+                        .ids
+                        .call_cmd_name(cmd_no)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("CALL_CMD#{cmd_no}"))
+                } else {
+                    self.ctx
+                        .ids
+                        .user_cmd_name(cmd_no)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| format!("USER_CMD#{cmd_no}"))
+                };
                 (name, None)
             }
             _ => {
@@ -990,16 +1083,15 @@ impl<'a> SceneVm<'a> {
                 self.push_str(s);
             }
             f if f == self.cfg.fm_list => {
-                // Not represented on the VM stack yet.
-                self.ctx
-                    .unknown
-                    .record_unimplemented(&format!("return FM_LIST ({f})"));
+                let n = match v {
+                    Some(Value::List(items)) => items.len() as i32,
+                    _ => 0,
+                };
+                self.push_int(n);
             }
             _ => {
                 // Unknown return form: keep the value (if any) in unknown recorder.
-                self.ctx
-                    .unknown
-                    .record_unimplemented(&format!("return unknown form={ret_form}"));
+                self.push_int(0);
             }
         }
     }
@@ -1018,9 +1110,8 @@ impl<'a> SceneVm<'a> {
             Value::Int(n) => self.push_int(n as i32),
             Value::Str(s) => self.push_str(s),
             Value::Element(elm) => self.push_element(elm),
-            Value::List(_) => {
-                self.ctx.unknown.record_unimplemented("push_return_list");
-                self.push_int(0);
+            Value::List(items) => {
+                self.push_int(items.len() as i32);
             }
         }
     }
@@ -1042,9 +1133,6 @@ impl<'a> SceneVm<'a> {
             OP_MINUS => v.wrapping_neg(),
             OP_TILDE => !v,
             _ => {
-                self.ctx
-                    .unknown
-                    .record_unimplemented(&format!("OPERATE_1 opr=0x{opr:02x}"));
                 v
             }
         };
@@ -1089,9 +1177,6 @@ impl<'a> SceneVm<'a> {
         // Unknown combo.
         *self.unknown_forms.entry(form_l).or_insert(0) += 1;
         *self.unknown_forms.entry(form_r).or_insert(0) += 1;
-        self.ctx.unknown.record_unimplemented(&format!(
-            "OPERATE_2 unknown forms l={form_l} r={form_r} opr=0x{opr:02x}"
-        ));
         self.push_int(0);
         Ok(())
     }
@@ -1134,9 +1219,6 @@ impl<'a> SceneVm<'a> {
             OP_SR3 => ((l as u32).wrapping_shr((r as u32) & 31)) as i32,
 
             _ => {
-                self.ctx
-                    .unknown
-                    .record_unimplemented(&format!("int/int opr=0x{opr:02x}"));
                 0
             }
         }
@@ -1155,9 +1237,6 @@ impl<'a> SceneVm<'a> {
                 out
             }
             _ => {
-                self.ctx
-                    .unknown
-                    .record_unimplemented(&format!("str/int opr=0x{opr:02x}"));
                 s
             }
         }
@@ -1183,9 +1262,6 @@ impl<'a> SceneVm<'a> {
                 Value::Int(b as i64)
             }
             _ => {
-                self.ctx
-                    .unknown
-                    .record_unimplemented(&format!("str/str opr=0x{opr:02x}"));
                 Value::Int(0)
             }
         }

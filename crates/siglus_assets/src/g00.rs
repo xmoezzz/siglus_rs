@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Result};
+use image::ImageFormat;
 
 use crate::lzss::{lzss_unpack, lzss_unpack32};
 
@@ -344,7 +345,7 @@ impl G00Chip {
 
                 let indices = cur.take(expected_px)?;
 
-                // Palette entries are stored as u32 and copied directly to the output dwords in C++.
+                // Palette entries are stored as u32 and copied directly to the output dwords in the original implementation.
                 // On little-endian, u32::to_le_bytes gives BGRA bytes.
                 let mut out: Vec<u8> = Vec::with_capacity(expected_px * 4);
                 for &ix in indices {
@@ -368,8 +369,25 @@ impl G00Chip {
                 }
                 Ok(pix.clone())
             }
-            G00ChipData::Jpeg(_) => {
-                bail!("g00: JPEG decoding is not implemented in this crate");
+            G00ChipData::Jpeg(bytes) => {
+                let img = image::load_from_memory_with_format(bytes, ImageFormat::Jpeg)
+                    .or_else(|_| image::load_from_memory(bytes))
+                    .map_err(|e| anyhow!("g00: JPEG decode failed: {e}"))?;
+                let rgba = img.to_rgba8();
+                let (w, h) = rgba.dimensions();
+                if w != self.width || h != self.height {
+                    bail!(
+                        "g00: JPEG size mismatch (got={}x{}, expected={}x{})",
+                        w,
+                        h,
+                        self.width,
+                        self.height
+                    );
+                }
+                let mut out = rgba.into_raw();
+                bgra_to_rgba_in_place(&mut out);
+                // We swapped RGBA->BGRA in-place above; decode_bgra expects BGRA.
+                Ok(out)
             }
         }
     }

@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::runtime::{forms, CommandContext, Value};
 
 use crate::runtime::forms::{
-    counter, input, int_list, key, keylist, mouse, stage, str_list, stub, timewait,
+    counter, input, int_list, key, keylist, mouse, stage, str_list, prop_access, timewait,
     math, cgtable, database, g00buf, mask, editbox, file, steam,
     syscom, script, system, frame_action, frame_action_ch,
 };
@@ -159,13 +159,19 @@ pub fn dispatch_global_form(ctx: &mut CommandContext, form_id: u32, args: &[Valu
                 return counter::dispatch(ctx, form_id, args);
             }
 
-            // FRAME_ACTION: treat as a generic int list for bring-up.
+            // FRAME_ACTION: treat as a generic int list for runtime.
             if form_id == codes::FORM_GLOBAL_FRAME_ACTION {
                 return int_list::dispatch(ctx, form_id, args);
             }
 
-            // Last-resort stub to keep the VM running.
-            stub::dispatch(ctx, form_id, args)
+            // Direct element/property storage for unmapped global forms.
+            stateful_global_props(ctx, form_id, args)
         }
     }
+}
+
+
+fn stateful_global_props(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+    prop_access::dispatch_stateful_form(ctx, form_id, args);
+    Ok(true)
 }

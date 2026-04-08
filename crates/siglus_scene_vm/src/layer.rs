@@ -12,11 +12,46 @@ pub enum SpriteFit {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct ClipRect {
+    pub left: i32,
+    pub top: i32,
+    pub right: i32,
+    pub bottom: i32,
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum SpriteSizeMode {
     /// Use the intrinsic image size.
     Intrinsic,
     /// Use an explicit size.
     Explicit { width: u32, height: u32 },
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum SpriteBlend {
+    Normal,
+    Add,
+    Sub,
+    Mul,
+    Screen,
+}
+
+impl Default for SpriteBlend {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+impl SpriteBlend {
+    pub fn from_i64(v: i64) -> Self {
+        match v {
+            1 => SpriteBlend::Add,
+            2 => SpriteBlend::Sub,
+            3 => SpriteBlend::Mul,
+            4 => SpriteBlend::Screen,
+            _ => SpriteBlend::Normal,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -28,6 +63,28 @@ pub struct Sprite {
     pub alpha: u8,
     pub x: i32,
     pub y: i32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub rotate: f32,
+    pub pivot_x: f32,
+    pub pivot_y: f32,
+    pub tr: u8,
+    pub mono: u8,
+    pub reverse: u8,
+    pub bright: u8,
+    pub dark: u8,
+    pub color_rate: u8,
+    pub color_add_r: u8,
+    pub color_add_g: u8,
+    pub color_add_b: u8,
+    pub color_r: u8,
+    pub color_g: u8,
+    pub color_b: u8,
+    /// 0 = off, 1 = use luminance as alpha, 2 = use texture alpha.
+    pub mask_mode: u8,
+    pub blend: SpriteBlend,
+    pub dst_clip: Option<ClipRect>,
+    pub src_clip: Option<ClipRect>,
     /// Render order within a layer (ascending).
     pub order: i32,
 }
@@ -42,6 +99,27 @@ impl Default for Sprite {
             alpha: 255,
             x: 0,
             y: 0,
+            scale_x: 1.0,
+            scale_y: 1.0,
+            rotate: 0.0,
+            pivot_x: 0.0,
+            pivot_y: 0.0,
+            tr: 255,
+            mono: 0,
+            reverse: 0,
+            bright: 0,
+            dark: 0,
+            color_rate: 0,
+            color_add_r: 0,
+            color_add_g: 0,
+            color_add_b: 0,
+            color_r: 0,
+            color_g: 0,
+            color_b: 0,
+            mask_mode: 0,
+            blend: SpriteBlend::Normal,
+            dst_clip: None,
+            src_clip: None,
             order: 0,
         }
     }
@@ -82,6 +160,26 @@ impl Layer {
             s.order = 0;
             s.fit = SpriteFit::PixelRect;
             s.size_mode = SpriteSizeMode::Intrinsic;
+            s.scale_x = 1.0;
+            s.scale_y = 1.0;
+            s.rotate = 0.0;
+            s.pivot_x = 0.0;
+            s.pivot_y = 0.0;
+            s.tr = 255;
+            s.mono = 0;
+            s.reverse = 0;
+            s.bright = 0;
+            s.dark = 0;
+            s.color_rate = 0;
+            s.color_add_r = 0;
+            s.color_add_g = 0;
+            s.color_add_b = 0;
+            s.color_r = 0;
+            s.color_g = 0;
+            s.color_b = 0;
+            s.blend = SpriteBlend::Normal;
+            s.dst_clip = None;
+            s.src_clip = None;
         }
     }
 
@@ -124,6 +222,27 @@ impl LayerManager {
         self.bg.size_mode = SpriteSizeMode::Intrinsic;
         self.bg.visible = true;
         self.bg.order = i32::MIN;
+        self.bg.scale_x = 1.0;
+        self.bg.scale_y = 1.0;
+        self.bg.rotate = 0.0;
+        self.bg.pivot_x = 0.0;
+        self.bg.pivot_y = 0.0;
+        self.bg.tr = 255;
+        self.bg.mono = 0;
+        self.bg.reverse = 0;
+        self.bg.bright = 0;
+        self.bg.dark = 0;
+        self.bg.color_rate = 0;
+        self.bg.color_add_r = 0;
+        self.bg.color_add_g = 0;
+        self.bg.color_add_b = 0;
+        self.bg.color_r = 0;
+        self.bg.color_g = 0;
+        self.bg.color_b = 0;
+        self.bg.mask_mode = 0;
+        self.bg.blend = SpriteBlend::Normal;
+        self.bg.dst_clip = None;
+        self.bg.src_clip = None;
     }
 
     pub fn clear_bg(&mut self) {
