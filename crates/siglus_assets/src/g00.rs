@@ -80,7 +80,11 @@ impl<'a> Cur<'a> {
 
     fn ensure(&self, n: usize) -> Result<()> {
         if self.pos + n > self.buf.len() {
-            bail!("g00: unexpected EOF (need {}, have {})", n, self.remaining());
+            bail!(
+                "g00: unexpected EOF (need {}, have {})",
+                n,
+                self.remaining()
+            );
         }
         Ok(())
     }
@@ -313,7 +317,11 @@ impl G00Chip {
                     .and_then(|v| v.checked_mul(4))
                     .ok_or_else(|| anyhow!("g00: expected size overflow"))?;
                 if out.len() != expected {
-                    bail!("g00: type0 size mismatch (got={}, expected={})", out.len(), expected);
+                    bail!(
+                        "g00: type0 size mismatch (got={}, expected={})",
+                        out.len(),
+                        expected
+                    );
                 }
                 Ok(out)
             }
@@ -351,7 +359,11 @@ impl G00Chip {
                 for &ix in indices {
                     let ix = ix as usize;
                     if ix >= pal_cnt {
-                        bail!("g00: type1 palette index out of range (ix={}, pal_cnt={})", ix, pal_cnt);
+                        bail!(
+                            "g00: type1 palette index out of range (ix={}, pal_cnt={})",
+                            ix,
+                            pal_cnt
+                        );
                     }
                     let base = ix * 4;
                     out.extend_from_slice(&pal_raw[base..base + 4]);
@@ -365,7 +377,11 @@ impl G00Chip {
                     .and_then(|v| v.checked_mul(4))
                     .ok_or_else(|| anyhow!("g00: expected size overflow"))?;
                 if pix.len() != expected {
-                    bail!("g00: raw size mismatch (got={}, expected={})", pix.len(), expected);
+                    bail!(
+                        "g00: raw size mismatch (got={}, expected={})",
+                        pix.len(),
+                        expected
+                    );
                 }
                 Ok(pix.clone())
             }

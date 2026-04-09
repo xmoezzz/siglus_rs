@@ -8,7 +8,11 @@ fn ensure_len(v: &mut Vec<i64>, idx: usize) {
 }
 
 fn bit_unit(bit: i32) -> i32 {
-    if bit <= 0 { 32 } else { bit }
+    if bit <= 0 {
+        32
+    } else {
+        bit
+    }
 }
 
 fn get_bit_width(ctx: &mut CommandContext, form_id: u32, op: i32) -> i32 {
@@ -91,7 +95,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
 
     let params = if let Some(pos) = chain_pos {
-        if pos > 1 { &args[1..pos] } else { &[] }
+        if pos > 1 {
+            &args[1..pos]
+        } else {
+            &[]
+        }
     } else {
         &[][..]
     };
@@ -208,7 +216,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 if params.len() >= 2 {
                     let start = params[0].as_i64().unwrap_or(0);
                     let end = params[1].as_i64().unwrap_or(start);
-                    let value = if params.len() >= 3 { params[2].as_i64().unwrap_or(0) } else { 0 };
+                    let value = if params.len() >= 3 {
+                        params[2].as_i64().unwrap_or(0)
+                    } else {
+                        0
+                    };
                     for i in start..=end {
                         bit_set(list, bit_width, i, value);
                     }
@@ -253,7 +265,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 if params.len() >= 2 {
                     let start = params[0].as_i64().unwrap_or(0);
                     let end = params[1].as_i64().unwrap_or(start);
-                    let value = if params.len() >= 3 { params[2].as_i64().unwrap_or(0) } else { 0 };
+                    let value = if params.len() >= 3 {
+                        params[2].as_i64().unwrap_or(0)
+                    } else {
+                        0
+                    };
                     for i in start..=end {
                         bit_set(list, 32, i, value);
                     }

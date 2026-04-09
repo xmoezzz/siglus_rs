@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use crate::runtime::globals::{SaveSlotState, ToggleFeatureState, ValueFeatureState};
 use crate::runtime::{CommandContext, Value};
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::assets::RgbaImage;
 
@@ -346,74 +346,273 @@ const SET_RETURN_SCENE_ONCE: i32 = 332;
 const GET_SYSTEM_EXTRA_INT_VALUE: i32 = 333;
 const GET_SYSTEM_EXTRA_STR_VALUE: i32 = 334;
 
-struct Call<'a> { op: i32, params: &'a [Value] }
+struct Call<'a> {
+    op: i32,
+    params: &'a [Value],
+}
 
 fn parse_call(form_id: u32, args: &[Value]) -> Option<Call<'_>> {
     if let Some((chain_pos, chain)) = prop_access::parse_element_chain(form_id, args) {
         if chain.len() >= 2 {
-            let params = if chain_pos > 1 { &args[1..chain_pos] } else { &[] };
-            return Some(Call { op: chain[1], params });
+            let params = if chain_pos > 1 {
+                &args[1..chain_pos]
+            } else {
+                &[]
+            };
+            return Some(Call {
+                op: chain[1],
+                params,
+            });
         }
     }
     let op = args.get(0).and_then(|v| v.as_i64())? as i32;
-    Some(Call { op, params: &args[1..] })
+    Some(Call {
+        op,
+        params: &args[1..],
+    })
 }
 
 fn p_i64(params: &[Value], idx: usize) -> i64 {
     params.get(idx).and_then(|v| v.as_i64()).unwrap_or(0)
 }
-fn p_bool(params: &[Value], idx: usize) -> bool { p_i64(params, idx) != 0 }
+fn p_bool(params: &[Value], idx: usize) -> bool {
+    p_i64(params, idx) != 0
+}
 
 fn get_toggle_get(op: i32, st: &crate::runtime::globals::SyscomRuntimeState) -> Option<i64> {
     Some(match op {
-        GET_READ_SKIP_ONOFF_FLAG => if st.read_skip.onoff { 1 } else { 0 },
-        GET_READ_SKIP_ENABLE_FLAG => if st.read_skip.enable { 1 } else { 0 },
-        GET_READ_SKIP_EXIST_FLAG => if st.read_skip.exist { 1 } else { 0 },
+        GET_READ_SKIP_ONOFF_FLAG => {
+            if st.read_skip.onoff {
+                1
+            } else {
+                0
+            }
+        }
+        GET_READ_SKIP_ENABLE_FLAG => {
+            if st.read_skip.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_READ_SKIP_EXIST_FLAG => {
+            if st.read_skip.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_READ_SKIP_ENABLE => st.read_skip.check_enabled(),
-        GET_AUTO_SKIP_ONOFF_FLAG => if st.auto_skip.onoff { 1 } else { 0 },
-        GET_AUTO_SKIP_ENABLE_FLAG => if st.auto_skip.enable { 1 } else { 0 },
-        GET_AUTO_SKIP_EXIST_FLAG => if st.auto_skip.exist { 1 } else { 0 },
+        GET_AUTO_SKIP_ONOFF_FLAG => {
+            if st.auto_skip.onoff {
+                1
+            } else {
+                0
+            }
+        }
+        GET_AUTO_SKIP_ENABLE_FLAG => {
+            if st.auto_skip.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_AUTO_SKIP_EXIST_FLAG => {
+            if st.auto_skip.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_AUTO_SKIP_ENABLE => st.auto_skip.check_enabled(),
-        GET_AUTO_MODE_ONOFF_FLAG => if st.auto_mode.onoff { 1 } else { 0 },
-        GET_AUTO_MODE_ENABLE_FLAG => if st.auto_mode.enable { 1 } else { 0 },
-        GET_AUTO_MODE_EXIST_FLAG => if st.auto_mode.exist { 1 } else { 0 },
+        GET_AUTO_MODE_ONOFF_FLAG => {
+            if st.auto_mode.onoff {
+                1
+            } else {
+                0
+            }
+        }
+        GET_AUTO_MODE_ENABLE_FLAG => {
+            if st.auto_mode.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_AUTO_MODE_EXIST_FLAG => {
+            if st.auto_mode.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_AUTO_MODE_ENABLE => st.auto_mode.check_enabled(),
-        GET_HIDE_MWND_ONOFF_FLAG => if st.hide_mwnd.onoff { 1 } else { 0 },
-        GET_HIDE_MWND_ENABLE_FLAG => if st.hide_mwnd.enable { 1 } else { 0 },
-        GET_HIDE_MWND_EXIST_FLAG => if st.hide_mwnd.exist { 1 } else { 0 },
+        GET_HIDE_MWND_ONOFF_FLAG => {
+            if st.hide_mwnd.onoff {
+                1
+            } else {
+                0
+            }
+        }
+        GET_HIDE_MWND_ENABLE_FLAG => {
+            if st.hide_mwnd.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_HIDE_MWND_EXIST_FLAG => {
+            if st.hide_mwnd.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_HIDE_MWND_ENABLE => st.hide_mwnd.check_enabled(),
-        GET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG => if st.local_extra_switch.onoff { 1 } else { 0 },
-        GET_LOCAL_EXTRA_SWITCH_ENABLE_FLAG => if st.local_extra_switch.enable { 1 } else { 0 },
-        GET_LOCAL_EXTRA_SWITCH_EXIST_FLAG => if st.local_extra_switch.exist { 1 } else { 0 },
+        GET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG => {
+            if st.local_extra_switch.onoff {
+                1
+            } else {
+                0
+            }
+        }
+        GET_LOCAL_EXTRA_SWITCH_ENABLE_FLAG => {
+            if st.local_extra_switch.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_LOCAL_EXTRA_SWITCH_EXIST_FLAG => {
+            if st.local_extra_switch.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_LOCAL_EXTRA_SWITCH_ENABLE => st.local_extra_switch.check_enabled(),
         GET_LOCAL_EXTRA_MODE_VALUE => st.local_extra_mode.value,
-        GET_LOCAL_EXTRA_MODE_ENABLE_FLAG => if st.local_extra_mode.enable { 1 } else { 0 },
-        GET_LOCAL_EXTRA_MODE_EXIST_FLAG => if st.local_extra_mode.exist { 1 } else { 0 },
+        GET_LOCAL_EXTRA_MODE_ENABLE_FLAG => {
+            if st.local_extra_mode.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_LOCAL_EXTRA_MODE_EXIST_FLAG => {
+            if st.local_extra_mode.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_LOCAL_EXTRA_MODE_ENABLE => st.local_extra_mode.check_enabled(),
-        GET_MSG_BACK_ENABLE_FLAG => if st.msg_back.enable { 1 } else { 0 },
-        GET_MSG_BACK_EXIST_FLAG => if st.msg_back.exist { 1 } else { 0 },
+        GET_MSG_BACK_ENABLE_FLAG => {
+            if st.msg_back.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_MSG_BACK_EXIST_FLAG => {
+            if st.msg_back.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_MSG_BACK_ENABLE => st.msg_back.check_enabled(),
-        CHECK_MSG_BACK_OPEN => if st.msg_back_open { 1 } else { 0 },
-        GET_RETURN_TO_SEL_ENABLE_FLAG => if st.return_to_sel.enable { 1 } else { 0 },
-        GET_RETURN_TO_SEL_EXIST_FLAG => if st.return_to_sel.exist { 1 } else { 0 },
+        CHECK_MSG_BACK_OPEN => {
+            if st.msg_back_open {
+                1
+            } else {
+                0
+            }
+        }
+        GET_RETURN_TO_SEL_ENABLE_FLAG => {
+            if st.return_to_sel.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_RETURN_TO_SEL_EXIST_FLAG => {
+            if st.return_to_sel.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_RETURN_TO_SEL_ENABLE => st.return_to_sel.check_enabled(),
-        GET_RETURN_TO_MENU_ENABLE_FLAG => if st.return_to_menu.enable { 1 } else { 0 },
-        GET_RETURN_TO_MENU_EXIST_FLAG => if st.return_to_menu.exist { 1 } else { 0 },
+        GET_RETURN_TO_MENU_ENABLE_FLAG => {
+            if st.return_to_menu.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_RETURN_TO_MENU_EXIST_FLAG => {
+            if st.return_to_menu.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_RETURN_TO_MENU_ENABLE => st.return_to_menu.check_enabled(),
-        GET_END_GAME_ENABLE_FLAG => if st.end_game.enable { 1 } else { 0 },
-        GET_END_GAME_EXIST_FLAG => if st.end_game.exist { 1 } else { 0 },
+        GET_END_GAME_ENABLE_FLAG => {
+            if st.end_game.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_END_GAME_EXIST_FLAG => {
+            if st.end_game.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_END_GAME_ENABLE => st.end_game.check_enabled(),
-        GET_SAVE_ENABLE_FLAG => if st.save_feature.enable { 1 } else { 0 },
-        GET_SAVE_EXIST_FLAG => if st.save_feature.exist { 1 } else { 0 },
+        GET_SAVE_ENABLE_FLAG => {
+            if st.save_feature.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_SAVE_EXIST_FLAG => {
+            if st.save_feature.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_SAVE_ENABLE => st.save_feature.check_enabled(),
-        GET_LOAD_ENABLE_FLAG => if st.load_feature.enable { 1 } else { 0 },
-        GET_LOAD_EXIST_FLAG => if st.load_feature.exist { 1 } else { 0 },
+        GET_LOAD_ENABLE_FLAG => {
+            if st.load_feature.enable {
+                1
+            } else {
+                0
+            }
+        }
+        GET_LOAD_EXIST_FLAG => {
+            if st.load_feature.exist {
+                1
+            } else {
+                0
+            }
+        }
         CHECK_LOAD_ENABLE => st.load_feature.check_enabled(),
         _ => return None,
     })
 }
 
-fn apply_toggle_set(op: i32, v: bool, st: &mut crate::runtime::globals::SyscomRuntimeState) -> bool {
+fn apply_toggle_set(
+    op: i32,
+    v: bool,
+    st: &mut crate::runtime::globals::SyscomRuntimeState,
+) -> bool {
     match op {
         SET_READ_SKIP_ONOFF_FLAG => st.read_skip.onoff = v,
         SET_READ_SKIP_ENABLE_FLAG => st.read_skip.enable = v,
@@ -466,17 +665,30 @@ pub(crate) fn menu_save_slot(ctx: &mut CommandContext, quick: bool, idx: usize) 
     set_slot_timestamp(slot);
     let path = slot_path(&save_dir(&ctx.project_dir), quick, idx);
     write_slot(&path, slot);
+    if !quick {
+        write_slot_thumb(ctx, idx);
+    }
 }
 
 pub(crate) fn menu_load_slot(ctx: &mut CommandContext, quick: bool, idx: usize) {
     if quick {
-        ensure_slot_loaded(&ctx.project_dir, true, &mut ctx.globals.syscom.quick_save_slots, idx);
+        ensure_slot_loaded(
+            &ctx.project_dir,
+            true,
+            &mut ctx.globals.syscom.quick_save_slots,
+            idx,
+        );
     } else {
-        ensure_slot_loaded(&ctx.project_dir, false, &mut ctx.globals.syscom.save_slots, idx);
+        ensure_slot_loaded(
+            &ctx.project_dir,
+            false,
+            &mut ctx.globals.syscom.save_slots,
+            idx,
+        );
     }
 }
 
-fn save_dir(project_dir: &Path) -> PathBuf {
+pub(crate) fn save_dir(project_dir: &Path) -> PathBuf {
     let cand = project_dir.join("savedata");
     if cand.is_dir() {
         return cand;
@@ -494,6 +706,56 @@ fn slot_path(dir: &Path, quick: bool, idx: usize) -> PathBuf {
     } else {
         dir.join(format!("save_{idx}.txt"))
     }
+}
+
+pub(crate) fn thumb_candidate_paths(dir: &Path, idx: i64) -> [PathBuf; 2] {
+    let stem = format!("{:010}", idx.max(0));
+    [
+        dir.join(format!("{stem}.png")),
+        dir.join(format!("{stem}.bmp")),
+    ]
+}
+
+fn pick_thumb_source_name(ctx: &CommandContext) -> Option<String> {
+    let table = ctx.tables.thumb_table.as_ref()?;
+    for stage in ctx.globals.stage_forms.values() {
+        for objs in stage.object_lists.values() {
+            for obj in objs.iter().rev() {
+                if let Some(file) = obj.file_name.as_deref() {
+                    if let Some(mapped) = table.get_by_file_stem(file) {
+                        return Some(mapped.clone());
+                    }
+                }
+            }
+        }
+    }
+    None
+}
+
+fn capture_slot_thumb(ctx: &mut CommandContext) -> RgbaImage {
+    const SAVE_THUMB_W: u32 = 200;
+    const SAVE_THUMB_H: u32 = 150;
+
+    if let Some(name) = pick_thumb_source_name(ctx) {
+        if let Ok(img_id) = ctx.images.load_g00(&name, 0) {
+            if let Some(img) = ctx.images.get(img_id) {
+                return resize_rgba(img.as_ref(), SAVE_THUMB_W, SAVE_THUMB_H);
+            }
+        }
+    }
+
+    let img = ctx.capture_frame_rgba();
+    resize_rgba(&img, SAVE_THUMB_W, SAVE_THUMB_H)
+}
+
+fn write_slot_thumb(ctx: &mut CommandContext, idx: usize) {
+    let dir = save_dir(&ctx.project_dir);
+    let [png_path, _bmp_path] = thumb_candidate_paths(&dir, idx as i64);
+    if let Some(parent) = png_path.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let img = capture_slot_thumb(ctx);
+    write_rgba_png(&png_path, &img);
 }
 
 fn escape_str(s: &str) -> String {
@@ -547,7 +809,10 @@ fn write_slot(path: &Path, slot: &SaveSlotState) {
     buf.push_str(&format!("millisecond={}\n", slot.millisecond));
     buf.push_str(&format!("title={}\n", escape_str(&slot.title)));
     buf.push_str(&format!("message={}\n", escape_str(&slot.message)));
-    buf.push_str(&format!("full_message={}\n", escape_str(&slot.full_message)));
+    buf.push_str(&format!(
+        "full_message={}\n",
+        escape_str(&slot.full_message)
+    ));
     buf.push_str(&format!("comment={}\n", escape_str(&slot.comment)));
     buf.push_str(&format!("append_dir={}\n", escape_str(&slot.append_dir)));
     buf.push_str(&format!("append_name={}\n", escape_str(&slot.append_name)));
@@ -561,7 +826,9 @@ fn read_slot(path: &Path) -> Option<SaveSlotState> {
     let data = std::fs::read_to_string(path).ok()?;
     let mut slot = SaveSlotState::default();
     for line in data.lines() {
-        let Some((k, v)) = line.split_once('=') else { continue; };
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
         match k {
             "exist" => slot.exist = v.trim() != "0",
             "year" => slot.year = v.trim().parse().unwrap_or(0),
@@ -605,7 +872,9 @@ fn write_msg_back(ctx: &CommandContext) {
     if form_id == 0 {
         return;
     }
-    let Some(st) = ctx.globals.msgbk_forms.get(&form_id) else { return; };
+    let Some(st) = ctx.globals.msgbk_forms.get(&form_id) else {
+        return;
+    };
     let dir = save_dir(&ctx.project_dir);
     let path = dir.join("msg_back.txt");
 
@@ -645,7 +914,10 @@ fn first_free_slot(slots: &[SaveSlotState]) -> i64 {
 
 fn set_slot_timestamp(slot: &mut SaveSlotState) {
     use std::time::{SystemTime, UNIX_EPOCH};
-    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+    let secs = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
     let days = secs.div_euclid(86_400);
     let sod = secs.rem_euclid(86_400);
     slot.hour = sod / 3600;
@@ -660,7 +932,13 @@ fn set_slot_timestamp(slot: &mut SaveSlotState) {
 
 fn slot_i64(slot: &SaveSlotState, op: i32) -> i64 {
     match op {
-        GET_SAVE_EXIST | GET_QUICK_SAVE_EXIST => if slot.exist { 1 } else { 0 },
+        GET_SAVE_EXIST | GET_QUICK_SAVE_EXIST => {
+            if slot.exist {
+                1
+            } else {
+                0
+            }
+        }
         GET_SAVE_YEAR | GET_QUICK_SAVE_YEAR => slot.year,
         GET_SAVE_MONTH | GET_QUICK_SAVE_MONTH => slot.month,
         GET_SAVE_DAY | GET_QUICK_SAVE_DAY => slot.day,
@@ -730,11 +1008,14 @@ pub(crate) fn apply_audio_config(ctx: &mut CommandContext) {
     let eff_koe = (all_raw as u16 * koe_raw as u16 / 255) as u8;
     let eff_mov = (all_raw as u16 * mov_raw as u16 / 255) as u8;
 
-    ctx.audio.set_track_master_volume_raw(TrackKind::Bgm, eff_bgm);
+    ctx.audio
+        .set_track_master_volume_raw(TrackKind::Bgm, eff_bgm);
     ctx.audio.set_track_master_volume_raw(TrackKind::Se, eff_se);
     // KOE is treated as PCM for now (voice).
-    ctx.audio.set_track_master_volume_raw(TrackKind::Pcm, eff_pcm.min(eff_koe));
-    ctx.audio.set_track_master_volume_raw(TrackKind::Mov, eff_mov);
+    ctx.audio
+        .set_track_master_volume_raw(TrackKind::Pcm, eff_pcm.min(eff_koe));
+    ctx.audio
+        .set_track_master_volume_raw(TrackKind::Mov, eff_mov);
 }
 
 fn cfg_get_str(st: &crate::runtime::globals::SyscomRuntimeState, key: i32) -> String {
@@ -784,7 +1065,11 @@ fn resize_rgba(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
             out[di..di + 4].copy_from_slice(&img.rgba[si..si + 4]);
         }
     }
-    RgbaImage { width: w, height: h, rgba: out }
+    RgbaImage {
+        width: w,
+        height: h,
+        rgba: out,
+    }
 }
 
 fn font_exists(project_dir: &Path, name: &str) -> bool {
@@ -792,18 +1077,28 @@ fn font_exists(project_dir: &Path, name: &str) -> bool {
         return false;
     }
     let font_dir = project_dir.join("font");
-    let Ok(entries) = fs::read_dir(font_dir) else { return false; };
+    let Ok(entries) = fs::read_dir(font_dir) else {
+        return false;
+    };
     let name_lower = name.to_ascii_lowercase();
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         if ext != "ttf" && ext != "otf" && ext != "ttc" {
             continue;
         }
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         if stem == name_lower {
             return true;
         }
@@ -812,7 +1107,9 @@ fn font_exists(project_dir: &Path, name: &str) -> bool {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    let Some(call) = parse_call(form_id, args) else { return Ok(false); };
+    let Some(call) = parse_call(form_id, args) else {
+        return Ok(false);
+    };
     let op = call.op;
     let params = call.params;
 
@@ -832,7 +1129,10 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
 
     match op {
-        CALL_EX => { ctx.push(Value::Int(0)); return Ok(true); }
+        CALL_EX => {
+            ctx.push(Value::Int(0));
+            return Ok(true);
+        }
         CALL_SYSCOM_MENU => {
             ctx.globals.syscom.menu_open = true;
             ctx.globals.syscom.menu_kind = Some(CALL_SYSCOM_MENU);
@@ -845,10 +1145,24 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         SET_SYSCOM_MENU_ENABLE => ctx.globals.syscom.syscom_menu_disable = false,
         SET_SYSCOM_MENU_DISABLE => ctx.globals.syscom.syscom_menu_disable = true,
         SET_MWND_BTN_ENABLE => {
-            if params.is_empty() { ctx.globals.syscom.mwnd_btn_disable_all = false; } else { ctx.globals.syscom.mwnd_btn_disable.insert(p_i64(params,0), false); }
+            if params.is_empty() {
+                ctx.globals.syscom.mwnd_btn_disable_all = false;
+            } else {
+                ctx.globals
+                    .syscom
+                    .mwnd_btn_disable
+                    .insert(p_i64(params, 0), false);
+            }
         }
         SET_MWND_BTN_DISABLE => {
-            if params.is_empty() { ctx.globals.syscom.mwnd_btn_disable_all = true; } else { ctx.globals.syscom.mwnd_btn_disable.insert(p_i64(params,0), true); }
+            if params.is_empty() {
+                ctx.globals.syscom.mwnd_btn_disable_all = true;
+            } else {
+                ctx.globals
+                    .syscom
+                    .mwnd_btn_disable
+                    .insert(p_i64(params, 0), true);
+            }
         }
         SET_MWND_BTN_TOUCH_ENABLE => ctx.globals.syscom.mwnd_btn_touch_disable = false,
         SET_MWND_BTN_TOUCH_DISABLE => ctx.globals.syscom.mwnd_btn_touch_disable = true,
@@ -875,7 +1189,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         END_GAME => ctx.globals.syscom.last_menu_call = END_GAME,
         REPLAY_KOE => ctx.globals.syscom.replay_koe = Some((p_i64(params, 0), p_i64(params, 1))),
         CHECK_REPLAY_KOE => {
-            let v = if ctx.globals.syscom.replay_koe.is_some() { 1 } else { 0 };
+            let v = if ctx.globals.syscom.replay_koe.is_some() {
+                1
+            } else {
+                0
+            };
             ctx.push(Value::Int(v));
             return Ok(true);
         }
@@ -934,7 +1252,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         LOAD => {
             let idx = p_i64(params, 0).max(0) as usize;
-            ensure_slot_loaded(&ctx.project_dir, false, &mut ctx.globals.syscom.save_slots, idx);
+            ensure_slot_loaded(
+                &ctx.project_dir,
+                false,
+                &mut ctx.globals.syscom.save_slots,
+                idx,
+            );
             ctx.globals.syscom.last_menu_call = LOAD;
         }
         QUICK_SAVE => {
@@ -947,7 +1270,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         QUICK_LOAD => {
             let idx = p_i64(params, 0).max(0) as usize;
-            ensure_slot_loaded(&ctx.project_dir, true, &mut ctx.globals.syscom.quick_save_slots, idx);
+            ensure_slot_loaded(
+                &ctx.project_dir,
+                true,
+                &mut ctx.globals.syscom.quick_save_slots,
+                idx,
+            );
             ctx.globals.syscom.last_menu_call = QUICK_LOAD;
         }
         END_SAVE => ctx.globals.syscom.end_save_exists = true,
@@ -957,11 +1285,18 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         CLEAR_INNER_SAVE => ctx.globals.syscom.inner_save_exists = false,
         COPY_INNER_SAVE => ctx.globals.syscom.inner_save_exists = true,
         CHECK_INNER_SAVE => {
-            let v = if ctx.globals.syscom.inner_save_exists { 1 } else { 0 };
+            let v = if ctx.globals.syscom.inner_save_exists {
+                1
+            } else {
+                0
+            };
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        MSG_BACK_LOAD => { ctx.globals.syscom.last_menu_call = MSG_BACK_LOAD; write_msg_back(ctx); }
+        MSG_BACK_LOAD => {
+            ctx.globals.syscom.last_menu_call = MSG_BACK_LOAD;
+            write_msg_back(ctx);
+        }
         GET_SAVE_CNT => {
             let v = ctx.globals.syscom.save_slots.len() as i64;
             ctx.push(Value::Int(v));
@@ -982,32 +1317,73 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        GET_SAVE_EXIST | GET_SAVE_YEAR | GET_SAVE_MONTH | GET_SAVE_DAY | GET_SAVE_WEEKDAY |
-        GET_SAVE_HOUR | GET_SAVE_MINUTE | GET_SAVE_SECOND | GET_SAVE_MILLISECOND => {
+        GET_SAVE_EXIST | GET_SAVE_YEAR | GET_SAVE_MONTH | GET_SAVE_DAY | GET_SAVE_WEEKDAY
+        | GET_SAVE_HOUR | GET_SAVE_MINUTE | GET_SAVE_SECOND | GET_SAVE_MILLISECOND => {
             let idx = p_i64(params, 0).max(0) as usize;
-            ensure_slot_loaded(&ctx.project_dir, false, &mut ctx.globals.syscom.save_slots, idx);
-            let v = ctx.globals.syscom.save_slots.get(idx).map(|s| slot_i64(s, op)).unwrap_or(0);
+            ensure_slot_loaded(
+                &ctx.project_dir,
+                false,
+                &mut ctx.globals.syscom.save_slots,
+                idx,
+            );
+            let v = ctx
+                .globals
+                .syscom
+                .save_slots
+                .get(idx)
+                .map(|s| slot_i64(s, op))
+                .unwrap_or(0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        GET_SAVE_TITLE | GET_SAVE_MESSAGE | GET_SAVE_FULL_MESSAGE | GET_SAVE_COMMENT |
-        GET_SAVE_APPEND_DIR | GET_SAVE_APPEND_NAME => {
+        GET_SAVE_TITLE
+        | GET_SAVE_MESSAGE
+        | GET_SAVE_FULL_MESSAGE
+        | GET_SAVE_COMMENT
+        | GET_SAVE_APPEND_DIR
+        | GET_SAVE_APPEND_NAME => {
             let idx = p_i64(params, 0).max(0) as usize;
-            ensure_slot_loaded(&ctx.project_dir, false, &mut ctx.globals.syscom.save_slots, idx);
-            let v = ctx.globals.syscom.save_slots.get(idx).map(|s| slot_str(s, op)).unwrap_or_default();
+            ensure_slot_loaded(
+                &ctx.project_dir,
+                false,
+                &mut ctx.globals.syscom.save_slots,
+                idx,
+            );
+            let v = ctx
+                .globals
+                .syscom
+                .save_slots
+                .get(idx)
+                .map(|s| slot_str(s, op))
+                .unwrap_or_default();
             ctx.push(Value::Str(v));
             return Ok(true);
         }
         SET_SAVE_COMMENT => {
             let idx = p_i64(params, 0).max(0) as usize;
             let slot = ensure_slot(&mut ctx.globals.syscom.save_slots, idx);
-            slot.comment = params.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            slot.comment = params
+                .get(1)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
         }
         GET_SAVE_VALUE => {
             let idx = p_i64(params, 0).max(0) as usize;
             let key = p_i64(params, 1) as i32;
-            ensure_slot_loaded(&ctx.project_dir, false, &mut ctx.globals.syscom.save_slots, idx);
-            let v = ctx.globals.syscom.save_slots.get(idx).and_then(|s| s.values.get(&key).copied()).unwrap_or(0);
+            ensure_slot_loaded(
+                &ctx.project_dir,
+                false,
+                &mut ctx.globals.syscom.save_slots,
+                idx,
+            );
+            let v = ctx
+                .globals
+                .syscom
+                .save_slots
+                .get(idx)
+                .and_then(|s| s.values.get(&key).copied())
+                .unwrap_or(0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
@@ -1015,34 +1391,84 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             let idx = p_i64(params, 0).max(0) as usize;
             let key = p_i64(params, 1) as i32;
             let val = p_i64(params, 2);
-            ensure_slot(&mut ctx.globals.syscom.save_slots, idx).values.insert(key, val);
+            ensure_slot(&mut ctx.globals.syscom.save_slots, idx)
+                .values
+                .insert(key, val);
         }
-        GET_QUICK_SAVE_EXIST | GET_QUICK_SAVE_YEAR | GET_QUICK_SAVE_MONTH | GET_QUICK_SAVE_DAY | GET_QUICK_SAVE_WEEKDAY |
-        GET_QUICK_SAVE_HOUR | GET_QUICK_SAVE_MINUTE | GET_QUICK_SAVE_SECOND | GET_QUICK_SAVE_MILLISECOND => {
+        GET_QUICK_SAVE_EXIST
+        | GET_QUICK_SAVE_YEAR
+        | GET_QUICK_SAVE_MONTH
+        | GET_QUICK_SAVE_DAY
+        | GET_QUICK_SAVE_WEEKDAY
+        | GET_QUICK_SAVE_HOUR
+        | GET_QUICK_SAVE_MINUTE
+        | GET_QUICK_SAVE_SECOND
+        | GET_QUICK_SAVE_MILLISECOND => {
             let idx = p_i64(params, 0).max(0) as usize;
-            ensure_slot_loaded(&ctx.project_dir, true, &mut ctx.globals.syscom.quick_save_slots, idx);
-            let v = ctx.globals.syscom.quick_save_slots.get(idx).map(|s| slot_i64(s, op)).unwrap_or(0);
+            ensure_slot_loaded(
+                &ctx.project_dir,
+                true,
+                &mut ctx.globals.syscom.quick_save_slots,
+                idx,
+            );
+            let v = ctx
+                .globals
+                .syscom
+                .quick_save_slots
+                .get(idx)
+                .map(|s| slot_i64(s, op))
+                .unwrap_or(0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        GET_QUICK_SAVE_TITLE | GET_QUICK_SAVE_MESSAGE | GET_QUICK_SAVE_FULL_MESSAGE | GET_QUICK_SAVE_COMMENT |
-        GET_QUICK_SAVE_APPEND_DIR | GET_QUICK_SAVE_APPEND_NAME => {
+        GET_QUICK_SAVE_TITLE
+        | GET_QUICK_SAVE_MESSAGE
+        | GET_QUICK_SAVE_FULL_MESSAGE
+        | GET_QUICK_SAVE_COMMENT
+        | GET_QUICK_SAVE_APPEND_DIR
+        | GET_QUICK_SAVE_APPEND_NAME => {
             let idx = p_i64(params, 0).max(0) as usize;
-            ensure_slot_loaded(&ctx.project_dir, true, &mut ctx.globals.syscom.quick_save_slots, idx);
-            let v = ctx.globals.syscom.quick_save_slots.get(idx).map(|s| slot_str(s, op)).unwrap_or_default();
+            ensure_slot_loaded(
+                &ctx.project_dir,
+                true,
+                &mut ctx.globals.syscom.quick_save_slots,
+                idx,
+            );
+            let v = ctx
+                .globals
+                .syscom
+                .quick_save_slots
+                .get(idx)
+                .map(|s| slot_str(s, op))
+                .unwrap_or_default();
             ctx.push(Value::Str(v));
             return Ok(true);
         }
         SET_QUICK_SAVE_COMMENT => {
             let idx = p_i64(params, 0).max(0) as usize;
             let slot = ensure_slot(&mut ctx.globals.syscom.quick_save_slots, idx);
-            slot.comment = params.get(1).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            slot.comment = params
+                .get(1)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
         }
         GET_QUICK_SAVE_VALUE => {
             let idx = p_i64(params, 0).max(0) as usize;
             let key = p_i64(params, 1) as i32;
-            ensure_slot_loaded(&ctx.project_dir, true, &mut ctx.globals.syscom.quick_save_slots, idx);
-            let v = ctx.globals.syscom.quick_save_slots.get(idx).and_then(|s| s.values.get(&key).copied()).unwrap_or(0);
+            ensure_slot_loaded(
+                &ctx.project_dir,
+                true,
+                &mut ctx.globals.syscom.quick_save_slots,
+                idx,
+            );
+            let v = ctx
+                .globals
+                .syscom
+                .quick_save_slots
+                .get(idx)
+                .and_then(|s| s.values.get(&key).copied())
+                .unwrap_or(0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
@@ -1050,14 +1476,21 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             let idx = p_i64(params, 0).max(0) as usize;
             let key = p_i64(params, 1) as i32;
             let val = p_i64(params, 2);
-            ensure_slot(&mut ctx.globals.syscom.quick_save_slots, idx).values.insert(key, val);
+            ensure_slot(&mut ctx.globals.syscom.quick_save_slots, idx)
+                .values
+                .insert(key, val);
         }
         GET_END_SAVE_EXIST => {
-            let v = if ctx.globals.syscom.end_save_exists { 1 } else { 0 };
+            let v = if ctx.globals.syscom.end_save_exists {
+                1
+            } else {
+                0
+            };
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        COPY_SAVE | CHANGE_SAVE | DELETE_SAVE | COPY_QUICK_SAVE | CHANGE_QUICK_SAVE | DELETE_QUICK_SAVE => {
+        COPY_SAVE | CHANGE_SAVE | DELETE_SAVE | COPY_QUICK_SAVE | CHANGE_QUICK_SAVE
+        | DELETE_QUICK_SAVE => {
             ctx.globals.syscom.last_menu_call = op;
         }
         CALL_CONFIG_MENU
@@ -1086,8 +1519,14 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_WINDOW_MODE_SIZE => cfg_set_int(&mut ctx.globals.syscom, GET_WINDOW_MODE_SIZE, p_i64(params, 0)),
-        SET_WINDOW_MODE_SIZE_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_WINDOW_MODE_SIZE, 0),
+        SET_WINDOW_MODE_SIZE => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_WINDOW_MODE_SIZE,
+            p_i64(params, 0),
+        ),
+        SET_WINDOW_MODE_SIZE_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_WINDOW_MODE_SIZE, 0)
+        }
         GET_WINDOW_MODE_SIZE => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_WINDOW_MODE_SIZE, 0);
             ctx.push(Value::Int(v));
@@ -1097,46 +1536,160 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.push(Value::Int(1));
             return Ok(true);
         }
-        SET_ALL_VOLUME => { cfg_set_int(&mut ctx.globals.syscom, GET_ALL_VOLUME, p_i64(params, 0)); apply_audio_config(ctx); },
-        SET_BGM_VOLUME => { cfg_set_int(&mut ctx.globals.syscom, GET_BGM_VOLUME, p_i64(params, 0)); apply_audio_config(ctx); },
-        SET_KOE_VOLUME => { cfg_set_int(&mut ctx.globals.syscom, GET_KOE_VOLUME, p_i64(params, 0)); apply_audio_config(ctx); },
-        SET_PCM_VOLUME => { cfg_set_int(&mut ctx.globals.syscom, GET_PCM_VOLUME, p_i64(params, 0)); apply_audio_config(ctx); },
-        SET_SE_VOLUME => { cfg_set_int(&mut ctx.globals.syscom, GET_SE_VOLUME, p_i64(params, 0)); apply_audio_config(ctx); },
-        SET_MOV_VOLUME => { cfg_set_int(&mut ctx.globals.syscom, GET_MOV_VOLUME, p_i64(params, 0)); apply_audio_config(ctx); },
-        SET_SOUND_VOLUME => { cfg_set_int(&mut ctx.globals.syscom, GET_SOUND_VOLUME, p_i64(params, 0)); },
-        SET_ALL_VOLUME_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_ALL_VOLUME, 100); apply_audio_config(ctx); },
-        SET_BGM_VOLUME_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_BGM_VOLUME, 100); apply_audio_config(ctx); },
-        SET_KOE_VOLUME_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_KOE_VOLUME, 100); apply_audio_config(ctx); },
-        SET_PCM_VOLUME_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_PCM_VOLUME, 100); apply_audio_config(ctx); },
-        SET_SE_VOLUME_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_SE_VOLUME, 100); apply_audio_config(ctx); },
-        SET_MOV_VOLUME_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_MOV_VOLUME, 100); apply_audio_config(ctx); },
+        SET_ALL_VOLUME => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_ALL_VOLUME, p_i64(params, 0));
+            apply_audio_config(ctx);
+        }
+        SET_BGM_VOLUME => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_BGM_VOLUME, p_i64(params, 0));
+            apply_audio_config(ctx);
+        }
+        SET_KOE_VOLUME => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_KOE_VOLUME, p_i64(params, 0));
+            apply_audio_config(ctx);
+        }
+        SET_PCM_VOLUME => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_PCM_VOLUME, p_i64(params, 0));
+            apply_audio_config(ctx);
+        }
+        SET_SE_VOLUME => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_SE_VOLUME, p_i64(params, 0));
+            apply_audio_config(ctx);
+        }
+        SET_MOV_VOLUME => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_MOV_VOLUME, p_i64(params, 0));
+            apply_audio_config(ctx);
+        }
+        SET_SOUND_VOLUME => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_SOUND_VOLUME, p_i64(params, 0));
+        }
+        SET_ALL_VOLUME_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_ALL_VOLUME, 100);
+            apply_audio_config(ctx);
+        }
+        SET_BGM_VOLUME_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_BGM_VOLUME, 100);
+            apply_audio_config(ctx);
+        }
+        SET_KOE_VOLUME_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_KOE_VOLUME, 100);
+            apply_audio_config(ctx);
+        }
+        SET_PCM_VOLUME_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_PCM_VOLUME, 100);
+            apply_audio_config(ctx);
+        }
+        SET_SE_VOLUME_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_SE_VOLUME, 100);
+            apply_audio_config(ctx);
+        }
+        SET_MOV_VOLUME_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_MOV_VOLUME, 100);
+            apply_audio_config(ctx);
+        }
         SET_SOUND_VOLUME_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_SOUND_VOLUME, 100),
-        GET_ALL_VOLUME | GET_BGM_VOLUME | GET_KOE_VOLUME | GET_PCM_VOLUME | GET_SE_VOLUME | GET_MOV_VOLUME | GET_SOUND_VOLUME => {
+        GET_ALL_VOLUME | GET_BGM_VOLUME | GET_KOE_VOLUME | GET_PCM_VOLUME | GET_SE_VOLUME
+        | GET_MOV_VOLUME | GET_SOUND_VOLUME => {
             let v = cfg_get_int(&ctx.globals.syscom, op, 100);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_ALL_ONOFF => { cfg_set_int(&mut ctx.globals.syscom, GET_ALL_ONOFF, if p_bool(params, 0) { 1 } else { 0 }); apply_audio_config(ctx); },
-        SET_BGM_ONOFF => { cfg_set_int(&mut ctx.globals.syscom, GET_BGM_ONOFF, if p_bool(params, 0) { 1 } else { 0 }); apply_audio_config(ctx); },
-        SET_KOE_ONOFF => { cfg_set_int(&mut ctx.globals.syscom, GET_KOE_ONOFF, if p_bool(params, 0) { 1 } else { 0 }); apply_audio_config(ctx); },
-        SET_PCM_ONOFF => { cfg_set_int(&mut ctx.globals.syscom, GET_PCM_ONOFF, if p_bool(params, 0) { 1 } else { 0 }); apply_audio_config(ctx); },
-        SET_SE_ONOFF => { cfg_set_int(&mut ctx.globals.syscom, GET_SE_ONOFF, if p_bool(params, 0) { 1 } else { 0 }); apply_audio_config(ctx); },
-        SET_MOV_ONOFF => { cfg_set_int(&mut ctx.globals.syscom, GET_MOV_ONOFF, if p_bool(params, 0) { 1 } else { 0 }); apply_audio_config(ctx); },
-        SET_SOUND_ONOFF => { cfg_set_int(&mut ctx.globals.syscom, GET_SOUND_ONOFF, if p_bool(params, 0) { 1 } else { 0 }); },
-        SET_ALL_ONOFF_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_ALL_ONOFF, 1); apply_audio_config(ctx); },
-        SET_BGM_ONOFF_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_BGM_ONOFF, 1); apply_audio_config(ctx); },
-        SET_KOE_ONOFF_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_KOE_ONOFF, 1); apply_audio_config(ctx); },
-        SET_PCM_ONOFF_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_PCM_ONOFF, 1); apply_audio_config(ctx); },
-        SET_SE_ONOFF_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_SE_ONOFF, 1); apply_audio_config(ctx); },
-        SET_MOV_ONOFF_DEFAULT => { cfg_set_int(&mut ctx.globals.syscom, GET_MOV_ONOFF, 1); apply_audio_config(ctx); },
+        SET_ALL_ONOFF => {
+            cfg_set_int(
+                &mut ctx.globals.syscom,
+                GET_ALL_ONOFF,
+                if p_bool(params, 0) { 1 } else { 0 },
+            );
+            apply_audio_config(ctx);
+        }
+        SET_BGM_ONOFF => {
+            cfg_set_int(
+                &mut ctx.globals.syscom,
+                GET_BGM_ONOFF,
+                if p_bool(params, 0) { 1 } else { 0 },
+            );
+            apply_audio_config(ctx);
+        }
+        SET_KOE_ONOFF => {
+            cfg_set_int(
+                &mut ctx.globals.syscom,
+                GET_KOE_ONOFF,
+                if p_bool(params, 0) { 1 } else { 0 },
+            );
+            apply_audio_config(ctx);
+        }
+        SET_PCM_ONOFF => {
+            cfg_set_int(
+                &mut ctx.globals.syscom,
+                GET_PCM_ONOFF,
+                if p_bool(params, 0) { 1 } else { 0 },
+            );
+            apply_audio_config(ctx);
+        }
+        SET_SE_ONOFF => {
+            cfg_set_int(
+                &mut ctx.globals.syscom,
+                GET_SE_ONOFF,
+                if p_bool(params, 0) { 1 } else { 0 },
+            );
+            apply_audio_config(ctx);
+        }
+        SET_MOV_ONOFF => {
+            cfg_set_int(
+                &mut ctx.globals.syscom,
+                GET_MOV_ONOFF,
+                if p_bool(params, 0) { 1 } else { 0 },
+            );
+            apply_audio_config(ctx);
+        }
+        SET_SOUND_ONOFF => {
+            cfg_set_int(
+                &mut ctx.globals.syscom,
+                GET_SOUND_ONOFF,
+                if p_bool(params, 0) { 1 } else { 0 },
+            );
+        }
+        SET_ALL_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_ALL_ONOFF, 1);
+            apply_audio_config(ctx);
+        }
+        SET_BGM_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_BGM_ONOFF, 1);
+            apply_audio_config(ctx);
+        }
+        SET_KOE_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_KOE_ONOFF, 1);
+            apply_audio_config(ctx);
+        }
+        SET_PCM_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_PCM_ONOFF, 1);
+            apply_audio_config(ctx);
+        }
+        SET_SE_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_SE_ONOFF, 1);
+            apply_audio_config(ctx);
+        }
+        SET_MOV_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_MOV_ONOFF, 1);
+            apply_audio_config(ctx);
+        }
         SET_SOUND_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_SOUND_ONOFF, 1),
-        GET_ALL_ONOFF | GET_BGM_ONOFF | GET_KOE_ONOFF | GET_PCM_ONOFF | GET_SE_ONOFF | GET_MOV_ONOFF | GET_SOUND_ONOFF => {
+        GET_ALL_ONOFF | GET_BGM_ONOFF | GET_KOE_ONOFF | GET_PCM_ONOFF | GET_SE_ONOFF
+        | GET_MOV_ONOFF | GET_SOUND_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, op, 1);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_BGMFADE_VOLUME => cfg_set_int(&mut ctx.globals.syscom, GET_BGMFADE_VOLUME, p_i64(params, 0)),
-        SET_BGMFADE_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_BGMFADE_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
+        SET_BGMFADE_VOLUME => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_BGMFADE_VOLUME,
+            p_i64(params, 0),
+        ),
+        SET_BGMFADE_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_BGMFADE_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
         SET_BGMFADE_VOLUME_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_BGMFADE_VOLUME, 100),
         SET_BGMFADE_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_BGMFADE_ONOFF, 1),
         GET_BGMFADE_VOLUME | GET_BGMFADE_ONOFF => {
@@ -1152,36 +1705,64 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_CHARAKOE_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_CHARAKOE_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
+        SET_CHARAKOE_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_CHARAKOE_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
         SET_CHARAKOE_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_CHARAKOE_ONOFF, 1),
         GET_CHARAKOE_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_CHARAKOE_ONOFF, 1);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_CHARAKOE_VOLUME => cfg_set_int(&mut ctx.globals.syscom, GET_CHARAKOE_VOLUME, p_i64(params, 0)),
-        SET_CHARAKOE_VOLUME_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_CHARAKOE_VOLUME, 100),
+        SET_CHARAKOE_VOLUME => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_CHARAKOE_VOLUME,
+            p_i64(params, 0),
+        ),
+        SET_CHARAKOE_VOLUME_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_CHARAKOE_VOLUME, 100)
+        }
         GET_CHARAKOE_VOLUME => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_CHARAKOE_VOLUME, 100);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_JITAN_NORMAL_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_NORMAL_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_JITAN_NORMAL_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_NORMAL_ONOFF, 0),
+        SET_JITAN_NORMAL_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_JITAN_NORMAL_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_JITAN_NORMAL_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_NORMAL_ONOFF, 0)
+        }
         GET_JITAN_NORMAL_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_JITAN_NORMAL_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_JITAN_AUTO_MODE_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_AUTO_MODE_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_JITAN_AUTO_MODE_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_AUTO_MODE_ONOFF, 0),
+        SET_JITAN_AUTO_MODE_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_JITAN_AUTO_MODE_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_JITAN_AUTO_MODE_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_AUTO_MODE_ONOFF, 0)
+        }
         GET_JITAN_AUTO_MODE_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_JITAN_AUTO_MODE_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_JITAN_KOE_REPLAY_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_KOE_REPLAY_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_JITAN_KOE_REPLAY_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_KOE_REPLAY_ONOFF, 0),
+        SET_JITAN_KOE_REPLAY_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_JITAN_KOE_REPLAY_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_JITAN_KOE_REPLAY_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_JITAN_KOE_REPLAY_ONOFF, 0)
+        }
         GET_JITAN_KOE_REPLAY_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_JITAN_KOE_REPLAY_ONOFF, 0);
             ctx.push(Value::Int(v));
@@ -1194,7 +1775,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_MESSAGE_SPEED => cfg_set_int(&mut ctx.globals.syscom, GET_MESSAGE_SPEED, p_i64(params, 0)),
+        SET_MESSAGE_SPEED => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_MESSAGE_SPEED, p_i64(params, 0))
+        }
         SET_MESSAGE_SPEED_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_MESSAGE_SPEED, 0),
         GET_MESSAGE_SPEED => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_MESSAGE_SPEED, 0);
@@ -1204,14 +1787,22 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         SET_MESSAGE_NOWAIT => {
             let v = p_bool(params, 0);
             ctx.globals.script.msg_nowait = v;
-            cfg_set_int(&mut ctx.globals.syscom, GET_MESSAGE_NOWAIT, if v { 1 } else { 0 });
+            cfg_set_int(
+                &mut ctx.globals.syscom,
+                GET_MESSAGE_NOWAIT,
+                if v { 1 } else { 0 },
+            );
         }
         SET_MESSAGE_NOWAIT_DEFAULT => {
             ctx.globals.script.msg_nowait = false;
             cfg_set_int(&mut ctx.globals.syscom, GET_MESSAGE_NOWAIT, 0);
         }
         GET_MESSAGE_NOWAIT => {
-            let v = if ctx.globals.script.msg_nowait { 1 } else { cfg_get_int(&ctx.globals.syscom, GET_MESSAGE_NOWAIT, 0) };
+            let v = if ctx.globals.script.msg_nowait {
+                1
+            } else {
+                cfg_get_int(&ctx.globals.syscom, GET_MESSAGE_NOWAIT, 0)
+            };
             ctx.push(Value::Int(v));
             return Ok(true);
         }
@@ -1243,24 +1834,52 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_MOUSE_CURSOR_HIDE_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_MOUSE_CURSOR_HIDE_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_MOUSE_CURSOR_HIDE_ONOFF, 0),
+        SET_MOUSE_CURSOR_HIDE_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_MOUSE_CURSOR_HIDE_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_MOUSE_CURSOR_HIDE_ONOFF, 0)
+        }
         GET_MOUSE_CURSOR_HIDE_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_MOUSE_CURSOR_HIDE_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_MOUSE_CURSOR_HIDE_TIME => cfg_set_int(&mut ctx.globals.syscom, GET_MOUSE_CURSOR_HIDE_TIME, p_i64(params, 0)),
-        SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_MOUSE_CURSOR_HIDE_TIME, 0),
+        SET_MOUSE_CURSOR_HIDE_TIME => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_MOUSE_CURSOR_HIDE_TIME,
+            p_i64(params, 0),
+        ),
+        SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_MOUSE_CURSOR_HIDE_TIME, 0)
+        }
         GET_MOUSE_CURSOR_HIDE_TIME => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_MOUSE_CURSOR_HIDE_TIME, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_FILTER_COLOR_R => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_R, p_i64(params, 0)),
-        SET_FILTER_COLOR_G => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_G, p_i64(params, 0)),
-        SET_FILTER_COLOR_B => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_B, p_i64(params, 0)),
-        SET_FILTER_COLOR_A => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_A, p_i64(params, 0)),
+        SET_FILTER_COLOR_R => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_FILTER_COLOR_R,
+            p_i64(params, 0),
+        ),
+        SET_FILTER_COLOR_G => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_FILTER_COLOR_G,
+            p_i64(params, 0),
+        ),
+        SET_FILTER_COLOR_B => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_FILTER_COLOR_B,
+            p_i64(params, 0),
+        ),
+        SET_FILTER_COLOR_A => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_FILTER_COLOR_A,
+            p_i64(params, 0),
+        ),
         SET_FILTER_COLOR_R_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_R, 0),
         SET_FILTER_COLOR_G_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_G, 0),
         SET_FILTER_COLOR_B_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_B, 0),
@@ -1270,99 +1889,179 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_OBJECT_DISP_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_OBJECT_DISP_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_OBJECT_DISP_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_OBJECT_DISP_ONOFF, 1),
+        SET_OBJECT_DISP_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_OBJECT_DISP_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_OBJECT_DISP_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_OBJECT_DISP_ONOFF, 1)
+        }
         GET_OBJECT_DISP_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_OBJECT_DISP_ONOFF, 1);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_GLOBAL_EXTRA_SWITCH_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_GLOBAL_EXTRA_SWITCH_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_GLOBAL_EXTRA_SWITCH_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_GLOBAL_EXTRA_SWITCH_ONOFF, 0),
+        SET_GLOBAL_EXTRA_SWITCH_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_GLOBAL_EXTRA_SWITCH_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_GLOBAL_EXTRA_SWITCH_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_GLOBAL_EXTRA_SWITCH_ONOFF, 0)
+        }
         GET_GLOBAL_EXTRA_SWITCH_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_GLOBAL_EXTRA_SWITCH_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_GLOBAL_EXTRA_MODE_VALUE => cfg_set_int(&mut ctx.globals.syscom, GET_GLOBAL_EXTRA_MODE_VALUE, p_i64(params, 0)),
-        SET_GLOBAL_EXTRA_MODE_VALUE_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_GLOBAL_EXTRA_MODE_VALUE, 0),
+        SET_GLOBAL_EXTRA_MODE_VALUE => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_GLOBAL_EXTRA_MODE_VALUE,
+            p_i64(params, 0),
+        ),
+        SET_GLOBAL_EXTRA_MODE_VALUE_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_GLOBAL_EXTRA_MODE_VALUE, 0)
+        }
         GET_GLOBAL_EXTRA_MODE_VALUE => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_GLOBAL_EXTRA_MODE_VALUE, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_SAVELOAD_ALERT_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_SAVELOAD_ALERT_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_SAVELOAD_ALERT_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_SAVELOAD_ALERT_ONOFF, 1),
+        SET_SAVELOAD_ALERT_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_SAVELOAD_ALERT_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_SAVELOAD_ALERT_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_SAVELOAD_ALERT_ONOFF, 1)
+        }
         GET_SAVELOAD_ALERT_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_SAVELOAD_ALERT_ONOFF, 1);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_SAVELOAD_DBLCLICK_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_SAVELOAD_DBLCLICK_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_SAVELOAD_DBLCLICK_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_SAVELOAD_DBLCLICK_ONOFF, 0),
+        SET_SAVELOAD_DBLCLICK_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_SAVELOAD_DBLCLICK_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_SAVELOAD_DBLCLICK_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_SAVELOAD_DBLCLICK_ONOFF, 0)
+        }
         GET_SAVELOAD_DBLCLICK_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_SAVELOAD_DBLCLICK_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_SLEEP_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_SLEEP_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
+        SET_SLEEP_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_SLEEP_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
         SET_SLEEP_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_SLEEP_ONOFF, 1),
         GET_SLEEP_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_SLEEP_ONOFF, 1);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_NO_WIPE_ANIME_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_NO_WIPE_ANIME_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_NO_WIPE_ANIME_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_NO_WIPE_ANIME_ONOFF, 0),
+        SET_NO_WIPE_ANIME_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_NO_WIPE_ANIME_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_NO_WIPE_ANIME_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_NO_WIPE_ANIME_ONOFF, 0)
+        }
         GET_NO_WIPE_ANIME_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_NO_WIPE_ANIME_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_SKIP_WIPE_ANIME_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_SKIP_WIPE_ANIME_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_SKIP_WIPE_ANIME_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_SKIP_WIPE_ANIME_ONOFF, 0),
+        SET_SKIP_WIPE_ANIME_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_SKIP_WIPE_ANIME_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_SKIP_WIPE_ANIME_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_SKIP_WIPE_ANIME_ONOFF, 0)
+        }
         GET_SKIP_WIPE_ANIME_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_SKIP_WIPE_ANIME_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_NO_MWND_ANIME_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_NO_MWND_ANIME_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_NO_MWND_ANIME_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_NO_MWND_ANIME_ONOFF, 0),
+        SET_NO_MWND_ANIME_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_NO_MWND_ANIME_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_NO_MWND_ANIME_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_NO_MWND_ANIME_ONOFF, 0)
+        }
         GET_NO_MWND_ANIME_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_NO_MWND_ANIME_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_WHEEL_NEXT_MESSAGE_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_WHEEL_NEXT_MESSAGE_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_WHEEL_NEXT_MESSAGE_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_WHEEL_NEXT_MESSAGE_ONOFF, 1),
+        SET_WHEEL_NEXT_MESSAGE_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_WHEEL_NEXT_MESSAGE_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_WHEEL_NEXT_MESSAGE_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_WHEEL_NEXT_MESSAGE_ONOFF, 1)
+        }
         GET_WHEEL_NEXT_MESSAGE_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_WHEEL_NEXT_MESSAGE_ONOFF, 1);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_KOE_DONT_STOP_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_KOE_DONT_STOP_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_KOE_DONT_STOP_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_KOE_DONT_STOP_ONOFF, 0),
+        SET_KOE_DONT_STOP_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_KOE_DONT_STOP_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_KOE_DONT_STOP_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_KOE_DONT_STOP_ONOFF, 0)
+        }
         GET_KOE_DONT_STOP_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_KOE_DONT_STOP_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_SKIP_UNREAD_MESSAGE_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_SKIP_UNREAD_MESSAGE_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_SKIP_UNREAD_MESSAGE_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_SKIP_UNREAD_MESSAGE_ONOFF, 0),
+        SET_SKIP_UNREAD_MESSAGE_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_SKIP_UNREAD_MESSAGE_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_SKIP_UNREAD_MESSAGE_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_SKIP_UNREAD_MESSAGE_ONOFF, 0)
+        }
         GET_SKIP_UNREAD_MESSAGE_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_SKIP_UNREAD_MESSAGE_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_PLAY_SILENT_SOUND_ONOFF => cfg_set_int(&mut ctx.globals.syscom, GET_PLAY_SILENT_SOUND_ONOFF, if p_bool(params, 0) { 1 } else { 0 }),
-        SET_PLAY_SILENT_SOUND_ONOFF_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_PLAY_SILENT_SOUND_ONOFF, 0),
+        SET_PLAY_SILENT_SOUND_ONOFF => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_PLAY_SILENT_SOUND_ONOFF,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
+        SET_PLAY_SILENT_SOUND_ONOFF_DEFAULT => {
+            cfg_set_int(&mut ctx.globals.syscom, GET_PLAY_SILENT_SOUND_ONOFF, 0)
+        }
         GET_PLAY_SILENT_SOUND_ONOFF => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_PLAY_SILENT_SOUND_ONOFF, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
         SET_FONT_NAME => {
-            let v = params.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let v = params
+                .get(0)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             cfg_set_str(&mut ctx.globals.syscom, GET_FONT_NAME, v);
         }
         SET_FONT_NAME_DEFAULT => cfg_set_str(&mut ctx.globals.syscom, GET_FONT_NAME, String::new()),
@@ -1377,14 +2076,22 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.push(Value::Int(if exists { 1 } else { 0 }));
             return Ok(true);
         }
-        SET_FONT_BOLD => cfg_set_int(&mut ctx.globals.syscom, GET_FONT_BOLD, if p_bool(params, 0) { 1 } else { 0 }),
+        SET_FONT_BOLD => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_FONT_BOLD,
+            if p_bool(params, 0) { 1 } else { 0 },
+        ),
         SET_FONT_BOLD_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FONT_BOLD, 0),
         GET_FONT_BOLD => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_FONT_BOLD, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_FONT_DECORATION => cfg_set_int(&mut ctx.globals.syscom, GET_FONT_DECORATION, p_i64(params, 0)),
+        SET_FONT_DECORATION => cfg_set_int(
+            &mut ctx.globals.syscom,
+            GET_FONT_DECORATION,
+            p_i64(params, 0),
+        ),
         SET_FONT_DECORATION_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FONT_DECORATION, 0),
         GET_FONT_DECORATION => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_FONT_DECORATION, 0);
@@ -1412,7 +2119,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             let file_name = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
             let extension = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
             let mut name = file_name.to_string();
-            if !extension.is_empty() && !name.to_ascii_lowercase().ends_with(&format!(".{}", extension.to_ascii_lowercase())) {
+            if !extension.is_empty()
+                && !name
+                    .to_ascii_lowercase()
+                    .ends_with(&format!(".{}", extension.to_ascii_lowercase()))
+            {
                 name.push('.');
                 name.push_str(extension);
             }
@@ -1434,7 +2145,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             let file_name = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
             let extension = params.get(1).and_then(|v| v.as_str()).unwrap_or("");
             let mut name = file_name.to_string();
-            if !extension.is_empty() && !name.to_ascii_lowercase().ends_with(&format!(".{}", extension.to_ascii_lowercase())) {
+            if !extension.is_empty()
+                && !name
+                    .to_ascii_lowercase()
+                    .ends_with(&format!(".{}", extension.to_ascii_lowercase()))
+            {
                 name.push('.');
                 name.push_str(extension);
             }
@@ -1453,7 +2168,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         OPEN_TWEET_DIALOG => {}
         SET_RETURN_SCENE_ONCE => {
-            let name = params.get(0).and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let name = params
+                .get(0)
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
             let z_no = p_i64(params, 1);
             ctx.globals.syscom.return_scene_once = Some((name, z_no));
         }

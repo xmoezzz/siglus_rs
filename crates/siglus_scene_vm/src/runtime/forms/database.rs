@@ -3,7 +3,12 @@ use anyhow::Result;
 use crate::runtime::forms::prop_access;
 use crate::runtime::{CommandContext, Value};
 
-fn find_num_from(db: &siglus_assets::dbs::DbsDatabase, start_idx: i32, col_call_no: i32, needle: i32) -> i64 {
+fn find_num_from(
+    db: &siglus_assets::dbs::DbsDatabase,
+    start_idx: i32,
+    col_call_no: i32,
+    needle: i32,
+) -> i64 {
     let start = if start_idx < 0 { 0 } else { start_idx as usize };
     let rows = db.rows();
     if start >= rows.len() {
@@ -72,7 +77,8 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         } else {
             &[]
         };
-        let p_i32 = |i: usize| -> i32 { params.get(i).and_then(|v| v.as_i64()).unwrap_or(0) as i32 };
+        let p_i32 =
+            |i: usize| -> i32 { params.get(i).and_then(|v| v.as_i64()).unwrap_or(0) as i32 };
         let p_str = |i: usize| -> &str { params.get(i).and_then(|v| v.as_str()).unwrap_or("") };
 
         if ctx.ids.database_list_get_size != 0 && op == ctx.ids.database_list_get_size {
@@ -162,7 +168,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 let start_idx = p_i32(0);
                 let col_call_no = p_i32(1);
                 let needle = p_str(2);
-                ctx.push(Value::Int(find_str_from(db, start_idx, col_call_no, needle, false)));
+                ctx.push(Value::Int(find_str_from(
+                    db,
+                    start_idx,
+                    col_call_no,
+                    needle,
+                    false,
+                )));
                 return Ok(true);
             }
 
@@ -170,7 +182,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 let start_idx = p_i32(0);
                 let col_call_no = p_i32(1);
                 let needle = p_str(2);
-                ctx.push(Value::Int(find_str_from(db, start_idx, col_call_no, needle, true)));
+                ctx.push(Value::Int(find_str_from(
+                    db,
+                    start_idx,
+                    col_call_no,
+                    needle,
+                    true,
+                )));
                 return Ok(true);
             }
 

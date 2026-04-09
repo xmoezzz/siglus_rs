@@ -1,14 +1,14 @@
 //! Runtime recorder for unmapped numeric codes, names, and load-time notes.
 //!
 //! During reverse-engineering and incremental porting, it is common to encounter
-//! numeric form/syscall codes that are not mapped to a known handler yet.
+//! numeric form codes that are not mapped to a known handler yet.
 //! We also keep non-fatal load-time notes here so the runtime can continue.
 
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::Path;
 
-use super::opcode::{OpCode, OpKind};
+use super::opcode::OpCode;
 
 #[derive(Debug, Default)]
 pub struct UnknownOpRecorder {
@@ -64,11 +64,7 @@ impl UnknownOpRecorder {
                     out.push_str("  ...\n");
                     break;
                 }
-                let kind = match k.kind {
-                    OpKind::Syscall => "syscall",
-                    OpKind::Form => "form",
-                };
-                out.push_str(&format!("  {kind} {} x{}\n", k.id, v));
+                out.push_str(&format!("  form {} x{}\n", k.id, v));
             }
         }
 

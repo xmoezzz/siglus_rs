@@ -23,7 +23,8 @@ fn wav_duration_ms(wav: &[u8]) -> Option<u64> {
 
     while pos + 8 <= wav.len() {
         let id = &wav[pos..pos + 4];
-        let sz = u32::from_le_bytes([wav[pos + 4], wav[pos + 5], wav[pos + 6], wav[pos + 7]]) as usize;
+        let sz =
+            u32::from_le_bytes([wav[pos + 4], wav[pos + 5], wav[pos + 6], wav[pos + 7]]) as usize;
         pos += 8;
         if pos + sz > wav.len() {
             break;
@@ -93,7 +94,7 @@ impl std::fmt::Debug for BgmEngine {
 }
 
 impl BgmEngine {
-	pub fn new(project_dir: PathBuf) -> Self {
+    pub fn new(project_dir: PathBuf) -> Self {
         Self {
             project_dir,
             volume_raw: 255,
@@ -138,15 +139,20 @@ impl BgmEngine {
         self.volume_raw
     }
 
-	pub fn set_volume_raw(&mut self, audio: &mut AudioHub, volume_raw: u8) -> Result<()> {
+    pub fn set_volume_raw(&mut self, audio: &mut AudioHub, volume_raw: u8) -> Result<()> {
         self.volume_raw = volume_raw;
-		audio.set_track_volume_raw(TrackKind::Bgm, volume_raw);
+        audio.set_track_volume_raw(TrackKind::Bgm, volume_raw);
         Ok(())
     }
 
-	pub fn set_volume_raw_fade(&mut self, audio: &mut AudioHub, volume_raw: u8, fade_ms: i64) -> Result<()> {
+    pub fn set_volume_raw_fade(
+        &mut self,
+        audio: &mut AudioHub,
+        volume_raw: u8,
+        fade_ms: i64,
+    ) -> Result<()> {
         self.volume_raw = volume_raw;
-		audio.set_track_volume_raw_fade(TrackKind::Bgm, volume_raw, fade_ms);
+        audio.set_track_volume_raw_fade(TrackKind::Bgm, volume_raw, fade_ms);
         Ok(())
     }
 
@@ -195,7 +201,10 @@ impl BgmEngine {
         self.paused_total = Duration::from_millis(0);
         if let Some(mut h) = self.handle.take() {
             let tween = if fade_ms > 0 {
-                Tween::new(Duration::from_millis(fade_ms as u64))
+                Tween {
+                    duration: Duration::from_millis(fade_ms as u64),
+                    ..Tween::default()
+                }
             } else {
                 Tween::default()
             };
@@ -204,7 +213,7 @@ impl BgmEngine {
         Ok(())
     }
 
-	pub fn play_name(&mut self, audio: &mut AudioHub, name: &str) -> Result<()> {
+    pub fn play_name(&mut self, audio: &mut AudioHub, name: &str) -> Result<()> {
         let path = self.resolve_bgm_path(name)?;
 
         let decoded = decode_bgm_to_wav_bytes(&path, None)
@@ -224,10 +233,10 @@ impl BgmEngine {
             // Intentionally no-op on bring-up.
         }
 
-		let handle = audio.play_static(TrackKind::Bgm, data)?;
+        let handle = audio.play_static(TrackKind::Bgm, data)?;
 
         self.handle = Some(handle);
-		self.set_volume_raw(audio, self.volume_raw)?;
+        self.set_volume_raw(audio, self.volume_raw)?;
         self.current_name = Some(name.to_string());
         self.start_time = Some(Instant::now());
         self.paused_at = None;

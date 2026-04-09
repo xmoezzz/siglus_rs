@@ -13,7 +13,8 @@ struct Cli {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    let bytes = std::fs::read(&cli.input).with_context(|| format!("read {}", cli.input.display()))?;
+    let bytes =
+        std::fs::read(&cli.input).with_context(|| format!("read {}", cli.input.display()))?;
     let Some(h) = siglus_assets::mpeg2::find_sequence_header(&bytes) else {
         anyhow::bail!("no MPEG sequence header found: {}", cli.input.display());
     };

@@ -26,7 +26,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
 
     let params = if let Some(pos) = chain_pos {
-        if pos > 1 { &args[1..pos] } else { &[] }
+        if pos > 1 {
+            &args[1..pos]
+        } else {
+            &[]
+        }
     } else {
         &[][..]
     };

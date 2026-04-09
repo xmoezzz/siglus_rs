@@ -8,10 +8,23 @@ use std::path::{Path, PathBuf};
 fn is_noop_cmd(name: &str) -> bool {
     matches!(
         name,
-        "PAUSE" | "YIELD" | "NOP" |
-        "AUTO" | "AUTO_ON" | "AUTO_OFF" | "SKIP" | "SKIP_ON" | "SKIP_OFF" |
-        "LOG" | "PRINT" | "DEBUG" | "TRACE" |
-        "VIBRATE" | "SOUND" | "SOUND_ON" | "SOUND_OFF"
+        "PAUSE"
+            | "YIELD"
+            | "NOP"
+            | "AUTO"
+            | "AUTO_ON"
+            | "AUTO_OFF"
+            | "SKIP"
+            | "SKIP_ON"
+            | "SKIP_OFF"
+            | "LOG"
+            | "PRINT"
+            | "DEBUG"
+            | "TRACE"
+            | "VIBRATE"
+            | "SOUND"
+            | "SOUND_ON"
+            | "SOUND_OFF"
     )
 }
 
@@ -37,9 +50,7 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
         }
     }
 
-    let parse_i32 = |v: &Value| -> Option<i32> {
-        v.as_i64().and_then(|x| i32::try_from(x).ok())
-    };
+    let parse_i32 = |v: &Value| -> Option<i32> { v.as_i64().and_then(|x| i32::try_from(x).ok()) };
 
     let parse_bool = |v: &Value| -> Option<bool> { parse_i32(v).map(|x| x != 0) };
 
@@ -237,8 +248,8 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             return Ok(true);
         }
         // Transition-ish commands: we can't animate yet, but we should honor timing.
-        "FADE" | "FADEIN" | "FADE_OUT" | "FADEOUT" |
-        "TRANS" | "TRANSITION" | "DISSOLVE" | "CROSSFADE" => {
+        "FADE" | "FADEIN" | "FADE_OUT" | "FADEOUT" | "TRANS" | "TRANSITION" | "DISSOLVE"
+        | "CROSSFADE" => {
             let ms = args
                 .iter()
                 .rev()

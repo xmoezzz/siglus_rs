@@ -62,14 +62,17 @@ pub enum KoeSource {
 /// * For `.ovk`, `entry_idx` selects which entry to decode.
 /// * For other formats, `entry_idx` is ignored.
 #[allow(clippy::needless_pass_by_value)]
-pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>) -> Result<BgmDecoded> {
+pub fn decode_bgm_to_wav_bytes(
+    input: impl AsRef<Path>,
+    entry_idx: Option<usize>,
+) -> Result<BgmDecoded> {
     let input = input.as_ref();
     let kind = BgmContainer::from_path(input);
 
     match kind {
         BgmContainer::Nwa => {
-            let mut reader =
-                nwa::NwaReader::open(input).with_context(|| format!("open NWA: {}", input.display()))?;
+            let mut reader = nwa::NwaReader::open(input)
+                .with_context(|| format!("open NWA: {}", input.display()))?;
             let wav_bytes = reader.to_wav_bytes().context("decode NWA -> WAV")?;
             Ok(BgmDecoded {
                 container: kind,
@@ -87,7 +90,9 @@ pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>
             }
             #[cfg(feature = "assets-vorbis")]
             {
-                let wav_bytes = pack.decode_entry_vorbis_wav(idx).context("decode OVK(entry) -> WAV")?;
+                let wav_bytes = pack
+                    .decode_entry_vorbis_wav(idx)
+                    .context("decode OVK(entry) -> WAV")?;
                 Ok(BgmDecoded {
                     container: kind,
                     wav_bytes,
@@ -101,7 +106,8 @@ pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>
             }
         }
         BgmContainer::Owp => {
-            let owp = ovk::OwpFile::open(input).with_context(|| format!("open OWP: {}", input.display()))?;
+            let owp = ovk::OwpFile::open(input)
+                .with_context(|| format!("open OWP: {}", input.display()))?;
             #[cfg(feature = "assets-vorbis")]
             {
                 let wav_bytes = owp.decode_vorbis_wav().context("decode OWP -> WAV")?;
@@ -120,9 +126,11 @@ pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>
         BgmContainer::Ogg => {
             #[cfg(feature = "assets-vorbis")]
             {
-                let bytes = fs::read(input).with_context(|| format!("read OGG: {}", input.display()))?;
-                let wav_bytes = siglus_assets::vorbis::decode_ogg_vorbis_reader_to_wav(Cursor::new(bytes))
-                    .context("decode OGG/Vorbis -> WAV")?;
+                let bytes =
+                    fs::read(input).with_context(|| format!("read OGG: {}", input.display()))?;
+                let wav_bytes =
+                    siglus_assets::vorbis::decode_ogg_vorbis_reader_to_wav(Cursor::new(bytes))
+                        .context("decode OGG/Vorbis -> WAV")?;
                 Ok(BgmDecoded {
                     container: kind,
                     wav_bytes,
@@ -135,7 +143,8 @@ pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>
             }
         }
         BgmContainer::Wav => {
-            let wav_bytes = fs::read(input).with_context(|| format!("read WAV: {}", input.display()))?;
+            let wav_bytes =
+                fs::read(input).with_context(|| format!("read WAV: {}", input.display()))?;
             Ok(BgmDecoded {
                 container: kind,
                 wav_bytes,
@@ -151,15 +160,24 @@ pub fn decode_bgm_to_wav_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>
     }
 }
 
-pub fn decode_ovk_entry_by_no_to_wav_bytes(input: impl AsRef<Path>, entry_no: u32) -> Result<BgmDecoded> {
+pub fn decode_ovk_entry_by_no_to_wav_bytes(
+    input: impl AsRef<Path>,
+    entry_no: u32,
+) -> Result<BgmDecoded> {
     let input = input.as_ref();
-    let pack = ovk::OvkPack::open(input)
-        .with_context(|| format!("open OVK: {}", input.display()))?;
+    let pack =
+        ovk::OvkPack::open(input).with_context(|| format!("open OVK: {}", input.display()))?;
     let idx = pack
         .entries()
         .iter()
         .position(|e| e.no == entry_no)
-        .with_context(|| format!("OVK entry not found: no={} file={}", entry_no, input.display()))?;
+        .with_context(|| {
+            format!(
+                "OVK entry not found: no={} file={}",
+                entry_no,
+                input.display()
+            )
+        })?;
 
     #[cfg(feature = "assets-vorbis")]
     {
@@ -183,7 +201,10 @@ pub fn decode_ovk_entry_by_no_to_wav_bytes(input: impl AsRef<Path>, entry_no: u3
 ///
 /// * `.ovk`: extracts the Ogg segment at `entry_idx`.
 /// * `.owp`: decrypts the whole file to raw Ogg.
-pub fn extract_ogg_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>) -> Result<(Vec<u8>, String)> {
+pub fn extract_ogg_bytes(
+    input: impl AsRef<Path>,
+    entry_idx: Option<usize>,
+) -> Result<(Vec<u8>, String)> {
     let input = input.as_ref();
     let kind = BgmContainer::from_path(input);
 
@@ -200,7 +221,8 @@ pub fn extract_ogg_bytes(input: impl AsRef<Path>, entry_idx: Option<usize>) -> R
             Ok((ogg, format!("OVK:{}[{}]", input.display(), idx)))
         }
         BgmContainer::Owp => {
-            let owp = ovk::OwpFile::open(input).with_context(|| format!("open OWP: {}", input.display()))?;
+            let owp = ovk::OwpFile::open(input)
+                .with_context(|| format!("open OWP: {}", input.display()))?;
             let ogg = owp.decrypt_to_vec().context("decrypt OWP -> Ogg")?;
             Ok((ogg, format!("OWP:{}", input.display())))
         }

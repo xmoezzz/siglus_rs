@@ -41,19 +41,31 @@ pub fn infer_assign_and_ret(
 }
 
 fn int_map<'a>(ctx: &'a mut CommandContext, form_id: u32) -> &'a mut HashMap<i32, i64> {
-    ctx.globals.int_props.entry(form_id).or_insert_with(HashMap::new)
+    ctx.globals
+        .int_props
+        .entry(form_id)
+        .or_insert_with(HashMap::new)
 }
 
 fn str_map<'a>(ctx: &'a mut CommandContext, form_id: u32) -> &'a mut HashMap<i32, String> {
-    ctx.globals.str_props.entry(form_id).or_insert_with(HashMap::new)
+    ctx.globals
+        .str_props
+        .entry(form_id)
+        .or_insert_with(HashMap::new)
 }
 
 fn int_list<'a>(ctx: &'a mut CommandContext, form_id: u32) -> &'a mut Vec<i64> {
-    ctx.globals.int_lists.entry(form_id).or_insert_with(|| vec![0; 32])
+    ctx.globals
+        .int_lists
+        .entry(form_id)
+        .or_insert_with(|| vec![0; 32])
 }
 
 fn str_list<'a>(ctx: &'a mut CommandContext, form_id: u32) -> &'a mut Vec<String> {
-    ctx.globals.str_lists.entry(form_id).or_insert_with(Vec::new)
+    ctx.globals
+        .str_lists
+        .entry(form_id)
+        .or_insert_with(Vec::new)
 }
 
 fn ensure_int_len(v: &mut Vec<i64>, idx: usize) {
@@ -272,7 +284,11 @@ pub fn dispatch_stateful_form(ctx: &mut CommandContext, form_id: u32, args: &[Va
         }
 
         if chain.len() >= 2 {
-            let key = if chain.len() == 2 { chain[1] } else { chain_key(&chain[1..]) };
+            let key = if chain.len() == 2 {
+                chain[1]
+            } else {
+                chain_key(&chain[1..])
+            };
             store_or_push_prop(ctx, form_id, key, chain_pos, args);
             return;
         }
@@ -294,7 +310,6 @@ pub fn dispatch_stateful_form(ctx: &mut CommandContext, form_id: u32, args: &[Va
 pub fn dispatch_generic_form(ctx: &mut CommandContext, form_id: u32, args: &[Value]) {
     dispatch_stateful_form(ctx, form_id, args);
 }
-
 
 pub fn assign_to_chain(ctx: &mut CommandContext, chain: &[i32], value: Value) {
     if chain.is_empty() {
@@ -320,7 +335,11 @@ pub fn assign_to_chain(ctx: &mut CommandContext, chain: &[i32], value: Value) {
     }
 
     if chain.len() >= 2 {
-        let key = if chain.len() == 2 { chain[1] } else { chain_key(&chain[1..]) };
+        let key = if chain.len() == 2 {
+            chain[1]
+        } else {
+            chain_key(&chain[1..])
+        };
         match value {
             Value::Str(s) => {
                 str_map(ctx, form_id).insert(key, s);

@@ -1,8 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::runtime::int_event::IntEvent;
-use crate::runtime::gan::GanState;
 use crate::assets::RgbaImage;
+use crate::runtime::gan::GanState;
+use crate::runtime::int_event::IntEvent;
 use std::time::{Duration, Instant};
 
 use crate::image_manager::ImageId;
@@ -254,7 +254,11 @@ pub struct ToggleFeatureState {
 
 impl ToggleFeatureState {
     pub fn check_enabled(&self) -> i64 {
-        if self.enable && self.exist { 1 } else { 0 }
+        if self.enable && self.exist {
+            1
+        } else {
+            0
+        }
     }
 }
 
@@ -267,7 +271,11 @@ pub struct ValueFeatureState {
 
 impl ValueFeatureState {
     pub fn check_enabled(&self) -> i64 {
-        if self.enable && self.exist { 1 } else { 0 }
+        if self.enable && self.exist {
+            1
+        } else {
+            0
+        }
     }
 }
 
@@ -386,6 +394,8 @@ pub struct GlobalState {
     pub guessed_stage_form_id: Option<u32>,
     /// Currently focused stage group selection (form_id, stage_idx, group_idx).
     pub focused_stage_group: Option<(u32, i64, usize)>,
+    /// Currently focused message-window selection (form_id, stage_idx, mwnd_idx).
+    pub focused_stage_mwnd: Option<(u32, i64, usize)>,
 
     /// Screen subsystem state keyed by the screen form ID.
     pub screen_forms: HashMap<u32, ScreenFormState>,
@@ -402,6 +412,9 @@ pub struct GlobalState {
     /// System-command runtime state.
     pub syscom: SyscomRuntimeState,
 
+    /// Currently selected append directory used by original file resolution helpers.
+    pub append_dir: String,
+
     /// BGM table listened flags keyed by registered name.
     pub bgm_table_listened: HashMap<String, bool>,
     /// Default flag applied to names not seen yet via BGMTABLE.SET_ALL_FLAG.
@@ -409,7 +422,6 @@ pub struct GlobalState {
 
     /// Active wipe transition (WIPE / MASK_WIPE).
     pub wipe: Option<WipeState>,
-
 }
 
 impl Default for GlobalState {
@@ -436,6 +448,7 @@ impl Default for GlobalState {
             stage_forms: HashMap::new(),
             guessed_stage_form_id: None,
             focused_stage_group: None,
+            focused_stage_mwnd: None,
 
             screen_forms: HashMap::new(),
             msgbk_forms: HashMap::new(),
@@ -443,6 +456,7 @@ impl Default for GlobalState {
             script: ScriptRuntimeState::default(),
             system: SystemRuntimeState::default(),
             syscom: SyscomRuntimeState::default(),
+            append_dir: String::new(),
 
             bgm_table_listened: HashMap::new(),
             bgm_table_all_flag: false,
@@ -512,7 +526,6 @@ impl Counter {
         self.start.is_some()
     }
 }
-
 
 /// Mask state (bring-up level).
 ///
@@ -639,8 +652,6 @@ impl EditBoxListState {
         self.op_map.values().any(|&v| v == k)
     }
 }
-
-
 
 // -----------------------------------------------------------------------------
 // Stage/MWND/Group state
@@ -805,12 +816,18 @@ impl WorldState {
     }
 
     pub fn update_time(&mut self, past_game_time: i32, past_real_time: i32) {
-        self.camera_eye_x.update_time(past_game_time, past_real_time);
-        self.camera_eye_y.update_time(past_game_time, past_real_time);
-        self.camera_eye_z.update_time(past_game_time, past_real_time);
-        self.camera_pint_x.update_time(past_game_time, past_real_time);
-        self.camera_pint_y.update_time(past_game_time, past_real_time);
-        self.camera_pint_z.update_time(past_game_time, past_real_time);
+        self.camera_eye_x
+            .update_time(past_game_time, past_real_time);
+        self.camera_eye_y
+            .update_time(past_game_time, past_real_time);
+        self.camera_eye_z
+            .update_time(past_game_time, past_real_time);
+        self.camera_pint_x
+            .update_time(past_game_time, past_real_time);
+        self.camera_pint_y
+            .update_time(past_game_time, past_real_time);
+        self.camera_pint_z
+            .update_time(past_game_time, past_real_time);
         self.camera_up_x.update_time(past_game_time, past_real_time);
         self.camera_up_y.update_time(past_game_time, past_real_time);
         self.camera_up_z.update_time(past_game_time, past_real_time);
@@ -1287,6 +1304,17 @@ pub struct ObjectEmoteParam {
     pub rep_y: i64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct ObjectFrameActionState {
+    pub scn_name: String,
+    pub cmd_name: String,
+    pub counter: Counter,
+    pub end_time: i64,
+    pub real_time_flag: bool,
+    pub end_flag: bool,
+    pub args: Vec<i64>,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct ObjectCompatState {
     pub used: bool,
@@ -1323,6 +1351,11 @@ pub struct ObjectCompatState {
     /// GAN runtime state.
     pub gan: GanState,
 
+    /// OBJECT.FRAME_ACTION compatibility state.
+    pub frame_action: ObjectFrameActionState,
+    /// OBJECT.FRAME_ACTION_CH compatibility state.
+    pub frame_action_ch: Vec<ObjectFrameActionState>,
+
     /// Cached masked sprite images keyed by (layer_id, sprite_id).
     pub mask_cache: HashMap<(LayerId, SpriteId), MaskedSpriteCache>,
 
@@ -1339,6 +1372,8 @@ pub struct ObjectCompatState {
     pub extra_events: HashMap<i32, IntEvent>,
     pub rep_int_lists: HashMap<i32, Vec<i64>>,
     pub rep_int_event_lists: HashMap<i32, Vec<IntEvent>>,
+    /// Decomp-confirmed nested object lists (for op 0x5D and siblings when present).
+    pub child_object_lists: HashMap<i32, Vec<ObjectCompatState>>,
 
     /// Learned event-op -> target property mapping (for animation bring-up).
     pub event_targets: HashMap<i32, ObjectEventTarget>,
@@ -1515,22 +1550,65 @@ pub enum MwndListOpKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MwndOpKind {
+    MsgBlock,
     Open,
     Close,
     CheckOpen,
     Clear,
+    NovelClear,
     /// Append text to the current message buffer.
     Print,
-    /// Insert a line break into the message buffer.
-    NewLine,
+    /// NL: line break without preserving indent.
+    NewLineNoIndent,
+    /// NLI: line break with indent path preserved.
+    NewLineIndent,
     /// Wait for input while in message mode.
     WaitMsg,
-    /// Page-break wait: wait for input and clear the message afterwards.
+    /// PP: wait for text completion, then wait for key.
+    Pp,
+    /// R: wait for text completion, then clear-ready + key wait.
+    R,
+    /// PAGE: wait for text completion, then page-clear + key wait.
     PageWait,
 
     SetName,
     ClearName,
     GetName,
+    NextMsg,
+    MultiMsg,
+    Ruby,
+    Koe,
+    KoePlayWait,
+    KoePlayWaitKey,
+    Layer,
+    World,
+    SetMojiSize,
+    SetMojiColor,
+    SetIndent,
+    ClearIndent,
+    StartSlideMsg,
+    EndSlideMsg,
+    SlideMsg,
+    InitOpenAnimeType,
+    InitOpenAnimeTime,
+    InitCloseAnimeType,
+    InitCloseAnimeTime,
+    SetOpenAnimeType,
+    SetOpenAnimeTime,
+    SetCloseAnimeType,
+    SetCloseAnimeTime,
+    GetOpenAnimeType,
+    GetOpenAnimeTime,
+    GetCloseAnimeType,
+    GetCloseAnimeTime,
+    GetDefaultOpenAnimeType,
+    GetDefaultOpenAnimeTime,
+    GetDefaultCloseAnimeType,
+    GetDefaultCloseAnimeTime,
+    Sel,
+    SelCancel,
+    SelMsg,
+    SelMsgCancel,
 
     /// (bool new_line_flag) -> bool
     AddMsgCheck,
@@ -1543,7 +1621,41 @@ pub enum MwndOpKind {
     InitFilterFile,
     SetFilterFile,
     GetFilterFile,
+
+    ClearFace,
+    SetFace,
+    SetRepPos,
+    MsgBtn,
+    InitWindowPos,
+    InitWindowSize,
+    SetWindowPos,
+    SetWindowSize,
+    GetWindowPosX,
+    GetWindowPosY,
+    GetWindowSizeX,
+    GetWindowSizeY,
+    InitWindowMojiCnt,
+    SetWindowMojiCnt,
+    GetWindowMojiCntX,
+    GetWindowMojiCntY,
     Unknown,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct MwndSelectionChoice {
+    pub text: String,
+    pub kind: i64,
+    pub color: i64,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct MwndSelectionState {
+    pub choices: Vec<MwndSelectionChoice>,
+    pub cursor: usize,
+    pub cancel_enable: bool,
+    pub close_mwnd: bool,
+    /// Conservative runtime result: selected entry index (1-based), 0 for none, -1 for cancel.
+    pub result: i64,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -1551,6 +1663,28 @@ pub struct MwndState {
     pub open: bool,
     pub waku_file: String,
     pub filter_file: String,
+    pub face_file: String,
+    pub face_no: i64,
+    pub rep_pos: Option<(i64, i64)>,
+    pub msgbtn: Option<(i64, i64, i64, i64)>,
+    pub window_pos: Option<(i64, i64)>,
+    pub window_size: Option<(i64, i64)>,
+    pub window_moji_cnt: Option<(i64, i64)>,
+    pub multi_msg: bool,
+    pub ruby_text: Option<String>,
+    pub koe: Option<(i64, i64)>,
+    pub layer: i64,
+    pub world: i64,
+    pub moji_size: Option<i64>,
+    pub moji_color: Option<i64>,
+    pub indent: bool,
+    pub slide_msg: bool,
+    pub slide_time: i64,
+    pub open_anime_type: i64,
+    pub open_anime_time: i64,
+    pub close_anime_type: i64,
+    pub close_anime_time: i64,
+    pub selection: Option<MwndSelectionState>,
 
     /// Whether any text-related op (PRINT/ADD_MSG/NL) has been observed since the last wait/clear.
     ///
@@ -1590,7 +1724,6 @@ pub struct StageFormState {
     pub world_op_map: HashMap<i32, WorldOpKind>,
 
     // --- OBJECT / OBJECTLIST ---
-
     /// Per-stage object compat state (used for property fallback, string objects, rect objects, etc.).
     pub object_lists: HashMap<i64, Vec<ObjectCompatState>>,
     /// Whether this stage's object list should enforce its current size (enabled after RESIZE).
@@ -1699,7 +1832,9 @@ impl ScreenItemState {
     }
 
     pub fn quake_remaining_ms(&mut self) -> u64 {
-        let Some(t) = self.quake_until else { return 0; };
+        let Some(t) = self.quake_until else {
+            return 0;
+        };
         if Instant::now() >= t {
             self.quake_until = None;
             return 0;
@@ -1878,9 +2013,11 @@ impl StageFormState {
     }
 
     pub fn object_list_len(&self, stage_idx: i64) -> usize {
-        self.object_lists.get(&stage_idx).map(|v| v.len()).unwrap_or(0)
+        self.object_lists
+            .get(&stage_idx)
+            .map(|v| v.len())
+            .unwrap_or(0)
     }
-
 }
 
 impl MaskListState {
@@ -1920,7 +2057,6 @@ impl MaskListState {
         }
     }
 }
-
 
 impl GlobalState {
     pub fn start_wipe(&mut self, w: WipeState) {

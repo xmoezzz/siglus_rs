@@ -67,7 +67,14 @@ impl IntEvent {
         self.cur_value
     }
 
-    pub fn set_event(&mut self, value: i32, total_time: i32, delay_time: i32, speed_type: i32, real_flag: i32) {
+    pub fn set_event(
+        &mut self,
+        value: i32,
+        total_time: i32,
+        delay_time: i32,
+        speed_type: i32,
+        real_flag: i32,
+    ) {
         self.cur_time = 0;
         self.end_time = total_time;
         self.delay_time = delay_time;
@@ -188,17 +195,21 @@ impl IntEvent {
 
         match self.speed_type {
             0 => {
-                self.cur_value = (((end_value - start_value) as f64) * (cur_time as f64) / (end_time as f64) + (start_value as f64)) as i32;
+                self.cur_value = (((end_value - start_value) as f64) * (cur_time as f64)
+                    / (end_time as f64)
+                    + (start_value as f64)) as i32;
             }
             1 => {
                 let ct = cur_time as f64;
                 let et = end_time as f64;
-                self.cur_value = (((end_value - start_value) as f64) * ct * ct / et / et + (start_value as f64)) as i32;
+                self.cur_value = (((end_value - start_value) as f64) * ct * ct / et / et
+                    + (start_value as f64)) as i32;
             }
             2 => {
                 let ct = (cur_time - end_time) as f64;
                 let et = end_time as f64;
-                self.cur_value = (-(end_value - start_value) as f64 * ct * ct / et / et + (end_value as f64)) as i32;
+                self.cur_value = (-(end_value - start_value) as f64 * ct * ct / et / et
+                    + (end_value as f64)) as i32;
             }
             _ => {
                 // Unknown/none: keep the last computed value.

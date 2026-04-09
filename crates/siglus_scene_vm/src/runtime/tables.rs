@@ -72,7 +72,6 @@ impl AssetTables {
         let dat_dir = project_dir.join("dat");
         if !dat_dir.is_dir() {
             unknown.record_note("dat.dir.missing");
-            return out;
         }
 
         if let Some(cfg) = out.gameexe.as_ref() {
@@ -99,7 +98,9 @@ impl AssetTables {
                 if let Some(path) = resolve_table_path(project_dir, &dat_dir, v, Some("dat")) {
                     match ThumbTable::load(&path) {
                         Ok(t) => out.thumb_table = Some(t),
-                        Err(e) => unknown.record_note(&format!("thumb_table.load.failed:{path:?}:{e}")),
+                        Err(e) => {
+                            unknown.record_note(&format!("thumb_table.load.failed:{path:?}:{e}"))
+                        }
                     }
                 } else {
                     unknown.record_note(&format!("thumb_table.path.missing:{v}"));
@@ -119,7 +120,8 @@ impl AssetTables {
                     unknown.record_note(&format!("database.name.missing:{key}"));
                     continue;
                 };
-                let Some(path) = resolve_table_path(project_dir, &dat_dir, name, Some("dbs")) else {
+                let Some(path) = resolve_table_path(project_dir, &dat_dir, name, Some("dbs"))
+                else {
                     unknown.record_note(&format!("database.path.missing:{key}:{name}"));
                     continue;
                 };
@@ -154,7 +156,12 @@ fn find_gameexe_path(project_dir: &Path) -> Option<PathBuf> {
     None
 }
 
-fn resolve_table_path(project_dir: &Path, dat_dir: &Path, raw: &str, default_ext: Option<&str>) -> Option<PathBuf> {
+fn resolve_table_path(
+    project_dir: &Path,
+    dat_dir: &Path,
+    raw: &str,
+    default_ext: Option<&str>,
+) -> Option<PathBuf> {
     let s = raw.trim().trim_matches('"');
     if s.is_empty() {
         return None;
@@ -175,7 +182,11 @@ fn resolve_table_path(project_dir: &Path, dat_dir: &Path, raw: &str, default_ext
     }
 
     for cand in candidates {
-        let direct = if cand.is_absolute() { cand.clone() } else { project_dir.join(&cand) };
+        let direct = if cand.is_absolute() {
+            cand.clone()
+        } else {
+            project_dir.join(&cand)
+        };
         if direct.is_file() {
             return Some(direct);
         }

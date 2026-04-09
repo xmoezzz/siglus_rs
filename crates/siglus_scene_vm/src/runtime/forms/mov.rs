@@ -5,22 +5,49 @@ use crate::runtime::{CommandContext, Value};
 use super::codes::mov_op;
 
 fn store_or_push_mov_prop(ctx: &mut CommandContext, op: i64, args: &[Value]) {
-    let form_key = if ctx.ids.form_global_mov != 0 { ctx.ids.form_global_mov } else { super::codes::FORM_GLOBAL_MOV };
+    let form_key = if ctx.ids.form_global_mov != 0 {
+        ctx.ids.form_global_mov
+    } else {
+        super::codes::FORM_GLOBAL_MOV
+    };
     let prop = op as i32;
     if let Some(v) = args.get(1).cloned() {
         match v {
-            Value::Str(s) => { ctx.globals.str_props.entry(form_key).or_default().insert(prop, s); }
-            Value::Int(n) => { ctx.globals.int_props.entry(form_key).or_default().insert(prop, n); }
+            Value::Str(s) => {
+                ctx.globals
+                    .str_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, s);
+            }
+            Value::Int(n) => {
+                ctx.globals
+                    .int_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, n);
+            }
             _ => {}
         }
         ctx.push(Value::Int(0));
         return;
     }
-    if let Some(s) = ctx.globals.str_props.get(&form_key).and_then(|m| m.get(&prop)).cloned() {
+    if let Some(s) = ctx
+        .globals
+        .str_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop))
+        .cloned()
+    {
         ctx.push(Value::Str(s));
         return;
     }
-    let v = ctx.globals.int_props.get(&form_key).and_then(|m| m.get(&prop).copied()).unwrap_or(0);
+    let v = ctx
+        .globals
+        .int_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop).copied())
+        .unwrap_or(0);
     ctx.push(Value::Int(v));
 }
 

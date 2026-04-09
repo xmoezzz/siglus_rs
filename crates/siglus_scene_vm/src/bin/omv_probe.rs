@@ -14,7 +14,7 @@ fn main() -> Result<()> {
         .or_else(|_| extract_ogg_by_scan(&path))
         .with_context(|| format!("read embedded ogg: {}", path.display()))?;
 
-    let mut tf = theorafile_rs::TheoraFile::open_from_memory(ogg_data)
+    let mut tf = siglus_omv_decoder::TheoraFile::open_from_memory(ogg_data)
         .with_context(|| format!("open theora: {}", path.display()))?;
     let info = tf.info();
     println!(
@@ -37,7 +37,10 @@ fn main() -> Result<()> {
         let sample_y = buf.get(0).copied().unwrap_or(0);
         let sample_u = buf.get(y_len).copied().unwrap_or(0);
         let sample_v = buf.get(y_len + uv_len).copied().unwrap_or(0);
-        println!("frame {} ok (y={}, u={}, v={})", i, sample_y, sample_u, sample_v);
+        println!(
+            "frame {} ok (y={}, u={}, v={})",
+            i, sample_y, sample_u, sample_v
+        );
     }
 
     Ok(())
@@ -57,9 +60,9 @@ fn yuv_plane_size(width: i32, height: i32, fmt: i32) -> (usize, usize) {
     let w = width.max(1) as usize;
     let h = height.max(1) as usize;
     match fmt {
-        theorafile_rs::TH_PF_420 => (w / 2, h / 2),
-        theorafile_rs::TH_PF_422 => (w / 2, h),
-        theorafile_rs::TH_PF_444 => (w, h),
+        siglus_omv_decoder::TH_PF_420 => (w / 2, h / 2),
+        siglus_omv_decoder::TH_PF_422 => (w / 2, h),
+        siglus_omv_decoder::TH_PF_444 => (w, h),
         _ => (w / 2, h / 2),
     }
 }

@@ -29,7 +29,10 @@ enum Cmd {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let project = cli.project.clone().unwrap_or(siglus_scene_vm::app_path::resolve_app_base_path()?);
+    let project = cli
+        .project
+        .clone()
+        .unwrap_or(siglus_scene_vm::app_path::resolve_app_base_path()?);
 
     let path = [
         "Gameexe.dat",
@@ -93,7 +96,10 @@ fn main() -> Result<()> {
             }
             for i in 0..db_cnt {
                 let k = format!("DATABASE.{i}");
-                let Some(name) = cfg.get_indexed_unquoted("DATABASE", i).or_else(|| cfg.get_indexed_item_unquoted("DATABASE", i, 0)) else {
+                let Some(name) = cfg
+                    .get_indexed_unquoted("DATABASE", i)
+                    .or_else(|| cfg.get_indexed_item_unquoted("DATABASE", i, 0))
+                else {
                     println!("  {k}: (missing)");
                     continue;
                 };

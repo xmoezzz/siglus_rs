@@ -35,11 +35,11 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             Some(s) => s,
             None => return Ok(false),
         };
-		let frame_idx = args
-			.get(1)
-			.and_then(|v| v.as_i64())
-			.and_then(|x| usize::try_from(x).ok())
-			.unwrap_or(0);
+        let frame_idx = args
+            .get(1)
+            .and_then(|v| v.as_i64())
+            .and_then(|x| usize::try_from(x).ok())
+            .unwrap_or(0);
         let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
         gfx.object_create(images, layers, 0, 0, bg_name, 1, 0, 0, frame_idx as i64)?;
         return Ok(true);
@@ -108,7 +108,10 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
         return Ok(false);
     }
 
-    if matches!(name.as_str(), "BG_PAT" | "BGPAT" | "BG_FRAME" | "BGFRAME" | "BG_NO" | "BGNO") {
+    if matches!(
+        name.as_str(),
+        "BG_PAT" | "BGPAT" | "BG_FRAME" | "BGFRAME" | "BG_NO" | "BGNO"
+    ) {
         let args = strip_vm_meta(&cmd.args);
         if let Some(p) = last_i64(args) {
             let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);

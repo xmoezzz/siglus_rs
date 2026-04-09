@@ -106,7 +106,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
 
         if ctx.ids.cgtable_get_cg_cnt != 0 && op == ctx.ids.cgtable_get_cg_cnt {
-            let cnt = ctx.tables.cgtable.as_ref().map(|t| t.get_cg_cnt()).unwrap_or(0);
+            let cnt = ctx
+                .tables
+                .cgtable
+                .as_ref()
+                .map(|t| t.get_cg_cnt())
+                .unwrap_or(0);
             ctx.push(Value::Int(cnt as i64));
             return Ok(true);
         }
@@ -117,7 +122,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
 
         if ctx.ids.cgtable_get_look_percent != 0 && op == ctx.ids.cgtable_get_look_percent {
-            let total = ctx.tables.cgtable.as_ref().map(|t| t.get_cg_cnt()).unwrap_or(0) as i64;
+            let total = ctx
+                .tables
+                .cgtable
+                .as_ref()
+                .map(|t| t.get_cg_cnt())
+                .unwrap_or(0) as i64;
             if total <= 0 {
                 ctx.push(Value::Int(0));
             } else {
@@ -146,7 +156,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 ctx.push(Value::Int(0));
                 return Ok(true);
             }
-            let res = if let Some(e) = ctx.tables.cgtable.as_ref().and_then(|t| t.get_sub_from_name(name)) {
+            let res = if let Some(e) = ctx
+                .tables
+                .cgtable
+                .as_ref()
+                .and_then(|t| t.get_sub_from_name(name))
+            {
                 let idx = e.flag_no;
                 if idx >= 0 {
                     let idx = idx as usize;
@@ -169,7 +184,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             let name = p_str(0);
             let v = p_int(1);
             if !ctx.globals.cg_table_off {
-                if let Some(e) = ctx.tables.cgtable.as_ref().and_then(|t| t.get_sub_from_name(name)) {
+                if let Some(e) = ctx
+                    .tables
+                    .cgtable
+                    .as_ref()
+                    .and_then(|t| t.get_sub_from_name(name))
+                {
                     if e.flag_no >= 0 {
                         let idx = e.flag_no as usize;
                         ensure_cg_flags_size(ctx, idx + 1);

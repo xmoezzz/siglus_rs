@@ -29,7 +29,13 @@ impl PctType {
     }
 }
 
-const ORDER: [PctType; 5] = [PctType::G00, PctType::Bmp, PctType::Png, PctType::Jpg, PctType::Dds];
+const ORDER: [PctType; 5] = [
+    PctType::G00,
+    PctType::Bmp,
+    PctType::Png,
+    PctType::Jpg,
+    PctType::Dds,
+];
 
 /// Find an image path for BG loading.
 ///
@@ -90,7 +96,6 @@ pub fn find_g00_image(project_dir: &Path, name: &str) -> Result<(PathBuf, PctTyp
 
     bail!("g00 resource not found: {name}");
 }
-
 
 fn find_in_subdir(project_dir: &Path, subdir: &str, name: &str) -> Result<(PathBuf, PctType)> {
     let base = project_dir.join(subdir);

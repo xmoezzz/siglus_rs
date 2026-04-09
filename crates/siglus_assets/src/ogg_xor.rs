@@ -20,7 +20,12 @@ pub struct BoundedFile {
 }
 
 impl BoundedFile {
-    pub fn open<P: AsRef<Path>>(path: P, start: u64, len: u64, xor_key: Option<u8>) -> Result<Self> {
+    pub fn open<P: AsRef<Path>>(
+        path: P,
+        start: u64,
+        len: u64,
+        xor_key: Option<u8>,
+    ) -> Result<Self> {
         let mut file = File::open(path)?;
         file.seek(SeekFrom::Start(start))?;
         Ok(Self {

@@ -80,8 +80,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         }
         // Check playing
         2 => {
-			let playing = ctx.se.is_playing_any();
-			ctx.push(Value::Int(if playing { 1 } else { 0 }));
+            let playing = ctx.se.is_playing_any();
+            ctx.push(Value::Int(if playing { 1 } else { 0 }));
             Ok(true)
         }
         _ => {

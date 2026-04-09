@@ -289,7 +289,9 @@ impl InputState {
     // ---------------------------------------------------------------------
 
     pub fn is_key_down(&self, k: VmKey) -> bool {
-        vmkey_to_vk(k).map(|vk| self.vk_is_down(vk)).unwrap_or(false)
+        vmkey_to_vk(k)
+            .map(|vk| self.vk_is_down(vk))
+            .unwrap_or(false)
     }
 
     pub fn is_mouse_down(&self, b: VmMouseButton) -> bool {

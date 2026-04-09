@@ -118,7 +118,9 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
 
             {
                 let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-                gfx.object_create(images, layers, stage_idx, obj_idx, file_name, disp, x, y, pat_no)?;
+                gfx.object_create(
+                    images, layers, stage_idx, obj_idx, file_name, disp, x, y, pat_no,
+                )?;
             }
 
             // Remaining integers can be interpreted as optional (layer_no, order, alpha).
@@ -147,10 +149,10 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
         }
         "X" => {
             if let Some(x) = last_i64(&args[i..]) {
-	            let (_, y) = {
-	                let gfx = &ctx.gfx;
-	                gfx.object_get_pos(stage_idx, obj_idx).unwrap_or((0, 0))
-	            };
+                let (_, y) = {
+                    let gfx = &ctx.gfx;
+                    gfx.object_get_pos(stage_idx, obj_idx).unwrap_or((0, 0))
+                };
                 let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
                 gfx.object_set_pos(images, layers, stage_idx, obj_idx, x, y)?;
             }
@@ -158,10 +160,10 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
         }
         "Y" => {
             if let Some(y) = last_i64(&args[i..]) {
-	            let (x, _) = {
-	                let gfx = &ctx.gfx;
-	                gfx.object_get_pos(stage_idx, obj_idx).unwrap_or((0, 0))
-	            };
+                let (x, _) = {
+                    let gfx = &ctx.gfx;
+                    gfx.object_get_pos(stage_idx, obj_idx).unwrap_or((0, 0))
+                };
                 let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
                 gfx.object_set_pos(images, layers, stage_idx, obj_idx, x, y)?;
             }

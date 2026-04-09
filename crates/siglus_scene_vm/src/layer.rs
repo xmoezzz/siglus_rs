@@ -132,7 +132,9 @@ pub struct Layer {
 
 impl Layer {
     pub fn new() -> Self {
-        Self { sprites: Vec::new() }
+        Self {
+            sprites: Vec::new(),
+        }
     }
 
     pub fn create_sprite(&mut self) -> SpriteId {

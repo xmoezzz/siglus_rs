@@ -32,7 +32,11 @@ pub fn lzss_unpack(src: &[u8]) -> Result<Vec<u8>> {
         .checked_add(arc_size)
         .ok_or_else(|| anyhow!("lzss: arc_size overflow"))?;
     if payload_end > src.len() {
-        bail!("lzss: arc_size out of bounds (end={}, len={})", payload_end, src.len());
+        bail!(
+            "lzss: arc_size out of bounds (end={}, len={})",
+            payload_end,
+            src.len()
+        );
     }
 
     let mut pos = payload_start;
@@ -95,7 +99,11 @@ pub fn lzss_unpack(src: &[u8]) -> Result<Vec<u8>> {
     }
 
     if out.len() != org_size {
-        bail!("lzss: size mismatch (got={}, expected={})", out.len(), org_size);
+        bail!(
+            "lzss: size mismatch (got={}, expected={})",
+            out.len(),
+            org_size
+        );
     }
 
     Ok(out)
@@ -200,7 +208,11 @@ pub fn lzss_unpack32(src: &[u8]) -> Result<Vec<u8>> {
         .checked_add(arc_size)
         .ok_or_else(|| anyhow!("lzss32: arc_size overflow"))?;
     if payload_end > src.len() {
-        bail!("lzss32: arc_size out of bounds (end={}, len={})", payload_end, src.len());
+        bail!(
+            "lzss32: arc_size out of bounds (end={}, len={})",
+            payload_end,
+            src.len()
+        );
     }
 
     let mut pos = payload_start;
@@ -281,7 +293,11 @@ pub fn lzss_unpack32(src: &[u8]) -> Result<Vec<u8>> {
     }
 
     if out.len() != org_size {
-        bail!("lzss32: size mismatch (got={}, expected={})", out.len(), org_size);
+        bail!(
+            "lzss32: size mismatch (got={}, expected={})",
+            out.len(),
+            org_size
+        );
     }
 
     Ok(out)

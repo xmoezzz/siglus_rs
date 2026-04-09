@@ -14,7 +14,13 @@ fn clamp_u8(x: i64) -> u8 {
 }
 
 fn pct_to_raw(pct: i64) -> u8 {
-    let p = if pct < 0 { 0 } else if pct > 100 { 100 } else { pct };
+    let p = if pct < 0 {
+        0
+    } else if pct > 100 {
+        100
+    } else {
+        pct
+    };
     // Map 0..100 -> 0..255
     ((p as u32 * 255) / 100) as u8
 }
@@ -38,8 +44,8 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
         });
         if let Some(f) = file {
             // Ignore errors in bring-up: record and continue.
-			let (bgm, audio) = (&mut ctx.bgm, &mut ctx.audio);
-			let _ = bgm.play_name(audio, f);
+            let (bgm, audio) = (&mut ctx.bgm, &mut ctx.audio);
+            let _ = bgm.play_name(audio, f);
         }
         return Ok(true);
     }
@@ -55,8 +61,8 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
         });
         if let Some(v) = vol {
             let raw = if v <= 100 { pct_to_raw(v) } else { clamp_u8(v) };
-			let (bgm, audio) = (&mut ctx.bgm, &mut ctx.audio);
-			let _ = bgm.set_volume_raw(audio, raw);
+            let (bgm, audio) = (&mut ctx.bgm, &mut ctx.audio);
+            let _ = bgm.set_volume_raw(audio, raw);
         }
         return Ok(true);
     }
@@ -76,8 +82,8 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             _ => None,
         });
         if let Some(f) = file {
-			let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-			let _ = se.play_file_name(audio, f);
+            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+            let _ = se.play_file_name(audio, f);
         }
         return Ok(true);
     }
@@ -92,8 +98,8 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
         });
         if let Some(v) = vol {
             let raw = if v <= 100 { pct_to_raw(v) } else { clamp_u8(v) };
-			let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-			let _ = se.set_volume_raw(audio, raw);
+            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+            let _ = se.set_volume_raw(audio, raw);
         }
         return Ok(true);
     }
@@ -105,8 +111,8 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             _ => None,
         });
         if let Some(f) = file {
-			let (pcm, audio) = (&mut ctx.pcm, &mut ctx.audio);
-			let _ = pcm.play_file_name(audio, f);
+            let (pcm, audio) = (&mut ctx.pcm, &mut ctx.audio);
+            let _ = pcm.play_file_name(audio, f);
         }
         return Ok(true);
     }

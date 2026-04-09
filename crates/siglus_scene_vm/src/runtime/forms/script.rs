@@ -109,12 +109,22 @@ struct Call<'a> {
 fn parse_call(form_id: u32, args: &[Value]) -> Option<Call<'_>> {
     if let Some((chain_pos, chain)) = prop_access::parse_element_chain(form_id, args) {
         if chain.len() >= 2 {
-            let params = if chain_pos > 1 { &args[1..chain_pos] } else { &[] };
-            return Some(Call { op: chain[1], params });
+            let params = if chain_pos > 1 {
+                &args[1..chain_pos]
+            } else {
+                &[]
+            };
+            return Some(Call {
+                op: chain[1],
+                params,
+            });
         }
     }
     let op = args.get(0).and_then(|v| v.as_i64())? as i32;
-    Some(Call { op, params: &args[1..] })
+    Some(Call {
+        op,
+        params: &args[1..],
+    })
 }
 
 fn p_i64(params: &[Value], idx: usize) -> i64 {
@@ -126,7 +136,11 @@ fn p_bool(params: &[Value], idx: usize) -> bool {
 }
 
 fn p_str(params: &[Value], idx: usize) -> String {
-    params.get(idx).and_then(|v| v.as_str()).unwrap_or("").to_string()
+    params
+        .get(idx)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {

@@ -8,19 +8,29 @@ pub fn render_to_image(
     width: u32,
     height: u32,
 ) -> RgbaImage {
-    let mut out = vec![0u8; (width as usize).saturating_mul(height as usize).saturating_mul(4)];
+    let mut out = vec![
+        0u8;
+        (width as usize)
+            .saturating_mul(height as usize)
+            .saturating_mul(4)
+    ];
     let win_w = width as i32;
     let win_h = height as i32;
 
     for s in sprites {
         let sprite = &s.sprite;
-        let Some(img_id) = sprite.image_id else { continue; };
-        let Some(img) = images.get(img_id) else { continue; };
-
-        let (src_left, src_top, src_right, src_bottom) = match src_clip_rect(sprite.src_clip, img.width, img.height) {
-            Ok(v) => v,
-            Err(_) => continue,
+        let Some(img_id) = sprite.image_id else {
+            continue;
         };
+        let Some(img) = images.get(img_id) else {
+            continue;
+        };
+
+        let (src_left, src_top, src_right, src_bottom) =
+            match src_clip_rect(sprite.src_clip, img.width, img.height) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
         let src_w = (src_right - src_left).max(1.0);
         let src_h = (src_bottom - src_top).max(1.0);
 
@@ -198,7 +208,13 @@ pub fn render_to_image(
     }
 }
 
-fn transform_point(px: f32, py: f32, dst_x: f32, dst_y: f32, sprite: &crate::layer::Sprite) -> (f32, f32) {
+fn transform_point(
+    px: f32,
+    py: f32,
+    dst_x: f32,
+    dst_y: f32,
+    sprite: &crate::layer::Sprite,
+) -> (f32, f32) {
     let pivot_x = sprite.pivot_x;
     let pivot_y = sprite.pivot_y;
     let lx = px - pivot_x;
@@ -211,7 +227,11 @@ fn transform_point(px: f32, py: f32, dst_x: f32, dst_y: f32, sprite: &crate::lay
     (dst_x + pivot_x + rx, dst_y + pivot_y + ry)
 }
 
-fn src_clip_rect(clip: Option<ClipRect>, img_w: u32, img_h: u32) -> Result<(f32, f32, f32, f32), ()> {
+fn src_clip_rect(
+    clip: Option<ClipRect>,
+    img_w: u32,
+    img_h: u32,
+) -> Result<(f32, f32, f32, f32), ()> {
     if let Some(c) = clip {
         let mut left = c.left.max(0) as f32;
         let mut top = c.top.max(0) as f32;
@@ -245,7 +265,12 @@ fn dst_scissor_rect(clip: Option<ClipRect>, win_w: u32, win_h: u32) -> Option<Sc
     top = top.min(max_h);
     bottom = bottom.min(max_h);
     if right <= left || bottom <= top {
-        return Some(ScissorRect { x: 0, y: 0, w: 0, h: 0 });
+        return Some(ScissorRect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        });
     }
     Some(ScissorRect {
         x: left as u32,
@@ -286,12 +311,7 @@ fn blend_pixel(dst: [f32; 4], src: [f32; 4], blend: SpriteBlend) -> [f32; 4] {
             (dst[2] - src[2]).max(0.0),
             out_a,
         ],
-        SpriteBlend::Mul => [
-            src[0] * dst[0],
-            src[1] * dst[1],
-            src[2] * dst[2],
-            out_a,
-        ],
+        SpriteBlend::Mul => [src[0] * dst[0], src[1] * dst[1], src[2] * dst[2], out_a],
         SpriteBlend::Screen => [
             src[0] * (1.0 - dst[0]) + dst[0],
             src[1] * (1.0 - dst[1]) + dst[1],

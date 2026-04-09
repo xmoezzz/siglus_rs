@@ -2,40 +2,42 @@
 //!
 //! This layer is intentionally pragmatic:
 //! - It supports named commands used by standalone runtime tools.
-//! - It supports numeric dispatch (forms/syscalls) used by the VM.
+//! - It supports numeric dispatch (forms) used by the VM.
 //! - Unknown or unfinished operations are recorded instead of crashing.
 
 pub mod commands;
-pub mod graphics;
 pub mod forms;
-pub mod input;
+pub mod graphics;
 pub mod id_map;
+pub mod input;
 pub mod opcode;
 
 pub use opcode::OpCode;
-pub mod syscalls;
-pub mod tables;
-pub mod unknown;
-pub mod wait;
-pub mod ui;
+pub mod gan;
 pub mod globals;
 pub mod int_event;
-pub mod gan;
+pub mod net;
+pub mod tables;
+pub mod ui;
+pub mod unknown;
+pub mod wait;
 use crate::runtime::forms::syscom as syscom_form;
 
 use anyhow::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::assets::RgbaImage;
 use crate::audio::{AudioHub, BgmEngine, PcmEngine, SeEngine};
 use crate::image_manager::{ImageId, ImageManager};
-use crate::layer::{ClipRect, LayerId, LayerManager, RenderSprite, Sprite, SpriteFit, SpriteId, SpriteSizeMode};
+use crate::layer::{
+    ClipRect, LayerId, LayerManager, RenderSprite, Sprite, SpriteFit, SpriteId, SpriteSizeMode,
+};
 use crate::movie::MovieManager;
 use crate::soft_render;
 use crate::text_render::FontCache;
 use std::fs;
 use std::path::{Path, PathBuf};
-use crate::assets::RgbaImage;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -46,7 +48,10 @@ pub enum Value {
     /// A nested list value (FM_LIST).
     List(Vec<Value>),
     /// A named argument (id -> value), used by some engine commands.
-    NamedArg { id: i32, value: Box<Value> },
+    NamedArg {
+        id: i32,
+        value: Box<Value>,
+    },
 }
 
 impl Value {
@@ -57,8 +62,6 @@ impl Value {
             _ => None,
         }
     }
-
-
 
     pub fn named_id(&self) -> Option<i32> {
         match self {
@@ -85,20 +88,19 @@ impl Value {
 #[derive(Debug, Clone)]
 pub struct Command {
     pub name: String,
-    /// Optional numeric code for VM forms/syscalls.
+    /// Optional numeric code for VM forms.
     pub code: Option<opcode::OpCode>,
     pub args: Vec<Value>,
 }
 
-/// State used by a subset of syscalls (mostly EXCALL).
+/// State used by a subset of EXCALL compatibility ops.
 ///
 /// We intentionally keep these names offset-based instead of guessing their meaning.
 #[derive(Debug, Default, Clone)]
-pub struct SyscallState {
+pub struct ExcallCompatState {
     pub flag_204: bool,
     pub flag_2148: bool,
 }
-
 
 /// Optional external handler for numeric forms.
 ///
@@ -106,13 +108,12 @@ pub struct SyscallState {
 /// outside this crate, while still letting the VM dispatch through here.
 pub trait ExternalFormHandler: Send + Sync {
     /// Return true if the form ID was handled.
-    fn dispatch_form(&self, ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> anyhow::Result<bool>;
-}
-
-/// Optional external handler for numeric syscalls.
-pub trait ExternalSyscallHandler: Send + Sync {
-    /// Return true if the syscall ID was handled.
-    fn dispatch_syscall(&self, ctx: &mut CommandContext, syscall_id: u32, args: &[Value]) -> anyhow::Result<bool>;
+    fn dispatch_form(
+        &self,
+        ctx: &mut CommandContext,
+        form_id: u32,
+        args: &[Value],
+    ) -> anyhow::Result<bool>;
 }
 
 pub struct CommandContext {
@@ -152,23 +153,23 @@ pub struct CommandContext {
     /// VM blocking state (WAIT / WAIT_KEY).
     pub wait: wait::VmWait,
 
+    /// Lightweight network/browser helper mirroring the engine's `tnm_net` slot.
+    pub net: net::TnmNet,
+
     /// Gameexe-driven asset tables (CGTABLE / DATABASE / THUMBTABLE).
     pub tables: tables::AssetTables,
 
-    /// Value stack used by form/syscall handlers to return results.
+    /// Value stack used by form handlers to return results.
     pub stack: Vec<Value>,
 
     pub unknown: unknown::UnknownOpRecorder,
 
     pub globals: globals::GlobalState,
 
-    pub syscalls: SyscallState,
+    pub excall_state: ExcallCompatState,
 
     /// Optional project-provided form handler (game-specific).
     pub external_forms: Option<Arc<dyn ExternalFormHandler>>,
-
-    /// Optional project-provided syscall handler (game-specific).
-    pub external_syscalls: Option<Arc<dyn ExternalSyscallHandler>>,
 }
 
 impl CommandContext {
@@ -232,9 +233,9 @@ impl CommandContext {
             images,
             layers: LayerManager::default(),
             audio,
-			bgm: BgmEngine::new(project_dir.clone()),
-			pcm: PcmEngine::new(project_dir.clone()),
-			se: SeEngine::new(project_dir.clone()),
+            bgm: BgmEngine::new(project_dir.clone()),
+            pcm: PcmEngine::new(project_dir.clone()),
+            se: SeEngine::new(project_dir.clone()),
             movie: MovieManager::new(project_dir.clone()),
             project_dir,
             solid_white,
@@ -247,35 +248,41 @@ impl CommandContext {
             font_cache: FontCache::new(),
             input: input::InputState::default(),
             wait: wait::VmWait::default(),
+            net: net::TnmNet::default(),
 
             screen_w: 1280,
             screen_h: 720,
             globals: globals::GlobalState::default(),
-            syscalls: SyscallState::default(),
-
+            excall_state: ExcallCompatState::default(),
             external_forms: None,
-            external_syscalls: None,
         }
     }
 
+    pub fn reset_for_scene_restart(&mut self) {
+        self.layers.clear_all();
+        self.gfx = graphics::GfxRuntime::default();
+        self.ui = ui::UiRuntime::default();
+        self.wait = wait::VmWait::default();
+        self.stack.clear();
+        self.globals = globals::GlobalState::default();
+        self.excall_state = ExcallCompatState::default();
+        self.input.clear_all();
+    }
 
     /// Install or clear an external form handler.
     pub fn set_external_form_handler(&mut self, h: Option<Arc<dyn ExternalFormHandler>>) {
         self.external_forms = h;
     }
 
-    /// Install or clear an external syscall handler.
-    pub fn set_external_syscall_handler(&mut self, h: Option<Arc<dyn ExternalSyscallHandler>>) {
-        self.external_syscalls = h;
-    }
-
-
-
     // ------------------------------------------------------------------
     // Object button runtime
     // ------------------------------------------------------------------
 
-    fn load_any_image_for_hit(images: &mut ImageManager, file: &str, patno: i64) -> Option<crate::image_manager::ImageId> {
+    fn load_any_image_for_hit(
+        images: &mut ImageManager,
+        file: &str,
+        patno: i64,
+    ) -> Option<crate::image_manager::ImageId> {
         let pat_u32 = if patno < 0 { 0 } else { patno as u32 };
         if let Ok(id) = images.load_g00(file, pat_u32) {
             return Some(id);
@@ -286,24 +293,13 @@ impl CommandContext {
         None
     }
 
-    fn hit_test_sprite_rect(
-        x: i32,
-        y: i32,
-        w: u32,
-        h: u32,
-        mx: i32,
-        my: i32,
-    ) -> bool {
+    fn hit_test_sprite_rect(x: i32, y: i32, w: u32, h: u32, mx: i32, my: i32) -> bool {
         let x2 = x.saturating_add(w as i32);
         let y2 = y.saturating_add(h as i32);
         mx >= x && mx < x2 && my >= y && my < y2
     }
 
-    fn alpha_test_image(
-        img: &crate::assets::RgbaImage,
-        local_x: i32,
-        local_y: i32,
-    ) -> bool {
+    fn alpha_test_image(img: &crate::assets::RgbaImage, local_x: i32, local_y: i32) -> bool {
         if local_x < 0 || local_y < 0 {
             return false;
         }
@@ -361,13 +357,22 @@ impl CommandContext {
 
                     // Visibility gate.
                     let visible = match obj.backend {
-                        globals::ObjectBackend::Rect { layer_id, sprite_id, .. } => self
+                        globals::ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } => self
                             .layers
                             .layer(layer_id)
                             .and_then(|l| l.sprite(sprite_id))
                             .map(|spr| spr.visible)
                             .unwrap_or(false),
-                        globals::ObjectBackend::Gfx => self.gfx.object_peek_disp(*stage_idx, obj_i as i64).unwrap_or(0) != 0,
+                        globals::ObjectBackend::Gfx => {
+                            self.gfx
+                                .object_peek_disp(*stage_idx, obj_i as i64)
+                                .unwrap_or(0)
+                                != 0
+                        }
                         _ => false,
                     };
                     if !visible {
@@ -377,27 +382,54 @@ impl CommandContext {
                     // Bounding box + optional alpha test.
                     let mut hit = false;
                     match obj.backend {
-                        globals::ObjectBackend::Rect { layer_id, sprite_id, width, height } => {
-                            if let Some(spr) = self.layers.layer(layer_id).and_then(|l| l.sprite(sprite_id)) {
-                                hit = Self::hit_test_sprite_rect(spr.x, spr.y, width, height, mx, my);
+                        globals::ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            width,
+                            height,
+                        } => {
+                            if let Some(spr) = self
+                                .layers
+                                .layer(layer_id)
+                                .and_then(|l| l.sprite(sprite_id))
+                            {
+                                hit =
+                                    Self::hit_test_sprite_rect(spr.x, spr.y, width, height, mx, my);
                                 if hit && obj.button.alpha_test {
                                     if let Some(img_id) = spr.image_id {
-                                        if let Some(img) = self.images.get(img_id).map(|a| a.as_ref()) {
-                                            hit = Self::alpha_test_image(img, mx - spr.x, my - spr.y);
+                                        if let Some(img) =
+                                            self.images.get(img_id).map(|a| a.as_ref())
+                                        {
+                                            hit =
+                                                Self::alpha_test_image(img, mx - spr.x, my - spr.y);
                                         }
                                     }
                                 }
                             }
                         }
                         globals::ObjectBackend::Gfx => {
-                            let (x, y) = self.gfx.object_peek_pos(*stage_idx, obj_i as i64).unwrap_or((0, 0));
-                            let patno = self.gfx.object_peek_patno(*stage_idx, obj_i as i64).unwrap_or(0);
+                            let (x, y) = self
+                                .gfx
+                                .object_peek_pos(*stage_idx, obj_i as i64)
+                                .unwrap_or((0, 0));
+                            let patno = self
+                                .gfx
+                                .object_peek_patno(*stage_idx, obj_i as i64)
+                                .unwrap_or(0);
                             if let Some(file) = obj.file_name.as_deref() {
-                                if let Some(img_id) = Self::load_any_image_for_hit(&mut self.images, file, patno) {
+                                if let Some(img_id) =
+                                    Self::load_any_image_for_hit(&mut self.images, file, patno)
+                                {
                                     if let Some(img) = self.images.get(img_id).map(|a| a.as_ref()) {
-                                        hit = Self::hit_test_sprite_rect(x as i32, y as i32, img.width, img.height, mx, my);
+                                        hit = Self::hit_test_sprite_rect(
+                                            x as i32, y as i32, img.width, img.height, mx, my,
+                                        );
                                         if hit && obj.button.alpha_test {
-                                            hit = Self::alpha_test_image(img, mx - x as i32, my - y as i32);
+                                            hit = Self::alpha_test_image(
+                                                img,
+                                                mx - x as i32,
+                                                my - y as i32,
+                                            );
                                         }
                                     }
                                 }
@@ -412,15 +444,25 @@ impl CommandContext {
 
                     // Draw order (conservative): use sprite order if present, else layer/order.
                     let draw_order = match obj.backend {
-                        globals::ObjectBackend::Rect { layer_id, sprite_id, .. } => self
+                        globals::ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } => self
                             .layers
                             .layer(layer_id)
                             .and_then(|l| l.sprite(sprite_id))
                             .map(|spr| spr.order as i64)
                             .unwrap_or(0),
                         globals::ObjectBackend::Gfx => {
-                            let layer_no = self.gfx.object_peek_layer(*stage_idx, obj_i as i64).unwrap_or(0);
-                            let order = self.gfx.object_peek_order(*stage_idx, obj_i as i64).unwrap_or(0);
+                            let layer_no = self
+                                .gfx
+                                .object_peek_layer(*stage_idx, obj_i as i64)
+                                .unwrap_or(0);
+                            let order = self
+                                .gfx
+                                .object_peek_order(*stage_idx, obj_i as i64)
+                                .unwrap_or(0);
                             layer_no.saturating_mul(1000).saturating_add(order)
                         }
                         _ => 0,
@@ -429,7 +471,9 @@ impl CommandContext {
                     let btn_no = obj.button.button_no;
                     match best {
                         None => best = Some((btn_no, draw_order, obj_i)),
-                        Some((_b, bo, _oi)) if draw_order > bo => best = Some((btn_no, draw_order, obj_i)),
+                        Some((_b, bo, _oi)) if draw_order > bo => {
+                            best = Some((btn_no, draw_order, obj_i))
+                        }
                         _ => {}
                     }
                 }
@@ -542,30 +586,33 @@ impl CommandContext {
         // EditBox runtime: map common keys and focus changes.
         self.handle_editbox_key(k);
 
-        
+        let handled_mwnd_selection = self.handle_mwnd_selection_key(k);
+
         // Stage group selection runtime: map Enter/Escape to a decision.
-        if let Some((form_id, stage_idx, group_idx)) = self.globals.focused_stage_group {
-            if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
-                if let Some(list) = st.group_lists.get_mut(&stage_idx) {
-                    if let Some(g) = list.get_mut(group_idx) {
-                        match k {
-                            input::VmKey::Enter => {
-                                g.result = 1;
-                                g.result_button_no = 0;
-                                g.decided_button_no = 0;
-                                g.wait_flag = false;
-                                g.started = false;
-                                self.globals.focused_stage_group = None;
+        if !handled_mwnd_selection {
+            if let Some((form_id, stage_idx, group_idx)) = self.globals.focused_stage_group {
+                if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
+                    if let Some(list) = st.group_lists.get_mut(&stage_idx) {
+                        if let Some(g) = list.get_mut(group_idx) {
+                            match k {
+                                input::VmKey::Enter => {
+                                    g.result = 1;
+                                    g.result_button_no = 0;
+                                    g.decided_button_no = 0;
+                                    g.wait_flag = false;
+                                    g.started = false;
+                                    self.globals.focused_stage_group = None;
+                                }
+                                input::VmKey::Escape => {
+                                    g.result = -1;
+                                    g.result_button_no = -1;
+                                    g.decided_button_no = -1;
+                                    g.wait_flag = false;
+                                    g.started = false;
+                                    self.globals.focused_stage_group = None;
+                                }
+                                _ => {}
                             }
-                            input::VmKey::Escape => {
-                                g.result = -1;
-                                g.result_button_no = -1;
-                                g.decided_button_no = -1;
-                                g.wait_flag = false;
-                                g.started = false;
-                                self.globals.focused_stage_group = None;
-                            }
-                            _ => {}
                         }
                     }
                 }
@@ -575,7 +622,8 @@ impl CommandContext {
         self.advance_message_wait(true);
         let wipe_skipped = self.wait.notify_key();
         while let Some(info) = self.wait.take_movie_skip() {
-            let (globals, movie_mgr, layers) = (&mut self.globals, &mut self.movie, &mut self.layers);
+            let (globals, movie_mgr, layers) =
+                (&mut self.globals, &mut self.movie, &mut self.layers);
             if let Some(st) = globals.stage_forms.get_mut(&info.stage_form_id) {
                 if let Some(list) = st.object_lists.get_mut(&info.stage_idx) {
                     if info.obj_idx < list.len() {
@@ -590,7 +638,12 @@ impl CommandContext {
                         if let Some(id) = audio_id {
                             movie_mgr.stop_audio(id);
                         }
-                        if let globals::ObjectBackend::Movie { layer_id, sprite_id, .. } = backend {
+                        if let globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } = backend
+                        {
                             if let Some(layer) = layers.layer_mut(layer_id) {
                                 if let Some(sprite) = layer.sprite_mut(sprite_id) {
                                     sprite.visible = false;
@@ -638,12 +691,16 @@ impl CommandContext {
         if self.handle_syscom_menu_click() {
             return;
         }
+        let handled_mwnd_selection = self.handle_mwnd_selection_click(b);
         self.input.on_mouse_down(b);
-        self.handle_object_button_mouse_down(b);
+        if !handled_mwnd_selection {
+            self.handle_object_button_mouse_down(b);
+        }
         self.advance_message_wait(true);
         let wipe_skipped = self.wait.notify_key();
         while let Some(info) = self.wait.take_movie_skip() {
-            let (globals, movie_mgr, layers) = (&mut self.globals, &mut self.movie, &mut self.layers);
+            let (globals, movie_mgr, layers) =
+                (&mut self.globals, &mut self.movie, &mut self.layers);
             if let Some(st) = globals.stage_forms.get_mut(&info.stage_form_id) {
                 if let Some(list) = st.object_lists.get_mut(&info.stage_idx) {
                     if info.obj_idx < list.len() {
@@ -658,7 +715,12 @@ impl CommandContext {
                         if let Some(id) = audio_id {
                             movie_mgr.stop_audio(id);
                         }
-                        if let globals::ObjectBackend::Movie { layer_id, sprite_id, .. } = backend {
+                        if let globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } = backend
+                        {
                             if let Some(layer) = layers.layer_mut(layer_id) {
                                 if let Some(sprite) = layer.sprite_mut(sprite_id) {
                                     sprite.visible = false;
@@ -685,7 +747,8 @@ impl CommandContext {
         self.advance_message_wait(self.should_wheel_advance_message());
         let wipe_skipped = self.wait.notify_key();
         while let Some(info) = self.wait.take_movie_skip() {
-            let (globals, movie_mgr, layers) = (&mut self.globals, &mut self.movie, &mut self.layers);
+            let (globals, movie_mgr, layers) =
+                (&mut self.globals, &mut self.movie, &mut self.layers);
             if let Some(st) = globals.stage_forms.get_mut(&info.stage_form_id) {
                 if let Some(list) = st.object_lists.get_mut(&info.stage_idx) {
                     if info.obj_idx < list.len() {
@@ -700,7 +763,12 @@ impl CommandContext {
                         if let Some(id) = audio_id {
                             movie_mgr.stop_audio(id);
                         }
-                        if let globals::ObjectBackend::Movie { layer_id, sprite_id, .. } = backend {
+                        if let globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } = backend
+                        {
                             if let Some(layer) = layers.layer_mut(layer_id) {
                                 if let Some(sprite) = layer.sprite_mut(sprite_id) {
                                     sprite.visible = false;
@@ -813,7 +881,10 @@ impl CommandContext {
             .unwrap_or("")
             .chars()
             .count() as i64;
-        if self.ui.auto_advance_due(&self.globals.script, &self.globals.syscom) {
+        if self
+            .ui
+            .auto_advance_due(&self.globals.script, &self.globals.syscom)
+        {
             self.advance_message_wait(true);
         }
         // If scripts request message-window hide, enforce it after UI tick.
@@ -821,6 +892,7 @@ impl CommandContext {
             self.ui.show_message_bg(false);
         }
         self.sync_syscom_menu_ui();
+        self.sync_mwnd_selection_ui();
         self.globals.tick_frame();
         self.sync_movie_objects();
         self.apply_object_event_animations();
@@ -1012,69 +1084,146 @@ impl CommandContext {
                     match &obj.backend {
                         globals::ObjectBackend::Gfx => {
                             if let Some(ax) = x {
-                                let _ = self.gfx.object_set_x(&mut self.images, &mut self.layers, stage_i64, obj_i64, ax);
+                                let _ = self.gfx.object_set_x(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    ax,
+                                );
                             }
                             if let Some(ay) = y {
-                                let _ = self.gfx.object_set_y(&mut self.images, &mut self.layers, stage_i64, obj_i64, ay);
+                                let _ = self.gfx.object_set_y(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    ay,
+                                );
                             }
                             if let Some(a) = alpha {
-                                let _ = self.gfx.object_set_alpha(&mut self.images, &mut self.layers, stage_i64, obj_i64, a);
+                                let _ = self.gfx.object_set_alpha(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    a,
+                                );
                             }
                             if let Some(p) = patno {
-                                let _ = self.gfx.object_set_pat_no(&mut self.images, &mut self.layers, stage_i64, obj_i64, p);
+                                let _ = self.gfx.object_set_pat_no(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    p,
+                                );
                             }
                             if let Some(o) = order {
-                                let _ = self.gfx.object_set_order(&mut self.images, &mut self.layers, stage_i64, obj_i64, o);
+                                let _ = self.gfx.object_set_order(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    o,
+                                );
                             }
                             if let Some(l) = layer_no {
-                                let _ = self.gfx.object_set_layer(&mut self.images, &mut self.layers, stage_i64, obj_i64, l);
+                                let _ = self.gfx.object_set_layer(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    l,
+                                );
                             }
                             if let Some(zv) = z {
                                 let _ = self.gfx.object_set_z(stage_i64, obj_i64, zv);
                             }
                             if let (Some(cx), Some(cy)) = (center_x, center_y) {
-                                let _ = self.gfx.object_set_center(&mut self.images, &mut self.layers, stage_i64, obj_i64, cx, cy);
+                                let _ = self.gfx.object_set_center(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    cx,
+                                    cy,
+                                );
                             }
                             if let (Some(sx), Some(sy)) = (scale_x, scale_y) {
-                                let _ = self.gfx.object_set_scale(&mut self.images, &mut self.layers, stage_i64, obj_i64, sx, sy);
+                                let _ = self.gfx.object_set_scale(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    sx,
+                                    sy,
+                                );
                             }
                             if let Some(rz) = rotate_z {
-                                let _ = self.gfx.object_set_rotate(&mut self.images, &mut self.layers, stage_i64, obj_i64, rz);
+                                let _ = self.gfx.object_set_rotate(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    rz,
+                                );
                             }
-                            if clip_left.is_some() || clip_top.is_some() || clip_right.is_some() || clip_bottom.is_some() {
+                            if clip_left.is_some()
+                                || clip_top.is_some()
+                                || clip_right.is_some()
+                                || clip_bottom.is_some()
+                            {
                                 let use_flag = if self.ids.obj_clip_use != 0 {
-                                    obj.extra_int_props.get(&self.ids.obj_clip_use).copied().unwrap_or(0)
+                                    obj.extra_int_props
+                                        .get(&self.ids.obj_clip_use)
+                                        .copied()
+                                        .unwrap_or(0)
                                 } else {
                                     0
                                 };
-                                let left = clip_left.or_else(|| {
-                                    if self.ids.obj_clip_left != 0 {
-                                        obj.extra_int_props.get(&self.ids.obj_clip_left).copied()
-                                    } else {
-                                        None
-                                    }
-                                }).unwrap_or(0);
-                                let top = clip_top.or_else(|| {
-                                    if self.ids.obj_clip_top != 0 {
-                                        obj.extra_int_props.get(&self.ids.obj_clip_top).copied()
-                                    } else {
-                                        None
-                                    }
-                                }).unwrap_or(0);
-                                let right = clip_right.or_else(|| {
-                                    if self.ids.obj_clip_right != 0 {
-                                        obj.extra_int_props.get(&self.ids.obj_clip_right).copied()
-                                    } else {
-                                        None
-                                    }
-                                }).unwrap_or(0);
-                                let bottom = clip_bottom.or_else(|| {
-                                    if self.ids.obj_clip_bottom != 0 {
-                                        obj.extra_int_props.get(&self.ids.obj_clip_bottom).copied()
-                                    } else {
-                                        None
-                                    }
-                                }).unwrap_or(0);
+                                let left = clip_left
+                                    .or_else(|| {
+                                        if self.ids.obj_clip_left != 0 {
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_clip_left)
+                                                .copied()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
+                                let top = clip_top
+                                    .or_else(|| {
+                                        if self.ids.obj_clip_top != 0 {
+                                            obj.extra_int_props.get(&self.ids.obj_clip_top).copied()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
+                                let right = clip_right
+                                    .or_else(|| {
+                                        if self.ids.obj_clip_right != 0 {
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_clip_right)
+                                                .copied()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
+                                let bottom = clip_bottom
+                                    .or_else(|| {
+                                        if self.ids.obj_clip_bottom != 0 {
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_clip_bottom)
+                                                .copied()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
                                 let _ = self.gfx.object_set_clip(
                                     &mut self.images,
                                     &mut self.layers,
@@ -1093,38 +1242,57 @@ impl CommandContext {
                                 || src_clip_bottom.is_some()
                             {
                                 let use_flag = if self.ids.obj_src_clip_use != 0 {
-                                    obj.extra_int_props.get(&self.ids.obj_src_clip_use).copied().unwrap_or(0)
+                                    obj.extra_int_props
+                                        .get(&self.ids.obj_src_clip_use)
+                                        .copied()
+                                        .unwrap_or(0)
                                 } else {
                                     0
                                 };
-                                let left = src_clip_left.or_else(|| {
-                                    if self.ids.obj_src_clip_left != 0 {
-                                        obj.extra_int_props.get(&self.ids.obj_src_clip_left).copied()
-                                    } else {
-                                        None
-                                    }
-                                }).unwrap_or(0);
-                                let top = src_clip_top.or_else(|| {
-                                    if self.ids.obj_src_clip_top != 0 {
-                                        obj.extra_int_props.get(&self.ids.obj_src_clip_top).copied()
-                                    } else {
-                                        None
-                                    }
-                                }).unwrap_or(0);
-                                let right = src_clip_right.or_else(|| {
-                                    if self.ids.obj_src_clip_right != 0 {
-                                        obj.extra_int_props.get(&self.ids.obj_src_clip_right).copied()
-                                    } else {
-                                        None
-                                    }
-                                }).unwrap_or(0);
-                                let bottom = src_clip_bottom.or_else(|| {
-                                    if self.ids.obj_src_clip_bottom != 0 {
-                                        obj.extra_int_props.get(&self.ids.obj_src_clip_bottom).copied()
-                                    } else {
-                                        None
-                                    }
-                                }).unwrap_or(0);
+                                let left = src_clip_left
+                                    .or_else(|| {
+                                        if self.ids.obj_src_clip_left != 0 {
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_src_clip_left)
+                                                .copied()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
+                                let top = src_clip_top
+                                    .or_else(|| {
+                                        if self.ids.obj_src_clip_top != 0 {
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_src_clip_top)
+                                                .copied()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
+                                let right = src_clip_right
+                                    .or_else(|| {
+                                        if self.ids.obj_src_clip_right != 0 {
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_src_clip_right)
+                                                .copied()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
+                                let bottom = src_clip_bottom
+                                    .or_else(|| {
+                                        if self.ids.obj_src_clip_bottom != 0 {
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_src_clip_bottom)
+                                                .copied()
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .unwrap_or(0);
                                 let _ = self.gfx.object_set_src_clip(
                                     &mut self.images,
                                     &mut self.layers,
@@ -1138,75 +1306,154 @@ impl CommandContext {
                                 );
                             }
                             if let Some(v) = tr {
-                                let _ = self.gfx.object_set_tr(&mut self.images, &mut self.layers, stage_i64, obj_i64, v);
+                                let _ = self.gfx.object_set_tr(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    v,
+                                );
                             }
                             if let Some(v) = mono {
-                                let _ = self.gfx.object_set_mono(&mut self.images, &mut self.layers, stage_i64, obj_i64, v);
+                                let _ = self.gfx.object_set_mono(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    v,
+                                );
                             }
                             if let Some(v) = reverse {
-                                let _ = self.gfx.object_set_reverse(&mut self.images, &mut self.layers, stage_i64, obj_i64, v);
+                                let _ = self.gfx.object_set_reverse(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    v,
+                                );
                             }
                             if let Some(v) = bright {
-                                let _ = self.gfx.object_set_bright(&mut self.images, &mut self.layers, stage_i64, obj_i64, v);
+                                let _ = self.gfx.object_set_bright(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    v,
+                                );
                             }
                             if let Some(v) = dark {
-                                let _ = self.gfx.object_set_dark(&mut self.images, &mut self.layers, stage_i64, obj_i64, v);
+                                let _ = self.gfx.object_set_dark(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    v,
+                                );
                             }
                             if let Some(v) = color_rate {
-                                let _ = self.gfx.object_set_color_rate(&mut self.images, &mut self.layers, stage_i64, obj_i64, v);
+                                let _ = self.gfx.object_set_color_rate(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    v,
+                                );
                             }
-                            if color_add_r.is_some() || color_add_g.is_some() || color_add_b.is_some() {
+                            if color_add_r.is_some()
+                                || color_add_g.is_some()
+                                || color_add_b.is_some()
+                            {
                                 let r = color_add_r.unwrap_or_else(|| {
                                     if self.ids.obj_color_add_r != 0 {
-                                        *obj.extra_int_props.get(&self.ids.obj_color_add_r).unwrap_or(&0)
+                                        *obj.extra_int_props
+                                            .get(&self.ids.obj_color_add_r)
+                                            .unwrap_or(&0)
                                     } else {
                                         0
                                     }
                                 });
                                 let g = color_add_g.unwrap_or_else(|| {
                                     if self.ids.obj_color_add_g != 0 {
-                                        *obj.extra_int_props.get(&self.ids.obj_color_add_g).unwrap_or(&0)
+                                        *obj.extra_int_props
+                                            .get(&self.ids.obj_color_add_g)
+                                            .unwrap_or(&0)
                                     } else {
                                         0
                                     }
                                 });
                                 let b = color_add_b.unwrap_or_else(|| {
                                     if self.ids.obj_color_add_b != 0 {
-                                        *obj.extra_int_props.get(&self.ids.obj_color_add_b).unwrap_or(&0)
+                                        *obj.extra_int_props
+                                            .get(&self.ids.obj_color_add_b)
+                                            .unwrap_or(&0)
                                     } else {
                                         0
                                     }
                                 });
-                                let _ = self.gfx.object_set_color_add(&mut self.images, &mut self.layers, stage_i64, obj_i64, r, g, b);
+                                let _ = self.gfx.object_set_color_add(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    r,
+                                    g,
+                                    b,
+                                );
                             }
                             if color_r.is_some() || color_g.is_some() || color_b.is_some() {
                                 let r = color_r.unwrap_or_else(|| {
                                     if self.ids.obj_color_r != 0 {
-                                        *obj.extra_int_props.get(&self.ids.obj_color_r).unwrap_or(&0)
+                                        *obj.extra_int_props
+                                            .get(&self.ids.obj_color_r)
+                                            .unwrap_or(&0)
                                     } else {
                                         0
                                     }
                                 });
                                 let g = color_g.unwrap_or_else(|| {
                                     if self.ids.obj_color_g != 0 {
-                                        *obj.extra_int_props.get(&self.ids.obj_color_g).unwrap_or(&0)
+                                        *obj.extra_int_props
+                                            .get(&self.ids.obj_color_g)
+                                            .unwrap_or(&0)
                                     } else {
                                         0
                                     }
                                 });
                                 let b = color_b.unwrap_or_else(|| {
                                     if self.ids.obj_color_b != 0 {
-                                        *obj.extra_int_props.get(&self.ids.obj_color_b).unwrap_or(&0)
+                                        *obj.extra_int_props
+                                            .get(&self.ids.obj_color_b)
+                                            .unwrap_or(&0)
                                     } else {
                                         0
                                     }
                                 });
-                                let _ = self.gfx.object_set_color(&mut self.images, &mut self.layers, stage_i64, obj_i64, r, g, b);
+                                let _ = self.gfx.object_set_color(
+                                    &mut self.images,
+                                    &mut self.layers,
+                                    stage_i64,
+                                    obj_i64,
+                                    r,
+                                    g,
+                                    b,
+                                );
                             }
                         }
-                        globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
-                        | globals::ObjectBackend::String { layer_id, sprite_id, .. }
-                        | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+                        globals::ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        }
+                        | globals::ObjectBackend::String {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        }
+                        | globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } => {
                             if let Some(layer) = self.layers.layer_mut(*layer_id) {
                                 if let Some(sprite) = layer.sprite_mut(*sprite_id) {
                                     if let Some(ax) = x {
@@ -1229,41 +1476,64 @@ impl CommandContext {
                                     if let Some(rz) = rotate_z {
                                         sprite.rotate = rz as f32 * std::f32::consts::PI / 1800.0;
                                     }
-                                    if clip_left.is_some() || clip_top.is_some() || clip_right.is_some() || clip_bottom.is_some() {
+                                    if clip_left.is_some()
+                                        || clip_top.is_some()
+                                        || clip_right.is_some()
+                                        || clip_bottom.is_some()
+                                    {
                                         let use_flag = if self.ids.obj_clip_use != 0 {
-                                            obj.extra_int_props.get(&self.ids.obj_clip_use).copied().unwrap_or(0)
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_clip_use)
+                                                .copied()
+                                                .unwrap_or(0)
                                         } else {
                                             0
                                         };
                                         if use_flag != 0 {
-                                            let left = clip_left.or_else(|| {
-                                                if self.ids.obj_clip_left != 0 {
-                                                    obj.extra_int_props.get(&self.ids.obj_clip_left).copied()
-                                                } else {
-                                                    None
-                                                }
-                                            }).unwrap_or(0);
-                                            let top = clip_top.or_else(|| {
-                                                if self.ids.obj_clip_top != 0 {
-                                                    obj.extra_int_props.get(&self.ids.obj_clip_top).copied()
-                                                } else {
-                                                    None
-                                                }
-                                            }).unwrap_or(0);
-                                            let right = clip_right.or_else(|| {
-                                                if self.ids.obj_clip_right != 0 {
-                                                    obj.extra_int_props.get(&self.ids.obj_clip_right).copied()
-                                                } else {
-                                                    None
-                                                }
-                                            }).unwrap_or(0);
-                                            let bottom = clip_bottom.or_else(|| {
-                                                if self.ids.obj_clip_bottom != 0 {
-                                                    obj.extra_int_props.get(&self.ids.obj_clip_bottom).copied()
-                                                } else {
-                                                    None
-                                                }
-                                            }).unwrap_or(0);
+                                            let left = clip_left
+                                                .or_else(|| {
+                                                    if self.ids.obj_clip_left != 0 {
+                                                        obj.extra_int_props
+                                                            .get(&self.ids.obj_clip_left)
+                                                            .copied()
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or(0);
+                                            let top = clip_top
+                                                .or_else(|| {
+                                                    if self.ids.obj_clip_top != 0 {
+                                                        obj.extra_int_props
+                                                            .get(&self.ids.obj_clip_top)
+                                                            .copied()
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or(0);
+                                            let right = clip_right
+                                                .or_else(|| {
+                                                    if self.ids.obj_clip_right != 0 {
+                                                        obj.extra_int_props
+                                                            .get(&self.ids.obj_clip_right)
+                                                            .copied()
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or(0);
+                                            let bottom = clip_bottom
+                                                .or_else(|| {
+                                                    if self.ids.obj_clip_bottom != 0 {
+                                                        obj.extra_int_props
+                                                            .get(&self.ids.obj_clip_bottom)
+                                                            .copied()
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or(0);
                                             sprite.dst_clip = Some(crate::layer::ClipRect {
                                                 left: left as i32,
                                                 top: top as i32,
@@ -1280,39 +1550,58 @@ impl CommandContext {
                                         || src_clip_bottom.is_some()
                                     {
                                         let use_flag = if self.ids.obj_src_clip_use != 0 {
-                                            obj.extra_int_props.get(&self.ids.obj_src_clip_use).copied().unwrap_or(0)
+                                            obj.extra_int_props
+                                                .get(&self.ids.obj_src_clip_use)
+                                                .copied()
+                                                .unwrap_or(0)
                                         } else {
                                             0
                                         };
                                         if use_flag != 0 {
-                                            let left = src_clip_left.or_else(|| {
-                                                if self.ids.obj_src_clip_left != 0 {
-                                                    obj.extra_int_props.get(&self.ids.obj_src_clip_left).copied()
-                                                } else {
-                                                    None
-                                                }
-                                            }).unwrap_or(0);
-                                            let top = src_clip_top.or_else(|| {
-                                                if self.ids.obj_src_clip_top != 0 {
-                                                    obj.extra_int_props.get(&self.ids.obj_src_clip_top).copied()
-                                                } else {
-                                                    None
-                                                }
-                                            }).unwrap_or(0);
-                                            let right = src_clip_right.or_else(|| {
-                                                if self.ids.obj_src_clip_right != 0 {
-                                                    obj.extra_int_props.get(&self.ids.obj_src_clip_right).copied()
-                                                } else {
-                                                    None
-                                                }
-                                            }).unwrap_or(0);
-                                            let bottom = src_clip_bottom.or_else(|| {
-                                                if self.ids.obj_src_clip_bottom != 0 {
-                                                    obj.extra_int_props.get(&self.ids.obj_src_clip_bottom).copied()
-                                                } else {
-                                                    None
-                                                }
-                                            }).unwrap_or(0);
+                                            let left = src_clip_left
+                                                .or_else(|| {
+                                                    if self.ids.obj_src_clip_left != 0 {
+                                                        obj.extra_int_props
+                                                            .get(&self.ids.obj_src_clip_left)
+                                                            .copied()
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or(0);
+                                            let top = src_clip_top
+                                                .or_else(|| {
+                                                    if self.ids.obj_src_clip_top != 0 {
+                                                        obj.extra_int_props
+                                                            .get(&self.ids.obj_src_clip_top)
+                                                            .copied()
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or(0);
+                                            let right = src_clip_right
+                                                .or_else(|| {
+                                                    if self.ids.obj_src_clip_right != 0 {
+                                                        obj.extra_int_props
+                                                            .get(&self.ids.obj_src_clip_right)
+                                                            .copied()
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or(0);
+                                            let bottom = src_clip_bottom
+                                                .or_else(|| {
+                                                    if self.ids.obj_src_clip_bottom != 0 {
+                                                        obj.extra_int_props
+                                                            .get(&self.ids.obj_src_clip_bottom)
+                                                            .copied()
+                                                    } else {
+                                                        None
+                                                    }
+                                                })
+                                                .unwrap_or(0);
                                             sprite.src_clip = Some(crate::layer::ClipRect {
                                                 left: left as i32,
                                                 top: top as i32,
@@ -1341,10 +1630,16 @@ impl CommandContext {
                                     if let Some(v) = color_rate {
                                         sprite.color_rate = v.clamp(0, 255) as u8;
                                     }
-                                    if color_add_r.is_some() || color_add_g.is_some() || color_add_b.is_some() {
-                                        sprite.color_add_r = color_add_r.unwrap_or(0).clamp(0, 255) as u8;
-                                        sprite.color_add_g = color_add_g.unwrap_or(0).clamp(0, 255) as u8;
-                                        sprite.color_add_b = color_add_b.unwrap_or(0).clamp(0, 255) as u8;
+                                    if color_add_r.is_some()
+                                        || color_add_g.is_some()
+                                        || color_add_b.is_some()
+                                    {
+                                        sprite.color_add_r =
+                                            color_add_r.unwrap_or(0).clamp(0, 255) as u8;
+                                        sprite.color_add_g =
+                                            color_add_g.unwrap_or(0).clamp(0, 255) as u8;
+                                        sprite.color_add_b =
+                                            color_add_b.unwrap_or(0).clamp(0, 255) as u8;
                                     }
                                     if color_r.is_some() || color_g.is_some() || color_b.is_some() {
                                         sprite.color_r = color_r.unwrap_or(0).clamp(0, 255) as u8;
@@ -1354,7 +1649,10 @@ impl CommandContext {
                                 }
                             }
                         }
-                        globals::ObjectBackend::Number { layer_id, sprite_ids } => {
+                        globals::ObjectBackend::Number {
+                            layer_id,
+                            sprite_ids,
+                        } => {
                             if let Some(a) = alpha {
                                 if let Some(layer) = self.layers.layer_mut(*layer_id) {
                                     for &sid in sprite_ids {
@@ -1381,20 +1679,40 @@ impl CommandContext {
         for st in self.globals.stage_forms.values() {
             for (stage_idx, objs) in st.object_lists.iter() {
                 for (obj_idx, obj) in objs.iter().enumerate() {
-                    let Some(pat) = obj.gan.current_pat() else { continue; };
+                    let Some(pat) = obj.gan.current_pat() else {
+                        continue;
+                    };
                     if pat.pat_no == 0 && pat.x == 0 && pat.y == 0 && pat.tr == 255 {
                         continue;
                     }
 
                     let key: Option<(LayerId, SpriteId)> = match &obj.backend {
-                        globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
-                        | globals::ObjectBackend::String { layer_id, sprite_id, .. }
-                        | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => Some((*layer_id, *sprite_id)),
-                        globals::ObjectBackend::Gfx => self.gfx.object_sprite_binding(*stage_idx, obj_idx as i64),
+                        globals::ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        }
+                        | globals::ObjectBackend::String {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        }
+                        | globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } => Some((*layer_id, *sprite_id)),
+                        globals::ObjectBackend::Gfx => {
+                            self.gfx.object_sprite_binding(*stage_idx, obj_idx as i64)
+                        }
                         _ => None,
                     };
-                    let Some((layer_id, sprite_id)) = key else { continue; };
-                    let Some(&idx) = index.get(&(Some(layer_id), Some(sprite_id))) else { continue; };
+                    let Some((layer_id, sprite_id)) = key else {
+                        continue;
+                    };
+                    let Some(&idx) = index.get(&(Some(layer_id), Some(sprite_id))) else {
+                        continue;
+                    };
 
                     let sprite = &mut sprites[idx].sprite;
                     if pat.x != 0 {
@@ -1410,7 +1728,10 @@ impl CommandContext {
 
                     if pat.pat_no != 0 {
                         if let Some(file) = self.gfx.object_peek_file(*stage_idx, obj_idx as i64) {
-                            let base_pat = self.gfx.object_peek_patno(*stage_idx, obj_idx as i64).unwrap_or(0);
+                            let base_pat = self
+                                .gfx
+                                .object_peek_patno(*stage_idx, obj_idx as i64)
+                                .unwrap_or(0);
                             let pat_no = (base_pat + pat.pat_no as i64).max(0) as u32;
                             if let Ok(id) = self.images.load_g00(&file, pat_no) {
                                 sprite.image_id = Some(id);
@@ -1423,16 +1744,30 @@ impl CommandContext {
     }
 
     fn apply_object_masks(&mut self) {
-        let Some(mask_info) = self.build_mask_info() else { return; };
+        let Some(mask_info) = self.build_mask_info() else {
+            return;
+        };
         if mask_info.is_empty() {
             return;
+        }
+
+        let mut resolved_masks = HashMap::new();
+        for (mask_name, _, _) in mask_info.iter().flatten() {
+            if resolved_masks.contains_key(mask_name) {
+                continue;
+            }
+            if let Some(id) = self.resolve_mask_image(mask_name) {
+                resolved_masks.insert(mask_name.clone(), id);
+            }
         }
 
         for st in self.globals.stage_forms.values_mut() {
             for (stage_idx, objs) in st.object_lists.iter_mut() {
                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
                     let mask_no = if self.ids.obj_mask_no != 0 {
-                        *obj.extra_int_props.get(&self.ids.obj_mask_no).unwrap_or(&-1)
+                        *obj.extra_int_props
+                            .get(&self.ids.obj_mask_no)
+                            .unwrap_or(&-1)
                     } else {
                         -1
                     };
@@ -1447,21 +1782,33 @@ impl CommandContext {
                         continue;
                     };
 
-                    let mask_image_id = match self.resolve_mask_image(mask_name) {
+                    let mask_image_id = match resolved_masks.get(mask_name).copied() {
                         Some(id) => id,
                         None => continue,
                     };
 
                     let targets: Vec<(LayerId, SpriteId)> = match &obj.backend {
-                        globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
-                        | globals::ObjectBackend::String { layer_id, sprite_id, .. }
-                        | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+                        globals::ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        }
+                        | globals::ObjectBackend::String {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        }
+                        | globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } => {
                             vec![(*layer_id, *sprite_id)]
                         }
-                        globals::ObjectBackend::Number { layer_id, sprite_ids } => sprite_ids
-                            .iter()
-                            .map(|sid| (*layer_id, *sid))
-                            .collect(),
+                        globals::ObjectBackend::Number {
+                            layer_id,
+                            sprite_ids,
+                        } => sprite_ids.iter().map(|sid| (*layer_id, *sid)).collect(),
                         globals::ObjectBackend::Gfx => self
                             .gfx
                             .object_sprite_binding(*stage_idx, obj_idx as i64)
@@ -1471,10 +1818,16 @@ impl CommandContext {
                     };
 
                     for (layer_id, sprite_id) in targets {
-                        let Some(sprite) = self.layers.layer_mut(layer_id).and_then(|l| l.sprite_mut(sprite_id)) else {
+                        let Some(sprite) = self
+                            .layers
+                            .layer_mut(layer_id)
+                            .and_then(|l| l.sprite_mut(sprite_id))
+                        else {
                             continue;
                         };
-                        let Some(base_id) = sprite.image_id else { continue; };
+                        let Some(base_id) = sprite.image_id else {
+                            continue;
+                        };
 
                         let (base_img, base_ver) = match self.images.get_entry(base_id) {
                             Some(v) => v,
@@ -1592,9 +1945,21 @@ impl CommandContext {
         {
             for (obj_idx, obj) in list.iter().enumerate() {
                 match &obj.backend {
-                    globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
-                    | globals::ObjectBackend::String { layer_id, sprite_id, .. }
-                    | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+                    globals::ObjectBackend::Rect {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    }
+                    | globals::ObjectBackend::String {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    }
+                    | globals::ObjectBackend::Movie {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    } => {
                         if Some(*layer_id) == ui_layer {
                             continue;
                         }
@@ -1604,7 +1969,10 @@ impl CommandContext {
                             }
                         }
                     }
-                    globals::ObjectBackend::Number { layer_id, sprite_ids } => {
+                    globals::ObjectBackend::Number {
+                        layer_id,
+                        sprite_ids,
+                    } => {
                         if Some(*layer_id) == ui_layer {
                             continue;
                         }
@@ -1617,7 +1985,9 @@ impl CommandContext {
                         }
                     }
                     globals::ObjectBackend::Gfx => {
-                        if let Some((lid, sid)) = self.gfx.object_sprite_binding(*stage_idx, obj_idx as i64) {
+                        if let Some((lid, sid)) =
+                            self.gfx.object_sprite_binding(*stage_idx, obj_idx as i64)
+                        {
                             if Some(lid) == ui_layer {
                                 continue;
                             }
@@ -1720,14 +2090,26 @@ impl CommandContext {
     }
 
     fn menu_adjust(&mut self, dir: i32) {
-    let mut items = self.menu_items();
+        let mut items = self.menu_items();
         if items.is_empty() {
             return;
         }
         let idx = self.globals.syscom.menu_cursor.min(items.len() - 1);
         match items.get_mut(idx) {
-            Some(MenuItem::Int { key, min, max, step, .. }) => {
-                let cur = self.globals.syscom.config_int.get(key).copied().unwrap_or(*min);
+            Some(MenuItem::Int {
+                key,
+                min,
+                max,
+                step,
+                ..
+            }) => {
+                let cur = self
+                    .globals
+                    .syscom
+                    .config_int
+                    .get(key)
+                    .copied()
+                    .unwrap_or(*min as i64);
                 let next = (cur + (*step as i64 * dir as i64)).clamp(*min as i64, *max as i64);
                 self.globals.syscom.config_int.insert(*key, next);
                 if *key == GET_ALL_VOLUME
@@ -1741,7 +2123,13 @@ impl CommandContext {
                 }
             }
             Some(MenuItem::Bool { key, .. }) => {
-                let cur = self.globals.syscom.config_int.get(key).copied().unwrap_or(0);
+                let cur = self
+                    .globals
+                    .syscom
+                    .config_int
+                    .get(key)
+                    .copied()
+                    .unwrap_or(0);
                 let next = if cur == 0 { 1 } else { 0 };
                 self.globals.syscom.config_int.insert(*key, next);
                 if *key == GET_ALL_ONOFF
@@ -1759,14 +2147,23 @@ impl CommandContext {
                 if list.is_empty() {
                     return;
                 }
-                let cur = self.globals.syscom.config_str.get(&GET_FONT_NAME).cloned().unwrap_or_default();
+                let cur = self
+                    .globals
+                    .syscom
+                    .config_str
+                    .get(&GET_FONT_NAME)
+                    .cloned()
+                    .unwrap_or_default();
                 let mut pos = list.iter().position(|s| s == &cur).unwrap_or(0) as i32;
                 pos += dir;
                 if pos < 0 {
                     pos = list.len() as i32 - 1;
                 }
                 let pos = (pos as usize) % list.len();
-                self.globals.syscom.config_str.insert(GET_FONT_NAME, list[pos].clone());
+                self.globals
+                    .syscom
+                    .config_str
+                    .insert(GET_FONT_NAME, list[pos].clone());
             }
             None => {}
         }
@@ -1783,6 +2180,137 @@ impl CommandContext {
         }
         let text = build_syscom_menu_text(&mut self.globals.syscom, &self.project_dir);
         self.ui.set_sys_overlay(true, text);
+    }
+
+    fn handle_mwnd_selection_key(&mut self, k: input::VmKey) -> bool {
+        let Some((form_id, stage_idx, mwnd_idx)) = self.globals.focused_stage_mwnd else {
+            return false;
+        };
+        let mut clear_focus = false;
+        let mut handled = false;
+        if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
+            if let Some(list) = st.mwnd_lists.get_mut(&stage_idx) {
+                if let Some(m) = list.get_mut(mwnd_idx) {
+                    if let Some(sel) = m.selection.as_mut() {
+                        handled = match k {
+                            input::VmKey::ArrowUp => {
+                                if !sel.choices.is_empty() {
+                                    sel.cursor = if sel.cursor == 0 {
+                                        sel.choices.len() - 1
+                                    } else {
+                                        sel.cursor - 1
+                                    };
+                                }
+                                true
+                            }
+                            input::VmKey::ArrowDown => {
+                                if !sel.choices.is_empty() {
+                                    sel.cursor = (sel.cursor + 1) % sel.choices.len();
+                                }
+                                true
+                            }
+                            input::VmKey::Enter => {
+                                sel.result = (sel.cursor as i64) + 1;
+                                clear_focus = true;
+                                true
+                            }
+                            input::VmKey::Escape if sel.cancel_enable => {
+                                sel.result = -1;
+                                clear_focus = true;
+                                true
+                            }
+                            _ => false,
+                        };
+                    } else {
+                        clear_focus = true;
+                    }
+                } else {
+                    clear_focus = true;
+                }
+            } else {
+                clear_focus = true;
+            }
+        } else {
+            clear_focus = true;
+        }
+        if clear_focus {
+            self.globals.focused_stage_mwnd = None;
+        }
+        handled
+    }
+
+    fn handle_mwnd_selection_click(&mut self, b: input::VmMouseButton) -> bool {
+        let Some((form_id, stage_idx, mwnd_idx)) = self.globals.focused_stage_mwnd else {
+            return false;
+        };
+        let mut clear_focus = false;
+        let mut handled = false;
+        if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
+            if let Some(list) = st.mwnd_lists.get_mut(&stage_idx) {
+                if let Some(m) = list.get_mut(mwnd_idx) {
+                    if let Some(sel) = m.selection.as_mut() {
+                        handled = match b {
+                            input::VmMouseButton::Left => {
+                                sel.result = (sel.cursor as i64) + 1;
+                                clear_focus = true;
+                                true
+                            }
+                            input::VmMouseButton::Right if sel.cancel_enable => {
+                                sel.result = -1;
+                                clear_focus = true;
+                                true
+                            }
+                            _ => false,
+                        };
+                    } else {
+                        clear_focus = true;
+                    }
+                } else {
+                    clear_focus = true;
+                }
+            } else {
+                clear_focus = true;
+            }
+        } else {
+            clear_focus = true;
+        }
+        if clear_focus {
+            self.globals.focused_stage_mwnd = None;
+        }
+        handled
+    }
+
+    fn sync_mwnd_selection_ui(&mut self) {
+        if self.globals.syscom.menu_open {
+            return;
+        }
+        let text = if let Some((form_id, stage_idx, mwnd_idx)) = self.globals.focused_stage_mwnd {
+            self.globals
+                .stage_forms
+                .get(&form_id)
+                .and_then(|st| st.mwnd_lists.get(&stage_idx))
+                .and_then(|list| list.get(mwnd_idx))
+                .and_then(|m| m.selection.as_ref())
+                .map(|sel| {
+                    let mut lines = Vec::new();
+                    lines.push("Select".to_string());
+                    for (i, choice) in sel.choices.iter().enumerate() {
+                        let cursor = if i == sel.cursor { ">" } else { " " };
+                        lines.push(format!("{cursor} {}", choice.text));
+                    }
+                    if sel.cancel_enable {
+                        lines.push("[Esc] Cancel".to_string());
+                    }
+                    lines.join("\n")
+                })
+        } else {
+            None
+        };
+        if let Some(text) = text {
+            self.ui.set_sys_overlay(true, text);
+        } else {
+            self.ui.set_sys_overlay(false, String::new());
+        }
     }
 
     fn sync_movie_objects(&mut self) {
@@ -1811,7 +2339,12 @@ impl CommandContext {
                         }
                         obj.movie.just_finished = false;
                         if obj.movie.auto_free_flag {
-                            if let globals::ObjectBackend::Movie { layer_id, sprite_id, .. } = obj.backend {
+                            if let globals::ObjectBackend::Movie {
+                                layer_id,
+                                sprite_id,
+                                ..
+                            } = obj.backend
+                            {
                                 if let Some(layer) = layers.layer_mut(layer_id) {
                                     if let Some(sprite) = layer.sprite_mut(sprite_id) {
                                         sprite.visible = false;
@@ -1828,7 +2361,12 @@ impl CommandContext {
                         }
                     }
 
-                    let (layer_id, sprite_id) = if let globals::ObjectBackend::Movie { layer_id, sprite_id, .. } = &obj.backend {
+                    let (layer_id, sprite_id) = if let globals::ObjectBackend::Movie {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    } = &obj.backend
+                    {
                         (*layer_id, *sprite_id)
                     } else {
                         let Some(layer_id) = gfx.ensure_stage_layer_id(layers, *stage_idx) else {
@@ -1912,7 +2450,8 @@ impl CommandContext {
                             Err(_) => None,
                         };
                         if let Some(track) = asset_audio.as_ref() {
-                            if let Ok(id) = movie_mgr.start_audio(audio, track, obj.movie.timer_ms) {
+                            if let Ok(id) = movie_mgr.start_audio(audio, track, obj.movie.timer_ms)
+                            {
                                 obj.movie.audio_id = Some(id);
                             }
                         }
@@ -1930,7 +2469,8 @@ impl CommandContext {
                     if fps <= 0.0 {
                         continue;
                     }
-                    let mut frame_idx = ((obj.movie.timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize;
+                    let mut frame_idx =
+                        ((obj.movie.timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize;
                     if obj.movie.loop_flag {
                         frame_idx %= asset.frames.len();
                     } else if frame_idx >= asset.frames.len() {
@@ -1999,16 +2539,33 @@ impl CommandContext {
     }
 }
 
+fn trace_codes_enabled() -> bool {
+    std::env::var_os("SIGLUS_TRACE_CODES").is_some()
+}
+
 pub fn dispatch(ctx: &mut CommandContext, cmd: &Command) -> Result<()> {
-    // Numeric dispatch first (forms/syscalls). If we don't recognize it yet,
+    // Numeric dispatch first (forms). If we don't recognize it yet,
     // we record it and keep going.
     if let Some(code) = cmd.code {
+        if trace_codes_enabled() {
+            let mut elem = String::new();
+            for arg in &cmd.args {
+                if let Value::Element(chain) = arg {
+                    elem = format!(" element={chain:?}");
+                    break;
+                }
+            }
+            eprintln!(
+                "[TRACE code] form={} args={}{}",
+                code.id,
+                cmd.args.len(),
+                elem
+            );
+        }
         if opcode::dispatch_code(ctx, code, &cmd.args)? {
             return Ok(());
         }
-        if code.kind == opcode::OpKind::Form {
-            record_unknown_form_chain(ctx, code.id, &cmd.args);
-        }
+        record_unknown_form_chain(ctx, code.id, &cmd.args);
         ctx.unknown.record_code(code);
         return Ok(());
     }
@@ -2097,16 +2654,31 @@ fn apply_button_visuals(ctx: &CommandContext, sprites: &mut [RenderSprite]) {
                             map.insert((lid, sid), state);
                         }
                     }
-                    ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                    ObjectBackend::Rect {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    } => {
                         map.insert((*layer_id, *sprite_id), state);
                     }
-                    ObjectBackend::String { layer_id, sprite_id, .. } => {
+                    ObjectBackend::String {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    } => {
                         map.insert((*layer_id, *sprite_id), state);
                     }
-                    ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+                    ObjectBackend::Movie {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    } => {
                         map.insert((*layer_id, *sprite_id), state);
                     }
-                    ObjectBackend::Number { layer_id, sprite_ids } => {
+                    ObjectBackend::Number {
+                        layer_id,
+                        sprite_ids,
+                    } => {
                         for sid in sprite_ids {
                             map.insert((*layer_id, *sid), state);
                         }
@@ -2122,8 +2694,12 @@ fn apply_button_visuals(ctx: &CommandContext, sprites: &mut [RenderSprite]) {
     }
 
     for rs in sprites.iter_mut() {
-        let (Some(lid), Some(sid)) = (rs.layer_id, rs.sprite_id) else { continue; };
-        let Some(state) = map.get(&(lid, sid)).copied() else { continue; };
+        let (Some(lid), Some(sid)) = (rs.layer_id, rs.sprite_id) else {
+            continue;
+        };
+        let Some(state) = map.get(&(lid, sid)).copied() else {
+            continue;
+        };
         apply_button_state_visual(&mut rs.sprite, state);
     }
 }
@@ -2232,7 +2808,11 @@ struct EffectParam {
     end_layer: i32,
 }
 
-fn apply_screen_effects(globals: &globals::GlobalState, ids: &id_map::IdMap, sprites: &mut [RenderSprite]) {
+fn apply_screen_effects(
+    globals: &globals::GlobalState,
+    ids: &id_map::IdMap,
+    sprites: &mut [RenderSprite],
+) {
     let effects = collect_screen_effects(globals, ids);
     if effects.is_empty() {
         return;
@@ -2266,7 +2846,10 @@ fn collect_screen_effects(globals: &globals::GlobalState, ids: &id_map::IdMap) -
     out
 }
 
-fn effect_from_screen_item(item: &globals::ScreenItemState, ids: &id_map::IdMap) -> Option<EffectParam> {
+fn effect_from_screen_item(
+    item: &globals::ScreenItemState,
+    ids: &id_map::IdMap,
+) -> Option<EffectParam> {
     let has_ids = ids.effect_x != 0
         || ids.effect_y != 0
         || ids.effect_z != 0
@@ -2354,17 +2937,9 @@ fn effect_from_screen_item(item: &globals::ScreenItemState, ids: &id_map::IdMap)
         color_add_g: vals.get(12).copied().unwrap_or(0) as i32,
         color_add_b: vals.get(13).copied().unwrap_or(0) as i32,
         begin_order: vals.get(14).copied().unwrap_or(0) as i32,
-        begin_layer: vals
-            .get(15)
-            .copied()
-            .map(|v| v as i32)
-            .unwrap_or(i32::MIN),
+        begin_layer: vals.get(15).copied().map(|v| v as i32).unwrap_or(i32::MIN),
         end_order: vals.get(16).copied().unwrap_or(0) as i32,
-        end_layer: vals
-            .get(17)
-            .copied()
-            .map(|v| v as i32)
-            .unwrap_or(i32::MAX),
+        end_layer: vals.get(17).copied().map(|v| v as i32).unwrap_or(i32::MAX),
     };
 
     // Defaults when only a subset of fields was provided.
@@ -2426,8 +3001,7 @@ fn apply_effect_to_sprite(sprite: &mut Sprite, effect: &EffectParam) {
     let sr = sprite.color_rate as i32;
     let pr = clamp_u8(effect.color_rate);
     if sr + pr > 0 {
-        let parent_rate = (pr * 255 * 255)
-            / (255 * 255 - (255 - sr) * (255 - pr));
+        let parent_rate = (pr * 255 * 255) / (255 * 255 - (255 - sr) * (255 - pr));
         sprite.color_r = blend_color(sprite.color_r, effect.color_r, parent_rate);
         sprite.color_g = blend_color(sprite.color_g, effect.color_g, parent_rate);
         sprite.color_b = blend_color(sprite.color_b, effect.color_b, parent_rate);
@@ -2463,20 +3037,26 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
     let Some(wipe) = ctx.globals.wipe.as_mut() else {
         return;
     };
+    let mut mask_cache = std::mem::take(&mut wipe.mask_cache);
+    let mask_file = wipe.mask_file.clone();
+    let mask_image_id = wipe.mask_image_id;
+    let wipe_type = wipe.wipe_type;
+    let speed_mode = wipe.speed_mode;
+    let option = wipe.option.clone();
+    let begin_layer = wipe.begin_layer;
+    let end_layer = wipe.end_layer;
+    let begin_order = wipe.begin_order;
+    let end_order = wipe.end_order;
+    let with_low = wipe.with_low_order != 0;
     let mut progress = wipe.progress();
-    progress = match wipe.speed_mode {
+    let _ = wipe;
+    progress = match speed_mode {
         1 => progress * progress,
         2 => 1.0 - (1.0 - progress) * (1.0 - progress),
         3 => progress * progress * (3.0 - 2.0 * progress),
         _ => progress,
     };
     let fade = (progress * 255.0).clamp(0.0, 255.0) as u8;
-
-    let begin_layer = wipe.begin_layer;
-    let end_layer = wipe.end_layer;
-    let begin_order = wipe.begin_order;
-    let end_order = wipe.end_order;
-    let with_low = wipe.with_low_order != 0;
 
     for rs in sprites.iter_mut() {
         let layer = rs.layer_id.map(|v| v as i32).unwrap_or(0);
@@ -2493,23 +3073,29 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
             continue;
         }
 
-        if wipe.mask_file.is_some() {
-            let Some(mask_id) = wipe.mask_image_id else { continue; };
-            let reverse = wipe.option.get(0).copied().unwrap_or(0) != 0;
+        if mask_file.is_some() {
+            let Some(mask_id) = mask_image_id else {
+                continue;
+            };
+            let reverse = option.get(0).copied().unwrap_or(0) != 0;
             let t = if reverse { 1.0 - progress } else { progress };
             let bucket = (t * 255.0).round().clamp(0.0, 255.0) as u16;
 
             if let Some(base_id) = rs.sprite.image_id {
-                let Some((base_img, base_ver)) = ctx.images.get_entry(base_id) else { continue; };
-                let Some((mask_img, mask_ver)) = ctx.images.get_entry(mask_id) else { continue; };
+                let Some((base_img, base_ver)) = ctx.images.get_entry(base_id) else {
+                    continue;
+                };
+                let Some((mask_img, mask_ver)) = ctx.images.get_entry(mask_id) else {
+                    continue;
+                };
 
                 let key = (base_id, base_ver, mask_id, mask_ver, bucket);
-                if let Some(&masked_id) = wipe.mask_cache.get(&key) {
+                if let Some(&masked_id) = mask_cache.get(&key) {
                     rs.sprite.image_id = Some(masked_id);
                 } else {
                     let masked = apply_wipe_mask_image(base_img, mask_img, t);
                     let masked_id = ctx.images.insert_image(masked);
-                    wipe.mask_cache.insert(key, masked_id);
+                    mask_cache.insert(key, masked_id);
                     rs.sprite.image_id = Some(masked_id);
                 }
             }
@@ -2518,27 +3104,47 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
             continue;
         }
 
-        match wipe.wipe_type {
+        match wipe_type {
             1 | 2 | 3 | 4 | 5 | 6 => {
                 if let Some((left, top, right, bottom)) = sprite_bounds(&rs.sprite, ctx) {
                     let w = (right - left).max(1);
                     let h = (bottom - top).max(1);
-                    let clip = match wipe.wipe_type {
+                    let clip = match wipe_type {
                         1 => {
                             let x = left + ((w as f32) * progress) as i32;
-                            ClipRect { left, top, right: x, bottom }
+                            ClipRect {
+                                left,
+                                top,
+                                right: x,
+                                bottom,
+                            }
                         }
                         2 => {
                             let x = right - ((w as f32) * progress) as i32;
-                            ClipRect { left: x, top, right, bottom }
+                            ClipRect {
+                                left: x,
+                                top,
+                                right,
+                                bottom,
+                            }
                         }
                         3 => {
                             let y = top + ((h as f32) * progress) as i32;
-                            ClipRect { left, top, right, bottom: y }
+                            ClipRect {
+                                left,
+                                top,
+                                right,
+                                bottom: y,
+                            }
                         }
                         4 => {
                             let y = bottom - ((h as f32) * progress) as i32;
-                            ClipRect { left, top: y, right, bottom }
+                            ClipRect {
+                                left,
+                                top: y,
+                                right,
+                                bottom,
+                            }
                         }
                         5 => {
                             let cx = left + w / 2;
@@ -2564,7 +3170,12 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
                                 bottom: cy + hh,
                             }
                         }
-                        _ => ClipRect { left, top, right, bottom },
+                        _ => ClipRect {
+                            left,
+                            top,
+                            right,
+                            bottom,
+                        },
                     };
                     rs.sprite.dst_clip = Some(clip);
                     rs.sprite.tr = ((rs.sprite.tr as f32) * (fade as f32 / 255.0)) as u8;
@@ -2577,8 +3188,11 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
             }
         }
     }
-}
 
+    if let Some(wipe) = ctx.globals.wipe.as_mut() {
+        wipe.mask_cache = mask_cache;
+    }
+}
 
 fn sprite_bounds(sprite: &Sprite, ctx: &CommandContext) -> Option<(i32, i32, i32, i32)> {
     match sprite.fit {
@@ -2589,9 +3203,13 @@ fn sprite_bounds(sprite: &Sprite, ctx: &CommandContext) -> Option<(i32, i32, i32
         }
         crate::layer::SpriteFit::PixelRect => {
             let (mut w, mut h) = match sprite.size_mode {
-                crate::layer::SpriteSizeMode::Explicit { width, height } => (width as i32, height as i32),
+                crate::layer::SpriteSizeMode::Explicit { width, height } => {
+                    (width as i32, height as i32)
+                }
                 crate::layer::SpriteSizeMode::Intrinsic => {
-                    let Some(id) = sprite.image_id else { return None; };
+                    let Some(id) = sprite.image_id else {
+                        return None;
+                    };
                     let (img, _) = ctx.images.get_entry(id)?;
                     (img.width as i32, img.height as i32)
                 }
@@ -2605,20 +3223,35 @@ fn sprite_bounds(sprite: &Sprite, ctx: &CommandContext) -> Option<(i32, i32, i32
     }
 }
 
-
 fn apply_syscom_filter(ctx: &CommandContext, sprites: &mut Vec<RenderSprite>) {
     const GET_FILTER_COLOR_R: i32 = 272;
     const GET_FILTER_COLOR_G: i32 = 273;
     const GET_FILTER_COLOR_B: i32 = 274;
     const GET_FILTER_COLOR_A: i32 = 275;
     let cfg = &ctx.globals.syscom.config_int;
-    let a = cfg.get(&GET_FILTER_COLOR_A).copied().unwrap_or(0).clamp(0, 255) as u8;
+    let a = cfg
+        .get(&GET_FILTER_COLOR_A)
+        .copied()
+        .unwrap_or(0)
+        .clamp(0, 255) as u8;
     if a == 0 {
         return;
     }
-    let r = cfg.get(&GET_FILTER_COLOR_R).copied().unwrap_or(0).clamp(0, 255) as u8;
-    let g = cfg.get(&GET_FILTER_COLOR_G).copied().unwrap_or(0).clamp(0, 255) as u8;
-    let b = cfg.get(&GET_FILTER_COLOR_B).copied().unwrap_or(0).clamp(0, 255) as u8;
+    let r = cfg
+        .get(&GET_FILTER_COLOR_R)
+        .copied()
+        .unwrap_or(0)
+        .clamp(0, 255) as u8;
+    let g = cfg
+        .get(&GET_FILTER_COLOR_G)
+        .copied()
+        .unwrap_or(0)
+        .clamp(0, 255) as u8;
+    let b = cfg
+        .get(&GET_FILTER_COLOR_B)
+        .copied()
+        .unwrap_or(0)
+        .clamp(0, 255) as u8;
 
     let mut s = crate::layer::Sprite::default();
     s.visible = true;
@@ -2728,18 +3361,30 @@ fn build_syscom_menu_text(syscom: &mut globals::SyscomRuntimeState, project_dir:
     match kind {
         1 => "SYSCOM MENU\n(Press Esc/Enter/Click to close)".to_string(),
         86 => {
-            let mut s = String::from("SAVE MENU\nPress 0-9 to save slot\n(Press Esc/Enter/Click to close)\n");
+            let mut s = String::from(
+                "SAVE MENU\nPress 0-9 to save slot\n(Press Esc/Enter/Click to close)\n",
+            );
             for i in 0..10 {
                 let exist = syscom.save_slots.get(i).map(|v| v.exist).unwrap_or(false);
-                s.push_str(&format!("  Slot {}: {}\n", i, if exist { "USED" } else { "EMPTY" }));
+                s.push_str(&format!(
+                    "  Slot {}: {}\n",
+                    i,
+                    if exist { "USED" } else { "EMPTY" }
+                ));
             }
             s
         }
         92 => {
-            let mut s = String::from("LOAD MENU\nPress 0-9 to load slot\n(Press Esc/Enter/Click to close)\n");
+            let mut s = String::from(
+                "LOAD MENU\nPress 0-9 to load slot\n(Press Esc/Enter/Click to close)\n",
+            );
             for i in 0..10 {
                 let exist = syscom.save_slots.get(i).map(|v| v.exist).unwrap_or(false);
-                s.push_str(&format!("  Slot {}: {}\n", i, if exist { "USED" } else { "EMPTY" }));
+                s.push_str(&format!(
+                    "  Slot {}: {}\n",
+                    i,
+                    if exist { "USED" } else { "EMPTY" }
+                ));
             }
             s
         }
@@ -2753,8 +3398,17 @@ fn build_syscom_menu_text(syscom: &mut globals::SyscomRuntimeState, project_dir:
 
 #[derive(Clone)]
 enum MenuItem {
-    Int { label: &'static str, key: i32, min: i32, max: i32, step: i32 },
-    Bool { label: &'static str, key: i32 },
+    Int {
+        label: &'static str,
+        key: i32,
+        min: i32,
+        max: i32,
+        step: i32,
+    },
+    Bool {
+        label: &'static str,
+        key: i32,
+    },
     FontName,
 }
 
@@ -2787,48 +3441,157 @@ const GET_SKIP_UNREAD_MESSAGE_ONOFF: i32 = 311;
 const GET_PLAY_SILENT_SOUND_ONOFF: i32 = 314;
 const GET_FONT_NAME: i32 = 318;
 
-fn syscom_menu_items(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path) -> Vec<MenuItem> {
+fn syscom_menu_items(
+    syscom: &mut globals::SyscomRuntimeState,
+    project_dir: &Path,
+) -> Vec<MenuItem> {
     let kind = syscom.menu_kind.unwrap_or(0);
     match kind {
         158 => vec![
-            MenuItem::Bool { label: "WINDOW_MODE", key: GET_WINDOW_MODE },
-            MenuItem::Int { label: "WINDOW_SIZE", key: GET_WINDOW_MODE_SIZE, min: 0, max: 7, step: 1 },
+            MenuItem::Bool {
+                label: "WINDOW_MODE",
+                key: GET_WINDOW_MODE,
+            },
+            MenuItem::Int {
+                label: "WINDOW_SIZE",
+                key: GET_WINDOW_MODE_SIZE,
+                min: 0,
+                max: 7,
+                step: 1,
+            },
         ],
         159 => vec![
-            MenuItem::Int { label: "ALL_VOL", key: GET_ALL_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "BGM_VOL", key: GET_BGM_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "KOE_VOL", key: GET_KOE_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "PCM_VOL", key: GET_PCM_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "SE_VOL", key: GET_SE_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Int {
+                label: "ALL_VOL",
+                key: GET_ALL_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "BGM_VOL",
+                key: GET_BGM_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "KOE_VOL",
+                key: GET_KOE_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "PCM_VOL",
+                key: GET_PCM_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "SE_VOL",
+                key: GET_SE_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
         ],
-        164 => vec![
-            MenuItem::Int { label: "MSG_SPEED", key: GET_MESSAGE_SPEED, min: 0, max: 100, step: 5 },
-        ],
+        164 => vec![MenuItem::Int {
+            label: "MSG_SPEED",
+            key: GET_MESSAGE_SPEED,
+            min: 0,
+            max: 100,
+            step: 5,
+        }],
         166 => vec![
-            MenuItem::Int { label: "AUTO_MOJI_WAIT", key: GET_AUTO_MODE_MOJI_WAIT, min: 0, max: 300, step: 5 },
-            MenuItem::Int { label: "AUTO_MIN_WAIT", key: GET_AUTO_MODE_MIN_WAIT, min: 0, max: 10000, step: 100 },
+            MenuItem::Int {
+                label: "AUTO_MOJI_WAIT",
+                key: GET_AUTO_MODE_MOJI_WAIT,
+                min: 0,
+                max: 300,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "AUTO_MIN_WAIT",
+                key: GET_AUTO_MODE_MIN_WAIT,
+                min: 0,
+                max: 10000,
+                step: 100,
+            },
         ],
         165 => vec![
-            MenuItem::Int { label: "FILTER_R", key: GET_FILTER_COLOR_R, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_G", key: GET_FILTER_COLOR_G, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_B", key: GET_FILTER_COLOR_B, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_A", key: GET_FILTER_COLOR_A, min: 0, max: 255, step: 5 },
+            MenuItem::Int {
+                label: "FILTER_R",
+                key: GET_FILTER_COLOR_R,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_G",
+                key: GET_FILTER_COLOR_G,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_B",
+                key: GET_FILTER_COLOR_B,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_A",
+                key: GET_FILTER_COLOR_A,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
         ],
         167 => {
             ensure_font_list(syscom, project_dir);
             vec![MenuItem::FontName]
         }
         169 => vec![
-            MenuItem::Int { label: "MOV_VOL", key: GET_MOV_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Bool { label: "MOV_ONOFF", key: GET_MOV_ONOFF },
+            MenuItem::Int {
+                label: "MOV_VOL",
+                key: GET_MOV_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Bool {
+                label: "MOV_ONOFF",
+                key: GET_MOV_ONOFF,
+            },
         ],
         168 => vec![
-            MenuItem::Bool { label: "NO_WIPE", key: GET_NO_WIPE_ANIME_ONOFF },
-            MenuItem::Bool { label: "SKIP_WIPE", key: GET_SKIP_WIPE_ANIME_ONOFF },
-            MenuItem::Bool { label: "WHEEL_NEXT", key: GET_WHEEL_NEXT_MESSAGE_ONOFF },
-            MenuItem::Bool { label: "KOE_DONT_STOP", key: GET_KOE_DONT_STOP_ONOFF },
-            MenuItem::Bool { label: "SKIP_UNREAD", key: GET_SKIP_UNREAD_MESSAGE_ONOFF },
-            MenuItem::Bool { label: "PLAY_SILENT", key: GET_PLAY_SILENT_SOUND_ONOFF },
+            MenuItem::Bool {
+                label: "NO_WIPE",
+                key: GET_NO_WIPE_ANIME_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "SKIP_WIPE",
+                key: GET_SKIP_WIPE_ANIME_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "WHEEL_NEXT",
+                key: GET_WHEEL_NEXT_MESSAGE_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "KOE_DONT_STOP",
+                key: GET_KOE_DONT_STOP_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "SKIP_UNREAD",
+                key: GET_SKIP_UNREAD_MESSAGE_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "PLAY_SILENT",
+                key: GET_PLAY_SILENT_SOUND_ONOFF,
+            },
         ],
         _ => Vec::new(),
     }
@@ -2839,13 +3602,19 @@ fn ensure_font_list(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path
         return;
     }
     let dir = project_dir.join("font");
-    let Ok(entries) = fs::read_dir(dir) else { return; };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if !path.is_file() {
             continue;
         }
-        let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
         if ext == "ttf" || ext == "otf" || ext == "ttc" {
             if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                 syscom.font_list.push(name.to_string());
@@ -2858,46 +3627,156 @@ fn ensure_font_list(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path
 fn build_config_menu_text(syscom: &globals::SyscomRuntimeState) -> String {
     let items = match syscom.menu_kind.unwrap_or(0) {
         158 => vec![
-            MenuItem::Bool { label: "WINDOW_MODE", key: GET_WINDOW_MODE },
-            MenuItem::Int { label: "WINDOW_SIZE", key: GET_WINDOW_MODE_SIZE, min: 0, max: 7, step: 1 },
+            MenuItem::Bool {
+                label: "WINDOW_MODE",
+                key: GET_WINDOW_MODE,
+            },
+            MenuItem::Int {
+                label: "WINDOW_SIZE",
+                key: GET_WINDOW_MODE_SIZE,
+                min: 0,
+                max: 7,
+                step: 1,
+            },
         ],
         159 => vec![
-            MenuItem::Int { label: "ALL_VOL", key: GET_ALL_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "BGM_VOL", key: GET_BGM_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "KOE_VOL", key: GET_KOE_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "PCM_VOL", key: GET_PCM_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "SE_VOL", key: GET_SE_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Int {
+                label: "ALL_VOL",
+                key: GET_ALL_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "BGM_VOL",
+                key: GET_BGM_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "KOE_VOL",
+                key: GET_KOE_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "PCM_VOL",
+                key: GET_PCM_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "SE_VOL",
+                key: GET_SE_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
         ],
-        164 => vec![MenuItem::Int { label: "MSG_SPEED", key: GET_MESSAGE_SPEED, min: 0, max: 100, step: 5 }],
+        164 => vec![MenuItem::Int {
+            label: "MSG_SPEED",
+            key: GET_MESSAGE_SPEED,
+            min: 0,
+            max: 100,
+            step: 5,
+        }],
         166 => vec![
-            MenuItem::Int { label: "AUTO_MOJI_WAIT", key: GET_AUTO_MODE_MOJI_WAIT, min: 0, max: 300, step: 5 },
-            MenuItem::Int { label: "AUTO_MIN_WAIT", key: GET_AUTO_MODE_MIN_WAIT, min: 0, max: 10000, step: 100 },
+            MenuItem::Int {
+                label: "AUTO_MOJI_WAIT",
+                key: GET_AUTO_MODE_MOJI_WAIT,
+                min: 0,
+                max: 300,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "AUTO_MIN_WAIT",
+                key: GET_AUTO_MODE_MIN_WAIT,
+                min: 0,
+                max: 10000,
+                step: 100,
+            },
         ],
         165 => vec![
-            MenuItem::Int { label: "FILTER_R", key: GET_FILTER_COLOR_R, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_G", key: GET_FILTER_COLOR_G, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_B", key: GET_FILTER_COLOR_B, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_A", key: GET_FILTER_COLOR_A, min: 0, max: 255, step: 5 },
+            MenuItem::Int {
+                label: "FILTER_R",
+                key: GET_FILTER_COLOR_R,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_G",
+                key: GET_FILTER_COLOR_G,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_B",
+                key: GET_FILTER_COLOR_B,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_A",
+                key: GET_FILTER_COLOR_A,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
         ],
         167 => vec![MenuItem::FontName],
         169 => vec![
-            MenuItem::Int { label: "MOV_VOL", key: GET_MOV_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Bool { label: "MOV_ONOFF", key: GET_MOV_ONOFF },
+            MenuItem::Int {
+                label: "MOV_VOL",
+                key: GET_MOV_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Bool {
+                label: "MOV_ONOFF",
+                key: GET_MOV_ONOFF,
+            },
         ],
         168 => vec![
-            MenuItem::Bool { label: "NO_WIPE", key: GET_NO_WIPE_ANIME_ONOFF },
-            MenuItem::Bool { label: "SKIP_WIPE", key: GET_SKIP_WIPE_ANIME_ONOFF },
-            MenuItem::Bool { label: "WHEEL_NEXT", key: GET_WHEEL_NEXT_MESSAGE_ONOFF },
-            MenuItem::Bool { label: "KOE_DONT_STOP", key: GET_KOE_DONT_STOP_ONOFF },
-            MenuItem::Bool { label: "SKIP_UNREAD", key: GET_SKIP_UNREAD_MESSAGE_ONOFF },
-            MenuItem::Bool { label: "PLAY_SILENT", key: GET_PLAY_SILENT_SOUND_ONOFF },
+            MenuItem::Bool {
+                label: "NO_WIPE",
+                key: GET_NO_WIPE_ANIME_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "SKIP_WIPE",
+                key: GET_SKIP_WIPE_ANIME_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "WHEEL_NEXT",
+                key: GET_WHEEL_NEXT_MESSAGE_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "KOE_DONT_STOP",
+                key: GET_KOE_DONT_STOP_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "SKIP_UNREAD",
+                key: GET_SKIP_UNREAD_MESSAGE_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "PLAY_SILENT",
+                key: GET_PLAY_SILENT_SOUND_ONOFF,
+            },
         ],
         _ => Vec::new(),
     };
     if items.is_empty() {
         return "CONFIG MENU\n(Press Esc/Enter/Click to close)".to_string();
     }
-    let mut s = String::from("CONFIG MENU\nUse Up/Down + Left/Right to edit\n(Press Esc/Enter/Click to close)\n");
+    let mut s = String::from(
+        "CONFIG MENU\nUse Up/Down + Left/Right to edit\n(Press Esc/Enter/Click to close)\n",
+    );
     for (i, item) in items.iter().enumerate() {
         let cursor = if i == syscom.menu_cursor { ">" } else { " " };
         match item {
@@ -2907,10 +3786,17 @@ fn build_config_menu_text(syscom: &globals::SyscomRuntimeState) -> String {
             }
             MenuItem::Bool { label, key } => {
                 let v = syscom.config_int.get(key).copied().unwrap_or(0);
-                s.push_str(&format!("{cursor} {label}: {}\n", if v != 0 { "ON" } else { "OFF" }));
+                s.push_str(&format!(
+                    "{cursor} {label}: {}\n",
+                    if v != 0 { "ON" } else { "OFF" }
+                ));
             }
             MenuItem::FontName => {
-                let v = syscom.config_str.get(&GET_FONT_NAME).cloned().unwrap_or_default();
+                let v = syscom
+                    .config_str
+                    .get(&GET_FONT_NAME)
+                    .cloned()
+                    .unwrap_or_default();
                 s.push_str(&format!("{cursor} FONT: {v}\n"));
             }
         }

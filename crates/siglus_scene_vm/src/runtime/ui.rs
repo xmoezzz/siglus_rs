@@ -9,10 +9,10 @@
 
 use crate::image_manager::ImageId;
 use crate::layer::{LayerId, SpriteFit, SpriteId, SpriteSizeMode};
-use std::path::{Path, PathBuf};
-use crate::text_render::FontCache;
-use std::time::{Duration, Instant};
 use crate::runtime::globals::{ScriptRuntimeState, SyscomRuntimeState};
+use crate::text_render::FontCache;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 /// A minimal UI runtime that owns a couple of fixed layers/sprites.
 #[derive(Debug, Default)]
@@ -87,7 +87,10 @@ pub struct UiRuntime {
 }
 
 impl UiRuntime {
-    fn ensure_layer(layers: &mut crate::layer::LayerManager, want: &mut Option<LayerId>) -> LayerId {
+    fn ensure_layer(
+        layers: &mut crate::layer::LayerManager,
+        want: &mut Option<LayerId>,
+    ) -> LayerId {
         if let Some(id) = *want {
             if layers.layer(id).is_some() {
                 return id;
@@ -182,9 +185,13 @@ impl UiRuntime {
         let bg_sprite = self.ensure_msg_bg_sprite(layers, ui_layer);
         let filter_sprite = self.ensure_msg_filter_sprite(layers, ui_layer);
         let msg_text_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut self.msg_text_sprite);
-        let name_text_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut self.name_text_sprite);
+        let name_text_sprite =
+            Self::ensure_text_sprite(layers, ui_layer, &mut self.name_text_sprite);
 
-        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(bg_sprite)) {
+        if let Some(s) = layers
+            .layer_mut(ui_layer)
+            .and_then(|l| l.sprite_mut(bg_sprite))
+        {
             s.fit = SpriteFit::PixelRect;
             s.size_mode = SpriteSizeMode::Explicit {
                 width: w,
@@ -195,7 +202,10 @@ impl UiRuntime {
             s.order = 1_000_000; // always above typical sprites
         }
 
-        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(filter_sprite)) {
+        if let Some(s) = layers
+            .layer_mut(ui_layer)
+            .and_then(|l| l.sprite_mut(filter_sprite))
+        {
             s.fit = SpriteFit::PixelRect;
             s.size_mode = SpriteSizeMode::Explicit {
                 width: w,
@@ -207,18 +217,30 @@ impl UiRuntime {
         }
 
         let (mx, my, mw, mh) = Self::msg_rect(w, h);
-        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(msg_text_sprite)) {
+        if let Some(s) = layers
+            .layer_mut(ui_layer)
+            .and_then(|l| l.sprite_mut(msg_text_sprite))
+        {
             s.fit = SpriteFit::PixelRect;
-            s.size_mode = SpriteSizeMode::Explicit { width: mw, height: mh };
+            s.size_mode = SpriteSizeMode::Explicit {
+                width: mw,
+                height: mh,
+            };
             s.x = mx;
             s.y = my;
             s.order = 1_000_010;
         }
 
         let (nx, ny, nw, nh) = Self::name_rect(w, h);
-        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(name_text_sprite)) {
+        if let Some(s) = layers
+            .layer_mut(ui_layer)
+            .and_then(|l| l.sprite_mut(name_text_sprite))
+        {
             s.fit = SpriteFit::PixelRect;
-            s.size_mode = SpriteSizeMode::Explicit { width: nw, height: nh };
+            s.size_mode = SpriteSizeMode::Explicit {
+                width: nw,
+                height: nh,
+            };
             s.x = nx;
             s.y = ny;
             s.order = 1_000_020;
@@ -239,16 +261,25 @@ impl UiRuntime {
         self.sync_layout(layers, w, h);
         self.scan_font_dir(project_dir);
         if !self.font_cache.is_loaded() {
-            let _ = self.font_cache.load_from_font_dir(&project_dir.join("font"));
+            let _ = self
+                .font_cache
+                .load_from_font_dir(&project_dir.join("font"));
         }
         self.update_message_reveal(script, syscom);
         self.refresh_text_images(images, w, h);
         self.sync_sys_overlay(layers, images, w, h);
 
-        let Some(ui_layer) = self.ui_layer else { return; };
-        let Some(bg_sprite) = self.msg_bg_sprite else { return; };
+        let Some(ui_layer) = self.ui_layer else {
+            return;
+        };
+        let Some(bg_sprite) = self.msg_bg_sprite else {
+            return;
+        };
 
-        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(bg_sprite)) {
+        if let Some(s) = layers
+            .layer_mut(ui_layer)
+            .and_then(|l| l.sprite_mut(bg_sprite))
+        {
             s.visible = self.msg_bg_visible;
             if let Some(img) = self.msg_bg_image {
                 s.image_id = Some(img);
@@ -256,7 +287,10 @@ impl UiRuntime {
         }
 
         if let Some(sprite_id) = self.msg_filter_sprite {
-            if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+            if let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(sprite_id))
+            {
                 let visible = self.msg_bg_visible && self.msg_filter_image.is_some();
                 s.visible = visible;
                 s.image_id = self.msg_filter_image;
@@ -266,10 +300,26 @@ impl UiRuntime {
                 const GET_FILTER_COLOR_B: i32 = 274;
                 const GET_FILTER_COLOR_A: i32 = 275;
                 let cfg = &syscom.config_int;
-                let r = cfg.get(&GET_FILTER_COLOR_R).copied().unwrap_or(0).clamp(0, 255) as u8;
-                let g = cfg.get(&GET_FILTER_COLOR_G).copied().unwrap_or(0).clamp(0, 255) as u8;
-                let b = cfg.get(&GET_FILTER_COLOR_B).copied().unwrap_or(0).clamp(0, 255) as u8;
-                let a = cfg.get(&GET_FILTER_COLOR_A).copied().unwrap_or(0).clamp(0, 255) as u8;
+                let r = cfg
+                    .get(&GET_FILTER_COLOR_R)
+                    .copied()
+                    .unwrap_or(0)
+                    .clamp(0, 255) as u8;
+                let g = cfg
+                    .get(&GET_FILTER_COLOR_G)
+                    .copied()
+                    .unwrap_or(0)
+                    .clamp(0, 255) as u8;
+                let b = cfg
+                    .get(&GET_FILTER_COLOR_B)
+                    .copied()
+                    .unwrap_or(0)
+                    .clamp(0, 255) as u8;
+                let a = cfg
+                    .get(&GET_FILTER_COLOR_A)
+                    .copied()
+                    .unwrap_or(0)
+                    .clamp(0, 255) as u8;
 
                 s.alpha = a;
                 s.tr = 255;
@@ -282,21 +332,30 @@ impl UiRuntime {
         }
 
         if let Some(sprite_id) = self.msg_text_sprite {
-            if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+            if let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(sprite_id))
+            {
                 s.visible = self.msg_bg_visible && self.msg_text_image.is_some();
                 s.image_id = self.msg_text_image;
             }
         }
 
         if let Some(sprite_id) = self.name_text_sprite {
-            if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+            if let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(sprite_id))
+            {
                 s.visible = self.msg_bg_visible && self.name_text_image.is_some();
                 s.image_id = self.name_text_image;
             }
         }
 
         if let Some(sys_bg) = self.sys_bg_sprite {
-            if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sys_bg)) {
+            if let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(sys_bg))
+            {
                 s.visible = self.sys_overlay_active;
                 if let Some(img) = self.sys_bg_image {
                     s.image_id = Some(img);
@@ -304,7 +363,10 @@ impl UiRuntime {
             }
         }
         if let Some(sys_text) = self.sys_text_sprite {
-            if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sys_text)) {
+            if let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(sys_text))
+            {
                 s.visible = self.sys_overlay_active && self.sys_text_image.is_some();
                 s.image_id = self.sys_text_image;
             }
@@ -405,7 +467,11 @@ impl UiRuntime {
         }
     }
 
-    pub fn auto_advance_due(&self, script: &ScriptRuntimeState, syscom: &SyscomRuntimeState) -> bool {
+    pub fn auto_advance_due(
+        &self,
+        script: &ScriptRuntimeState,
+        syscom: &SyscomRuntimeState,
+    ) -> bool {
         if !self.waiting_message {
             return false;
         }
@@ -416,7 +482,9 @@ impl UiRuntime {
         if !auto_mode {
             return false;
         }
-        let Some(start) = self.wait_started_at else { return false; };
+        let Some(start) = self.wait_started_at else {
+            return false;
+        };
         let (moji_wait, min_wait) = auto_mode_timing(script, syscom);
         let len = self.wait_message_len.max(1) as i64;
         let by_len = moji_wait.saturating_mul(len);
@@ -462,7 +530,11 @@ impl UiRuntime {
             return;
         };
         let elapsed = start.elapsed().as_millis() as usize;
-        let inc = if ms_per_char == 0 { total } else { elapsed / ms_per_char as usize };
+        let inc = if ms_per_char == 0 {
+            total
+        } else {
+            elapsed / ms_per_char as usize
+        };
         let visible = self.msg_reveal_base.saturating_add(inc).min(total);
         if self.msg_visible_chars != visible {
             self.msg_visible_chars = visible;
@@ -475,7 +547,9 @@ impl UiRuntime {
     }
 
     fn current_message_visible(&self) -> String {
-        let Some(msg) = self.current_message.as_deref() else { return String::new(); };
+        let Some(msg) = self.current_message.as_deref() else {
+            return String::new();
+        };
         if self.msg_visible_chars == 0 {
             return String::new();
         }
@@ -491,13 +565,9 @@ impl UiRuntime {
         if self.msg_text_dirty {
             let (x, y, mw, mh) = Self::msg_rect(w, h);
             let _ = (x, y);
-            self.msg_text_image = self.font_cache.render_text(
-                images,
-                &self.current_message_visible(),
-                26.0,
-                mw,
-                mh,
-            );
+            self.msg_text_image =
+                self.font_cache
+                    .render_text(images, &self.current_message_visible(), 26.0, mw, mh);
             self.msg_text_dirty = false;
         }
 
@@ -535,7 +605,10 @@ impl UiRuntime {
 
         if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(bg)) {
             s.fit = SpriteFit::PixelRect;
-            s.size_mode = SpriteSizeMode::Explicit { width: w, height: h };
+            s.size_mode = SpriteSizeMode::Explicit {
+                width: w,
+                height: h,
+            };
             s.x = 0;
             s.y = 0;
             s.order = 2_000_000;
@@ -543,7 +616,10 @@ impl UiRuntime {
 
         if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(text)) {
             s.fit = SpriteFit::PixelRect;
-            s.size_mode = SpriteSizeMode::Explicit { width: w.saturating_sub(80), height: h.saturating_sub(80) };
+            s.size_mode = SpriteSizeMode::Explicit {
+                width: w.saturating_sub(80),
+                height: h.saturating_sub(80),
+            };
             s.x = 40;
             s.y = 40;
             s.order = 2_000_010;
@@ -587,7 +663,10 @@ fn auto_mode_timing(script: &ScriptRuntimeState, syscom: &SyscomRuntimeState) ->
     let moji_wait = if script.auto_mode_moji_wait >= 0 {
         script.auto_mode_moji_wait
     } else {
-        *syscom.config_int.get(&GET_AUTO_MODE_MOJI_WAIT).unwrap_or(&-1)
+        *syscom
+            .config_int
+            .get(&GET_AUTO_MODE_MOJI_WAIT)
+            .unwrap_or(&-1)
     };
     let min_wait = if script.auto_mode_min_wait >= 0 {
         script.auto_mode_min_wait
@@ -625,7 +704,9 @@ impl UiRuntime {
         }
         self.font_scanned = true;
         let dir = project_dir.join("font");
-        let Ok(entries) = std::fs::read_dir(dir) else { return; };
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_file() {

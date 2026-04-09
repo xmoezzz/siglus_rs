@@ -9,43 +9,42 @@
 pub mod bgm;
 pub mod bgm_table;
 pub mod codes;
+pub mod counter;
 pub mod excall;
 pub mod global;
 pub mod input;
+pub mod int_list;
 pub mod key;
 pub mod keylist;
-pub mod mov;
+pub mod koe_st;
 pub mod mouse;
+pub mod mov;
+pub mod msgbk;
 pub mod pcm;
 pub mod pcmch;
 pub mod pcmevent;
-pub mod koe_st;
+pub mod prop_access;
 pub mod screen;
-pub mod msgbk;
 pub mod se;
 pub mod stage;
-pub mod int_list;
 pub mod str_list;
 pub mod timewait;
-pub mod counter;
-pub mod prop_access;
-
 
 // Runtime forms implemented from the original the original implementation source (IDs are configured externally).
-pub mod math;
 pub mod cgtable;
 pub mod database;
-pub mod g00buf;
-pub mod file;
-pub mod steam;
-pub mod mask;
 pub mod editbox;
+pub mod file;
+pub mod g00buf;
+pub mod mask;
+pub mod math;
+pub mod steam;
 
-pub mod syscom;
-pub mod script;
-pub mod system;
 pub mod frame_action;
 pub mod frame_action_ch;
+pub mod script;
+pub mod syscom;
+pub mod system;
 
 use anyhow::Result;
 

@@ -107,7 +107,11 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         _ => {
-            let form_key = if ctx.ids.form_global_mouse != 0 { ctx.ids.form_global_mouse } else { MOUSE_FORM_STATE };
+            let form_key = if ctx.ids.form_global_mouse != 0 {
+                ctx.ids.form_global_mouse
+            } else {
+                MOUSE_FORM_STATE
+            };
             prop_access::store_or_push_direct_prop(ctx, form_key, op as i32, args, 1);
             Ok(true)
         }

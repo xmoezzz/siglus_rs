@@ -17,21 +17,40 @@ fn store_or_push_pcmch_prop(ctx: &mut CommandContext, ch: usize, op: i64, args: 
     if let Some(v) = args.get(0).cloned() {
         match v {
             Value::Str(s) => {
-                ctx.globals.str_props.entry(form_key).or_default().insert(prop, s);
+                ctx.globals
+                    .str_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, s);
             }
             Value::Int(n) => {
-                ctx.globals.int_props.entry(form_key).or_default().insert(prop, n);
+                ctx.globals
+                    .int_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, n);
             }
             _ => {}
         }
         ctx.push(Value::Int(0));
         return;
     }
-    if let Some(s) = ctx.globals.str_props.get(&form_key).and_then(|m| m.get(&prop)).cloned() {
+    if let Some(s) = ctx
+        .globals
+        .str_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop))
+        .cloned()
+    {
         ctx.push(Value::Str(s));
         return;
     }
-    let v = ctx.globals.int_props.get(&form_key).and_then(|m| m.get(&prop).copied()).unwrap_or(0);
+    let v = ctx
+        .globals
+        .int_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop).copied())
+        .unwrap_or(0);
     ctx.push(Value::Int(v));
 }
 
@@ -202,7 +221,13 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     dispatch_inner(ctx, ch, op, real_args, ret_form)
 }
 
-fn dispatch_inner(ctx: &mut CommandContext, ch: usize, op: i64, args: &[Value], ret_form: Option<i64>) -> Result<bool> {
+fn dispatch_inner(
+    ctx: &mut CommandContext,
+    ch: usize,
+    op: i64,
+    args: &[Value],
+    ret_form: Option<i64>,
+) -> Result<bool> {
     match op {
         codes::pcmch_op::PLAY
         | codes::pcmch_op::PLAY_LOOP
@@ -210,7 +235,9 @@ fn dispatch_inner(ctx: &mut CommandContext, ch: usize, op: i64, args: &[Value], 
         | codes::pcmch_op::READY => {
             let default_loop = op == codes::pcmch_op::PLAY_LOOP;
             let loop_flag = named_int(args, 0).map(|v| v != 0).unwrap_or(default_loop);
-            let wait_flag = named_int(args, 1).map(|v| v != 0).unwrap_or(op == codes::pcmch_op::PLAY_WAIT);
+            let wait_flag = named_int(args, 1)
+                .map(|v| v != 0)
+                .unwrap_or(op == codes::pcmch_op::PLAY_WAIT);
             let _fade_in_time = named_int(args, 2).or_else(|| arg_int(args, 1)).unwrap_or(0);
             let pcm_name = named_str(args, 7).or_else(|| arg_str(args, 0));
             let koe_no = named_int(args, 8);

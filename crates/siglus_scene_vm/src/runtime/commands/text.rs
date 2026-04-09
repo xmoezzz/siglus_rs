@@ -18,11 +18,23 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
 
     if !matches!(
         name.as_str(),
-        "MSG" | "MES" | "MESSAGE" | "TEXT" |
-        "NAME" |
-        "MWND" | "MWNDOPEN" | "MWNDCLOSE" |
-        "MSGWAIT" | "MSG_WAIT" | "TEXTWAIT" | "TEXT_WAIT" | "WAITMSG" | "WAIT_TEXT" |
-        "CLRMSG" | "CLEARMSG" | "CLR_TEXT"
+        "MSG"
+            | "MES"
+            | "MESSAGE"
+            | "TEXT"
+            | "NAME"
+            | "MWND"
+            | "MWNDOPEN"
+            | "MWNDCLOSE"
+            | "MSGWAIT"
+            | "MSG_WAIT"
+            | "TEXTWAIT"
+            | "TEXT_WAIT"
+            | "WAITMSG"
+            | "WAIT_TEXT"
+            | "CLRMSG"
+            | "CLEARMSG"
+            | "CLR_TEXT"
     ) {
         return Ok(false);
     }

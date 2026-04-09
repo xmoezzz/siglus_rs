@@ -361,5 +361,8 @@ pub fn find_scene_pck_in_project(project_dir: &Path) -> Result<std::path::PathBu
             return Ok(p);
         }
     }
-    bail!("scene_pck: Scene.pck not found under {}", project_dir.display());
+    bail!(
+        "scene_pck: Scene.pck not found under {}",
+        project_dir.display()
+    );
 }

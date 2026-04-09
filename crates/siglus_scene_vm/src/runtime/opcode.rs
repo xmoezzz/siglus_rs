@@ -1,6 +1,6 @@
-//! Numeric opcode/form/syscall plumbing.
+//! Numeric opcode/form plumbing.
 //!
-//! Siglus dispatches many operations by numeric codes ("forms" and "syscalls").
+//! Siglus dispatches many operations by numeric form codes.
 //! When porting, a non-trivial subset of codes may be unknown.
 //!
 //! This module provides:
@@ -9,56 +9,27 @@
 
 use anyhow::Result;
 
-use super::{forms, syscalls, CommandContext, Value};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum OpKind {
-    Syscall,
-    Form,
-}
+use super::{forms, CommandContext, Value};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct OpCode {
-    pub kind: OpKind,
     pub id: u32,
 }
 
 impl OpCode {
-    pub const fn syscall(id: u32) -> Self {
-        Self {
-            kind: OpKind::Syscall,
-            id,
-        }
-    }
-
     pub const fn form(id: u32) -> Self {
-        Self { kind: OpKind::Form, id }
+        Self { id }
     }
 }
 
-/// Dispatch a numeric operation.
+/// Dispatch a numeric form operation.
 ///
 /// Returns true if the code was recognized and handled.
-///
-/// Syscalls are not wired in this step yet; they will be added incrementally.
 pub fn dispatch_code(ctx: &mut CommandContext, code: OpCode, args: &[Value]) -> Result<bool> {
-    match code.kind {
-        OpKind::Form => {
-            if let Some(h) = ctx.external_forms.clone() {
-                if h.dispatch_form(ctx, code.id, args)? {
-                    return Ok(true);
-                }
-            }
-            forms::dispatch_form(ctx, code.id, args)
-        }
-        OpKind::Syscall => {
-            if let Some(h) = ctx.external_syscalls.clone() {
-                if h.dispatch_syscall(ctx, code.id, args)? {
-                    return Ok(true);
-                }
-            }
-            syscalls::dispatch_syscall(ctx, code.id, args)
+    if let Some(h) = ctx.external_forms.clone() {
+        if h.dispatch_form(ctx, code.id, args)? {
+            return Ok(true);
         }
     }
+    forms::dispatch_form(ctx, code.id, args)
 }
-

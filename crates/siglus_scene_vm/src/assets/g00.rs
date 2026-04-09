@@ -74,8 +74,7 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 bail!("g00 type0 decompress_length=0");
             }
             let mut out = vec![0u8; decompress_length];
-            lzss_decompress_24bit(&data[off..], &mut out)
-                .context("lzss_decompress_24bit")?;
+            lzss_decompress_24bit(&data[off..], &mut out).context("lzss_decompress_24bit")?;
 
             // out is BGRA (alpha already 255). Convert to RGBA.
             let rgba = bgra_to_rgba_inplace(out);
@@ -92,8 +91,8 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
         }
         G00Type::Type8bit => {
             // RealLive_g00_type1_uncompress
-            let (mut out, out_len) = real_live_type1_uncompress(&data[off..])
-                .context("type1 uncompress")?;
+            let (mut out, out_len) =
+                real_live_type1_uncompress(&data[off..]).context("type1 uncompress")?;
             if out_len == 0 {
                 bail!("type1 produced empty output");
             }
@@ -234,7 +233,10 @@ fn real_live_type1_uncompress(compr: &[u8]) -> Result<(Vec<u8>, usize)> {
     }
     if total_len > compr.len() {
         // Be strict: extractor uses the length to limit parsing.
-        bail!("type1 total_len out of bounds: total_len={total_len} buf={}", compr.len());
+        bail!(
+            "type1 total_len out of bounds: total_len={total_len} buf={}",
+            compr.len()
+        );
     }
 
     if uncomprlen != 0 {
@@ -345,7 +347,10 @@ fn lzss_decompress(src: &[u8], dst: &mut [u8]) -> Result<()> {
     }
 
     if d != dst.len() {
-        bail!("lzss_decompress did not fill output: wrote {d} of {}", dst.len());
+        bail!(
+            "lzss_decompress did not fill output: wrote {d} of {}",
+            dst.len()
+        );
     }
     Ok(())
 }
@@ -407,7 +412,10 @@ fn lzss_decompress_24bit(src: &[u8], dst: &mut [u8]) -> Result<()> {
     }
 
     if d != dst.len() {
-        bail!("lzss_decompress_24bit did not fill output: wrote {d} of {}", dst.len());
+        bail!(
+            "lzss_decompress_24bit did not fill output: wrote {d} of {}",
+            dst.len()
+        );
     }
     Ok(())
 }
@@ -486,9 +494,7 @@ fn parse_g02_part_info_prefix(buf: &[u8]) -> Result<G02PartInfo> {
 }
 
 fn fix_vertical_flip_bgra(width: u32, height: u32, buf: &mut [u8]) -> Result<()> {
-    let stride = width
-        .checked_mul(4)
-        .context("stride overflow")? as usize;
+    let stride = width.checked_mul(4).context("stride overflow")? as usize;
     let h = height as usize;
     if buf.len() != stride * h {
         bail!("fix_vertical_flip_bgra length mismatch");

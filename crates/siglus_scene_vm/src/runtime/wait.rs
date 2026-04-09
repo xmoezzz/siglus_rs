@@ -153,8 +153,7 @@ impl VmWait {
                                 true
                             } else {
                                 let obj = &list[*obj_idx];
-                                !obj
-                                    .extra_events
+                                !obj.extra_events
                                     .get(op)
                                     .map(|e| e.check_event())
                                     .unwrap_or(false)

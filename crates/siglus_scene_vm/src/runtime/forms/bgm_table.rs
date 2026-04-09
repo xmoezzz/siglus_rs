@@ -14,21 +14,40 @@ fn store_or_push_bgm_table_prop(ctx: &mut CommandContext, op: i64, args: &[Value
     if let Some(v) = args.get(1).cloned() {
         match v {
             Value::Str(s) => {
-                ctx.globals.str_props.entry(form_key).or_default().insert(prop, s);
+                ctx.globals
+                    .str_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, s);
             }
             Value::Int(n) => {
-                ctx.globals.int_props.entry(form_key).or_default().insert(prop, n);
+                ctx.globals
+                    .int_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, n);
             }
             _ => {}
         }
         ctx.push(Value::Int(0));
         return;
     }
-    if let Some(s) = ctx.globals.str_props.get(&form_key).and_then(|m| m.get(&prop)).cloned() {
+    if let Some(s) = ctx
+        .globals
+        .str_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop))
+        .cloned()
+    {
         ctx.push(Value::Str(s));
         return;
     }
-    let v = ctx.globals.int_props.get(&form_key).and_then(|m| m.get(&prop).copied()).unwrap_or(0);
+    let v = ctx
+        .globals
+        .int_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop).copied())
+        .unwrap_or(0);
     ctx.push(Value::Int(v));
 }
 

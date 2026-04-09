@@ -27,7 +27,8 @@ kira.workspace = true
 chrono.workspace = true
 fontdue = "0.9.3"
 encoding_rs = "0.8"
-theorafile-rs = { path = "../theorafile_rs" }
+ureq = "2.10"
+siglus_omv_decoder = { path = "../siglus_omv_decoder" }
 na_mpeg2_decoder = { path = "../na_mpeg2_decoder" }
 
 siglus_assets = { path = "../siglus_assets", default-features = false }

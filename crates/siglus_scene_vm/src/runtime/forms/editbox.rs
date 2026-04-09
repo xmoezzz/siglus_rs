@@ -30,11 +30,11 @@ fn parse_element_chain(args: &[Value]) -> Option<(usize, Vec<i32>)> {
 }
 
 fn is_array_code(elm_array: i32, code: i32) -> bool {
-	// If `elm_array` is not known yet (default -1), accept any non-zero marker.
-	if elm_array < 0 {
-		return code != 0;
-	}
-	code == elm_array
+    // If `elm_array` is not known yet (default -1), accept any non-zero marker.
+    if elm_array < 0 {
+        return code != 0;
+    }
+    code == elm_array
 }
 
 fn is_editbox_like_chain(ctx: &CommandContext, form_id: u32, chain: &[i32]) -> bool {
@@ -45,9 +45,9 @@ fn is_editbox_like_chain(ctx: &CommandContext, form_id: u32, chain: &[i32]) -> b
     // - [FORM, GET_SIZE]
     // - [FORM, ELM_ARRAY, idx, ...]
     if chain.len() == 2 {
-		return !is_array_code(ctx.ids.elm_array, chain[1]);
+        return !is_array_code(ctx.ids.elm_array, chain[1]);
     }
-	chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1])
+    chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1])
 }
 
 fn classify_op(list: &EditBoxListState, params: &[Value], ret_form: i32) -> EditBoxOpKind {
@@ -200,7 +200,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     if chain_pos == 3 {
         let al_id = args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
         let rhs = args.get(2);
-		if chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1]) {
+        if chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1]) {
             let idx = chain.get(2).copied().unwrap_or(0);
             let idx_usize = if idx < 0 { 0 } else { idx as usize };
             if al_id == 1 {
@@ -228,7 +228,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
     // Method-call shape:
     // [op_id, param0, ..., Element(chain), al_id, ret_form]
-    let params = if chain_pos > 1 { &args[1..chain_pos] } else { &[] };
+    let params = if chain_pos > 1 {
+        &args[1..chain_pos]
+    } else {
+        &[]
+    };
     let al_id = args
         .get(chain_pos + 1)
         .and_then(|v| v.as_i64())
@@ -238,7 +242,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as i32;
     let _ = al_id;
-	let elm_array = ctx.ids.elm_array;
+    let elm_array = ctx.ids.elm_array;
 
     // Pre-compute index for focus side effects (used after dropping the `editbox_lists` borrow).
     let idx_for_focus = chain.get(2).copied().unwrap_or(0);
@@ -249,9 +253,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     };
 
     // Decide whether we should confirm this form id as EDITBOXLIST before borrowing `editbox_lists`.
-	let should_confirm = ctx.globals.guessed_editbox_form_id.is_none()
+    let should_confirm = ctx.globals.guessed_editbox_form_id.is_none()
         && chain.len() >= 4
-		&& is_array_code(elm_array, chain[1])
+        && is_array_code(elm_array, chain[1])
         && {
             let has_string = params.iter().any(|v| v.as_str().is_some());
             let int_params = params.iter().filter(|v| v.as_i64().is_some()).count();
@@ -289,7 +293,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
 
         // EDITBOX[idx]
-		if chain.len() < 3 || !is_array_code(elm_array, chain[1]) {
+        if chain.len() < 3 || !is_array_code(elm_array, chain[1]) {
             let r = if ret_form != 0 {
                 Some(default_for_ret_form(ret_form))
             } else {
@@ -325,14 +329,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             list.op_map.insert(op, k);
             k
         };
-        let (r, fr) = apply_op(
-            list,
-            form_id,
-            idx_usize,
-            kind,
-            params,
-            ret_form,
-        );
+        let (r, fr) = apply_op(list, form_id, idx_usize, kind, params, ret_form);
         break 'blk (true, r, fr);
     };
 
@@ -383,7 +380,11 @@ pub fn maybe_dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) ->
     if !is_editbox_like_chain(ctx, form_id, &chain) {
         return Ok(false);
     }
-    let params = if chain_pos > 1 { &args[1..chain_pos] } else { &[] };
+    let params = if chain_pos > 1 {
+        &args[1..chain_pos]
+    } else {
+        &[]
+    };
     let has_string = params.iter().any(|v| v.as_str().is_some());
     let int_params = params.iter().filter(|v| v.as_i64().is_some()).count();
     if !has_string && int_params < 4 {

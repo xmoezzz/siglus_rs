@@ -14,8 +14,8 @@ use winit::window::{Window, WindowAttributes};
 use siglus_scene_vm::assets::g00;
 use siglus_scene_vm::image_manager::ImageManager;
 use siglus_scene_vm::layer::LayerManager;
-use siglus_scene_vm::resource::find_bg_image;
 use siglus_scene_vm::render::Renderer;
+use siglus_scene_vm::resource::find_bg_image;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
@@ -125,7 +125,10 @@ impl App {
     }
 
     fn load_current(&mut self) {
-        if let Ok(id) = self.images.load_file(&self.bg.path, self.bg.current_frame()) {
+        if let Ok(id) = self
+            .images
+            .load_file(&self.bg.path, self.bg.current_frame())
+        {
             self.layers.set_bg_image(id);
         }
     }
@@ -145,7 +148,11 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, elwt: &ActiveEventLoop) {
         let size = LogicalSize::new(1280.0, 720.0);
         let window = elwt
-            .create_window(WindowAttributes::default().with_inner_size(size).with_title(format!("Siglus BG Viewer - {}", self.args.bg)))
+            .create_window(
+                WindowAttributes::default()
+                    .with_inner_size(size)
+                    .with_title(format!("Siglus BG Viewer - {}", self.args.bg)),
+            )
             .expect("create window");
         let window: &'static Window = Box::leak(Box::new(window));
 
@@ -158,7 +165,12 @@ impl ApplicationHandler for App {
         window.request_redraw();
     }
 
-    fn window_event(&mut self, elwt: &ActiveEventLoop, _id: winit::window::WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        elwt: &ActiveEventLoop,
+        _id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
         match event {
             WindowEvent::CloseRequested => elwt.exit(),
             WindowEvent::Resized(size) => {
@@ -210,8 +222,8 @@ fn main() -> Result<()> {
         .clone()
         .unwrap_or(siglus_scene_vm::app_path::resolve_app_base_path()?);
 
-    let (path, _ty) = find_bg_image(&project_dir, &args.bg)
-        .with_context(|| format!("find bg {}", args.bg))?;
+    let (path, _ty) =
+        find_bg_image(&project_dir, &args.bg).with_context(|| format!("find bg {}", args.bg))?;
 
     let bg = BgSource::load(&path).with_context(|| format!("load bg {:?}", path))?;
 

@@ -23,7 +23,10 @@ fn parse_key16_toml(text: &str) -> Result<Option<[u8; 16]>> {
         return Ok(None);
     };
     if bytes.len() != 16 {
-        bail!("key.toml: key must contain exactly 16 bytes, got {}", bytes.len());
+        bail!(
+            "key.toml: key must contain exactly 16 bytes, got {}",
+            bytes.len()
+        );
     }
     let mut out = [0u8; 16];
     out.copy_from_slice(&bytes);

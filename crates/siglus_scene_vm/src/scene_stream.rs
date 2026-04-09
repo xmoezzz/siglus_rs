@@ -2,7 +2,6 @@ use anyhow::{anyhow, bail, Result};
 
 use siglus_assets::scene_pck::CIndex;
 
-
 /// All fields are little-endian i32 and all offsets are relative to the start of the chunk.
 #[derive(Debug, Clone, Copy)]
 pub struct ScnHeader {

@@ -32,7 +32,6 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         return Ok(true);
     }
 
-
     if let Some(op) = args.get(0).and_then(|v| v.as_i64()) {
         if ctx.ids.file_preload_omv != 0 && op == ctx.ids.file_preload_omv as i64 {
             let name = args.get(1).and_then(|v| v.as_str()).unwrap_or("");

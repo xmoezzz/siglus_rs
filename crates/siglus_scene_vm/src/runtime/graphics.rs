@@ -7,7 +7,9 @@
 use anyhow::{bail, Context, Result};
 
 use crate::image_manager::{ImageId, ImageManager};
-use crate::layer::{ClipRect, LayerId, LayerManager, SpriteBlend, SpriteFit, SpriteId, SpriteSizeMode};
+use crate::layer::{
+    ClipRect, LayerId, LayerManager, SpriteBlend, SpriteFit, SpriteId, SpriteSizeMode,
+};
 
 #[derive(Debug, Clone)]
 struct ObjectState {
@@ -132,7 +134,11 @@ impl Default for GfxRuntime {
     fn default() -> Self {
         Self {
             current_layer: 0,
-            stages: [StageState::default(), StageState::default(), StageState::default()],
+            stages: [
+                StageState::default(),
+                StageState::default(),
+                StageState::default(),
+            ],
         }
     }
 }
@@ -157,7 +163,11 @@ impl GfxRuntime {
     }
 
     /// Expose stage layer allocation for non-Gfx backends (e.g., movie sprites).
-    pub fn ensure_stage_layer_id(&mut self, layers: &mut LayerManager, stage: i64) -> Option<LayerId> {
+    pub fn ensure_stage_layer_id(
+        &mut self,
+        layers: &mut LayerManager,
+        stage: i64,
+    ) -> Option<LayerId> {
         if stage < 0 || stage > 2 {
             return None;
         }
@@ -220,7 +230,9 @@ impl GfxRuntime {
         }
 
         let sid = {
-            let layer = layers.layer_mut(st_layer).context("stage layer not found")?;
+            let layer = layers
+                .layer_mut(st_layer)
+                .context("stage layer not found")?;
             layer.create_sprite()
         };
 
@@ -264,7 +276,13 @@ impl GfxRuntime {
             bg.rotate = obj.rotate_z as f32 * std::f32::consts::PI / 1800.0;
             bg.pivot_x = obj.center_x as f32;
             bg.pivot_y = obj.center_y as f32;
-            bg.dst_clip = clip_rect(obj.clip_use, obj.clip_left, obj.clip_top, obj.clip_right, obj.clip_bottom);
+            bg.dst_clip = clip_rect(
+                obj.clip_use,
+                obj.clip_left,
+                obj.clip_top,
+                obj.clip_right,
+                obj.clip_bottom,
+            );
             bg.src_clip = clip_rect(
                 obj.src_clip_use,
                 obj.src_clip_left,
@@ -308,7 +326,13 @@ impl GfxRuntime {
         sprite.rotate = obj.rotate_z as f32 * std::f32::consts::PI / 1800.0;
         sprite.pivot_x = obj.center_x as f32;
         sprite.pivot_y = obj.center_y as f32;
-        sprite.dst_clip = clip_rect(obj.clip_use, obj.clip_left, obj.clip_top, obj.clip_right, obj.clip_bottom);
+        sprite.dst_clip = clip_rect(
+            obj.clip_use,
+            obj.clip_left,
+            obj.clip_top,
+            obj.clip_right,
+            obj.clip_bottom,
+        );
         sprite.src_clip = clip_rect(
             obj.src_clip_use,
             obj.src_clip_left,

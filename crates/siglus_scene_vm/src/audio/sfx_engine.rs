@@ -9,10 +9,7 @@ use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
 use kira::tween::Tween;
 
 use crate::audio::bgm::{
-    decode_bgm_to_wav_bytes,
-    decode_ovk_entry_by_no_to_wav_bytes,
-    resolve_koe_source,
-    KoeSource,
+    decode_bgm_to_wav_bytes, decode_ovk_entry_by_no_to_wav_bytes, resolve_koe_source, KoeSource,
 };
 use crate::audio::{AudioHub, TrackKind};
 
@@ -35,7 +32,8 @@ pub(crate) fn wav_duration_ms(wav: &[u8]) -> Option<u64> {
 
     while pos + 8 <= wav.len() {
         let id = &wav[pos..pos + 4];
-        let sz = u32::from_le_bytes([wav[pos + 4], wav[pos + 5], wav[pos + 6], wav[pos + 7]]) as usize;
+        let sz =
+            u32::from_le_bytes([wav[pos + 4], wav[pos + 5], wav[pos + 6], wav[pos + 7]]) as usize;
         pos += 8;
         if pos + sz > wav.len() {
             break;
@@ -135,7 +133,12 @@ impl SfxEngine {
         Ok(())
     }
 
-    pub fn set_volume_raw_fade(&mut self, audio: &mut AudioHub, volume_raw: u8, fade_ms: i64) -> Result<()> {
+    pub fn set_volume_raw_fade(
+        &mut self,
+        audio: &mut AudioHub,
+        volume_raw: u8,
+        fade_ms: i64,
+    ) -> Result<()> {
         self.volume_raw = volume_raw;
         audio.set_track_volume_raw_fade(self.track_kind, volume_raw, fade_ms);
         Ok(())
@@ -160,8 +163,17 @@ impl SfxEngine {
         for s in &mut self.slots {
             if let Some(mut h) = s.handle.take() {
                 let tween = fade_time_ms
-                    .and_then(|v| if v > 0 { Some(Duration::from_millis(v as u64)) } else { None })
-                    .map(Tween::new)
+                    .and_then(|v| {
+                        if v > 0 {
+                            Some(Duration::from_millis(v as u64))
+                        } else {
+                            None
+                        }
+                    })
+                    .map(|duration| Tween {
+                        duration,
+                        ..Tween::default()
+                    })
                     .unwrap_or_default();
                 let _ = h.stop(tween);
             }
@@ -177,8 +189,17 @@ impl SfxEngine {
         };
         if let Some(mut h) = s.handle.take() {
             let tween = fade_time_ms
-                .and_then(|v| if v > 0 { Some(Duration::from_millis(v as u64)) } else { None })
-                .map(Tween::new)
+                .and_then(|v| {
+                    if v > 0 {
+                        Some(Duration::from_millis(v as u64))
+                    } else {
+                        None
+                    }
+                })
+                .map(|duration| Tween {
+                    duration,
+                    ..Tween::default()
+                })
                 .unwrap_or_default();
             let _ = h.stop(tween);
         }
@@ -216,12 +237,18 @@ impl SfxEngine {
 
         let resolved = resolve_koe_source(&self.project_dir, koe_no)?;
         let wav = match &resolved {
-            KoeSource::File(path) => decode_bgm_to_wav_bytes(path, None)
-                .with_context(|| format!("decode KOE file: {}", path.display()))?
-                .wav_bytes,
-            KoeSource::OvkEntryByNo { path, entry_no } => decode_ovk_entry_by_no_to_wav_bytes(path, *entry_no)
-                .with_context(|| format!("decode KOE OVK entry: {}#{entry_no}", path.display()))?
-                .wav_bytes,
+            KoeSource::File(path) => {
+                decode_bgm_to_wav_bytes(path, None)
+                    .with_context(|| format!("decode KOE file: {}", path.display()))?
+                    .wav_bytes
+            }
+            KoeSource::OvkEntryByNo { path, entry_no } => {
+                decode_ovk_entry_by_no_to_wav_bytes(path, *entry_no)
+                    .with_context(|| {
+                        format!("decode KOE OVK entry: {}#{entry_no}", path.display())
+                    })?
+                    .wav_bytes
+            }
         };
 
         self.play_decoded_wav_in_slot(audio, slot, &format!("koe:{koe_no}"), wav, loop_flag)
@@ -240,7 +267,8 @@ impl SfxEngine {
         // Stop previous sound on this slot.
         let _ = self.stop_slot(slot, None);
 
-        let data = StaticSoundData::from_cursor(Cursor::new(wav)).context("kira: decode WAV bytes")?;
+        let data =
+            StaticSoundData::from_cursor(Cursor::new(wav)).context("kira: decode WAV bytes")?;
         let handle = audio.play_static(self.track_kind, data)?;
         let s = &mut self.slots[slot];
         s.handle = Some(handle);
@@ -320,7 +348,8 @@ impl PcmEngine {
     }
 
     pub fn play_file_name(&mut self, audio: &mut AudioHub, file_name: &str) -> Result<PathBuf> {
-        self.inner.play_file_name_in_slot(audio, 0, file_name, false)
+        self.inner
+            .play_file_name_in_slot(audio, 0, file_name, false)
     }
 
     pub fn play_koe_no(&mut self, audio: &mut AudioHub, koe_no: i64) -> Result<()> {
@@ -334,7 +363,8 @@ impl PcmEngine {
         file_name: &str,
         loop_flag: bool,
     ) -> Result<PathBuf> {
-        self.inner.play_file_name_in_slot(audio, slot, file_name, loop_flag)
+        self.inner
+            .play_file_name_in_slot(audio, slot, file_name, loop_flag)
     }
 
     pub fn play_koe_no_in_slot(
@@ -344,7 +374,8 @@ impl PcmEngine {
         koe_no: i64,
         loop_flag: bool,
     ) -> Result<()> {
-        self.inner.play_koe_no_in_slot(audio, slot, koe_no, loop_flag)
+        self.inner
+            .play_koe_no_in_slot(audio, slot, koe_no, loop_flag)
     }
 
     pub fn play_decoded_wav_in_slot(
@@ -387,7 +418,12 @@ impl PcmEngine {
         self.inner.set_volume_raw(audio, volume_raw)
     }
 
-    pub fn set_volume_raw_fade(&mut self, audio: &mut AudioHub, volume_raw: u8, fade_ms: i64) -> Result<()> {
+    pub fn set_volume_raw_fade(
+        &mut self,
+        audio: &mut AudioHub,
+        volume_raw: u8,
+        fade_ms: i64,
+    ) -> Result<()> {
         self.inner.set_volume_raw_fade(audio, volume_raw, fade_ms)
     }
 }
@@ -405,7 +441,8 @@ impl SeEngine {
     }
 
     pub fn play_file_name(&mut self, audio: &mut AudioHub, file_name: &str) -> Result<PathBuf> {
-        self.inner.play_file_name_in_slot(audio, 0, file_name, false)
+        self.inner
+            .play_file_name_in_slot(audio, 0, file_name, false)
     }
 
     pub fn play_koe_no(&mut self, audio: &mut AudioHub, koe_no: i64) -> Result<()> {
@@ -419,7 +456,8 @@ impl SeEngine {
         file_name: &str,
         loop_flag: bool,
     ) -> Result<PathBuf> {
-        self.inner.play_file_name_in_slot(audio, slot, file_name, loop_flag)
+        self.inner
+            .play_file_name_in_slot(audio, slot, file_name, loop_flag)
     }
 
     pub fn play_koe_no_in_slot(
@@ -429,7 +467,8 @@ impl SeEngine {
         koe_no: i64,
         loop_flag: bool,
     ) -> Result<()> {
-        self.inner.play_koe_no_in_slot(audio, slot, koe_no, loop_flag)
+        self.inner
+            .play_koe_no_in_slot(audio, slot, koe_no, loop_flag)
     }
 
     pub fn play_decoded_wav_in_slot(
@@ -468,7 +507,12 @@ impl SeEngine {
         self.inner.set_volume_raw(audio, volume_raw)
     }
 
-    pub fn set_volume_raw_fade(&mut self, audio: &mut AudioHub, volume_raw: u8, fade_ms: i64) -> Result<()> {
+    pub fn set_volume_raw_fade(
+        &mut self,
+        audio: &mut AudioHub,
+        volume_raw: u8,
+        fade_ms: i64,
+    ) -> Result<()> {
         self.inner.set_volume_raw_fade(audio, volume_raw, fade_ms)
     }
 

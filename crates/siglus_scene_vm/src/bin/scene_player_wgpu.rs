@@ -1,8 +1,8 @@
 #![cfg(feature = "wgpu-winit")]
 
-use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Parser;
+use std::path::PathBuf;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
@@ -13,8 +13,8 @@ use winit::window::{Window, WindowAttributes};
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
 use siglus_scene_vm::render::Renderer;
-use siglus_scene_vm::runtime::CommandContext;
 use siglus_scene_vm::runtime::input::{VmKey, VmMouseButton};
+use siglus_scene_vm::runtime::CommandContext;
 use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::{SceneVm, VmConfig};
 
@@ -222,12 +222,15 @@ impl ApplicationHandler for App {
     fn resumed(&mut self, elwt: &ActiveEventLoop) {
         let size = LogicalSize::new(self.args.width as f64, self.args.height as f64);
         let window = elwt
-            .create_window(WindowAttributes::default().with_inner_size(size).with_title("Siglus Scene Player"))
+            .create_window(
+                WindowAttributes::default()
+                    .with_inner_size(size)
+                    .with_title("Siglus Scene Player"),
+            )
             .expect("create window");
         let window: &'static Window = Box::leak(Box::new(window));
 
-        let renderer = pollster::block_on(Renderer::new(window))
-            .expect("renderer init");
+        let renderer = pollster::block_on(Renderer::new(window)).expect("renderer init");
         let vm = self.init_vm().expect("vm init");
 
         self.window = Some(window);
@@ -239,13 +242,21 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn window_event(&mut self, elwt: &ActiveEventLoop, _id: winit::window::WindowId, event: WindowEvent) {
+    fn window_event(
+        &mut self,
+        elwt: &ActiveEventLoop,
+        _id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
         match event {
             WindowEvent::CloseRequested => {
                 if let Some(vm) = self.vm.as_ref() {
                     let report_path = PathBuf::from("siglus_unknown_report.txt");
                     if let Err(e) = vm.ctx.unknown.write_report(&report_path) {
-                        eprintln!("[WARN] failed to write unknown report to {}: {e}", report_path.display());
+                        eprintln!(
+                            "[WARN] failed to write unknown report to {}: {e}",
+                            report_path.display()
+                        );
                     } else {
                         eprintln!("[INFO] unknown report written to {}", report_path.display());
                     }

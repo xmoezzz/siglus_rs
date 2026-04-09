@@ -51,7 +51,11 @@ fn dispatch_chain(ctx: &mut CommandContext, chain: &[i32], args: &[Value]) -> Re
     //   [FORM_KEYLIST, ELM_ARRAY, vk, key_op?]
     if op == ctx.ids.elm_array as i64 {
         let vk = chain.get(2).copied().unwrap_or(0) as i64;
-        let key_op = chain.get(3).copied().map(|x| x as i64).unwrap_or(ctx.ids.key_op_is_down as i64);
+        let key_op = chain
+            .get(3)
+            .copied()
+            .map(|x| x as i64)
+            .unwrap_or(ctx.ids.key_op_is_down as i64);
         let v = key::query(ctx, vk, key_op);
         ctx.push(Value::Int(v));
         return Ok(true);
@@ -94,7 +98,11 @@ fn dispatch_op(ctx: &mut CommandContext, op: i64, args: &[Value]) -> Result<bool
             Ok(true)
         }
         _ => {
-            let form_key = if ctx.ids.form_global_keylist != 0 { ctx.ids.form_global_keylist } else { KEYLIST_FORM_STATE };
+            let form_key = if ctx.ids.form_global_keylist != 0 {
+                ctx.ids.form_global_keylist
+            } else {
+                KEYLIST_FORM_STATE
+            };
             prop_access::store_or_push_direct_prop(ctx, form_key, op as i32, args, 1);
             Ok(true)
         }

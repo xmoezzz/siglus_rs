@@ -174,7 +174,12 @@ impl GanState {
         self.load_gan_only(project_dir, append_dir, name)
     }
 
-    pub fn load_gan_only(&mut self, project_dir: &Path, append_dir: &str, name: &str) -> Result<()> {
+    pub fn load_gan_only(
+        &mut self,
+        project_dir: &Path,
+        append_dir: &str,
+        name: &str,
+    ) -> Result<()> {
         if name.trim().is_empty() {
             return Ok(());
         }
@@ -237,8 +242,11 @@ impl GanState {
             self.current_pat = None;
             return;
         }
-        if !self.anm_start || set.total_time <= 0 {
-            self.current_pat = Some(set.pat_list[0].clone());
+        let total_time = set.total_time;
+        let first_pat = set.pat_list[0].clone();
+        let last_pat = set.pat_list[set.pat_list.len() - 1].clone();
+        if !self.anm_start || total_time <= 0 {
+            self.current_pat = Some(first_pat);
             return;
         }
 
@@ -251,16 +259,20 @@ impl GanState {
         }
 
         if !self.anm_loop_flag {
-            if self.now_time >= set.total_time {
+            if self.now_time >= total_time {
                 if self.next_anm_flag {
-                    self.start_anm(self.next_anm_set_no, self.next_anm_loop_flag, self.next_anm_real_time_flag);
-                    let overshoot = self.now_time - set.total_time;
+                    self.start_anm(
+                        self.next_anm_set_no,
+                        self.next_anm_loop_flag,
+                        self.next_anm_real_time_flag,
+                    );
+                    let overshoot = self.now_time - total_time;
                     game -= overshoot;
                     real -= overshoot;
                     self.update_time(game, real);
                 } else {
-                    self.now_time = set.total_time;
-                    self.current_pat = Some(set.pat_list[set.pat_list.len() - 1].clone());
+                    self.now_time = total_time;
+                    self.current_pat = Some(last_pat);
                 }
                 return;
             }

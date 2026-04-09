@@ -20,9 +20,7 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// List OVK entries (name/offset/size).
-    List {
-        input: PathBuf,
-    },
+    List { input: PathBuf },
 
     /// Decode input (NWA/OVK/OWP/OGG) to a WAV file.
     DumpWav {
@@ -64,10 +62,7 @@ fn main() -> Result<()> {
             for (i, e) in pack.entries().iter().enumerate() {
                 println!(
                     "#{i}: no={} offset=0x{:X} size=0x{:X} sample_count={}",
-                    e.no,
-                    e.offset,
-                    e.size,
-                    e.sample_count
+                    e.no, e.offset, e.size, e.sample_count
                 );
             }
         }
@@ -97,12 +92,13 @@ fn main() -> Result<()> {
 fn play_impl(input: &Path, entry: Option<usize>, looped: bool) -> Result<()> {
     let decoded = bgm::decode_bgm_to_wav_bytes(input, entry)?;
 
-	let mut hub = AudioHub::new();
+    let mut hub = AudioHub::new();
 
-	let data = kira::sound::static_sound::StaticSoundData::from_cursor(Cursor::new(decoded.wav_bytes))
-        .context("kira: decode WAV bytes")?;
+    let data =
+        kira::sound::static_sound::StaticSoundData::from_cursor(Cursor::new(decoded.wav_bytes))
+            .context("kira: decode WAV bytes")?;
 
-	let mut handle = hub.play_static(TrackKind::Bgm, data)?;
+    let mut handle = hub.play_static(TrackKind::Bgm, data)?;
 
     if looped {
         // Best-effort: looping depends on the Kira version's sound settings.
@@ -112,6 +108,6 @@ fn play_impl(input: &Path, entry: Option<usize>, looped: bool) -> Result<()> {
     println!("Playing. Press Enter to stop.");
     let mut s = String::new();
     let _ = std::io::stdin().read_line(&mut s);
-	let _ = handle.stop(kira::tween::Tween::default());
+    let _ = handle.stop(kira::tween::Tween::default());
     Ok(())
 }

@@ -31,11 +31,11 @@ fn parse_element_chain(args: &[Value]) -> Option<(usize, Vec<i32>)> {
 }
 
 fn is_array_code(elm_array: i32, code: i32) -> bool {
-	// If `elm_array` is not known yet (default -1), accept any non-zero marker.
-	if elm_array < 0 {
-		return code != 0;
-	}
-	code == elm_array
+    // If `elm_array` is not known yet (default -1), accept any non-zero marker.
+    if elm_array < 0 {
+        return code != 0;
+    }
+    code == elm_array
 }
 
 fn is_mask_like_chain(ctx: &CommandContext, form_id: u32, chain: &[i32]) -> bool {
@@ -48,12 +48,17 @@ fn is_mask_like_chain(ctx: &CommandContext, form_id: u32, chain: &[i32]) -> bool
     // - [FORM, ELM_ARRAY, idx, ...]
     if chain.len() == 2 {
         // GET_SIZE is any non-array selector.
-		return !is_array_code(ctx.ids.elm_array, chain[1]);
+        return !is_array_code(ctx.ids.elm_array, chain[1]);
     }
-	chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1])
+    chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1])
 }
 
-fn confirm_if_probably_mask(ctx: &mut CommandContext, form_id: u32, params: &[Value], chain: &[i32]) {
+fn confirm_if_probably_mask(
+    ctx: &mut CommandContext,
+    form_id: u32,
+    params: &[Value],
+    chain: &[i32],
+) {
     if ctx.globals.guessed_mask_form_id.is_some() {
         return;
     }
@@ -61,7 +66,7 @@ fn confirm_if_probably_mask(ctx: &mut CommandContext, form_id: u32, params: &[Va
     // Heuristic: first time we see a mask-like chain with a string parameter,
     // treat this form as MASKLIST.
     let has_string = params.iter().any(|v| v.as_str().is_some());
-	if has_string && chain.len() >= 4 && is_array_code(ctx.ids.elm_array, chain[1]) {
+    if has_string && chain.len() >= 4 && is_array_code(ctx.ids.elm_array, chain[1]) {
         ctx.globals.guessed_mask_form_id = Some(form_id);
         if let Some(ml) = ctx.globals.mask_lists.get_mut(&form_id) {
             ml.confirmed = true;
@@ -101,7 +106,14 @@ fn dispatch_int_event(ev: &mut IntEvent, params: &[Value], ret_form: i32) -> Opt
             // Without the element-code table, we cannot distinguish LOOP vs TURN reliably.
             // LOOP is the safer default for runtime.
             let real_flag = 0;
-            ev.loop_event(start_value, end_value, loop_time, delay_time, speed_type, real_flag);
+            ev.loop_event(
+                start_value,
+                end_value,
+                loop_time,
+                delay_time,
+                speed_type,
+                real_flag,
+            );
         }
         _ => {}
     }
@@ -119,7 +131,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
     // `args` layout (method call):
     // [op_id, param0, ..., Element(chain), al_id, ret_form]
-    let params = if chain_pos > 1 { &args[1..chain_pos] } else { &[] };
+    let params = if chain_pos > 1 {
+        &args[1..chain_pos]
+    } else {
+        &[]
+    };
     let al_id = args
         .get(chain_pos + 1)
         .and_then(|v| v.as_i64())
@@ -128,13 +144,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         .get(chain_pos + 2)
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as i32;
-	let elm_array = ctx.ids.elm_array;
+    let elm_array = ctx.ids.elm_array;
 
     // Decide whether we should confirm this form id as MASKLIST before borrowing `mask_lists`.
-	let should_confirm = ctx.globals.guessed_mask_form_id.is_none()
+    let should_confirm = ctx.globals.guessed_mask_form_id.is_none()
         && params.iter().any(|v| v.as_str().is_some())
         && chain.len() >= 4
-		&& is_array_code(elm_array, chain[1]);
+        && is_array_code(elm_array, chain[1]);
     if should_confirm {
         ctx.globals.guessed_mask_form_id = Some(form_id);
     }
@@ -152,7 +168,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
 
         // MASKLIST.GET_SIZE
-		if chain.len() == 2 && !is_array_code(elm_array, chain[1]) {
+        if chain.len() == 2 && !is_array_code(elm_array, chain[1]) {
             let r = if ret_form != 0 {
                 Some(Value::Int(ml.masks.len() as i64))
             } else {
@@ -162,7 +178,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
 
         // MASKLIST[idx]
-		if chain.len() < 3 || !is_array_code(elm_array, chain[1]) {
+        if chain.len() < 3 || !is_array_code(elm_array, chain[1]) {
             let r = if ret_form != 0 {
                 Some(default_for_ret_form(ret_form))
             } else {
@@ -206,7 +222,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 ml.y_eve_op = Some(op);
                 &mut mask.y_event
             } else {
-                mask.extra_events.entry(op).or_insert_with(|| IntEvent::new(0))
+                mask.extra_events
+                    .entry(op)
+                    .or_insert_with(|| IntEvent::new(0))
             };
             let r = dispatch_int_event(target_ev, params, ret_form);
             break 'blk (true, r);
@@ -218,7 +236,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             break 'blk (true, None);
         }
 
-        if let Some(name) = params.get(0).and_then(|v| v.as_str()).map(|s| s.to_string()) {
+        if let Some(name) = params
+            .get(0)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+        {
             mask.name = Some(name);
             break 'blk (true, None);
         }
@@ -327,7 +349,11 @@ pub fn maybe_dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) ->
     if !is_mask_like_chain(ctx, form_id, &chain) {
         return Ok(false);
     }
-    let params = if chain_pos > 1 { &args[1..chain_pos] } else { &[] };
+    let params = if chain_pos > 1 {
+        &args[1..chain_pos]
+    } else {
+        &[]
+    };
     let has_string = params.iter().any(|v| v.as_str().is_some());
     if !has_string {
         return Ok(false);

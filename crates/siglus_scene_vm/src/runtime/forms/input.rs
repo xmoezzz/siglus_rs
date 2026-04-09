@@ -34,12 +34,20 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
 
     match op {
         o if o == ctx.ids.input_op_decide as i64 => {
-            let v = key::query(ctx, ctx.ids.exkey_decide as i64, ctx.ids.key_op_on_down as i64);
+            let v = key::query(
+                ctx,
+                ctx.ids.exkey_decide as i64,
+                ctx.ids.key_op_on_down as i64,
+            );
             ctx.push(Value::Int(v));
             Ok(true)
         }
         o if o == ctx.ids.input_op_cancel as i64 => {
-            let v = key::query(ctx, ctx.ids.exkey_cancel as i64, ctx.ids.key_op_on_down as i64);
+            let v = key::query(
+                ctx,
+                ctx.ids.exkey_cancel as i64,
+                ctx.ids.key_op_on_down as i64,
+            );
             ctx.push(Value::Int(v));
             Ok(true)
         }
@@ -54,7 +62,11 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         _ => {
-            let form_key = if ctx.ids.form_global_input != 0 { ctx.ids.form_global_input } else { INPUT_FORM_STATE };
+            let form_key = if ctx.ids.form_global_input != 0 {
+                ctx.ids.form_global_input
+            } else {
+                INPUT_FORM_STATE
+            };
             prop_access::store_or_push_direct_prop(ctx, form_key, op as i32, args, 1);
             Ok(true)
         }

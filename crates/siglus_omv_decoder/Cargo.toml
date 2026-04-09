@@ -1,0 +1,15 @@
+[package]
+name = "siglus_omv_decoder"
+version = "0.1.0"
+edition = "2021"
+links = "siglus_omv_decoder"
+
+[lib]
+name = "siglus_omv_decoder"
+path = "src/lib.rs"
+
+[build-dependencies]
+cc = "1.0"
+
+[dependencies]
+anyhow = "1"

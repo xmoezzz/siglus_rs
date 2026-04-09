@@ -10,13 +10,13 @@
 //! - optional Siglus LZSS unpack
 
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::env;
+use std::path::Path;
 
 use anyhow::{anyhow, bail, Result};
 use encoding_rs::SHIFT_JIS;
 
-use crate::angou::{AngouChain, AngouStep, AngouStepKind, xor_cycle_in_place};
+use crate::angou::{xor_cycle_in_place, AngouChain, AngouStep, AngouStepKind};
 use crate::lzss::lzss_unpack_lenient;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -135,8 +135,6 @@ impl GameexeEntry {
     }
 }
 
-
-
 fn unquote_token(s: &str) -> &str {
     let t = s.trim();
     if t.len() >= 2 && t.starts_with('"') && t.ends_with('"') {
@@ -191,15 +189,23 @@ impl GameexeConfig {
     }
 
     pub fn get_indexed_unquoted(&self, prefix: &str, index: usize) -> Option<&str> {
-        self.get_indexed_entry(prefix, index).map(|e| e.scalar_unquoted())
+        self.get_indexed_entry(prefix, index)
+            .map(|e| e.scalar_unquoted())
     }
 
     pub fn get_indexed_item(&self, prefix: &str, index: usize, item: usize) -> Option<&str> {
-        self.get_indexed_entry(prefix, index).and_then(|e| e.item(item))
+        self.get_indexed_entry(prefix, index)
+            .and_then(|e| e.item(item))
     }
 
-    pub fn get_indexed_item_unquoted(&self, prefix: &str, index: usize, item: usize) -> Option<&str> {
-        self.get_indexed_entry(prefix, index).and_then(|e| e.item_unquoted(item))
+    pub fn get_indexed_item_unquoted(
+        &self,
+        prefix: &str,
+        index: usize,
+        item: usize,
+    ) -> Option<&str> {
+        self.get_indexed_entry(prefix, index)
+            .and_then(|e| e.item_unquoted(item))
     }
 
     pub fn get_indexed_entry(&self, prefix: &str, index: usize) -> Option<&GameexeEntry> {
@@ -208,12 +214,27 @@ impl GameexeConfig {
     }
 
     pub fn get_indexed_field(&self, prefix: &str, index: usize, field: &str) -> Option<&str> {
-        let key = format!("{}.{}.{}", normalize_key(prefix), index, normalize_key(field));
+        let key = format!(
+            "{}.{}.{}",
+            normalize_key(prefix),
+            index,
+            normalize_key(field)
+        );
         self.get(&key)
     }
 
-    pub fn get_indexed_field_unquoted(&self, prefix: &str, index: usize, field: &str) -> Option<&str> {
-        let key = format!("{}.{}.{}", normalize_key(prefix), index, normalize_key(field));
+    pub fn get_indexed_field_unquoted(
+        &self,
+        prefix: &str,
+        index: usize,
+        field: &str,
+    ) -> Option<&str> {
+        let key = format!(
+            "{}.{}.{}",
+            normalize_key(prefix),
+            index,
+            normalize_key(field)
+        );
         self.get_unquoted(&key)
     }
 

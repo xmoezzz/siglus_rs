@@ -1,13 +1,14 @@
 use anyhow::Result;
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-use chrono::{Datelike, Timelike, Local};
+use chrono::{Datelike, Local, Timelike};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::runtime::{CommandContext, Value};
 
 use super::prop_access;
+use super::syscom;
 
 const GET_CALENDAR: i32 = 0;
 const GET_UNIX_TIME: i32 = 1;
@@ -40,12 +41,22 @@ struct Call<'a> {
 fn parse_call(form_id: u32, args: &[Value]) -> Option<Call<'_>> {
     if let Some((chain_pos, chain)) = prop_access::parse_element_chain(form_id, args) {
         if chain.len() >= 2 {
-            let params = if chain_pos > 1 { &args[1..chain_pos] } else { &[] };
-            return Some(Call { op: chain[1], params });
+            let params = if chain_pos > 1 {
+                &args[1..chain_pos]
+            } else {
+                &[]
+            };
+            return Some(Call {
+                op: chain[1],
+                params,
+            });
         }
     }
     let op = args.get(0).and_then(|v| v.as_i64())? as i32;
-    Some(Call { op, params: &args[1..] })
+    Some(Call {
+        op,
+        params: &args[1..],
+    })
 }
 
 fn p_str(params: &[Value], idx: usize) -> &str {
@@ -93,21 +104,40 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             return Ok(true);
         }
         CHECK_ACTIVE => {
-            ctx.push(Value::Int(if ctx.globals.system.active_flag { 1 } else { 0 }));
+            ctx.push(Value::Int(if ctx.globals.system.active_flag {
+                1
+            } else {
+                0
+            }));
             return Ok(true);
         }
         CHECK_DEBUG_FLAG => {
-            ctx.push(Value::Int(if ctx.globals.system.debug_flag { 1 } else { 0 }));
+            ctx.push(Value::Int(if ctx.globals.system.debug_flag {
+                1
+            } else {
+                0
+            }));
             return Ok(true);
         }
         SHELL_OPEN_FILE => {
             let path = join_game_path(&ctx.project_dir, p_str(call.params, 0));
-            ctx.globals.system.debug_logs.push(format!("shell_open_file:{}", path.display()));
+            if path.exists() {
+                let _ = ctx.net.open_file(&path);
+            }
+            ctx.globals
+                .system
+                .debug_logs
+                .push(format!("shell_open_file:{}", path.display()));
             ctx.push(Value::Int(0));
             return Ok(true);
         }
         SHELL_OPEN_WEB => {
-            ctx.globals.system.debug_logs.push(format!("shell_open_web:{}", p_str(call.params, 0)));
+            let url = p_str(call.params, 0);
+            let _ = ctx.net.open_url(url);
+            ctx.globals
+                .system
+                .debug_logs
+                .push(format!("shell_open_web:{url}"));
             ctx.push(Value::Int(0));
             return Ok(true);
         }
@@ -117,7 +147,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             return Ok(true);
         }
         CHECK_FILE_EXIST_SAVE_DIR => {
-            let save_dir = ctx.project_dir.join("save");
+            let save_dir = syscom::save_dir(&ctx.project_dir);
             let path = join_game_path(&save_dir, p_str(call.params, 0));
             ctx.push(Value::Int(if path.exists() { 1 } else { 0 }));
             return Ok(true);
@@ -149,14 +179,20 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         DEBUG_MESSAGEBOX_OK | DEBUG_MESSAGEBOX_OKCANCEL => {
             // Only meaningful in debug builds; default to OK.
             if ctx.globals.system.debug_flag {
-                ctx.globals.system.debug_logs.push("debug_messagebox_ok".to_string());
+                ctx.globals
+                    .system
+                    .debug_logs
+                    .push("debug_messagebox_ok".to_string());
             }
             ctx.push(Value::Int(0));
             return Ok(true);
         }
         DEBUG_MESSAGEBOX_YESNO | DEBUG_MESSAGEBOX_YESNOCANCEL => {
             if ctx.globals.system.debug_flag {
-                ctx.globals.system.debug_logs.push("debug_messagebox_yesno".to_string());
+                ctx.globals
+                    .system
+                    .debug_logs
+                    .push("debug_messagebox_yesno".to_string());
             }
             ctx.push(Value::Int(0));
             return Ok(true);
@@ -179,7 +215,10 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             return Ok(true);
         }
         OPEN_DIALOG_FOR_CHIHAYA_BENCH => {
-            ctx.globals.system.bench_dialogs.push(p_str(call.params, 0).to_string());
+            ctx.globals
+                .system
+                .bench_dialogs
+                .push(p_str(call.params, 0).to_string());
             ctx.push(Value::Int(0));
             return Ok(true);
         }

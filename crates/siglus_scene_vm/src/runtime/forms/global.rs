@@ -2,16 +2,24 @@ use anyhow::Result;
 
 use crate::runtime::{forms, CommandContext, Value};
 
-use crate::runtime::forms::{
-    counter, input, int_list, key, keylist, mouse, stage, str_list, prop_access, timewait,
-    math, cgtable, database, g00buf, mask, editbox, file, steam,
-    syscom, script, system, frame_action, frame_action_ch,
-};
 use crate::runtime::forms::codes;
+use crate::runtime::forms::{
+    cgtable, counter, database, editbox, file, frame_action, frame_action_ch, g00buf, input,
+    int_list, key, keylist, mask, math, mouse, prop_access, script, stage, steam, str_list, syscom,
+    system, timewait,
+};
 
-pub fn dispatch_global_form(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    // Prefer externally configured numeric IDs.
-    if form_id == ctx.ids.form_global_stage {
+fn is_confirmed_stage_global(form_id: u32, primary: u32) -> bool {
+    form_id == primary || matches!(form_id, 37 | 38 | 73)
+}
+
+pub fn dispatch_global_form(
+    ctx: &mut CommandContext,
+    form_id: u32,
+    args: &[Value],
+) -> Result<bool> {
+    // Prefer externally configured numeric IDs, plus decomp-confirmed aliases.
+    if is_confirmed_stage_global(form_id, ctx.ids.form_global_stage) {
         return stage::dispatch(ctx, args);
     }
     if form_id == ctx.ids.form_global_bgm {
@@ -169,7 +177,6 @@ pub fn dispatch_global_form(ctx: &mut CommandContext, form_id: u32, args: &[Valu
         }
     }
 }
-
 
 fn stateful_global_props(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
     prop_access::dispatch_stateful_form(ctx, form_id, args);

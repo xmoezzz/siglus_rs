@@ -17,30 +17,61 @@ use anyhow::Result;
 
 use std::path::{Path, PathBuf};
 
-use crate::runtime::globals::{
-    GroupListOpKind, GroupOpKind, MwndListOpKind, MwndOpKind,
-    MsgBackAtom, MsgBackState,
-    ObjectBackend, ObjectCompatState, ObjectEventTarget, ObjectListOpKind, ObjectOpKind, ObjectWeatherParam,
-    StageChildKind, StageFormState, WorldState,
-};
-use crate::runtime::Value;
-use crate::runtime::int_event::IntEvent;
-use crate::runtime::id_map;
-use crate::layer::{SpriteFit, SpriteId, SpriteSizeMode};
 use crate::image_manager::ImageId;
+use crate::layer::{SpriteFit, SpriteId, SpriteSizeMode};
+use crate::runtime::globals::{
+    GroupListOpKind, GroupOpKind, MsgBackAtom, MsgBackState, MwndListOpKind, MwndOpKind,
+    MwndSelectionChoice, MwndSelectionState, ObjectBackend, ObjectCompatState, ObjectEventTarget,
+    ObjectFrameActionState, ObjectListOpKind, ObjectOpKind, ObjectWeatherParam, StageChildKind,
+    StageFormState, WorldState,
+};
+use crate::runtime::id_map;
+use crate::runtime::int_event::IntEvent;
+use crate::runtime::Value;
 
 use super::super::CommandContext;
-use super::prop_access;
+use super::syscom;
+
+fn is_stage_form_id(ctx: &CommandContext, form_id: i32) -> bool {
+    let primary = ctx.ids.form_global_stage as i32;
+    form_id == primary || matches!(form_id, 37 | 38 | 73)
+}
 
 #[derive(Debug, Clone)]
 enum StageTarget {
     StageCount,
     /// [FORM_STAGE, ELM_ARRAY, stage_idx, op]
-    StageOp { stage: i64, op: i64 },
+    StageOp {
+        stage: i64,
+        op: i64,
+    },
     /// [FORM_STAGE, ELM_ARRAY, stage_idx, child_code, op]
-    ChildListOp { stage: i64, child: i32, op: i64 },
+    ChildListOp {
+        stage: i64,
+        child: i32,
+        op: i64,
+    },
     /// [FORM_STAGE, ELM_ARRAY, stage_idx, child_code, ELM_ARRAY, idx, op, tail...]
-    ChildItemOp { stage: i64, child: i32, idx: i64, op: i64, tail: Vec<i32> },
+    ChildItemOp {
+        stage: i64,
+        child: i32,
+        idx: i64,
+        op: i64,
+        tail: Vec<i32>,
+    },
+}
+
+fn load_thumb_image_id(ctx: &mut CommandContext, thumb_no: i64) -> Option<ImageId> {
+    let dir = syscom::save_dir(&ctx.project_dir);
+    for path in syscom::thumb_candidate_paths(&dir, thumb_no) {
+        if !path.is_file() {
+            continue;
+        }
+        if let Ok(id) = ctx.images.load_file(&path, 0) {
+            return Some(id);
+        }
+    }
+    None
 }
 
 fn register_known_event_target(ids: &id_map::IdMap, obj: &mut ObjectCompatState, op: i32) {
@@ -113,33 +144,59 @@ fn register_known_event_target(ids: &id_map::IdMap, obj: &mut ObjectCompatState,
 }
 
 fn parse_target(ctx: &CommandContext, chain: &[i32]) -> Option<StageTarget> {
-    // Stage count: [FORM_STAGE, 1]
-    if chain.len() == 2 && chain[0] == ctx.ids.form_global_stage as i32 && chain[1] as i64 == 1 {
-        return Some(StageTarget::StageCount);
+    if chain.is_empty() || !is_stage_form_id(ctx, chain[0]) {
+        return None;
     }
 
-    // Common shape:
-    //   [FORM_STAGE, ELM_ARRAY, stage_idx, ...]
-    if chain.len() < 4 {
-        return None;
+    // Decomp-confirmed stage dispatch shape used by the testcase:
+    //   [FORM_STAGE_ALIAS, child_code, ...]
+    // where child_code is one of:
+    //   0=create_object, 1=create_mwnd, 2=object_list, 3=mwnd_list,
+    //   4=btnselitem, 5=objbtngroup, 6=world_list, 7=quake, 8=effect.
+    if chain.len() >= 2 {
+        let child = chain[1] as i32;
+        if (0..=8).contains(&child) {
+            if chain.len() == 2 && child == 1 {
+                return Some(StageTarget::StageCount);
+            }
+            if child == 0 || child == 1 {
+                return Some(StageTarget::StageOp {
+                    stage: 0,
+                    op: child as i64,
+                });
+            }
+            if chain.len() >= 5 && chain[2] == -1 {
+                return Some(StageTarget::ChildItemOp {
+                    stage: 0,
+                    child,
+                    idx: chain[3] as i64,
+                    op: chain[4] as i64,
+                    tail: chain.get(5..).unwrap_or(&[]).to_vec(),
+                });
+            }
+            if chain.len() >= 3 {
+                return Some(StageTarget::ChildListOp {
+                    stage: 0,
+                    child,
+                    op: chain[2] as i64,
+                });
+            }
+        }
     }
-    if chain[0] != ctx.ids.form_global_stage as i32 {
-        return None;
-    }
-    if chain[1] != ctx.ids.elm_array {
+
+    // Historical normalized shape:
+    //   [FORM_STAGE, ELM_ARRAY, stage_idx, child, ...]
+    if chain.len() < 4 || chain[1] != ctx.ids.elm_array {
         return None;
     }
     let stage = chain[2] as i64;
-
     if chain.len() == 4 {
         return Some(StageTarget::StageOp {
             stage,
             op: chain[3] as i64,
         });
     }
-
     let child = chain[3] as i32;
-
     if chain.len() == 5 {
         return Some(StageTarget::ChildListOp {
             stage,
@@ -147,7 +204,6 @@ fn parse_target(ctx: &CommandContext, chain: &[i32]) -> Option<StageTarget> {
             op: chain[4] as i64,
         });
     }
-
     if chain.len() >= 7 && chain[4] == ctx.ids.elm_array {
         return Some(StageTarget::ChildItemOp {
             stage,
@@ -157,7 +213,6 @@ fn parse_target(ctx: &CommandContext, chain: &[i32]) -> Option<StageTarget> {
             tail: chain.get(7..).unwrap_or(&[]).to_vec(),
         });
     }
-
     None
 }
 
@@ -194,7 +249,11 @@ fn push_ok(ctx: &mut CommandContext, ret_form: Option<i64>) {
     }
 }
 
-fn dispatch_int_event_like(ev: &mut IntEvent, params: &[Value], ret_form: Option<i64>) -> Option<Value> {
+fn dispatch_int_event_like(
+    ev: &mut IntEvent,
+    params: &[Value],
+    ret_form: Option<i64>,
+) -> Option<Value> {
     match params.len() {
         0 => {
             if ret_form.unwrap_or(0) != 0 {
@@ -227,44 +286,17 @@ fn dispatch_int_event_like(ev: &mut IntEvent, params: &[Value], ret_form: Option
 
 fn stage_chain_fallback(
     ctx: &mut CommandContext,
-    st: &mut StageFormState,
+    _st: &mut StageFormState,
     chain: &[i32],
-    script_args: &[Value],
-    rhs: Option<&Value>,
-    al_id: Option<i64>,
+    _script_args: &[Value],
+    _rhs: Option<&Value>,
+    _al_id: Option<i64>,
     ret_form: Option<i64>,
 ) {
-    let key = prop_access::chain_key(chain);
-    let key_str = key.to_string();
-    if let Some(s) = rhs.and_then(|v| v.as_str()) {
-        st.child_str_props.insert(key_str.clone(), s.to_string());
-        ctx.stack.push(Value::Int(0));
-        return;
-    }
-    if let Some(v) = rhs.and_then(|v| v.as_i64()) {
-        st.child_int_props.insert(key_str.clone(), v);
-        ctx.stack.push(Value::Int(0));
-        return;
-    }
-    if rhs.is_none() && script_args.len() == 1 {
-        if let Some(v) = script_args[0].as_i64() {
-            if matches!(al_id, Some(1)) {
-                st.child_int_props.insert(key_str.clone(), v);
-                ctx.stack.push(Value::Int(0));
-                return;
-            }
-        }
-        if let Some(s) = script_args[0].as_str() {
-            if matches!(al_id, Some(1)) {
-                st.child_str_props.insert(key_str.clone(), s.to_string());
-                ctx.stack.push(Value::Int(0));
-                return;
-            }
-        }
-    }
+    ctx.unknown
+        .record_element_chain(ctx.ids.form_global_stage, chain, "stage-fallback");
     match ret_form {
-        Some(2) => ctx.stack.push(Value::Str(st.child_str_props.get(&key_str).cloned().unwrap_or_default())),
-        Some(rf) if rf != 0 => ctx.stack.push(Value::Int(*st.child_int_props.get(&key_str).unwrap_or(&0))),
+        Some(rf) if rf != 0 => ctx.stack.push(default_for_ret_form(rf)),
         _ => ctx.stack.push(Value::Int(0)),
     }
 }
@@ -288,8 +320,8 @@ fn looks_like_path(s: &str) -> bool {
     }
     let lower = s.to_ascii_lowercase();
     for ext in [
-        ".png", ".bmp", ".jpg", ".jpeg", ".tga", ".dds", ".webp", ".tif", ".tiff",
-        ".g00", ".g02", ".g03",
+        ".png", ".bmp", ".jpg", ".jpeg", ".tga", ".dds", ".webp", ".tif", ".tiff", ".g00", ".g02",
+        ".g03",
     ] {
         if lower.ends_with(ext) {
             return true;
@@ -322,14 +354,24 @@ fn try_set_ui_bg_from_name(ctx: &mut CommandContext, name: &str) {
     }
 
     // Conservative: try direct file, then g00, then bg.
-    if ctx.images.load_file(Path::new(name), 0).map(|id| {
-        ctx.ui.set_message_bg(id);
-    }).is_ok() {
+    if ctx
+        .images
+        .load_file(Path::new(name), 0)
+        .map(|id| {
+            ctx.ui.set_message_bg(id);
+        })
+        .is_ok()
+    {
         return;
     }
-    if ctx.images.load_g00(name, 0).map(|id| {
-        ctx.ui.set_message_bg(id);
-    }).is_ok() {
+    if ctx
+        .images
+        .load_g00(name, 0)
+        .map(|id| {
+            ctx.ui.set_message_bg(id);
+        })
+        .is_ok()
+    {
         return;
     }
     let _ = ctx.images.load_bg(name).map(|id| {
@@ -366,7 +408,6 @@ fn with_stage_state<R>(
     r
 }
 
-
 fn msgbk_state_mut(ctx: &mut CommandContext) -> Option<&mut MsgBackState> {
     let form_id = ctx.ids.form_global_msgbk;
     if form_id == 0 {
@@ -376,7 +417,9 @@ fn msgbk_state_mut(ctx: &mut CommandContext) -> Option<&mut MsgBackState> {
 }
 
 fn msgbk_add_text(ctx: &mut CommandContext, s: &str) {
-    let Some(st) = msgbk_state_mut(ctx) else { return; };
+    let Some(st) = msgbk_state_mut(ctx) else {
+        return;
+    };
     if s.is_empty() {
         return;
     }
@@ -384,23 +427,37 @@ fn msgbk_add_text(ctx: &mut CommandContext, s: &str) {
 }
 
 fn msgbk_add_name(ctx: &mut CommandContext, s: &str) {
-    let Some(st) = msgbk_state_mut(ctx) else { return; };
+    let Some(st) = msgbk_state_mut(ctx) else {
+        return;
+    };
     // The original engine records name separately; for runtime we store it as a distinct atom.
     st.cur.atoms.push(MsgBackAtom::Name(s.to_string()));
 }
 
 fn msgbk_next(ctx: &mut CommandContext) {
-    let Some(st) = msgbk_state_mut(ctx) else { return; };
+    let Some(st) = msgbk_state_mut(ctx) else {
+        return;
+    };
     st.next();
 }
 
-fn ensure_group(ctx: &mut CommandContext, st: &mut StageFormState, stage_idx: i64, group_idx: usize) {
+fn ensure_group(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    group_idx: usize,
+) {
     let _ = ctx;
     st.ensure_group_list(stage_idx, group_idx + 1);
     let list = st.group_lists.get_mut(&stage_idx).unwrap();
     let g = &mut list[group_idx];
     // On first touch, initialize to the same "empty" defaults used by the original engine.
-    if g.hit_button_no == 0 && g.pushed_button_no == 0 && g.decided_button_no == 0 && g.result == 0 && g.result_button_no == 0 {
+    if g.hit_button_no == 0
+        && g.pushed_button_no == 0
+        && g.decided_button_no == 0
+        && g.result == 0
+        && g.result_button_no == 0
+    {
         g.init_sel();
         g.order = 0;
         g.layer = 0;
@@ -421,16 +478,16 @@ fn ensure_mwnd(ctx: &mut CommandContext, st: &mut StageFormState, stage_idx: i64
 fn learn_object_list_op(
     st: &mut StageFormState,
     op: i32,
-    argc: usize,
-    ret_form: Option<i64>,
+    _argc: usize,
+    _ret_form: Option<i64>,
 ) -> ObjectListOpKind {
     if let Some(&k) = st.object_list_op_map.get(&op) {
         return k;
     }
 
-    let k = if argc == 0 && ret_form.unwrap_or(1) != 0 {
+    let k = if op == crate::runtime::forms::codes::OBJECTLIST_GET_SIZE {
         ObjectListOpKind::GetSize
-    } else if argc == 1 {
+    } else if op == crate::runtime::forms::codes::OBJECTLIST_RESIZE {
         ObjectListOpKind::Resize
     } else {
         ObjectListOpKind::Unknown
@@ -450,7 +507,8 @@ fn dispatch_object_list_op(
     let k = learn_object_list_op(st, op, script_args.len(), ret_form);
     match k {
         ObjectListOpKind::GetSize => {
-            ctx.stack.push(Value::Int(st.object_list_len(stage_idx) as i64));
+            ctx.stack
+                .push(Value::Int(st.object_list_len(stage_idx) as i64));
             true
         }
         ObjectListOpKind::Resize => {
@@ -480,7 +538,11 @@ fn dispatch_object_list_op(
 }
 
 fn ensure_object_for_access(st: &mut StageFormState, stage_idx: i64, obj_idx: usize) -> bool {
-    let strict = st.object_list_strict.get(&stage_idx).copied().unwrap_or(false);
+    let strict = st
+        .object_list_strict
+        .get(&stage_idx)
+        .copied()
+        .unwrap_or(false);
     let entry = st.object_lists.entry(stage_idx).or_default();
     if entry.len() <= obj_idx {
         if strict {
@@ -500,18 +562,35 @@ fn ensure_rect_layer(ctx: &mut CommandContext, st: &mut StageFormState, stage_id
     id
 }
 
-fn object_clear_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState, stage_idx: i64, obj_idx: usize) {
+fn object_clear_backend(
+    ctx: &mut CommandContext,
+    obj: &mut ObjectCompatState,
+    stage_idx: i64,
+    obj_idx: usize,
+) {
     if let Some(id) = obj.movie.audio_id.take() {
         ctx.movie.stop_audio(id);
     }
     if matches!(obj.backend, ObjectBackend::Gfx) {
-		let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-		let _ = gfx.object_clear(images, layers, stage_idx, obj_idx as i64);
+        let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+        let _ = gfx.object_clear(images, layers, stage_idx, obj_idx as i64);
     }
     match obj.backend {
-        ObjectBackend::Rect { layer_id, sprite_id, .. }
-        | ObjectBackend::String { layer_id, sprite_id, .. }
-        | ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+        ObjectBackend::Rect {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | ObjectBackend::String {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | ObjectBackend::Movie {
+            layer_id,
+            sprite_id,
+            ..
+        } => {
             if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                 if let Some(spr) = layer.sprite_mut(sprite_id) {
                     spr.visible = false;
@@ -519,7 +598,10 @@ fn object_clear_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState, s
                 }
             }
         }
-        ObjectBackend::Number { layer_id, ref sprite_ids } => {
+        ObjectBackend::Number {
+            layer_id,
+            ref sprite_ids,
+        } => {
             if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                 for &sid in sprite_ids {
                     if let Some(spr) = layer.sprite_mut(sid) {
@@ -534,12 +616,21 @@ fn object_clear_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState, s
     obj.backend = ObjectBackend::None;
 }
 
-fn bind_capture_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState, stage_idx: i64, img_id: ImageId) {
-    let Some(img) = ctx.images.get(img_id) else { return; };
+fn bind_capture_backend(
+    ctx: &mut CommandContext,
+    obj: &mut ObjectCompatState,
+    stage_idx: i64,
+    img_id: ImageId,
+) {
+    let Some(img) = ctx.images.get(img_id) else {
+        return;
+    };
     let Some(layer_id) = ctx.gfx.ensure_stage_layer_id(&mut ctx.layers, stage_idx) else {
         return;
     };
-    let Some(layer) = ctx.layers.layer_mut(layer_id) else { return; };
+    let Some(layer) = ctx.layers.layer_mut(layer_id) else {
+        return;
+    };
     let sprite_id = layer.create_sprite();
     if let Some(spr) = layer.sprite_mut(sprite_id) {
         spr.visible = true;
@@ -574,7 +665,6 @@ fn bind_capture_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState, s
         height: img.height,
     };
 }
-
 
 const TNM_SCALE_UNIT: i64 = 1000;
 const TNM_BTN_STATE_NORMAL: i64 = 0;
@@ -643,7 +733,10 @@ fn resolve_filter_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
 }
 
 fn movie_total_time_ms(ctx: &mut CommandContext, file: &str) -> Option<u64> {
-    ctx.movie.prepare(file).ok().and_then(|info| info.duration_ms())
+    ctx.movie
+        .prepare(file)
+        .ok()
+        .and_then(|info| info.duration_ms())
 }
 
 fn digits_most_significant(mut n: u64) -> Vec<i64> {
@@ -661,7 +754,10 @@ fn digits_most_significant(mut n: u64) -> Vec<i64> {
 
 fn update_number_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState) {
     let (layer_id, sprite_ids) = match &obj.backend {
-        ObjectBackend::Number { layer_id, sprite_ids } => (*layer_id, sprite_ids.as_slice()),
+        ObjectBackend::Number {
+            layer_id,
+            sprite_ids,
+        } => (*layer_id, sprite_ids.as_slice()),
         _ => return,
     };
 
@@ -678,22 +774,35 @@ fn update_number_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState) 
     };
 
     let disp = if ctx.ids.obj_disp != 0 {
-        obj.extra_int_props.get(&ctx.ids.obj_disp).copied().unwrap_or(0) != 0
+        obj.extra_int_props
+            .get(&ctx.ids.obj_disp)
+            .copied()
+            .unwrap_or(0)
+            != 0
     } else {
         true
     };
     let base_x = if ctx.ids.obj_x != 0 {
-        obj.extra_int_props.get(&ctx.ids.obj_x).copied().unwrap_or(0) as i32
+        obj.extra_int_props
+            .get(&ctx.ids.obj_x)
+            .copied()
+            .unwrap_or(0) as i32
     } else {
         0
     };
     let base_y = if ctx.ids.obj_y != 0 {
-        obj.extra_int_props.get(&ctx.ids.obj_y).copied().unwrap_or(0) as i32
+        obj.extra_int_props
+            .get(&ctx.ids.obj_y)
+            .copied()
+            .unwrap_or(0) as i32
     } else {
         0
     };
     let base_pat = if ctx.ids.obj_patno != 0 {
-        obj.extra_int_props.get(&ctx.ids.obj_patno).copied().unwrap_or(0)
+        obj.extra_int_props
+            .get(&ctx.ids.obj_patno)
+            .copied()
+            .unwrap_or(0)
     } else {
         0
     };
@@ -706,7 +815,13 @@ fn update_number_backend(ctx: &mut CommandContext, obj: &mut ObjectCompatState) 
     let space = obj.number_param.space;
 
     let n = obj.number_value;
-    let sign = if n == 0 { 0 } else if n > 0 { 1 } else { -1 };
+    let sign = if n == 0 {
+        0
+    } else if n > 0 {
+        1
+    } else {
+        -1
+    };
     let disp_sign = disp_sign_cfg || sign == -1;
 
     let digits = digits_most_significant(n.unsigned_abs());
@@ -840,17 +955,27 @@ fn update_string_backend(
     let (font_px, max_w, max_h) = string_layout(obj);
 
     let disp = if ctx.ids.obj_disp != 0 {
-        obj.extra_int_props.get(&ctx.ids.obj_disp).copied().unwrap_or(0) != 0
+        obj.extra_int_props
+            .get(&ctx.ids.obj_disp)
+            .copied()
+            .unwrap_or(0)
+            != 0
     } else {
         true
     };
     let x = if ctx.ids.obj_x != 0 {
-        obj.extra_int_props.get(&ctx.ids.obj_x).copied().unwrap_or(0) as i32
+        obj.extra_int_props
+            .get(&ctx.ids.obj_x)
+            .copied()
+            .unwrap_or(0) as i32
     } else {
         0
     };
     let y = if ctx.ids.obj_y != 0 {
-        obj.extra_int_props.get(&ctx.ids.obj_y).copied().unwrap_or(0) as i32
+        obj.extra_int_props
+            .get(&ctx.ids.obj_y)
+            .copied()
+            .unwrap_or(0) as i32
     } else {
         0
     };
@@ -871,7 +996,9 @@ fn update_string_backend(
     };
 
     if !ctx.font_cache.is_loaded() {
-        let _ = ctx.font_cache.load_from_font_dir(&ctx.project_dir.join("font"));
+        let _ = ctx
+            .font_cache
+            .load_from_font_dir(&ctx.project_dir.join("font"));
     }
     let img_id = ctx
         .font_cache
@@ -880,7 +1007,10 @@ fn update_string_backend(
     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
         if let Some(spr) = layer.sprite_mut(sprite_id) {
             spr.fit = SpriteFit::PixelRect;
-            spr.size_mode = SpriteSizeMode::Explicit { width: max_w, height: max_h };
+            spr.size_mode = SpriteSizeMode::Explicit {
+                width: max_w,
+                height: max_h,
+            };
             spr.visible = disp;
             spr.x = x;
             spr.y = y;
@@ -899,86 +1029,21 @@ fn update_string_backend(
 fn learn_object_op(
     st: &mut StageFormState,
     op: i32,
-    script_args: &[Value],
-    ret_form: Option<i64>,
+    _script_args: &[Value],
+    _ret_form: Option<i64>,
     rhs: Option<&Value>,
-    al_id: Option<i64>,
+    _al_id: Option<i64>,
 ) -> ObjectOpKind {
     if let Some(&k) = st.object_op_map.get(&op) {
         return k;
     }
 
-    if matches!(rhs, Some(Value::Str(_))) || ret_form == Some(2) {
+    if matches!(rhs, Some(Value::Str(_))) {
         st.object_str_ops.insert(op);
     }
 
-    // Do not map generic properties; only map command-like ops.
-    if rhs.is_some() || ret_form.is_none() {
-        return ObjectOpKind::Unknown;
-    }
-
-    let has_str = script_args.iter().any(|v| matches!(v, Value::Str(_)));
-    let all_int = script_args.iter().all(|v| v.as_i64().is_some());
-
-    let k = if all_int && ret_form == Some(0) && script_args.len() >= 2 {
-        // multi-arg setters (SET_POS/SET_CENTER/SET_SCALE/SET_ROTATE/SET_CLIP/SET_SRC_CLIP)
-        // We do not assume numeric IDs; we learn the first occurrences by signature.
-        let used = st.object_op_map.values().copied().collect::<Vec<_>>();
-        if (2..=3).contains(&script_args.len()) {
-            if !used.contains(&ObjectOpKind::SetPos) {
-                ObjectOpKind::SetPos
-            } else if !used.contains(&ObjectOpKind::SetCenter) {
-                ObjectOpKind::SetCenter
-            } else if !used.contains(&ObjectOpKind::SetScale) {
-                ObjectOpKind::SetScale
-            } else if !used.contains(&ObjectOpKind::SetRotate) {
-                ObjectOpKind::SetRotate
-            } else {
-                ObjectOpKind::Unknown
-            }
-        } else if script_args.len() == 4 {
-            if !used.contains(&ObjectOpKind::SetClip) {
-                ObjectOpKind::SetClip
-            } else if !used.contains(&ObjectOpKind::SetSrcClip) {
-                ObjectOpKind::SetSrcClip
-            } else {
-                ObjectOpKind::Unknown
-            }
-        } else {
-            ObjectOpKind::Unknown
-        }
-    } else if has_str {
-        let s0 = script_args.iter().find_map(as_str).unwrap_or("");
-        if looks_like_path(s0) {
-            ObjectOpKind::CreatePct
-        } else {
-            // For one-arg string commands we handle behavior in dispatch; keep this unmapped.
-            ObjectOpKind::CreateString
-        }
-    } else if script_args.len() >= 8 {
-        ObjectOpKind::CreateRect
-    } else if script_args.is_empty() && ret_form == Some(0) {
-        if !st.object_op_map.values().any(|&v| v == ObjectOpKind::Init) {
-            ObjectOpKind::Init
-        } else if !st.object_op_map.values().any(|&v| v == ObjectOpKind::Free) {
-            ObjectOpKind::Free
-        } else if !st.object_op_map.values().any(|&v| v == ObjectOpKind::InitParam) {
-            ObjectOpKind::InitParam
-        } else {
-            ObjectOpKind::Unknown
-        }
-    } else {
-        ObjectOpKind::Unknown
-    };
-
-    let _ = al_id;
-
-    if k != ObjectOpKind::Unknown {
-        st.object_op_map.insert(op, k);
-    }
-    k
+    ObjectOpKind::Unknown
 }
-
 
 struct ObjectWriteBack {
     st: *mut StageFormState,
@@ -1033,7 +1098,10 @@ fn dispatch_object_op(
     let mut copy_from_snapshot: Option<(i64, usize, ObjectCompatState)> = None;
     if rhs.is_none() && ret_form == Some(0) && script_args.len() == 1 {
         if let Value::Element(e) = &script_args[0] {
-            if let Some(StageTarget::ChildItemOp { stage, child, idx, .. }) = parse_target(ctx, e) {
+            if let Some(StageTarget::ChildItemOp {
+                stage, child, idx, ..
+            }) = parse_target(ctx, e)
+            {
                 if child == ctx.ids.stage_elm_object && idx >= 0 {
                     let src_u = idx as usize;
                     if let Some(src_list) = st.object_lists.get(&stage) {
@@ -1045,8 +1113,6 @@ fn dispatch_object_op(
             }
         }
     }
-
-
 
     let obj0 = {
         let list = st.object_lists.get_mut(&stage_idx).unwrap();
@@ -1060,19 +1126,116 @@ fn dispatch_object_op(
     };
     let obj = &mut obj_write_back.obj;
 
+    fn frame_action_set_from_args(
+        fa: &mut ObjectFrameActionState,
+        script_args: &[Value],
+        real_time_flag: bool,
+    ) {
+        fa.end_time = script_args.get(0).and_then(as_i64).unwrap_or(0);
+        fa.cmd_name = script_args
+            .get(1)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        fa.scn_name.clear();
+        fa.real_time_flag = real_time_flag;
+        fa.end_flag = false;
+        fa.counter.reset();
+        fa.args = script_args
+            .iter()
+            .skip(2)
+            .filter_map(as_i64)
+            .collect::<Vec<_>>();
+    }
+
+    fn dispatch_object_frame_action(
+        ctx: &mut CommandContext,
+        fa: &mut ObjectFrameActionState,
+        tail: &[i32],
+        script_args: &[Value],
+        rhs: Option<&Value>,
+        al_id: Option<i64>,
+        ret_form: Option<i64>,
+    ) -> bool {
+        if tail.is_empty() {
+            push_ok(ctx, ret_form);
+            return true;
+        }
+
+        match tail[0] {
+            0 => {
+                let set_v = rhs.and_then(as_i64).or_else(|| {
+                    if ret_form.is_some() && al_id == Some(1) && script_args.len() == 1 {
+                        script_args.first().and_then(as_i64)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(v) = set_v {
+                    fa.counter.set_count(v);
+                    push_ok(ctx, ret_form);
+                } else {
+                    ctx.stack.push(Value::Int(fa.counter.get_count()));
+                }
+                true
+            }
+            1 => {
+                frame_action_set_from_args(fa, script_args, false);
+                push_ok(ctx, ret_form);
+                true
+            }
+            2 => {
+                fa.end_flag = true;
+                fa.counter.reset();
+                push_ok(ctx, ret_form);
+                true
+            }
+            3 => {
+                frame_action_set_from_args(fa, script_args, true);
+                push_ok(ctx, ret_form);
+                true
+            }
+            4 => {
+                ctx.stack.push(Value::Int(if fa.end_flag { 1 } else { 0 }));
+                true
+            }
+            _ => false,
+        }
+    }
+
     if let Some((src_stage, src_idx, mut src)) = copy_from_snapshot.take() {
         // Reset destination.
         object_clear_backend(ctx, obj, stage_idx, obj_u);
         let src_file = src.file_name.clone();
         src.backend = ObjectBackend::None;
         if let Some(file) = src.file_name.clone() {
-            let disp = ctx.gfx.object_peek_disp(src_stage, src_idx as i64).unwrap_or(0) != 0;
-            let (x, y) = ctx.gfx.object_peek_pos(src_stage, src_idx as i64).unwrap_or((0, 0));
-            let pat = ctx.gfx.object_peek_patno(src_stage, src_idx as i64).unwrap_or(0);
-			{
-				let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-				let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, &file, disp as i64, x, y, pat);
-			}
+            let disp = ctx
+                .gfx
+                .object_peek_disp(src_stage, src_idx as i64)
+                .unwrap_or(0)
+                != 0;
+            let (x, y) = ctx
+                .gfx
+                .object_peek_pos(src_stage, src_idx as i64)
+                .unwrap_or((0, 0));
+            let pat = ctx
+                .gfx
+                .object_peek_patno(src_stage, src_idx as i64)
+                .unwrap_or(0);
+            {
+                let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                let _ = gfx.object_create(
+                    images,
+                    layers,
+                    stage_idx,
+                    obj_u as i64,
+                    &file,
+                    disp as i64,
+                    x,
+                    y,
+                    pat,
+                );
+            }
             src.backend = ObjectBackend::Gfx;
         }
         // Preserve file name even if gfx binding fails.
@@ -1085,7 +1248,116 @@ fn dispatch_object_op(
         return true;
     }
 
-    if !tail.is_empty() || obj.extra_events.contains_key(&op) || obj.rep_int_event_lists.contains_key(&op) {
+    if ctx.ids.obj_frame_action != 0
+        && op == ctx.ids.obj_frame_action
+        && dispatch_object_frame_action(
+            ctx,
+            &mut obj.frame_action,
+            tail,
+            script_args,
+            rhs,
+            al_id,
+            ret_form,
+        )
+    {
+        return true;
+    }
+
+    if ctx.ids.obj_frame_action_ch != 0 && op == ctx.ids.obj_frame_action_ch {
+        if tail.len() >= 2 && (tail[0] == ctx.ids.elm_array || tail[0] == -1) {
+            let idx = tail[1].max(0) as usize;
+            if obj.frame_action_ch.len() <= idx {
+                obj.frame_action_ch
+                    .resize_with(idx + 1, ObjectFrameActionState::default);
+            }
+            if dispatch_object_frame_action(
+                ctx,
+                &mut obj.frame_action_ch[idx],
+                &tail[2..],
+                script_args,
+                rhs,
+                al_id,
+                ret_form,
+            ) {
+                return true;
+            }
+        } else if tail.len() == 1 {
+            match tail[0] {
+                1 => {
+                    let n = script_args.first().and_then(as_i64).unwrap_or(0).max(0) as usize;
+                    obj.frame_action_ch
+                        .resize_with(n, ObjectFrameActionState::default);
+                    push_ok(ctx, ret_form);
+                    return true;
+                }
+                2 => {
+                    ctx.stack.push(Value::Int(obj.frame_action_ch.len() as i64));
+                    return true;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Decomp-confirmed nested object list selector used heavily by the testcase title flow.
+    // sub_589BC0 case 0x5D dispatches back into object-list handling.
+    if op == 93 {
+        if tail.len() >= 3 && tail[0] == -1 {
+            let child_idx = tail[1].max(0) as usize;
+            let list = obj.child_object_lists.entry(op).or_default();
+            if list.len() <= child_idx {
+                list.resize_with(child_idx + 1, ObjectCompatState::default);
+            }
+            let child0 = std::mem::take(&mut list[child_idx]);
+            let mut child = child0;
+            let handled = dispatch_object_op(
+                ctx,
+                st,
+                stage_idx,
+                child_idx as i64,
+                tail[2],
+                &tail[3..],
+                script_args,
+                ret_form,
+                rhs,
+                al_id,
+            );
+            list[child_idx] = child;
+            if handled {
+                return true;
+            }
+        }
+        if tail.len() == 1 {
+            match tail[0] {
+                3 => {
+                    let n = obj
+                        .child_object_lists
+                        .get(&op)
+                        .map(|v| v.len())
+                        .unwrap_or(0);
+                    ctx.stack.push(Value::Int(n as i64));
+                    return true;
+                }
+                4 => {
+                    if let Some(n0) = script_args.first().and_then(as_i64) {
+                        let n = n0.max(0) as usize;
+                        obj.child_object_lists
+                            .entry(op)
+                            .or_default()
+                            .resize_with(n, ObjectCompatState::default);
+                    }
+                    push_ok(ctx, ret_form);
+                    return true;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if !tail.is_empty()
+        || obj.extra_events.contains_key(&op)
+        || obj.rep_int_event_lists.contains_key(&op)
+    {
         let mut arr_idx: Option<i64> = None;
         let mut t = tail;
         if t.len() >= 2 && (t[0] == ctx.ids.elm_array || t[0] == -1) {
@@ -1147,14 +1419,19 @@ fn dispatch_object_op(
                 }
                 1 => {
                     if obj.any_event_active() {
-                        ctx.wait
-                            .wait_object_all_events(ctx.ids.form_global_stage, stage_idx, obj_u, false);
+                        ctx.wait.wait_object_all_events(
+                            ctx.ids.form_global_stage,
+                            stage_idx,
+                            obj_u,
+                            false,
+                        );
                     }
                     push_ok(ctx, ret_form);
                     return true;
                 }
                 2 => {
-                    ctx.stack.push(Value::Int(if obj.any_event_active() { 1 } else { 0 }));
+                    ctx.stack
+                        .push(Value::Int(if obj.any_event_active() { 1 } else { 0 }));
                     return true;
                 }
                 _ => {}
@@ -1215,7 +1492,8 @@ fn dispatch_object_op(
                     }
                     2 => {
                         if ret_form.unwrap_or(0) != 0 {
-                            ctx.stack.push(Value::Int(if ev.check_event() { 1 } else { 0 }));
+                            ctx.stack
+                                .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
                         } else {
                             ev.end_event();
                             ctx.stack.push(Value::Int(0));
@@ -1237,7 +1515,8 @@ fn dispatch_object_op(
                         return true;
                     }
                     4 => {
-                        ctx.stack.push(Value::Int(if ev.check_event() { 1 } else { 0 }));
+                        ctx.stack
+                            .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
                         return true;
                     }
                     _ => {}
@@ -1274,7 +1553,10 @@ fn dispatch_object_op(
                 if obj.extra_events.contains_key(&op) {
                     register_known_event_target(&ctx.ids, obj, op);
                     let _ = obj.event_target(op);
-                    let ev = obj.extra_events.entry(op).or_insert_with(|| IntEvent::new(0));
+                    let ev = obj
+                        .extra_events
+                        .entry(op)
+                        .or_insert_with(|| IntEvent::new(0));
                     if let Some(Value::Int(v)) = rhs {
                         ev.set_value(*v as i32);
                         ctx.stack.push(Value::Int(0));
@@ -1286,7 +1568,10 @@ fn dispatch_object_op(
             } else if (0..=4).contains(&t[0]) {
                 register_known_event_target(&ctx.ids, obj, op);
                 let _ = obj.event_target(op);
-                let ev = obj.extra_events.entry(op).or_insert_with(|| IntEvent::new(0));
+                let ev = obj
+                    .extra_events
+                    .entry(op)
+                    .or_insert_with(|| IntEvent::new(0));
                 match t[0] {
                     0 => {
                         if script_args.len() >= 4 {
@@ -1313,7 +1598,8 @@ fn dispatch_object_op(
                     }
                     2 => {
                         if ret_form.unwrap_or(0) != 0 {
-                            ctx.stack.push(Value::Int(if ev.check_event() { 1 } else { 0 }));
+                            ctx.stack
+                                .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
                         } else {
                             ev.end_event();
                             ctx.stack.push(Value::Int(0));
@@ -1322,14 +1608,20 @@ fn dispatch_object_op(
                     }
                     3 => {
                         if ev.check_event() {
-                            ctx.wait
-                                .wait_object_event(ctx.ids.form_global_stage, stage_idx, obj_u, op, false);
+                            ctx.wait.wait_object_event(
+                                ctx.ids.form_global_stage,
+                                stage_idx,
+                                obj_u,
+                                op,
+                                false,
+                            );
                         }
                         push_ok(ctx, ret_form);
                         return true;
                     }
                     4 => {
-                        ctx.stack.push(Value::Int(if ev.check_event() { 1 } else { 0 }));
+                        ctx.stack
+                            .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
                         return true;
                     }
                     _ => {}
@@ -1357,14 +1649,15 @@ fn dispatch_object_op(
             return true;
         }
         if sub == ctx.ids.elm_allevent_check {
-            ctx.stack.push(Value::Int(if obj.any_event_active() { 1 } else { 0 }));
+            ctx.stack
+                .push(Value::Int(if obj.any_event_active() { 1 } else { 0 }));
             return true;
         }
     }
 
     // Keep the existing id-mapped subset for correctness when ids are available.
 
-// Id-mapped subset: when numeric ids are available in IdMap.
+    // Id-mapped subset: when numeric ids are available in IdMap.
     // This must reflect actual runtime state for both Gfx and Rect backends.
     if op == ctx.ids.obj_init {
         object_clear_backend(ctx, obj, stage_idx, obj_u);
@@ -1435,10 +1728,20 @@ fn dispatch_object_op(
         obj.rep_int_lists.clear();
         obj.rep_int_event_lists.clear();
 
-		{
-			let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-			let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, disp as i64, x, y, patno);
-		}
+        {
+            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+            let _ = gfx.object_create(
+                images,
+                layers,
+                stage_idx,
+                obj_u as i64,
+                file,
+                disp as i64,
+                x,
+                y,
+                patno,
+            );
+        }
         obj.used = true;
         obj.backend = ObjectBackend::Gfx;
         obj.file_name = Some(file.to_string());
@@ -1458,7 +1761,11 @@ fn dispatch_object_op(
         if let Some(v) = set_v {
             let b = v != 0;
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.visible = b;
@@ -1466,14 +1773,24 @@ fn dispatch_object_op(
                     }
                 }
                 ObjectBackend::Gfx => {
-					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-					let _ = gfx.object_set_disp(images, layers, stage_idx, obj_u as i64, if b { 1 } else { 0 });
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_disp(
+                        images,
+                        layers,
+                        stage_idx,
+                        obj_u as i64,
+                        if b { 1 } else { 0 },
+                    );
                 }
                 ObjectBackend::Number { .. } => {
                     obj.extra_int_props.insert(op, if b { 1 } else { 0 });
                     update_number_backend(ctx, obj);
                 }
-                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.visible = b;
@@ -1488,15 +1805,26 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => ctx
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => ctx
                     .layers
                     .layer(layer_id)
                     .and_then(|layer| layer.sprite(sprite_id))
                     .map(|spr| if spr.visible { 1 } else { 0 })
                     .unwrap_or(0),
-                ObjectBackend::Gfx => ctx.gfx.object_peek_disp(stage_idx, obj_u as i64).unwrap_or(0),
+                ObjectBackend::Gfx => ctx
+                    .gfx
+                    .object_peek_disp(stage_idx, obj_u as i64)
+                    .unwrap_or(0),
                 ObjectBackend::Number { .. } => *obj.extra_int_props.get(&op).unwrap_or(&0),
-                ObjectBackend::String { layer_id, sprite_id, .. } => ctx
+                ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => ctx
                     .layers
                     .layer(layer_id)
                     .and_then(|layer| layer.sprite(sprite_id))
@@ -1519,7 +1847,11 @@ fn dispatch_object_op(
         });
         if let Some(v) = set_v {
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.x = v as i32;
@@ -1527,8 +1859,8 @@ fn dispatch_object_op(
                     }
                 }
                 ObjectBackend::Gfx => {
-					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-					let _ = gfx.object_set_x(images, layers, stage_idx, obj_u as i64, v);
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_x(images, layers, stage_idx, obj_u as i64, v);
                 }
                 ObjectBackend::Number { .. } => {
                     obj.extra_int_props.insert(op, v);
@@ -1541,7 +1873,11 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => ctx
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => ctx
                     .layers
                     .layer(layer_id)
                     .and_then(|layer| layer.sprite(sprite_id))
@@ -1569,7 +1905,11 @@ fn dispatch_object_op(
         });
         if let Some(v) = set_v {
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.y = v as i32;
@@ -1577,8 +1917,8 @@ fn dispatch_object_op(
                     }
                 }
                 ObjectBackend::Gfx => {
-					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-					let _ = gfx.object_set_y(images, layers, stage_idx, obj_u as i64, v);
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_y(images, layers, stage_idx, obj_u as i64, v);
                 }
                 ObjectBackend::Number { .. } => {
                     obj.extra_int_props.insert(op, v);
@@ -1591,7 +1931,11 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => ctx
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => ctx
                     .layers
                     .layer(layer_id)
                     .and_then(|layer| layer.sprite(sprite_id))
@@ -1626,7 +1970,8 @@ fn dispatch_object_op(
             obj.extra_int_props.insert(op, v);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
+            ctx.stack
+                .push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
         }
         return true;
     }
@@ -1643,7 +1988,8 @@ fn dispatch_object_op(
             obj.extra_int_props.insert(op, v);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
+            ctx.stack
+                .push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
         }
         return true;
     }
@@ -1659,8 +2005,8 @@ fn dispatch_object_op(
         if let Some(v) = set_v {
             match obj.backend {
                 ObjectBackend::Gfx => {
-					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-					let _ = gfx.object_set_pat_no(images, layers, stage_idx, obj_u as i64, v);
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_pat_no(images, layers, stage_idx, obj_u as i64, v);
                 }
                 ObjectBackend::Number { .. } => {
                     obj.extra_int_props.insert(op, v);
@@ -1673,7 +2019,10 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Gfx => ctx.gfx.object_peek_patno(stage_idx, obj_u as i64).unwrap_or(0),
+                ObjectBackend::Gfx => ctx
+                    .gfx
+                    .object_peek_patno(stage_idx, obj_u as i64)
+                    .unwrap_or(0),
                 _ => *obj.extra_int_props.get(&op).unwrap_or(&0),
             };
             ctx.stack.push(Value::Int(v));
@@ -1692,8 +2041,8 @@ fn dispatch_object_op(
         if let Some(v) = set_v {
             match obj.backend {
                 ObjectBackend::Gfx => {
-					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-					let _ = gfx.object_set_layer(images, layers, stage_idx, obj_u as i64, v);
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_layer(images, layers, stage_idx, obj_u as i64, v);
                 }
                 _ => {
                     obj.extra_int_props.insert(op, v);
@@ -1702,7 +2051,10 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Gfx => ctx.gfx.object_peek_layer(stage_idx, obj_u as i64).unwrap_or(0),
+                ObjectBackend::Gfx => ctx
+                    .gfx
+                    .object_peek_layer(stage_idx, obj_u as i64)
+                    .unwrap_or(0),
                 _ => *obj.extra_int_props.get(&op).unwrap_or(&0),
             };
             ctx.stack.push(Value::Int(v));
@@ -1721,7 +2073,11 @@ fn dispatch_object_op(
         if let Some(v) = set_v {
             let a = v.clamp(0, 255) as u8;
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.alpha = a;
@@ -1729,8 +2085,9 @@ fn dispatch_object_op(
                     }
                 }
                 ObjectBackend::Gfx => {
-					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-					let _ = gfx.object_set_alpha(images, layers, stage_idx, obj_u as i64, i64::from(a));
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ =
+                        gfx.object_set_alpha(images, layers, stage_idx, obj_u as i64, i64::from(a));
                 }
                 _ => {
                     obj.extra_int_props.insert(op, a as i64);
@@ -1739,13 +2096,20 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => ctx
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => ctx
                     .layers
                     .layer(layer_id)
                     .and_then(|layer| layer.sprite(sprite_id))
                     .map(|spr| spr.alpha as i64)
                     .unwrap_or(0),
-                ObjectBackend::Gfx => ctx.gfx.object_peek_alpha(stage_idx, obj_u as i64).unwrap_or(0),
+                ObjectBackend::Gfx => ctx
+                    .gfx
+                    .object_peek_alpha(stage_idx, obj_u as i64)
+                    .unwrap_or(0),
                 _ => *obj.extra_int_props.get(&op).unwrap_or(&0),
             };
             ctx.stack.push(Value::Int(v));
@@ -1763,7 +2127,11 @@ fn dispatch_object_op(
         });
         if let Some(v) = set_v {
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.order = v as i32;
@@ -1771,8 +2139,8 @@ fn dispatch_object_op(
                     }
                 }
                 ObjectBackend::Gfx => {
-					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-					let _ = gfx.object_set_order(images, layers, stage_idx, obj_u as i64, v);
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_order(images, layers, stage_idx, obj_u as i64, v);
                 }
                 _ => {
                     obj.extra_int_props.insert(op, v);
@@ -1781,13 +2149,20 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => ctx
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => ctx
                     .layers
                     .layer(layer_id)
                     .and_then(|layer| layer.sprite(sprite_id))
                     .map(|spr| spr.order as i64)
                     .unwrap_or(0),
-                ObjectBackend::Gfx => ctx.gfx.object_peek_order(stage_idx, obj_u as i64).unwrap_or(0),
+                ObjectBackend::Gfx => ctx
+                    .gfx
+                    .object_peek_order(stage_idx, obj_u as i64)
+                    .unwrap_or(0),
                 _ => *obj.extra_int_props.get(&op).unwrap_or(&0),
             };
             ctx.stack.push(Value::Int(v));
@@ -1796,7 +2171,10 @@ fn dispatch_object_op(
     }
 
     // Properties that exist in IdMap but have no visual backend: store as generic ints.
-    if op == ctx.ids.obj_wipe_copy || op == ctx.ids.obj_wipe_erase || op == ctx.ids.obj_click_disable {
+    if op == ctx.ids.obj_wipe_copy
+        || op == ctx.ids.obj_wipe_erase
+        || op == ctx.ids.obj_click_disable
+    {
         let set_v = rhs.and_then(as_i64).or_else(|| {
             if ret_form.is_some() && al_id == Some(1) && script_args.len() == 1 {
                 script_args.get(0).and_then(as_i64)
@@ -1808,7 +2186,8 @@ fn dispatch_object_op(
             obj.extra_int_props.insert(op, v);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
+            ctx.stack
+                .push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
         }
         return true;
     }
@@ -1830,7 +2209,8 @@ fn dispatch_object_op(
                         ctx.stack.push(Value::Str(String::new()));
                     }
                 } else if rf != 0 {
-                    ctx.stack.push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
+                    ctx.stack
+                        .push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
                 } else {
                     ctx.stack.push(Value::Int(0));
                 }
@@ -1867,23 +2247,55 @@ fn dispatch_object_op(
                     obj.rep_int_lists.clear();
                     obj.rep_int_event_lists.clear();
                     obj.cmd_int_args.clear();
-					{
-						let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-						let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, s, 0, 0, 0, 0);
-					}
+                    {
+                        let (gfx, images, layers) =
+                            (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                        let _ = gfx.object_create(
+                            images,
+                            layers,
+                            stage_idx,
+                            obj_u as i64,
+                            s,
+                            0,
+                            0,
+                            0,
+                            0,
+                        );
+                    }
                     obj.used = true;
                     obj.backend = ObjectBackend::Gfx;
                     obj.file_name = Some(s.to_string());
                     obj.string_value = None;
                 } else if matches!(obj.backend, ObjectBackend::Gfx) {
                     // Conservative: preserve current base params.
-                    let disp = ctx.gfx.object_peek_disp(stage_idx, obj_u as i64).unwrap_or(0) != 0;
-                    let (x, y) = ctx.gfx.object_peek_pos(stage_idx, obj_u as i64).unwrap_or((0, 0));
-                    let pat = ctx.gfx.object_peek_patno(stage_idx, obj_u as i64).unwrap_or(0);
-					{
-						let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-						let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, s, disp as i64, x, y, pat);
-					}
+                    let disp = ctx
+                        .gfx
+                        .object_peek_disp(stage_idx, obj_u as i64)
+                        .unwrap_or(0)
+                        != 0;
+                    let (x, y) = ctx
+                        .gfx
+                        .object_peek_pos(stage_idx, obj_u as i64)
+                        .unwrap_or((0, 0));
+                    let pat = ctx
+                        .gfx
+                        .object_peek_patno(stage_idx, obj_u as i64)
+                        .unwrap_or(0);
+                    {
+                        let (gfx, images, layers) =
+                            (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                        let _ = gfx.object_create(
+                            images,
+                            layers,
+                            stage_idx,
+                            obj_u as i64,
+                            s,
+                            disp as i64,
+                            x,
+                            y,
+                            pat,
+                        );
+                    }
                     obj.file_name = Some(s.to_string());
                 } else {
                     obj.file_name = Some(s.to_string());
@@ -1919,8 +2331,6 @@ fn dispatch_object_op(
         }
         return true;
     }
-
-
 
     // ---------------------------------------------------------------------
     // Button (minimal runtime)
@@ -2007,11 +2417,18 @@ fn dispatch_object_op(
     // CLEAR_BUTTON: if a 0-arg void op is invoked after a button is enabled, treat it as CLEAR_BUTTON.
     if rhs.is_none() && ret_form == Some(0) && script_args.is_empty() && obj.button.enabled {
         // Avoid clobbering INIT/FREE/INIT_PARAM (those are already mapped explicitly).
-        let mapped = st.object_op_map.get(&op).copied().unwrap_or(ObjectOpKind::Unknown);
+        let mapped = st
+            .object_op_map
+            .get(&op)
+            .copied()
+            .unwrap_or(ObjectOpKind::Unknown);
         if matches!(mapped, ObjectOpKind::Unknown) {
             st.object_op_map.insert(op, ObjectOpKind::ClearButton);
         }
-        if matches!(st.object_op_map.get(&op).copied(), Some(ObjectOpKind::ClearButton)) {
+        if matches!(
+            st.object_op_map.get(&op).copied(),
+            Some(ObjectOpKind::ClearButton)
+        ) {
             obj.button.clear();
             ctx.stack.push(Value::Int(0));
             return true;
@@ -2025,7 +2442,8 @@ fn dispatch_object_op(
     // ---------------------------------------------------------------------
 
     if ctx.ids.obj_exist_type != 0 && op == ctx.ids.obj_exist_type {
-        ctx.stack.push(Value::Int(if obj.object_type == 0 { 0 } else { 1 }));
+        ctx.stack
+            .push(Value::Int(if obj.object_type == 0 { 0 } else { 1 }));
         return true;
     }
 
@@ -2037,13 +2455,33 @@ fn dispatch_object_op(
         // CHANGE_FILE does not reinit; it swaps the underlying file.
         obj.file_name = Some(name.to_string());
         if matches!(obj.backend, ObjectBackend::Gfx) {
-            let disp = ctx.gfx.object_peek_disp(stage_idx, obj_u as i64).unwrap_or(0) != 0;
-            let (x, y) = ctx.gfx.object_peek_pos(stage_idx, obj_u as i64).unwrap_or((0, 0));
-            let pat = ctx.gfx.object_peek_patno(stage_idx, obj_u as i64).unwrap_or(0);
-			{
-				let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-				let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, name, disp as i64, x, y, pat);
-			}
+            let disp = ctx
+                .gfx
+                .object_peek_disp(stage_idx, obj_u as i64)
+                .unwrap_or(0)
+                != 0;
+            let (x, y) = ctx
+                .gfx
+                .object_peek_pos(stage_idx, obj_u as i64)
+                .unwrap_or((0, 0));
+            let pat = ctx
+                .gfx
+                .object_peek_patno(stage_idx, obj_u as i64)
+                .unwrap_or(0);
+            {
+                let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                let _ = gfx.object_create(
+                    images,
+                    layers,
+                    stage_idx,
+                    obj_u as i64,
+                    name,
+                    disp as i64,
+                    x,
+                    y,
+                    pat,
+                );
+            }
         }
         push_ok(ctx, ret_form);
         return true;
@@ -2062,24 +2500,49 @@ fn dispatch_object_op(
         return true;
     }
     if ctx.ids.obj_get_string != 0 && op == ctx.ids.obj_get_string {
-        ctx.stack.push(Value::Str(obj.string_value.clone().unwrap_or_default()));
+        ctx.stack
+            .push(Value::Str(obj.string_value.clone().unwrap_or_default()));
         return true;
     }
     if ctx.ids.obj_set_string_param != 0 && op == ctx.ids.obj_set_string_param {
         // SET_STRING_PARAM
         // base: (moji_size, space_x, space_y, moji_cnt)
-        obj.string_param.moji_size = script_args.get(0).and_then(as_i64).unwrap_or(obj.string_param.moji_size);
-        obj.string_param.moji_space_x = script_args.get(1).and_then(as_i64).unwrap_or(obj.string_param.moji_space_x);
-        obj.string_param.moji_space_y = script_args.get(2).and_then(as_i64).unwrap_or(obj.string_param.moji_space_y);
-        obj.string_param.moji_cnt = script_args.get(3).and_then(as_i64).unwrap_or(obj.string_param.moji_cnt);
+        obj.string_param.moji_size = script_args
+            .get(0)
+            .and_then(as_i64)
+            .unwrap_or(obj.string_param.moji_size);
+        obj.string_param.moji_space_x = script_args
+            .get(1)
+            .and_then(as_i64)
+            .unwrap_or(obj.string_param.moji_space_x);
+        obj.string_param.moji_space_y = script_args
+            .get(2)
+            .and_then(as_i64)
+            .unwrap_or(obj.string_param.moji_space_y);
+        obj.string_param.moji_cnt = script_args
+            .get(3)
+            .and_then(as_i64)
+            .unwrap_or(obj.string_param.moji_cnt);
         // optional: (moji_color, shadow_color, shadow_mode, fuchi_color)
         if script_args.len() >= 7 {
-            obj.string_param.moji_color = script_args.get(4).and_then(as_i64).unwrap_or(obj.string_param.moji_color);
-            obj.string_param.shadow_color = script_args.get(5).and_then(as_i64).unwrap_or(obj.string_param.shadow_color);
-            obj.string_param.shadow_mode = script_args.get(6).and_then(as_i64).unwrap_or(obj.string_param.shadow_mode);
+            obj.string_param.moji_color = script_args
+                .get(4)
+                .and_then(as_i64)
+                .unwrap_or(obj.string_param.moji_color);
+            obj.string_param.shadow_color = script_args
+                .get(5)
+                .and_then(as_i64)
+                .unwrap_or(obj.string_param.shadow_color);
+            obj.string_param.shadow_mode = script_args
+                .get(6)
+                .and_then(as_i64)
+                .unwrap_or(obj.string_param.shadow_mode);
         }
         if script_args.len() >= 8 {
-            obj.string_param.fuchi_color = script_args.get(7).and_then(as_i64).unwrap_or(obj.string_param.fuchi_color);
+            obj.string_param.fuchi_color = script_args
+                .get(7)
+                .and_then(as_i64)
+                .unwrap_or(obj.string_param.fuchi_color);
         }
         if obj.object_type == 3 {
             update_string_backend(ctx, st, obj, stage_idx);
@@ -2089,7 +2552,10 @@ fn dispatch_object_op(
     }
 
     if ctx.ids.obj_set_number != 0 && op == ctx.ids.obj_set_number {
-        obj.number_value = script_args.get(0).and_then(as_i64).unwrap_or(obj.number_value);
+        obj.number_value = script_args
+            .get(0)
+            .and_then(as_i64)
+            .unwrap_or(obj.number_value);
         if matches!(obj.backend, ObjectBackend::Number { .. }) {
             update_number_backend(ctx, obj);
         }
@@ -2102,20 +2568,36 @@ fn dispatch_object_op(
     }
     if ctx.ids.obj_set_number_param != 0 && op == ctx.ids.obj_set_number_param {
         // SET_NUMBER_PARAM(keta_max, disp_zero, disp_sign, tumeru_sign, space_mod, space)
-        obj.number_param.keta_max = script_args.get(0).and_then(as_i64).unwrap_or(obj.number_param.keta_max);
-        obj.number_param.disp_zero = script_args.get(1).and_then(as_i64).unwrap_or(obj.number_param.disp_zero);
-        obj.number_param.disp_sign = script_args.get(2).and_then(as_i64).unwrap_or(obj.number_param.disp_sign);
-        obj.number_param.tumeru_sign = script_args.get(3).and_then(as_i64).unwrap_or(obj.number_param.tumeru_sign);
-        obj.number_param.space_mod = script_args.get(4).and_then(as_i64).unwrap_or(obj.number_param.space_mod);
-        obj.number_param.space = script_args.get(5).and_then(as_i64).unwrap_or(obj.number_param.space);
+        obj.number_param.keta_max = script_args
+            .get(0)
+            .and_then(as_i64)
+            .unwrap_or(obj.number_param.keta_max);
+        obj.number_param.disp_zero = script_args
+            .get(1)
+            .and_then(as_i64)
+            .unwrap_or(obj.number_param.disp_zero);
+        obj.number_param.disp_sign = script_args
+            .get(2)
+            .and_then(as_i64)
+            .unwrap_or(obj.number_param.disp_sign);
+        obj.number_param.tumeru_sign = script_args
+            .get(3)
+            .and_then(as_i64)
+            .unwrap_or(obj.number_param.tumeru_sign);
+        obj.number_param.space_mod = script_args
+            .get(4)
+            .and_then(as_i64)
+            .unwrap_or(obj.number_param.space_mod);
+        obj.number_param.space = script_args
+            .get(5)
+            .and_then(as_i64)
+            .unwrap_or(obj.number_param.space);
         if matches!(obj.backend, ObjectBackend::Number { .. }) {
             update_number_backend(ctx, obj);
         }
         push_ok(ctx, ret_form);
         return true;
     }
-
-
 
     // ---------------------------------------------------------------------
     // CREATE_* (ID-mapped)
@@ -2167,7 +2649,10 @@ fn dispatch_object_op(
             }
         }
 
-        obj.backend = ObjectBackend::Number { layer_id, sprite_ids };
+        obj.backend = ObjectBackend::Number {
+            layer_id,
+            sprite_ids,
+        };
 
         // Optional parameters (al_id-based fallthrough): (disp, x, y)
         let aid = al_id.unwrap_or(0);
@@ -2177,14 +2662,21 @@ fn dispatch_object_op(
             } else {
                 0
             };
-            obj.extra_int_props.insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+            obj.extra_int_props
+                .insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         }
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_x, pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_x,
+                    pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
             if ctx.ids.obj_y != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_y,
+                    pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
         }
         if ctx.ids.obj_patno != 0 {
@@ -2296,31 +2788,45 @@ fn dispatch_object_op(
         // Optional (disp, x, y) via al_id.
         let aid = al_id.unwrap_or(0);
         if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 { pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0) } else { 0 };
-            obj.extra_int_props.insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+            let disp_i = if aid >= 1 {
+                pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+            } else {
+                0
+            };
+            obj.extra_int_props
+                .insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         }
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_x, pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_x,
+                    pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
             if ctx.ids.obj_y != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_y,
+                    pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
         }
-        let cap = ctx.capture_frame_rgba();
-        let img_id = ctx.images.insert_image(cap);
-        bind_capture_backend(ctx, obj, stage_idx, img_id);
+        if let Some(img_id) = load_thumb_image_id(ctx, save_no) {
+            bind_capture_backend(ctx, obj, stage_idx, img_id);
+        } else {
+            ctx.unknown
+                .record_note(&format!("save_thumb.image.missing:{save_no}"));
+        }
         push_ok(ctx, ret_form);
         return true;
     }
 
     if ctx.ids.obj_create_capture_thumb != 0 && op == ctx.ids.obj_create_capture_thumb {
         let (pos, _named) = split_pos_named(script_args);
-        let save_no = pos.get(0).and_then(|v| v.as_i64()).unwrap_or(0);
+        let thumb_no = pos.get(0).and_then(|v| v.as_i64()).unwrap_or(0);
         object_clear_backend(ctx, obj, stage_idx, obj_u);
         obj.used = true;
         obj.object_type = 11;
-        obj.thumb_save_no = save_no;
+        obj.thumb_save_no = thumb_no;
         obj.movie.reset();
         obj.button.clear();
         obj.extra_int_props.clear();
@@ -2332,20 +2838,34 @@ fn dispatch_object_op(
         // Optional (disp, x, y) via al_id.
         let aid = al_id.unwrap_or(0);
         if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 { pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0) } else { 0 };
-            obj.extra_int_props.insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+            let disp_i = if aid >= 1 {
+                pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+            } else {
+                0
+            };
+            obj.extra_int_props
+                .insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         }
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_x, pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_x,
+                    pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
             if ctx.ids.obj_y != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_y,
+                    pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
         }
-        let cap = ctx.capture_frame_rgba();
-        let img_id = ctx.images.insert_image(cap);
-        bind_capture_backend(ctx, obj, stage_idx, img_id);
+        if let Some(img_id) = load_thumb_image_id(ctx, thumb_no) {
+            bind_capture_backend(ctx, obj, stage_idx, img_id);
+        } else {
+            ctx.unknown
+                .record_note(&format!("thumb.image.missing:{thumb_no}"));
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2366,15 +2886,26 @@ fn dispatch_object_op(
         // Optional parameters: (disp, x, y) via al_id with different indexing.
         let aid = al_id.unwrap_or(0);
         if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 { pos.get(0).and_then(|v| v.as_i64()).unwrap_or(0) } else { 0 };
-            obj.extra_int_props.insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+            let disp_i = if aid >= 1 {
+                pos.get(0).and_then(|v| v.as_i64()).unwrap_or(0)
+            } else {
+                0
+            };
+            obj.extra_int_props
+                .insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         }
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_x, pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_x,
+                    pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
             if ctx.ids.obj_y != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_y,
+                    pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
         }
         let cap = ctx.capture_frame_rgba();
@@ -2399,7 +2930,8 @@ fn dispatch_object_op(
         } else if ctx.ids.obj_create_movie_wait != 0 && op == ctx.ids.obj_create_movie_wait {
             matched = true;
             wait_flag = true;
-        } else if ctx.ids.obj_create_movie_wait_key != 0 && op == ctx.ids.obj_create_movie_wait_key {
+        } else if ctx.ids.obj_create_movie_wait_key != 0 && op == ctx.ids.obj_create_movie_wait_key
+        {
             matched = true;
             wait_flag = true;
             key_skip_flag = true;
@@ -2440,20 +2972,37 @@ fn dispatch_object_op(
 
             let total_ms = resolve_movie_path(&ctx.project_dir, file)
                 .and_then(|_| movie_total_time_ms(ctx, file));
-            obj.movie.start(total_ms, loop_flag, auto_free_flag, real_time_flag, ready_only_flag);
+            obj.movie.start(
+                total_ms,
+                loop_flag,
+                auto_free_flag,
+                real_time_flag,
+                ready_only_flag,
+            );
 
             // Optional (disp, x, y) via al_id.
             let aid = al_id.unwrap_or(0);
             if ctx.ids.obj_disp != 0 {
-                let disp_i = if aid >= 1 { pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0) } else { 0 };
-                obj.extra_int_props.insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+                let disp_i = if aid >= 1 {
+                    pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+                } else {
+                    0
+                };
+                obj.extra_int_props
+                    .insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
             }
             if aid >= 2 {
                 if ctx.ids.obj_x != 0 {
-                    obj.extra_int_props.insert(ctx.ids.obj_x, pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0));
+                    obj.extra_int_props.insert(
+                        ctx.ids.obj_x,
+                        pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
+                    );
                 }
                 if ctx.ids.obj_y != 0 {
-                    obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0));
+                    obj.extra_int_props.insert(
+                        ctx.ids.obj_y,
+                        pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0),
+                    );
                 }
             }
 
@@ -2521,15 +3070,26 @@ fn dispatch_object_op(
         // Optional (disp, x, y) via al_id.
         let aid = al_id.unwrap_or(0);
         if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 { pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0) } else { 0 };
-            obj.extra_int_props.insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+            let disp_i = if aid >= 1 {
+                pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0)
+            } else {
+                0
+            };
+            obj.extra_int_props
+                .insert(ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         }
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_x, pos.get(4).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_x,
+                    pos.get(4).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
             if ctx.ids.obj_y != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_y, pos.get(5).and_then(|v| v.as_i64()).unwrap_or(0));
+                obj.extra_int_props.insert(
+                    ctx.ids.obj_y,
+                    pos.get(5).and_then(|v| v.as_i64()).unwrap_or(0),
+                );
             }
         }
 
@@ -2638,7 +3198,7 @@ fn dispatch_object_op(
                 3 => wp.pat_no_01 = iv,
                 4 => wp.pat_time = iv,
                 5 => wp.move_time = iv,
-                6 => {},
+                6 => {}
                 7 => wp.sin_time_x = iv,
                 8 => wp.sin_power_x = iv,
                 9 => wp.sin_time_y = iv,
@@ -2689,7 +3249,11 @@ fn dispatch_object_op(
         return true;
     }
     if ctx.ids.obj_seek_movie != 0 && op == ctx.ids.obj_seek_movie {
-        let t = script_args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as u64;
+        let t = script_args
+            .get(0)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0)
+            .max(0) as u64;
         obj.movie.seek(t);
         if let Some(id) = obj.movie.audio_id.take() {
             ctx.movie.stop_audio(id);
@@ -2702,12 +3266,14 @@ fn dispatch_object_op(
         return true;
     }
     if ctx.ids.obj_check_movie != 0 && op == ctx.ids.obj_check_movie {
-        ctx.stack.push(Value::Int(if obj.movie.check_movie() { 1 } else { 0 }));
+        ctx.stack
+            .push(Value::Int(if obj.movie.check_movie() { 1 } else { 0 }));
         return true;
     }
     if ctx.ids.obj_wait_movie != 0 && op == ctx.ids.obj_wait_movie {
         if obj.movie.check_movie() {
-            ctx.wait.wait_object_movie(ctx.ids.form_global_stage, stage_idx, obj_u, false, false);
+            ctx.wait
+                .wait_object_movie(ctx.ids.form_global_stage, stage_idx, obj_u, false, false);
         }
         push_ok(ctx, ret_form);
         return true;
@@ -2715,7 +3281,8 @@ fn dispatch_object_op(
     if ctx.ids.obj_wait_movie_key != 0 && op == ctx.ids.obj_wait_movie_key {
         if obj.movie.check_movie() {
             // wait_movie(true, true)
-            ctx.wait.wait_object_movie(ctx.ids.form_global_stage, stage_idx, obj_u, true, true);
+            ctx.wait
+                .wait_object_movie(ctx.ids.form_global_stage, stage_idx, obj_u, true, true);
             if ret_form.unwrap_or(0) != 0 {
                 return true;
             }
@@ -2805,7 +3372,8 @@ fn dispatch_object_op(
         return true;
     }
     if ctx.ids.obj_get_button_pushkeep != 0 && op == ctx.ids.obj_get_button_pushkeep {
-        ctx.stack.push(Value::Int(if obj.button.push_keep { 1 } else { 0 }));
+        ctx.stack
+            .push(Value::Int(if obj.button.push_keep { 1 } else { 0 }));
         return true;
     }
 
@@ -2815,7 +3383,8 @@ fn dispatch_object_op(
         return true;
     }
     if ctx.ids.obj_get_button_alpha_test != 0 && op == ctx.ids.obj_get_button_alpha_test {
-        ctx.stack.push(Value::Int(if obj.button.alpha_test { 1 } else { 0 }));
+        ctx.stack
+            .push(Value::Int(if obj.button.alpha_test { 1 } else { 0 }));
         return true;
     }
 
@@ -2841,7 +3410,11 @@ fn dispatch_object_op(
     }
 
     if ctx.ids.obj_get_button_hit_state != 0 && op == ctx.ids.obj_get_button_hit_state {
-        ctx.stack.push(Value::Int(if obj.button.hit { TNM_BTN_STATE_HIT } else { TNM_BTN_STATE_NORMAL }));
+        ctx.stack.push(Value::Int(if obj.button.hit {
+            TNM_BTN_STATE_HIT
+        } else {
+            TNM_BTN_STATE_NORMAL
+        }));
         return true;
     }
 
@@ -2898,7 +3471,10 @@ fn dispatch_object_op(
             return true;
         };
         obj.gan_file = Some(name.to_string());
-        if let Err(err) = obj.gan.load_gan(&ctx.project_dir, &ctx.globals.append_dir, name) {
+        if let Err(err) = obj
+            .gan
+            .load_gan(&ctx.project_dir, &ctx.globals.append_dir, name)
+        {
             eprintln!("[GAN] load failed: {} ({})", name, err);
         }
         push_ok(ctx, ret_form);
@@ -2929,7 +3505,11 @@ fn dispatch_object_op(
         let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
         let z = script_args.get(2).and_then(as_i64);
         match obj.backend {
-            ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+            ObjectBackend::Rect {
+                layer_id,
+                sprite_id,
+                ..
+            } => {
                 if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                     if let Some(spr) = layer.sprite_mut(sprite_id) {
                         spr.x = x as i32;
@@ -2938,8 +3518,8 @@ fn dispatch_object_op(
                 }
             }
             ObjectBackend::Gfx => {
-				let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-				let _ = gfx.object_set_pos(images, layers, stage_idx, obj_u as i64, x, y);
+                let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                let _ = gfx.object_set_pos(images, layers, stage_idx, obj_u as i64, x, y);
                 if let Some(zv) = z {
                     let _ = ctx.gfx.object_set_z(stage_idx, obj_u as i64, zv);
                 }
@@ -2972,7 +3552,11 @@ fn dispatch_object_op(
             }
         }
         match obj.backend {
-            ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+            ObjectBackend::Rect {
+                layer_id,
+                sprite_id,
+                ..
+            } => {
                 if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                     if let Some(spr) = layer.sprite_mut(sprite_id) {
                         spr.pivot_x = x as f32;
@@ -3025,7 +3609,11 @@ fn dispatch_object_op(
             }
         }
         match obj.backend {
-            ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+            ObjectBackend::Rect {
+                layer_id,
+                sprite_id,
+                ..
+            } => {
                 if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                     if let Some(spr) = layer.sprite_mut(sprite_id) {
                         spr.scale_x = x as f32 / 1000.0;
@@ -3060,7 +3648,11 @@ fn dispatch_object_op(
         }
         if let Some(zv) = z {
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.rotate = zv as f32 * std::f32::consts::PI / 1800.0;
@@ -3102,7 +3694,11 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(ctx.ids.obj_clip_bottom, bottom);
             }
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.dst_clip = if use_flag != 0 {
@@ -3120,7 +3716,17 @@ fn dispatch_object_op(
                 }
                 ObjectBackend::Gfx => {
                     let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-                    let _ = gfx.object_set_clip(images, layers, stage_idx, obj_u as i64, use_flag, left, top, right, bottom);
+                    let _ = gfx.object_set_clip(
+                        images,
+                        layers,
+                        stage_idx,
+                        obj_u as i64,
+                        use_flag,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                    );
                 }
                 _ => {}
             }
@@ -3138,7 +3744,8 @@ fn dispatch_object_op(
             let right = script_args.get(3).and_then(as_i64).unwrap_or(0);
             let bottom = script_args.get(4).and_then(as_i64).unwrap_or(0);
             if ctx.ids.obj_src_clip_use != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_src_clip_use, use_flag);
+                obj.extra_int_props
+                    .insert(ctx.ids.obj_src_clip_use, use_flag);
             }
             if ctx.ids.obj_src_clip_left != 0 {
                 obj.extra_int_props.insert(ctx.ids.obj_src_clip_left, left);
@@ -3147,13 +3754,19 @@ fn dispatch_object_op(
                 obj.extra_int_props.insert(ctx.ids.obj_src_clip_top, top);
             }
             if ctx.ids.obj_src_clip_right != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_src_clip_right, right);
+                obj.extra_int_props
+                    .insert(ctx.ids.obj_src_clip_right, right);
             }
             if ctx.ids.obj_src_clip_bottom != 0 {
-                obj.extra_int_props.insert(ctx.ids.obj_src_clip_bottom, bottom);
+                obj.extra_int_props
+                    .insert(ctx.ids.obj_src_clip_bottom, bottom);
             }
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.src_clip = if use_flag != 0 {
@@ -3171,7 +3784,17 @@ fn dispatch_object_op(
                 }
                 ObjectBackend::Gfx => {
                     let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-                    let _ = gfx.object_set_src_clip(images, layers, stage_idx, obj_u as i64, use_flag, left, top, right, bottom);
+                    let _ = gfx.object_set_src_clip(
+                        images,
+                        layers,
+                        stage_idx,
+                        obj_u as i64,
+                        use_flag,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                    );
                 }
                 _ => {}
             }
@@ -3256,7 +3879,11 @@ fn dispatch_object_op(
                     || op == ctx.ids.obj_blend
                 {
                     match obj.backend {
-                        ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                        ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } => {
                             if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                                 if let Some(spr) = layer.sprite_mut(sprite_id) {
                                     if op == ctx.ids.obj_tr {
@@ -3290,45 +3917,145 @@ fn dispatch_object_op(
                             }
                         }
                         ObjectBackend::Gfx => {
-                            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                            let (gfx, images, layers) =
+                                (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
                             if op == ctx.ids.obj_tr {
-                                let _ = gfx.object_set_tr(images, layers, stage_idx, obj_u as i64, v);
+                                let _ =
+                                    gfx.object_set_tr(images, layers, stage_idx, obj_u as i64, v);
                             } else if op == ctx.ids.obj_mono {
-                                let _ = gfx.object_set_mono(images, layers, stage_idx, obj_u as i64, v);
+                                let _ =
+                                    gfx.object_set_mono(images, layers, stage_idx, obj_u as i64, v);
                             } else if op == ctx.ids.obj_reverse {
-                                let _ = gfx.object_set_reverse(images, layers, stage_idx, obj_u as i64, v);
+                                let _ = gfx.object_set_reverse(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    v,
+                                );
                             } else if op == ctx.ids.obj_bright {
-                                let _ = gfx.object_set_bright(images, layers, stage_idx, obj_u as i64, v);
+                                let _ = gfx.object_set_bright(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    v,
+                                );
                             } else if op == ctx.ids.obj_dark {
-                                let _ = gfx.object_set_dark(images, layers, stage_idx, obj_u as i64, v);
+                                let _ =
+                                    gfx.object_set_dark(images, layers, stage_idx, obj_u as i64, v);
                             } else if op == ctx.ids.obj_color_rate {
-                                let _ = gfx.object_set_color_rate(images, layers, stage_idx, obj_u as i64, v);
+                                let _ = gfx.object_set_color_rate(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    v,
+                                );
                             } else if op == ctx.ids.obj_color_add_r {
-                                let g = *obj.extra_int_props.get(&ctx.ids.obj_color_add_g).unwrap_or(&0);
-                                let b = *obj.extra_int_props.get(&ctx.ids.obj_color_add_b).unwrap_or(&0);
-                                let _ = gfx.object_set_color_add(images, layers, stage_idx, obj_u as i64, v, g, b);
+                                let g = *obj
+                                    .extra_int_props
+                                    .get(&ctx.ids.obj_color_add_g)
+                                    .unwrap_or(&0);
+                                let b = *obj
+                                    .extra_int_props
+                                    .get(&ctx.ids.obj_color_add_b)
+                                    .unwrap_or(&0);
+                                let _ = gfx.object_set_color_add(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    v,
+                                    g,
+                                    b,
+                                );
                             } else if op == ctx.ids.obj_color_add_g {
-                                let r = *obj.extra_int_props.get(&ctx.ids.obj_color_add_r).unwrap_or(&0);
-                                let b = *obj.extra_int_props.get(&ctx.ids.obj_color_add_b).unwrap_or(&0);
-                                let _ = gfx.object_set_color_add(images, layers, stage_idx, obj_u as i64, r, v, b);
+                                let r = *obj
+                                    .extra_int_props
+                                    .get(&ctx.ids.obj_color_add_r)
+                                    .unwrap_or(&0);
+                                let b = *obj
+                                    .extra_int_props
+                                    .get(&ctx.ids.obj_color_add_b)
+                                    .unwrap_or(&0);
+                                let _ = gfx.object_set_color_add(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    r,
+                                    v,
+                                    b,
+                                );
                             } else if op == ctx.ids.obj_color_add_b {
-                                let r = *obj.extra_int_props.get(&ctx.ids.obj_color_add_r).unwrap_or(&0);
-                                let g = *obj.extra_int_props.get(&ctx.ids.obj_color_add_g).unwrap_or(&0);
-                                let _ = gfx.object_set_color_add(images, layers, stage_idx, obj_u as i64, r, g, v);
+                                let r = *obj
+                                    .extra_int_props
+                                    .get(&ctx.ids.obj_color_add_r)
+                                    .unwrap_or(&0);
+                                let g = *obj
+                                    .extra_int_props
+                                    .get(&ctx.ids.obj_color_add_g)
+                                    .unwrap_or(&0);
+                                let _ = gfx.object_set_color_add(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    r,
+                                    g,
+                                    v,
+                                );
                             } else if op == ctx.ids.obj_color_r {
-                                let g = *obj.extra_int_props.get(&ctx.ids.obj_color_g).unwrap_or(&0);
-                                let b = *obj.extra_int_props.get(&ctx.ids.obj_color_b).unwrap_or(&0);
-                                let _ = gfx.object_set_color(images, layers, stage_idx, obj_u as i64, v, g, b);
+                                let g =
+                                    *obj.extra_int_props.get(&ctx.ids.obj_color_g).unwrap_or(&0);
+                                let b =
+                                    *obj.extra_int_props.get(&ctx.ids.obj_color_b).unwrap_or(&0);
+                                let _ = gfx.object_set_color(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    v,
+                                    g,
+                                    b,
+                                );
                             } else if op == ctx.ids.obj_color_g {
-                                let r = *obj.extra_int_props.get(&ctx.ids.obj_color_r).unwrap_or(&0);
-                                let b = *obj.extra_int_props.get(&ctx.ids.obj_color_b).unwrap_or(&0);
-                                let _ = gfx.object_set_color(images, layers, stage_idx, obj_u as i64, r, v, b);
+                                let r =
+                                    *obj.extra_int_props.get(&ctx.ids.obj_color_r).unwrap_or(&0);
+                                let b =
+                                    *obj.extra_int_props.get(&ctx.ids.obj_color_b).unwrap_or(&0);
+                                let _ = gfx.object_set_color(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    r,
+                                    v,
+                                    b,
+                                );
                             } else if op == ctx.ids.obj_color_b {
-                                let r = *obj.extra_int_props.get(&ctx.ids.obj_color_r).unwrap_or(&0);
-                                let g = *obj.extra_int_props.get(&ctx.ids.obj_color_g).unwrap_or(&0);
-                                let _ = gfx.object_set_color(images, layers, stage_idx, obj_u as i64, r, g, v);
+                                let r =
+                                    *obj.extra_int_props.get(&ctx.ids.obj_color_r).unwrap_or(&0);
+                                let g =
+                                    *obj.extra_int_props.get(&ctx.ids.obj_color_g).unwrap_or(&0);
+                                let _ = gfx.object_set_color(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    r,
+                                    g,
+                                    v,
+                                );
                             } else if op == ctx.ids.obj_blend {
-                                let _ = gfx.object_set_blend(images, layers, stage_idx, obj_u as i64, v);
+                                let _ = gfx.object_set_blend(
+                                    images,
+                                    layers,
+                                    stage_idx,
+                                    obj_u as i64,
+                                    v,
+                                );
                             }
                         }
                         _ => {}
@@ -3336,7 +4063,8 @@ fn dispatch_object_op(
                 }
                 ctx.stack.push(Value::Int(0));
             } else {
-                ctx.stack.push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
+                ctx.stack
+                    .push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
             }
             return true;
         }
@@ -3347,7 +4075,8 @@ fn dispatch_object_op(
         // GET_PAT_CNT returns the available pattern count.
         let mut cnt = 0i64;
         if let Some(name) = obj.file_name.as_deref() {
-            if let Ok((path, pct)) = crate::resource::find_g00_image(ctx.images.project_dir(), name) {
+            if let Ok((path, pct)) = crate::resource::find_g00_image(ctx.images.project_dir(), name)
+            {
                 match pct {
                     crate::resource::PctType::G00 => {
                         if let Ok(bytes) = std::fs::read(&path) {
@@ -3388,7 +4117,9 @@ fn dispatch_object_op(
             }
             _ => {
                 if let Some(name) = obj.file_name.as_deref() {
-                    if let Ok((path, _pct)) = crate::resource::find_g00_image(ctx.images.project_dir(), name) {
+                    if let Ok((path, _pct)) =
+                        crate::resource::find_g00_image(ctx.images.project_dir(), name)
+                    {
                         if let Ok(id) = ctx.images.load_file(&path, pat) {
                             if let Some(img) = ctx.images.get(id) {
                                 sx = img.width as i64;
@@ -3427,7 +4158,9 @@ fn dispatch_object_op(
         let mut out = 0i64;
         if x >= 0 && y >= 0 {
             if let Some(name) = obj.file_name.as_deref() {
-                if let Ok((path, _pct)) = crate::resource::find_g00_image(ctx.images.project_dir(), name) {
+                if let Ok((path, _pct)) =
+                    crate::resource::find_g00_image(ctx.images.project_dir(), name)
+                {
                     if let Ok(id) = ctx.images.load_file(&path, pat) {
                         if let Some(img) = ctx.images.get(id) {
                             let xi = x as u32;
@@ -3439,11 +4172,17 @@ fn dispatch_object_op(
                                     let g = img.rgba[idx + 1] as i64;
                                     let b = img.rgba[idx + 2] as i64;
                                     let a = img.rgba[idx + 3] as i64;
-                                    out = if ctx.ids.obj_get_pixel_color_r != 0 && op == ctx.ids.obj_get_pixel_color_r {
+                                    out = if ctx.ids.obj_get_pixel_color_r != 0
+                                        && op == ctx.ids.obj_get_pixel_color_r
+                                    {
                                         r
-                                    } else if ctx.ids.obj_get_pixel_color_g != 0 && op == ctx.ids.obj_get_pixel_color_g {
+                                    } else if ctx.ids.obj_get_pixel_color_g != 0
+                                        && op == ctx.ids.obj_get_pixel_color_g
+                                    {
                                         g
-                                    } else if ctx.ids.obj_get_pixel_color_b != 0 && op == ctx.ids.obj_get_pixel_color_b {
+                                    } else if ctx.ids.obj_get_pixel_color_b != 0
+                                        && op == ctx.ids.obj_get_pixel_color_b
+                                    {
                                         b
                                     } else {
                                         a
@@ -3525,10 +4264,26 @@ fn dispatch_object_op(
             let r = script_args.get(2).and_then(as_i64).unwrap_or(l);
             let b = script_args.get(3).and_then(as_i64).unwrap_or(t);
 
-            let rr = script_args.get(4).and_then(as_i64).unwrap_or(0).clamp(0, 255) as u8;
-            let gg = script_args.get(5).and_then(as_i64).unwrap_or(0).clamp(0, 255) as u8;
-            let bb = script_args.get(6).and_then(as_i64).unwrap_or(0).clamp(0, 255) as u8;
-            let aa = script_args.get(7).and_then(as_i64).unwrap_or(255).clamp(0, 255) as u8;
+            let rr = script_args
+                .get(4)
+                .and_then(as_i64)
+                .unwrap_or(0)
+                .clamp(0, 255) as u8;
+            let gg = script_args
+                .get(5)
+                .and_then(as_i64)
+                .unwrap_or(0)
+                .clamp(0, 255) as u8;
+            let bb = script_args
+                .get(6)
+                .and_then(as_i64)
+                .unwrap_or(0)
+                .clamp(0, 255) as u8;
+            let aa = script_args
+                .get(7)
+                .and_then(as_i64)
+                .unwrap_or(255)
+                .clamp(0, 255) as u8;
 
             // optional args depend on al_id; here we derive from argc.
             let disp = if script_args.len() >= 9 {
@@ -3550,15 +4305,23 @@ fn dispatch_object_op(
 
             // If we were a gfx object, clear it; for an existing rect backend we reuse the sprite.
             if matches!(obj.backend, ObjectBackend::Gfx) {
-				let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-				let _ = gfx.object_clear(images, layers, stage_idx, obj_u as i64);
+                let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                let _ = gfx.object_clear(images, layers, stage_idx, obj_u as i64);
             }
 
             let layer_id = ensure_rect_layer(ctx, st, stage_idx);
             let sprite_id = match obj.backend {
-                ObjectBackend::Rect { layer_id: lid, sprite_id: sid, .. } if lid == layer_id => sid,
+                ObjectBackend::Rect {
+                    layer_id: lid,
+                    sprite_id: sid,
+                    ..
+                } if lid == layer_id => sid,
                 _ => {
-                    let Some(sid) = ctx.layers.layer_mut(layer_id).map(|layer| layer.create_sprite()) else {
+                    let Some(sid) = ctx
+                        .layers
+                        .layer_mut(layer_id)
+                        .map(|layer| layer.create_sprite())
+                    else {
                         push_ok(ctx, ret_form);
                         return true;
                     };
@@ -3571,7 +4334,10 @@ fn dispatch_object_op(
                     let img = ctx.images.solid_rgba((rr, gg, bb, aa));
                     spr.image_id = Some(img);
                     spr.fit = SpriteFit::PixelRect;
-                    spr.size_mode = SpriteSizeMode::Explicit { width: w, height: h };
+                    spr.size_mode = SpriteSizeMode::Explicit {
+                        width: w,
+                        height: h,
+                    };
                     spr.visible = disp;
                     spr.x = x as i32;
                     spr.y = y as i32;
@@ -3579,7 +4345,12 @@ fn dispatch_object_op(
             }
 
             obj.used = true;
-            obj.backend = ObjectBackend::Rect { layer_id, sprite_id, width: w, height: h };
+            obj.backend = ObjectBackend::Rect {
+                layer_id,
+                sprite_id,
+                width: w,
+                height: h,
+            };
             obj.object_type = 1;
             obj.number_value = 0;
             obj.string_param = Default::default();
@@ -3631,7 +4402,8 @@ fn dispatch_object_op(
             obj.cmd_int_args.clear();
 
             // Preserve base props for later GET via obj_disp/obj_x/obj_y if scripts query them.
-            obj.extra_int_props.insert(ctx.ids.obj_disp, if disp { 1 } else { 0 });
+            obj.extra_int_props
+                .insert(ctx.ids.obj_disp, if disp { 1 } else { 0 });
             obj.extra_int_props.insert(ctx.ids.obj_x, x);
             obj.extra_int_props.insert(ctx.ids.obj_y, y);
 
@@ -3673,10 +4445,20 @@ fn dispatch_object_op(
             obj.rep_int_event_lists.clear();
             obj.cmd_int_args.clear();
 
-			{
-				let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-				let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, disp as i64, x, y, patno);
-			}
+            {
+                let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                let _ = gfx.object_create(
+                    images,
+                    layers,
+                    stage_idx,
+                    obj_u as i64,
+                    file,
+                    disp as i64,
+                    x,
+                    y,
+                    patno,
+                );
+            }
             obj.used = true;
             obj.backend = ObjectBackend::Gfx;
             obj.object_type = 2;
@@ -3697,7 +4479,11 @@ fn dispatch_object_op(
                 .insert(op, vec![x, y].into_iter().chain(z).collect());
 
             match obj.backend {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.x = x as i32;
@@ -3705,7 +4491,11 @@ fn dispatch_object_op(
                         }
                     }
                 }
-                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.x = x as i32;
@@ -3716,8 +4506,8 @@ fn dispatch_object_op(
                     obj.extra_int_props.insert(ctx.ids.obj_y, y);
                 }
                 ObjectBackend::Gfx => {
-					let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-					let _ = gfx.object_set_pos(images, layers, stage_idx, obj_u as i64, x, y);
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_set_pos(images, layers, stage_idx, obj_u as i64, x, y);
                     if let Some(zv) = z {
                         let _ = ctx.gfx.object_set_z(stage_idx, obj_u as i64, zv);
                     }
@@ -3741,7 +4531,11 @@ fn dispatch_object_op(
             obj.cmd_int_args.insert(op, vec![x, y, z]);
 
             match obj.backend.clone() {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.pivot_x = x as f32;
@@ -3749,7 +4543,11 @@ fn dispatch_object_op(
                         }
                     }
                 }
-                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.pivot_x = x as f32;
@@ -3774,7 +4572,11 @@ fn dispatch_object_op(
             obj.cmd_int_args.insert(op, vec![x, y, z]);
 
             match obj.backend.clone() {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.scale_x = x as f32 / 1000.0;
@@ -3782,7 +4584,11 @@ fn dispatch_object_op(
                         }
                     }
                 }
-                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.scale_x = x as f32 / 1000.0;
@@ -3807,14 +4613,22 @@ fn dispatch_object_op(
             obj.cmd_int_args.insert(op, vec![x, y, z]);
 
             match obj.backend.clone() {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.rotate = z as f32 * std::f32::consts::PI / 1800.0;
                         }
                     }
                 }
-                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.rotate = z as f32 * std::f32::consts::PI / 1800.0;
@@ -3837,10 +4651,15 @@ fn dispatch_object_op(
             let top = script_args.get(2).and_then(as_i64).unwrap_or(0);
             let right = script_args.get(3).and_then(as_i64).unwrap_or(0);
             let bottom = script_args.get(4).and_then(as_i64).unwrap_or(0);
-            obj.cmd_int_args.insert(op, vec![use_flag, left, top, right, bottom]);
+            obj.cmd_int_args
+                .insert(op, vec![use_flag, left, top, right, bottom]);
 
             match obj.backend.clone() {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.dst_clip = if use_flag != 0 {
@@ -3856,7 +4675,11 @@ fn dispatch_object_op(
                         }
                     }
                 }
-                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.dst_clip = if use_flag != 0 {
@@ -3874,7 +4697,17 @@ fn dispatch_object_op(
                 }
                 ObjectBackend::Gfx => {
                     let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-                    let _ = gfx.object_set_clip(images, layers, stage_idx, obj_u as i64, use_flag, left, top, right, bottom);
+                    let _ = gfx.object_set_clip(
+                        images,
+                        layers,
+                        stage_idx,
+                        obj_u as i64,
+                        use_flag,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                    );
                 }
                 _ => {}
             }
@@ -3888,10 +4721,15 @@ fn dispatch_object_op(
             let top = script_args.get(2).and_then(as_i64).unwrap_or(0);
             let right = script_args.get(3).and_then(as_i64).unwrap_or(0);
             let bottom = script_args.get(4).and_then(as_i64).unwrap_or(0);
-            obj.cmd_int_args.insert(op, vec![use_flag, left, top, right, bottom]);
+            obj.cmd_int_args
+                .insert(op, vec![use_flag, left, top, right, bottom]);
 
             match obj.backend.clone() {
-                ObjectBackend::Rect { layer_id, sprite_id, .. } => {
+                ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.src_clip = if use_flag != 0 {
@@ -3907,7 +4745,11 @@ fn dispatch_object_op(
                         }
                     }
                 }
-                ObjectBackend::String { layer_id, sprite_id, .. } => {
+                ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
                     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                         if let Some(spr) = layer.sprite_mut(sprite_id) {
                             spr.src_clip = if use_flag != 0 {
@@ -3925,7 +4767,17 @@ fn dispatch_object_op(
                 }
                 ObjectBackend::Gfx => {
                     let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-                    let _ = gfx.object_set_src_clip(images, layers, stage_idx, obj_u as i64, use_flag, left, top, right, bottom);
+                    let _ = gfx.object_set_src_clip(
+                        images,
+                        layers,
+                        stage_idx,
+                        obj_u as i64,
+                        use_flag,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                    );
                 }
                 _ => {}
             }
@@ -3933,42 +4785,7 @@ fn dispatch_object_op(
             push_ok(ctx, ret_form);
             true
         }
-        _ => {
-            // Generic property storage path (supports both int and string).
-            if let Some(Value::Int(v)) = rhs {
-                obj.extra_int_props.insert(op, *v);
-                ctx.stack.push(Value::Int(0));
-                return true;
-            }
-            if let Some(Value::Str(v)) = rhs {
-                obj.extra_str_props.insert(op, v.clone());
-                st.object_str_ops.insert(op);
-                ctx.stack.push(Value::Int(0));
-                return true;
-            }
-
-            // Property-get path.
-            if rhs.is_none() && ret_form.is_none() {
-                if st.object_str_ops.contains(&op) {
-                    if let Some(sv) = obj.extra_str_props.get(&op) {
-                        ctx.stack.push(Value::Str(sv.clone()));
-                    } else if let Some(f) = &obj.file_name {
-                        ctx.stack.push(Value::Str(f.clone()));
-                    } else if let Some(t) = &obj.string_value {
-                        ctx.stack.push(Value::Str(t.clone()));
-                    } else {
-                        ctx.stack.push(Value::Str(String::new()));
-                    }
-                } else {
-                    ctx.stack.push(Value::Int(*obj.extra_int_props.get(&op).unwrap_or(&0)));
-                }
-                return true;
-            }
-
-            // Unknown command: default return value (or 0).
-            push_ok(ctx, ret_form);
-            true
-        }
+        _ => false,
     }
 }
 
@@ -4098,7 +4915,8 @@ fn dispatch_world_item_op(
             w.camera_eye_x.set_value(v as i32);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(w.camera_eye_x.get_value() as i64));
+            ctx.stack
+                .push(Value::Int(w.camera_eye_x.get_value() as i64));
         }
         return true;
     }
@@ -4107,7 +4925,8 @@ fn dispatch_world_item_op(
             w.camera_eye_y.set_value(v as i32);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(w.camera_eye_y.get_value() as i64));
+            ctx.stack
+                .push(Value::Int(w.camera_eye_y.get_value() as i64));
         }
         return true;
     }
@@ -4116,7 +4935,8 @@ fn dispatch_world_item_op(
             w.camera_eye_z.set_value(v as i32);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(w.camera_eye_z.get_value() as i64));
+            ctx.stack
+                .push(Value::Int(w.camera_eye_z.get_value() as i64));
         }
         return true;
     }
@@ -4125,7 +4945,8 @@ fn dispatch_world_item_op(
             w.camera_pint_x.set_value(v as i32);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(w.camera_pint_x.get_value() as i64));
+            ctx.stack
+                .push(Value::Int(w.camera_pint_x.get_value() as i64));
         }
         return true;
     }
@@ -4134,7 +4955,8 @@ fn dispatch_world_item_op(
             w.camera_pint_y.set_value(v as i32);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(w.camera_pint_y.get_value() as i64));
+            ctx.stack
+                .push(Value::Int(w.camera_pint_y.get_value() as i64));
         }
         return true;
     }
@@ -4143,7 +4965,8 @@ fn dispatch_world_item_op(
             w.camera_pint_z.set_value(v as i32);
             ctx.stack.push(Value::Int(0));
         } else {
-            ctx.stack.push(Value::Int(w.camera_pint_z.get_value() as i64));
+            ctx.stack
+                .push(Value::Int(w.camera_pint_z.get_value() as i64));
         }
         return true;
     }
@@ -4265,8 +5088,10 @@ fn dispatch_world_item_op(
 
     if ids.world_calc_camera_eye != 0 && op == ids.world_calc_camera_eye {
         let distance = script_args.get(0).and_then(as_i64).unwrap_or(0) as f64;
-        let rotate_h = (script_args.get(1).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
-        let rotate_v = (script_args.get(2).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
+        let rotate_h =
+            (script_args.get(1).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
+        let rotate_v =
+            (script_args.get(2).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
         let px = w.camera_pint_x.get_value() as f64;
         let py = w.camera_pint_y.get_value() as f64;
         let pz = w.camera_pint_z.get_value() as f64;
@@ -4282,8 +5107,10 @@ fn dispatch_world_item_op(
 
     if ids.world_calc_camera_pint != 0 && op == ids.world_calc_camera_pint {
         let distance = script_args.get(0).and_then(as_i64).unwrap_or(0) as f64;
-        let rotate_h = (script_args.get(1).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
-        let rotate_v = (script_args.get(2).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
+        let rotate_h =
+            (script_args.get(1).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
+        let rotate_v =
+            (script_args.get(2).and_then(as_i64).unwrap_or(0) as f64 / 10.0).to_radians();
         let ex = w.camera_eye_x.get_value() as f64;
         let ey = w.camera_eye_y.get_value() as f64;
         let ez = w.camera_eye_z.get_value() as f64;
@@ -4345,7 +5172,8 @@ fn dispatch_world_item_op(
         if let Some(s) = w.extra_str.get(&op) {
             ctx.stack.push(Value::Str(s.clone()));
         } else {
-            ctx.stack.push(Value::Int(*w.extra_int.get(&op).unwrap_or(&0)));
+            ctx.stack
+                .push(Value::Int(*w.extra_int.get(&op).unwrap_or(&0)));
         }
         return true;
     }
@@ -4383,9 +5211,19 @@ fn learn_group_list_op(st: &mut StageFormState, op: i32, argc: usize) -> GroupLi
     if let Some(&k) = st.group_list_op_map.get(&op) {
         return k;
     }
-    let k = if argc == 1 && !st.group_list_op_map.values().any(|&v| v == GroupListOpKind::Alloc) {
+    let k = if argc == 1
+        && !st
+            .group_list_op_map
+            .values()
+            .any(|&v| v == GroupListOpKind::Alloc)
+    {
         GroupListOpKind::Alloc
-    } else if argc == 0 && !st.group_list_op_map.values().any(|&v| v == GroupListOpKind::Free) {
+    } else if argc == 0
+        && !st
+            .group_list_op_map
+            .values()
+            .any(|&v| v == GroupListOpKind::Free)
+    {
         GroupListOpKind::Free
     } else {
         GroupListOpKind::Unknown
@@ -4394,7 +5232,14 @@ fn learn_group_list_op(st: &mut StageFormState, op: i32, argc: usize) -> GroupLi
     k
 }
 
-fn learn_group_op(st: &mut StageFormState, op: i32, argc: usize, ret_form: Option<i64>, rhs: Option<&Value>, al_id: Option<i64>) -> GroupOpKind {
+fn learn_group_op(
+    st: &mut StageFormState,
+    op: i32,
+    argc: usize,
+    ret_form: Option<i64>,
+    rhs: Option<&Value>,
+    al_id: Option<i64>,
+) -> GroupOpKind {
     if let Some(&k) = st.group_op_map.get(&op) {
         return k;
     }
@@ -4589,7 +5434,8 @@ fn dispatch_group_item_op(
             g.start();
 
             // Focus this group for runtime key mapping (see runtime::CommandContext::on_key_down).
-            ctx.globals.focused_stage_group = Some((ctx.ids.form_global_stage, stage_idx, group_idx));
+            ctx.globals.focused_stage_group =
+                Some((ctx.ids.form_global_stage, stage_idx, group_idx));
 
             // Block VM until a key is pressed.
             ctx.wait.wait_key();
@@ -4605,7 +5451,9 @@ fn dispatch_group_item_op(
         }
         GroupOpKind::End => {
             g.end();
-            if ctx.globals.focused_stage_group == Some((ctx.ids.form_global_stage, stage_idx, group_idx)) {
+            if ctx.globals.focused_stage_group
+                == Some((ctx.ids.form_global_stage, stage_idx, group_idx))
+            {
                 ctx.globals.focused_stage_group = None;
             }
             if let Some(rf) = ret_form {
@@ -4663,7 +5511,9 @@ fn dispatch_group_item_op(
                 }
                 if let Some(rf) = ret_form {
                     if rf == 2 {
-                        ctx.stack.push(Value::Str(g.str_props.get(&op).cloned().unwrap_or_default()));
+                        ctx.stack.push(Value::Str(
+                            g.str_props.get(&op).cloned().unwrap_or_default(),
+                        ));
                         return true;
                     }
                     if rf != 0 {
@@ -4674,7 +5524,9 @@ fn dispatch_group_item_op(
                 false
             } else if let Some(rf) = ret_form {
                 if rf == 2 {
-                    ctx.stack.push(Value::Str(g.str_props.get(&op).cloned().unwrap_or_default()));
+                    ctx.stack.push(Value::Str(
+                        g.str_props.get(&op).cloned().unwrap_or_default(),
+                    ));
                     true
                 } else if rf != 0 {
                     ctx.stack.push(Value::Int(*g.props.get(&op).unwrap_or(&0)));
@@ -4685,7 +5537,7 @@ fn dispatch_group_item_op(
             } else {
                 false
             }
-        },
+        }
     }
 }
 
@@ -4693,7 +5545,16 @@ fn learn_mwnd_list_op(st: &mut StageFormState, op: i32, argc: usize) -> MwndList
     if let Some(&k) = st.mwnd_list_op_map.get(&op) {
         return k;
     }
-    let k = if argc == 0 && !st.mwnd_list_op_map.values().any(|&v| v == MwndListOpKind::CloseAll) {
+    if let Some(k) = confirmed_mwnd_list_op(op) {
+        st.mwnd_list_op_map.insert(op, k);
+        return k;
+    }
+    let k = if argc == 0
+        && !st
+            .mwnd_list_op_map
+            .values()
+            .any(|&v| v == MwndListOpKind::CloseAll)
+    {
         MwndListOpKind::CloseAll
     } else {
         MwndListOpKind::Unknown
@@ -4702,11 +5563,173 @@ fn learn_mwnd_list_op(st: &mut StageFormState, op: i32, argc: usize) -> MwndList
     k
 }
 
-fn learn_mwnd_op(st: &mut StageFormState, op: i32, script_args: &[Value], ret_form: Option<i64>) -> MwndOpKind {
+fn learn_mwnd_op(
+    st: &mut StageFormState,
+    op: i32,
+    script_args: &[Value],
+    ret_form: Option<i64>,
+) -> MwndOpKind {
+    if let Some(k) = confirmed_mwnd_op(op) {
+        st.mwnd_op_map.insert(op, k);
+        return k;
+    }
     // This function is kept for compatibility but now defaults to Unknown.
     // MWND op kinds are learned in dispatch using runtime state.
     let _ = (st, op, script_args, ret_form);
     MwndOpKind::Unknown
+}
+
+fn confirmed_mwnd_list_op(op: i32) -> Option<MwndListOpKind> {
+    match op {
+        // sub_584940: cases 1/2/3 all converge to the same close-all helper.
+        1 | 2 | 3 => Some(MwndListOpKind::CloseAll),
+        _ => None,
+    }
+}
+
+fn confirmed_mwnd_op(op: i32) -> Option<MwndOpKind> {
+    match op {
+        // sub_6839E0 matches tnm_msg_proc_start_msg_block(): clear-ready/overflow handling,
+        // backlog/message-state reset, and message-block-start transition.
+        49 => Some(MwndOpKind::MsgBlock),
+        // sub_584AA0 case 1/15/16: open-family entry points.
+        1 | 15 | 16 => Some(MwndOpKind::Open),
+        // sub_584AA0 case 2/13/14: close / close-wait / end-close family.
+        2 | 13 | 14 => Some(MwndOpKind::Close),
+        // sub_685850 sets the clear-ready flag and resets message-global state.
+        3 => Some(MwndOpKind::Clear),
+        // case 31 flips Gp_local->pod.multi_msg_mode.
+        31 => Some(MwndOpKind::MultiMsg),
+        // sub_6851B0 stores cancel-enable, optionally closes MWND, then schedules selection.
+        // case 5/50/51/52 differ only in the two bools passed into that helper.
+        5 => Some(MwndOpKind::Sel),
+        50 => Some(MwndOpKind::SelMsg),
+        51 => Some(MwndOpKind::SelCancel),
+        52 => Some(MwndOpKind::SelMsgCancel),
+        // case 6 clears indent state then emits a newline => NL.
+        6 => Some(MwndOpKind::NewLineNoIndent),
+        // case 17 emits a newline on the current entry without clearing indent => NLI.
+        17 => Some(MwndOpKind::NewLineIndent),
+        // sub_684310 is the shared message-print helper used by the normal and overflow print paths.
+        4 | 57 => Some(MwndOpKind::Print),
+        // case 12 is the exact (str => start ruby) / (no args => end ruby) pair.
+        12 => Some(MwndOpKind::Ruby),
+        // case 9/26/27 line up with KOE / KOE_PLAY_WAIT / KOE_PLAY_WAIT_KEY flag tuples.
+        9 => Some(MwndOpKind::Koe),
+        26 => Some(MwndOpKind::KoePlayWait),
+        27 => Some(MwndOpKind::KoePlayWaitKey),
+        // case 10/11 are the exact getter/setter pairs on the layer/world fields in m_param.
+        10 => Some(MwndOpKind::Layer),
+        11 => Some(MwndOpKind::World),
+        // case 7/8 are exact (default | set(int)) pairs over per-message size/color fields.
+        7 => Some(MwndOpKind::SetMojiSize),
+        8 => Some(MwndOpKind::SetMojiColor),
+        // case 18/19/20/54 mirror WAIT / PP / R / PAGE proc scheduling in eng_message.cpp.
+        18 => Some(MwndOpKind::WaitMsg),
+        19 => Some(MwndOpKind::Pp),
+        20 => Some(MwndOpKind::R),
+        // sub_60E990 increments target message index and clones cursor state: next_msg().
+        29 => Some(MwndOpKind::NextMsg),
+        // case 56 sets indent from current message position; 28 clears it.
+        28 => Some(MwndOpKind::ClearIndent),
+        56 => Some(MwndOpKind::SetIndent),
+        // slide-message family: start(bool,time), end(), execute().
+        58 => Some(MwndOpKind::StartSlideMsg),
+        60 => Some(MwndOpKind::EndSlideMsg),
+        61 => Some(MwndOpKind::SlideMsg),
+        // cases 33..48 split into four exact fields; decomp shows each default slot paired
+        // with one current field, matching the source open/close anime type/time quartet.
+        41 => Some(MwndOpKind::InitOpenAnimeType),
+        42 => Some(MwndOpKind::InitOpenAnimeTime),
+        43 => Some(MwndOpKind::InitCloseAnimeType),
+        44 => Some(MwndOpKind::InitCloseAnimeTime),
+        37 => Some(MwndOpKind::SetOpenAnimeType),
+        34 => Some(MwndOpKind::SetOpenAnimeTime),
+        45 => Some(MwndOpKind::SetCloseAnimeType),
+        35 => Some(MwndOpKind::SetCloseAnimeTime),
+        48 => Some(MwndOpKind::GetOpenAnimeType),
+        47 => Some(MwndOpKind::GetOpenAnimeTime),
+        38 => Some(MwndOpKind::GetCloseAnimeType),
+        46 => Some(MwndOpKind::GetCloseAnimeTime),
+        36 => Some(MwndOpKind::GetDefaultOpenAnimeType),
+        33 => Some(MwndOpKind::GetDefaultOpenAnimeTime),
+        40 => Some(MwndOpKind::GetDefaultCloseAnimeType),
+        39 => Some(MwndOpKind::GetDefaultCloseAnimeTime),
+        // case 21 accepts either (str) or (int, str), matching set_face(face_no?, file).
+        21 => Some(MwndOpKind::SetFace),
+        // case 22 clears the nested face object list.
+        22 => Some(MwndOpKind::ClearFace),
+        // case 54 always pushes CLEAR + KEY_WAIT + WAIT, matching PAGE.
+        54 => Some(MwndOpKind::PageWait),
+        // case 55 is the novel clear-ready path chosen from command R.
+        55 => Some(MwndOpKind::NovelClear),
+        // sub_683F90 is the shared name helper used by set-name and overflow-name paths.
+        63 | 85 => Some(MwndOpKind::SetName),
+        // sub_584AA0 case 65 pushes m_window_appear.
+        65 => Some(MwndOpKind::CheckOpen),
+        // sub_584AA0 cases 78..83 operate on the nested C_elm_mwnd_waku file strings.
+        78 => Some(MwndOpKind::SetWakuFile),
+        79 => Some(MwndOpKind::InitWakuFile),
+        80 => Some(MwndOpKind::GetWakuFile),
+        81 => Some(MwndOpKind::SetFilterFile),
+        82 => Some(MwndOpKind::InitFilterFile),
+        83 => Some(MwndOpKind::GetFilterFile),
+        // case 84 is default/set pair for a C_point-like field.
+        84 => Some(MwndOpKind::SetRepPos),
+        // case 86 has the exact 0/1/2/3-arg shape of start_button/end_button.
+        86 => Some(MwndOpKind::MsgBtn),
+        // window position / size / moji-count families.
+        66 => Some(MwndOpKind::InitWindowPos),
+        67 => Some(MwndOpKind::InitWindowSize),
+        68 => Some(MwndOpKind::SetWindowPos),
+        69 => Some(MwndOpKind::SetWindowSize),
+        70 => Some(MwndOpKind::GetWindowPosX),
+        71 => Some(MwndOpKind::GetWindowPosY),
+        72 => Some(MwndOpKind::GetWindowSizeX),
+        73 => Some(MwndOpKind::GetWindowSizeY),
+        74 => Some(MwndOpKind::InitWindowMojiCnt),
+        75 => Some(MwndOpKind::SetWindowMojiCnt),
+        76 => Some(MwndOpKind::GetWindowMojiCntX),
+        77 => Some(MwndOpKind::GetWindowMojiCntY),
+        _ => None,
+    }
+}
+
+fn parse_mwnd_selection_args(
+    script_args: &[Value],
+    rhs: Option<&Value>,
+) -> Vec<MwndSelectionChoice> {
+    let mut out = Vec::new();
+    let mut cur: Option<MwndSelectionChoice> = None;
+
+    for v in script_args.iter().chain(rhs.into_iter()) {
+        if let Some(s) = v.as_str() {
+            if let Some(prev) = cur.take() {
+                out.push(prev);
+            }
+            cur = Some(MwndSelectionChoice {
+                text: s.to_string(),
+                kind: 1,
+                color: -1,
+            });
+            continue;
+        }
+        if let Some(i) = v.as_i64() {
+            if let Some(choice) = cur.as_mut() {
+                if choice.kind == 1 {
+                    choice.kind = i;
+                } else if choice.color == -1 {
+                    choice.color = i;
+                }
+            }
+        }
+    }
+
+    if let Some(last) = cur.take() {
+        out.push(last);
+    }
+
+    out
 }
 
 fn dispatch_mwnd_list_op(
@@ -4721,6 +5744,11 @@ fn dispatch_mwnd_list_op(
     match k {
         MwndListOpKind::CloseAll => {
             st.close_all_mwnd(stage_idx);
+            if matches!(ctx.globals.focused_stage_mwnd, Some((form_id, sidx, _))
+                if form_id == ctx.ids.form_global_stage && sidx == stage_idx)
+            {
+                ctx.globals.focused_stage_mwnd = None;
+            }
             // Commit the current backlog entry before clearing UI state.
             msgbk_next(ctx);
             ctx.ui.clear_message();
@@ -4757,6 +5785,9 @@ fn dispatch_mwnd_item_op(
     // Decide and cache MWND op kind on first sight.
     let k = if let Some(&k) = st.mwnd_op_map.get(&op) {
         k
+    } else if let Some(k) = confirmed_mwnd_op(op) {
+        st.mwnd_op_map.insert(op, k);
+        k
     } else {
         let mut decided = MwndOpKind::Unknown;
 
@@ -4766,7 +5797,9 @@ fn dispatch_mwnd_item_op(
                 decided = MwndOpKind::GetName;
             } else if !m_snapshot.waku_file.is_empty() && !st.has_mwnd_op(MwndOpKind::GetWakuFile) {
                 decided = MwndOpKind::GetWakuFile;
-            } else if !m_snapshot.filter_file.is_empty() && !st.has_mwnd_op(MwndOpKind::GetFilterFile) {
+            } else if !m_snapshot.filter_file.is_empty()
+                && !st.has_mwnd_op(MwndOpKind::GetFilterFile)
+            {
                 decided = MwndOpKind::GetFilterFile;
             } else if !st.has_mwnd_op(MwndOpKind::GetName) {
                 decided = MwndOpKind::GetName;
@@ -4794,7 +5827,10 @@ fn dispatch_mwnd_item_op(
                     } else {
                         decided = MwndOpKind::Print;
                     }
-                } else if name_candidate(s) && ctx.ui.current_message.is_none() && !st.has_mwnd_op(MwndOpKind::SetName) {
+                } else if name_candidate(s)
+                    && ctx.ui.current_message.is_none()
+                    && !st.has_mwnd_op(MwndOpKind::SetName)
+                {
                     decided = MwndOpKind::SetName;
                 } else {
                     decided = MwndOpKind::Print;
@@ -4804,7 +5840,10 @@ fn dispatch_mwnd_item_op(
 
         // CheckOpen: no args, int return.
         if decided == MwndOpKind::Unknown {
-            if script_args.is_empty() && rhs.is_none() && matches!(ret_form, Some(rf) if rf != 0 && rf != 2) {
+            if script_args.is_empty()
+                && rhs.is_none()
+                && matches!(ret_form, Some(rf) if rf != 0 && rf != 2)
+            {
                 if !st.has_mwnd_op(MwndOpKind::CheckOpen) {
                     decided = MwndOpKind::CheckOpen;
                 }
@@ -4813,7 +5852,10 @@ fn dispatch_mwnd_item_op(
 
         // add_msg_check-like: one int arg, int return.
         if decided == MwndOpKind::Unknown {
-            if script_args.len() == 1 && rhs.is_none() && matches!(ret_form, Some(rf) if rf != 0 && rf != 2) {
+            if script_args.len() == 1
+                && rhs.is_none()
+                && matches!(ret_form, Some(rf) if rf != 0 && rf != 2)
+            {
                 if script_args[0].as_i64().is_some() && !st.has_mwnd_op(MwndOpKind::AddMsgCheck) {
                     decided = MwndOpKind::AddMsgCheck;
                 }
@@ -4834,15 +5876,16 @@ fn dispatch_mwnd_item_op(
                     .map(|s| !s.is_empty())
                     .unwrap_or(false);
                 let open_context = m_snapshot.open || ctx.ui.msg_bg_visible;
-                let has_activity = msg_has_text || ctx.ui.current_name.is_some() || m_snapshot.text_dirty;
+                let has_activity =
+                    msg_has_text || ctx.ui.current_name.is_some() || m_snapshot.text_dirty;
 
                 if open_context {
                     if !st.has_mwnd_op(MwndOpKind::WaitMsg) {
                         decided = MwndOpKind::WaitMsg;
                     } else if !st.has_mwnd_op(MwndOpKind::PageWait) {
                         decided = MwndOpKind::PageWait;
-                    } else if !st.has_mwnd_op(MwndOpKind::NewLine) {
-                        decided = MwndOpKind::NewLine;
+                    } else if !st.has_mwnd_op(MwndOpKind::NewLineNoIndent) {
+                        decided = MwndOpKind::NewLineNoIndent;
                     } else if !st.has_mwnd_op(MwndOpKind::Clear) && has_activity {
                         // CLEAR is more plausible when there was activity.
                         decided = MwndOpKind::Clear;
@@ -4852,11 +5895,17 @@ fn dispatch_mwnd_item_op(
                         decided = MwndOpKind::WaitMsg;
                     }
                 } else {
-                    if st.has_mwnd_op(MwndOpKind::SetWakuFile) && !st.has_mwnd_op(MwndOpKind::InitWakuFile) {
+                    if st.has_mwnd_op(MwndOpKind::SetWakuFile)
+                        && !st.has_mwnd_op(MwndOpKind::InitWakuFile)
+                    {
                         decided = MwndOpKind::InitWakuFile;
-                    } else if st.has_mwnd_op(MwndOpKind::SetFilterFile) && !st.has_mwnd_op(MwndOpKind::InitFilterFile) {
+                    } else if st.has_mwnd_op(MwndOpKind::SetFilterFile)
+                        && !st.has_mwnd_op(MwndOpKind::InitFilterFile)
+                    {
                         decided = MwndOpKind::InitFilterFile;
-                    } else if st.has_mwnd_op(MwndOpKind::SetName) && !st.has_mwnd_op(MwndOpKind::ClearName) {
+                    } else if st.has_mwnd_op(MwndOpKind::SetName)
+                        && !st.has_mwnd_op(MwndOpKind::ClearName)
+                    {
                         decided = MwndOpKind::ClearName;
                     } else if !st.has_mwnd_op(MwndOpKind::Open) {
                         decided = MwndOpKind::Open;
@@ -4866,8 +5915,8 @@ fn dispatch_mwnd_item_op(
                         decided = MwndOpKind::Clear;
                     } else if !st.has_mwnd_op(MwndOpKind::PageWait) {
                         decided = MwndOpKind::PageWait;
-                    } else if !st.has_mwnd_op(MwndOpKind::NewLine) {
-                        decided = MwndOpKind::NewLine;
+                    } else if !st.has_mwnd_op(MwndOpKind::NewLineNoIndent) {
+                        decided = MwndOpKind::NewLineNoIndent;
                     } else if !st.has_mwnd_op(MwndOpKind::Close) {
                         decided = MwndOpKind::Close;
                     }
@@ -4892,10 +5941,18 @@ fn dispatch_mwnd_item_op(
         decided
     };
 
-        let list = st.mwnd_lists.get_mut(&stage_idx).unwrap();
+    let list = st.mwnd_lists.get_mut(&stage_idx).unwrap();
     let m = &mut list[mwnd_idx];
 
-match k {
+    match k {
+        MwndOpKind::MsgBlock => {
+            if ctx.ui.current_message.is_some() || ctx.ui.current_name.is_some() || m.text_dirty {
+                msgbk_next(ctx);
+            }
+            m.text_dirty = false;
+            push_ok(ctx, ret_form);
+            true
+        }
         MwndOpKind::Open => {
             m.open = true;
             m.text_dirty = false;
@@ -4912,7 +5969,14 @@ match k {
         }
         MwndOpKind::Close => {
             m.open = false;
+            m.multi_msg = false;
             m.text_dirty = false;
+            m.selection = None;
+            if ctx.globals.focused_stage_mwnd
+                == Some((ctx.ids.form_global_stage, stage_idx, mwnd_idx))
+            {
+                ctx.globals.focused_stage_mwnd = None;
+            }
             msgbk_next(ctx);
             ctx.ui.clear_message();
             ctx.ui.clear_name();
@@ -4926,11 +5990,29 @@ match k {
         }
         MwndOpKind::Clear => {
             ctx.ui.clear_message();
+            m.multi_msg = false;
             m.text_dirty = false;
             push_ok(ctx, ret_form);
             true
         }
-        MwndOpKind::NewLine => {
+        MwndOpKind::NovelClear => {
+            ctx.ui.clear_message();
+            ctx.ui.append_linebreak();
+            m.multi_msg = false;
+            m.text_dirty = false;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::NewLineNoIndent => {
+            ensure_default_msg_bg(ctx);
+            ctx.ui.show_message_bg(true);
+            ctx.ui.append_linebreak();
+            m.indent = false;
+            m.text_dirty = true;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::NewLineIndent => {
             ensure_default_msg_bg(ctx);
             ctx.ui.show_message_bg(true);
             ctx.ui.append_linebreak();
@@ -4988,6 +6070,22 @@ match k {
             push_ok(ctx, ret_form);
             true
         }
+        MwndOpKind::Pp => {
+            ctx.ui.begin_wait_message();
+            ctx.wait.wait_key();
+            m.text_dirty = false;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::R => {
+            msgbk_next(ctx);
+            ctx.ui.begin_wait_message();
+            ctx.ui.request_clear_message_on_wait_end();
+            ctx.wait.wait_key();
+            m.text_dirty = false;
+            push_ok(ctx, ret_form);
+            true
+        }
         MwndOpKind::PageWait => {
             // Treat a page wait as a message boundary for backlog purposes.
             msgbk_next(ctx);
@@ -5012,13 +6110,213 @@ match k {
             push_ok(ctx, ret_form);
             true
         }
+        MwndOpKind::NextMsg => {
+            msgbk_next(ctx);
+            m.text_dirty = false;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::MultiMsg => {
+            m.multi_msg = true;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::Sel | MwndOpKind::SelCancel | MwndOpKind::SelMsg | MwndOpKind::SelMsgCancel => {
+            let choices = parse_mwnd_selection_args(script_args, rhs);
+            let cancel_enable = matches!(k, MwndOpKind::SelCancel | MwndOpKind::SelMsgCancel);
+            let close_mwnd = matches!(k, MwndOpKind::Sel | MwndOpKind::SelCancel);
+
+            if close_mwnd {
+                msgbk_next(ctx);
+                ctx.ui.clear_message();
+                ctx.ui.clear_name();
+                ctx.ui.show_message_bg(false);
+            } else {
+                ensure_default_msg_bg(ctx);
+                ctx.ui.show_message_bg(true);
+            }
+
+            m.selection = Some(MwndSelectionState {
+                choices,
+                cursor: 0,
+                cancel_enable,
+                close_mwnd,
+                result: 0,
+            });
+            ctx.globals.focused_stage_mwnd = Some((ctx.ids.form_global_stage, stage_idx, mwnd_idx));
+            ctx.wait.wait_key();
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::Ruby => {
+            let s = rhs
+                .and_then(|v| v.as_str())
+                .or_else(|| script_args.iter().find_map(|v| v.as_str()))
+                .map(str::to_string);
+            m.ruby_text = s;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::Koe | MwndOpKind::KoePlayWait | MwndOpKind::KoePlayWaitKey => {
+            let koe_no = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            let chara_no = script_args.get(1).and_then(Value::as_i64).unwrap_or(-1);
+            m.koe = Some((koe_no, chara_no));
+            let _ = {
+                let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+                se.play_koe_no(audio, koe_no)
+            };
+            if let Some(st) = msgbk_state_mut(ctx) {
+                st.cur.atoms.push(MsgBackAtom::Koe { koe_no, chara_no });
+            }
+            match k {
+                MwndOpKind::KoePlayWait => {
+                    ctx.wait
+                        .wait_audio(crate::runtime::wait::AudioWait::SeAny, false);
+                }
+                MwndOpKind::KoePlayWaitKey => {
+                    ctx.wait
+                        .wait_audio(crate::runtime::wait::AudioWait::SeAny, true);
+                }
+                _ => {}
+            }
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::Layer => {
+            if let Some(v) = script_args.first().and_then(Value::as_i64) {
+                m.layer = v;
+                push_ok(ctx, ret_form);
+            } else {
+                ctx.stack.push(Value::Int(m.layer));
+            }
+            true
+        }
+        MwndOpKind::World => {
+            if let Some(v) = script_args.first().and_then(Value::as_i64) {
+                m.world = v;
+                push_ok(ctx, ret_form);
+            } else {
+                ctx.stack.push(Value::Int(m.world));
+            }
+            true
+        }
+        MwndOpKind::SetMojiSize => {
+            m.moji_size = script_args.first().and_then(Value::as_i64);
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetMojiColor => {
+            m.moji_color = script_args.first().and_then(Value::as_i64);
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetIndent => {
+            m.indent = true;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::ClearIndent => {
+            m.indent = false;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::StartSlideMsg => {
+            m.slide_msg = true;
+            m.slide_time = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::EndSlideMsg => {
+            m.slide_msg = false;
+            m.slide_time = 0;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SlideMsg => {
+            m.slide_msg = true;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::InitOpenAnimeType => {
+            m.open_anime_type = 0;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::InitOpenAnimeTime => {
+            m.open_anime_time = 0;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::InitCloseAnimeType => {
+            m.close_anime_type = 0;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::InitCloseAnimeTime => {
+            m.close_anime_time = 0;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetOpenAnimeType => {
+            m.open_anime_type = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetOpenAnimeTime => {
+            m.open_anime_time = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetCloseAnimeType => {
+            m.close_anime_type = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetCloseAnimeTime => {
+            m.close_anime_time = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::GetOpenAnimeType => {
+            ctx.stack.push(Value::Int(m.open_anime_type));
+            true
+        }
+        MwndOpKind::GetOpenAnimeTime => {
+            ctx.stack.push(Value::Int(m.open_anime_time));
+            true
+        }
+        MwndOpKind::GetCloseAnimeType => {
+            ctx.stack.push(Value::Int(m.close_anime_type));
+            true
+        }
+        MwndOpKind::GetCloseAnimeTime => {
+            ctx.stack.push(Value::Int(m.close_anime_time));
+            true
+        }
+        MwndOpKind::GetDefaultOpenAnimeType => {
+            ctx.stack.push(Value::Int(0));
+            true
+        }
+        MwndOpKind::GetDefaultOpenAnimeTime => {
+            ctx.stack.push(Value::Int(0));
+            true
+        }
+        MwndOpKind::GetDefaultCloseAnimeType => {
+            ctx.stack.push(Value::Int(0));
+            true
+        }
+        MwndOpKind::GetDefaultCloseAnimeTime => {
+            ctx.stack.push(Value::Int(0));
+            true
+        }
         MwndOpKind::ClearName => {
             ctx.ui.clear_name();
             push_ok(ctx, ret_form);
             true
         }
         MwndOpKind::GetName => {
-            ctx.stack.push(Value::Str(ctx.ui.current_name.clone().unwrap_or_default()));
+            ctx.stack
+                .push(Value::Str(ctx.ui.current_name.clone().unwrap_or_default()));
             true
         }
         MwndOpKind::InitWakuFile => {
@@ -5067,6 +6365,119 @@ match k {
             ctx.stack.push(Value::Str(m.filter_file.clone()));
             true
         }
+        MwndOpKind::ClearFace => {
+            m.face_file.clear();
+            m.face_no = 0;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetFace => {
+            let face_file = rhs
+                .and_then(|v| v.as_str())
+                .or_else(|| script_args.iter().find_map(|v| v.as_str()))
+                .unwrap_or("")
+                .to_string();
+            let mut ints = script_args.iter().filter_map(Value::as_i64);
+            let face_no = ints.next().unwrap_or(0);
+            m.face_no = face_no;
+            m.face_file = face_file.clone();
+            if !face_file.is_empty() {
+                m.str_props.insert(op, face_file);
+            }
+            m.props.insert(op, face_no);
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetRepPos => {
+            if script_args.is_empty() {
+                m.rep_pos = None;
+            } else {
+                let x = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+                let y = script_args.get(1).and_then(Value::as_i64).unwrap_or(0);
+                m.rep_pos = Some((x, y));
+            }
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::MsgBtn => {
+            if script_args.is_empty() {
+                m.msgbtn = None;
+            } else {
+                let a = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+                let b = script_args.get(1).and_then(Value::as_i64).unwrap_or(0);
+                let c = script_args.get(2).and_then(Value::as_i64).unwrap_or(0);
+                let d = script_args.get(3).and_then(Value::as_i64).unwrap_or(0);
+                m.msgbtn = Some((a, b, c, d));
+            }
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::InitWindowPos => {
+            m.window_pos = None;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::InitWindowSize => {
+            m.window_size = None;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetWindowPos => {
+            let x = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            let y = script_args.get(1).and_then(Value::as_i64).unwrap_or(0);
+            m.window_pos = Some((x, y));
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetWindowSize => {
+            let x = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            let y = script_args.get(1).and_then(Value::as_i64).unwrap_or(0);
+            m.window_size = Some((x, y));
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::GetWindowPosX => {
+            ctx.stack
+                .push(Value::Int(m.window_pos.map(|v| v.0).unwrap_or(0)));
+            true
+        }
+        MwndOpKind::GetWindowPosY => {
+            ctx.stack
+                .push(Value::Int(m.window_pos.map(|v| v.1).unwrap_or(0)));
+            true
+        }
+        MwndOpKind::GetWindowSizeX => {
+            ctx.stack
+                .push(Value::Int(m.window_size.map(|v| v.0).unwrap_or(0)));
+            true
+        }
+        MwndOpKind::GetWindowSizeY => {
+            ctx.stack
+                .push(Value::Int(m.window_size.map(|v| v.1).unwrap_or(0)));
+            true
+        }
+        MwndOpKind::InitWindowMojiCnt => {
+            m.window_moji_cnt = None;
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::SetWindowMojiCnt => {
+            let x = script_args.first().and_then(Value::as_i64).unwrap_or(0);
+            let y = script_args.get(1).and_then(Value::as_i64).unwrap_or(0);
+            m.window_moji_cnt = Some((x, y));
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::GetWindowMojiCntX => {
+            ctx.stack
+                .push(Value::Int(m.window_moji_cnt.map(|v| v.0).unwrap_or(0)));
+            true
+        }
+        MwndOpKind::GetWindowMojiCntY => {
+            ctx.stack
+                .push(Value::Int(m.window_moji_cnt.map(|v| v.1).unwrap_or(0)));
+            true
+        }
         MwndOpKind::Unknown => {
             if let Some(s) = rhs.and_then(|v| v.as_str()) {
                 m.str_props.insert(op, s.to_string());
@@ -5099,7 +6510,9 @@ match k {
             if rhs.is_none() {
                 if let Some(rf) = ret_form {
                     if rf == 2 {
-                        ctx.stack.push(Value::Str(m.str_props.get(&op).cloned().unwrap_or_default()));
+                        ctx.stack.push(Value::Str(
+                            m.str_props.get(&op).cloned().unwrap_or_default(),
+                        ));
                         return true;
                     }
                     if rf != 0 {
@@ -5183,38 +6596,39 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
 
             with_stage_state(ctx, form_id, |ctx, st| {
                 // Route by learned kind (or try to learn).
-                let kind = st.child_kind.get(&child).copied().unwrap_or(StageChildKind::Unknown);
                 let mut handled = false;
+                let stage_object = if stage_elm_object != 0 {
+                    stage_elm_object
+                } else {
+                    crate::runtime::forms::codes::STAGE_ELM_OBJECT
+                };
+                let stage_world = if stage_elm_world != 0 {
+                    stage_elm_world
+                } else {
+                    crate::runtime::forms::codes::STAGE_ELM_WORLD
+                };
 
-                if (kind == StageChildKind::ObjectList || kind == StageChildKind::Unknown)
-                    && child == stage_elm_object
-                {
+                if child == stage_object {
                     if dispatch_object_list_op(ctx, st, stage, op as i32, script_args, ret_form) {
                         st.child_kind.insert(child, StageChildKind::ObjectList);
                         handled = true;
                     }
-                }
-
-                if !handled && (kind == StageChildKind::GroupList || kind == StageChildKind::Unknown) {
-                    if dispatch_group_list_op(ctx, st, stage, op as i32, script_args, ret_form) {
-                        st.child_kind.insert(child, StageChildKind::GroupList);
-                        handled = true;
-                    }
-                }
-
-                if !handled && (kind == StageChildKind::MwndList || kind == StageChildKind::Unknown) {
+                } else if child == crate::runtime::forms::codes::STAGE_ELM_MWND {
                     if dispatch_mwnd_list_op(ctx, st, stage, op as i32, script_args, ret_form) {
                         st.child_kind.insert(child, StageChildKind::MwndList);
                         handled = true;
                     }
-                }
-
-                if !handled && (kind == StageChildKind::WorldList || kind == StageChildKind::Unknown) {
-                    if (stage_elm_world != 0 && child == stage_elm_world) || stage_elm_world == 0 {
-                        if dispatch_world_list_op(ctx, st, stage, op as i32, script_args, ret_form) {
-                            st.child_kind.insert(child, StageChildKind::WorldList);
-                            handled = true;
-                        }
+                } else if child == crate::runtime::forms::codes::STAGE_ELM_OBJBTNGROUP
+                    || child == crate::runtime::forms::codes::STAGE_ELM_BTNSELITEM
+                {
+                    if dispatch_group_list_op(ctx, st, stage, op as i32, script_args, ret_form) {
+                        st.child_kind.insert(child, StageChildKind::GroupList);
+                        handled = true;
+                    }
+                } else if child == stage_world {
+                    if dispatch_world_list_op(ctx, st, stage, op as i32, script_args, ret_form) {
+                        st.child_kind.insert(child, StageChildKind::WorldList);
+                        handled = true;
                     }
                 }
 
@@ -5225,15 +6639,30 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
 
             return Ok(true);
         }
-        StageTarget::ChildItemOp { stage, child, idx, op, tail } => {
+        StageTarget::ChildItemOp {
+            stage,
+            child,
+            idx,
+            op,
+            tail,
+        } => {
             let form_id = ctx.ids.form_global_stage;
             let stage_elm_object = ctx.ids.stage_elm_object;
             let stage_elm_world = ctx.ids.stage_elm_world;
 
             with_stage_state(ctx, form_id, |ctx, st| {
-                // Known object list path (compat).
-                let obj_kind = st.child_kind.get(&child).copied().unwrap_or(StageChildKind::Unknown);
-                if child == stage_elm_object || obj_kind == StageChildKind::ObjectList {
+                let stage_object = if stage_elm_object != 0 {
+                    stage_elm_object
+                } else {
+                    crate::runtime::forms::codes::STAGE_ELM_OBJECT
+                };
+                let stage_world = if stage_elm_world != 0 {
+                    stage_elm_world
+                } else {
+                    crate::runtime::forms::codes::STAGE_ELM_WORLD
+                };
+
+                if child == stage_object {
                     if dispatch_object_op(
                         ctx,
                         st,
@@ -5254,15 +6683,13 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     return;
                 }
 
-                // Non-object children: try Group then MWND.
-                let kind = st.child_kind.get(&child).copied().unwrap_or(StageChildKind::Unknown);
                 let mut handled = false;
 
-                // Bias toward Group to avoid menu wait-loops deadlocking.
-                if kind == StageChildKind::GroupList || kind == StageChildKind::Unknown {
-                    // Reject if any string argument is present: group ops are int-only.
-                    if !script_args.iter().any(|v| matches!(v, Value::Str(_))) {
-                        if dispatch_group_item_op(
+                if child == crate::runtime::forms::codes::STAGE_ELM_OBJBTNGROUP
+                    || child == crate::runtime::forms::codes::STAGE_ELM_BTNSELITEM
+                {
+                    if !script_args.iter().any(|v| matches!(v, Value::Str(_)))
+                        && dispatch_group_item_op(
                             ctx,
                             st,
                             stage,
@@ -5272,14 +6699,12 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                             rhs,
                             al_id,
                             ret_form,
-                        ) {
-                            st.child_kind.insert(child, StageChildKind::GroupList);
-                            handled = true;
-                        }
+                        )
+                    {
+                        st.child_kind.insert(child, StageChildKind::GroupList);
+                        handled = true;
                     }
-                }
-
-                if !handled && (kind == StageChildKind::MwndList || kind == StageChildKind::Unknown) {
+                } else if child == crate::runtime::forms::codes::STAGE_ELM_MWND {
                     if dispatch_mwnd_item_op(
                         ctx,
                         st,
@@ -5294,25 +6719,21 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                         st.child_kind.insert(child, StageChildKind::MwndList);
                         handled = true;
                     }
-                }
-
-                if !handled && (kind == StageChildKind::WorldList || kind == StageChildKind::Unknown) {
-                    if (stage_elm_world != 0 && child == stage_elm_world) || stage_elm_world == 0 {
-                        if dispatch_world_item_op(
-                            ctx,
-                            st,
-                            stage,
-                            idx.max(0) as usize,
-                            op as i32,
-                            &tail,
-                            script_args,
-                            rhs,
-                            al_id,
-                            ret_form,
-                        ) {
-                            st.child_kind.insert(child, StageChildKind::WorldList);
-                            handled = true;
-                        }
+                } else if child == stage_world {
+                    if dispatch_world_item_op(
+                        ctx,
+                        st,
+                        stage,
+                        idx.max(0) as usize,
+                        op as i32,
+                        &tail,
+                        script_args,
+                        rhs,
+                        al_id,
+                        ret_form,
+                    ) {
+                        st.child_kind.insert(child, StageChildKind::WorldList);
+                        handled = true;
                     }
                 }
 

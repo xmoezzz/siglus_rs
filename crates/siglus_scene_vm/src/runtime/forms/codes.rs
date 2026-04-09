@@ -5,6 +5,133 @@
 //! on these constants.
 
 // -----------------------------------------------------------------------------
+// Reverse-confirmed form IDs (same-version `se-src` + `docs/SiglusEngine.exe`)
+// -----------------------------------------------------------------------------
+
+/// `FM_STAGE`
+///
+/// Confirmed from:
+/// - source `cmd_mwnd.cpp` / `cmd_object.cpp`
+/// - decomp `sub_584940` / `sub_5899E0`
+pub const FM_STAGE: i32 = 1300;
+
+/// `FM_OBJECT`
+///
+/// Confirmed from:
+/// - source `cmd_object.cpp`
+/// - decomp `sub_5899E0`
+pub const FM_OBJECT: i32 = 1310;
+
+/// `FM_OBJECTLIST`
+///
+/// Confirmed from:
+/// - source `cmd_object.cpp` / `elm_object.cpp`
+/// - decomp `sub_589BC0`
+pub const FM_OBJECTLIST: i32 = 1311;
+
+/// `FM_MWNDLIST`
+///
+/// Confirmed from:
+/// - source `cmd_mwnd.cpp`
+/// - decomp `sub_584AA0`
+pub const FM_MWNDLIST: i32 = 1321;
+
+/// `FM_STAGELIST`
+///
+/// Confirmed from:
+/// - source `elm_stage.cpp`
+/// - decomp `sub_63FE00`
+pub const FM_STAGELIST: i32 = 1301;
+
+/// `FM_BTNSELITEM`
+///
+/// Confirmed from:
+/// - source `elm_btn_sel_item.cpp`
+/// - decomp `sub_60B910`
+pub const FM_BTNSELITEM: i32 = 1320;
+
+/// `FM_SCREEN`
+///
+/// Confirmed from:
+/// - source `elm_screen.cpp`
+/// - decomp `sub_630190`
+pub const FM_SCREEN: i32 = 1350;
+
+/// `FM_QUAKE`
+///
+/// Confirmed from:
+/// - source `elm_screen.cpp`
+/// - decomp `sub_632250`
+pub const FM_QUAKE: i32 = 1360;
+
+/// `FM_QUAKELIST`
+///
+/// Confirmed from:
+/// - source `elm_screen.cpp`
+/// - decomp `sub_632790`
+pub const FM_QUAKELIST: i32 = 1361;
+
+/// `FM_EFFECT`
+///
+/// Confirmed from:
+/// - source `elm_screen.cpp`
+/// - decomp `sub_630F40`
+pub const FM_EFFECT: i32 = 1380;
+
+/// `FM_EFFECTLIST`
+///
+/// Confirmed from:
+/// - source `elm_screen.cpp`
+/// - decomp `sub_632A60`
+pub const FM_EFFECTLIST: i32 = 1381;
+
+/// `FM_EXCALL`
+///
+/// Confirmed from:
+/// - source `elm_excall.cpp`
+/// - decomp `sub_5EFB30`
+pub const FM_EXCALL: i32 = 1700;
+
+/// `FM_FRAMEACTION`
+///
+/// Confirmed from:
+/// - source `elm_frame_action.cpp`
+/// - decomp `sub_5F5010`
+pub const FM_FRAMEACTION: i32 = 1210;
+
+/// `FM_FRAMEACTIONLIST`
+///
+/// Confirmed from:
+/// - source `elm_frame_action.cpp` / `elm_excall.cpp`
+/// - decomp `sub_5F62D0`
+pub const FM_FRAMEACTIONLIST: i32 = 1211;
+
+// -----------------------------------------------------------------------------
+// Reverse-confirmed MWND child selectors
+// -----------------------------------------------------------------------------
+
+/// `ELM_MWND_OBJECT`
+///
+/// Confirmed from:
+/// - source `elm_mwnd_waku.cpp` (`.object`)
+/// - decomp `sub_617950` appending `30`
+pub const ELM_MWND_OBJECT: i32 = 30;
+
+/// `ELM_MWND_BUTTON`
+///
+/// Confirmed from:
+/// - source `elm_mwnd_waku.cpp` (`.button`)
+/// - decomp `sub_617950` appending `32`
+pub const ELM_MWND_BUTTON: i32 = 32;
+
+/// `ELM_MWND_FACE`
+///
+/// Confirmed from:
+/// - source `elm_mwnd_waku.cpp` (`.face`)
+/// - decomp `sub_617950` appending `53`
+pub const ELM_MWND_FACE: i32 = 53;
+
+// -----------------------------------------------------------------------------
 // Global form IDs
 // -----------------------------------------------------------------------------
 
@@ -62,10 +189,8 @@ pub const FORM_GLOBAL_FRAME_ACTION: u32 = 64;
 ///
 /// Source: `external ID mapping` mapping: cases that dispatch to the original engine.
 pub const GLOBAL_INT_LIST_FORMS: &[u32] = &[
-    9, 10, 11, 12, 13, 14, 15, 16, 17, 18,
-    21, 22, 41, 47, 56, 57, 58, 59, 61, 62,
-    72, 84, 90, 91, 93, 94, 95, 100, 102,
-    115, 116, 119, 120, 121, 122, 125, 151, 156,
+    9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 21, 22, 41, 47, 56, 57, 58, 59, 61, 62, 72, 84, 90, 91,
+    93, 94, 95, 100, 102, 115, 116, 119, 120, 121, 122, 125, 151, 156,
 ];
 
 /// Global form IDs that behave like a string-list (backed by `tnm_command_proc_str_list`).
@@ -235,13 +360,95 @@ pub const ELM_ARRAY: i32 = -1;
 /// Stage child element: OBJECT.
 pub const STAGE_ELM_OBJECT: i32 = 2;
 
+/// `ELM_STAGE_CREATE_OBJECT`
+pub const STAGE_CREATE_OBJECT: i32 = 0;
+
+/// `ELM_STAGE_CREATE_MWND`
+pub const STAGE_CREATE_MWND: i32 = 1;
+
+/// `ELM_STAGE_MWND`
+pub const STAGE_ELM_MWND: i32 = 3;
+
+/// `ELM_STAGE_BTNSELITEM`
+pub const STAGE_ELM_BTNSELITEM: i32 = 4;
+
+/// `ELM_STAGE_OBJBTNGROUP`
+pub const STAGE_ELM_OBJBTNGROUP: i32 = 5;
+
+/// `ELM_STAGE_WORLD`
+pub const STAGE_ELM_WORLD: i32 = 6;
+
+/// `ELM_STAGE_QUAKE`
+pub const STAGE_ELM_QUAKE: i32 = 7;
+
+/// `ELM_STAGE_EFFECT`
+pub const STAGE_ELM_EFFECT: i32 = 8;
+
 // Object properties / commands.
-pub const OBJECT_DISP: i32 = 13;
-pub const OBJECT_PATNO: i32 = 14;
-pub const OBJECT_ORDER: i32 = 16;
-pub const OBJECT_LAYER: i32 = 17;
-pub const OBJECT_X: i32 = 18;
-pub const OBJECT_Y: i32 = 19;
+pub const OBJECTLIST_GET_SIZE: i32 = 3;
+pub const OBJECTLIST_RESIZE: i32 = 4;
+
+pub const OBJECT_DISP: i32 = 0;
+pub const OBJECT_PATNO: i32 = 1;
+pub const OBJECT_ORDER: i32 = 0x37;
+pub const OBJECT_X: i32 = 3;
+pub const OBJECT_Y: i32 = 4;
+pub const OBJECT_Z: i32 = 5;
+pub const OBJECT_CENTER_X: i32 = 6;
+pub const OBJECT_CENTER_Y: i32 = 7;
+pub const OBJECT_CENTER_Z: i32 = 8;
+pub const OBJECT_CENTER_REP_X: i32 = 9;
+pub const OBJECT_CENTER_REP_Y: i32 = 10;
+pub const OBJECT_CENTER_REP_Z: i32 = 11;
+pub const OBJECT_SCALE_X: i32 = 12;
+pub const OBJECT_SCALE_Y: i32 = 13;
+pub const OBJECT_SCALE_Z: i32 = 14;
+pub const OBJECT_ROTATE_X: i32 = 15;
+pub const OBJECT_ROTATE_Y: i32 = 16;
+pub const OBJECT_ROTATE_Z: i32 = 17;
+pub const OBJECT_CLIP_USE: i32 = 18;
+pub const OBJECT_CLIP_LEFT: i32 = 19;
+pub const OBJECT_CLIP_TOP: i32 = 20;
+pub const OBJECT_CLIP_RIGHT: i32 = 21;
+pub const OBJECT_CLIP_BOTTOM: i32 = 22;
+pub const OBJECT_COLOR_RATE: i32 = 0x17;
+
+pub const OBJECT_LAYER: i32 = 0x02;
+pub const OBJECT_WORLD: i32 = 0x2C;
+pub const OBJECT_BLEND: i32 = 0x2E;
+pub const OBJECT_SET_POS: i32 = 0x30;
+pub const OBJECT_SET_SCALE: i32 = 0x31;
+pub const OBJECT_SET_ROTATE: i32 = 0x32;
+pub const OBJECT_SET_CENTER: i32 = 0x9E;
+pub const OBJECT_SET_CENTER_REP: i32 = 0x9F;
+pub const OBJECT_SET_CLIP: i32 = 0xA0;
+pub const OBJECT_SET_SRC_CLIP: i32 = 0xA1;
+pub const OBJECT_TR: i32 = 0x1B;
+pub const OBJECT_MONO: i32 = 0x1C;
+pub const OBJECT_REVERSE: i32 = 0x1D;
+pub const OBJECT_BRIGHT: i32 = 0x1E;
+pub const OBJECT_DARK: i32 = 0x1F;
+pub const OBJECT_COLOR_R: i32 = 0x20;
+pub const OBJECT_COLOR_G: i32 = 0x21;
+pub const OBJECT_COLOR_B: i32 = 0x22;
+pub const OBJECT_COLOR_ADD_R: i32 = 0x39;
+pub const OBJECT_COLOR_ADD_G: i32 = 0x3A;
+pub const OBJECT_COLOR_ADD_B: i32 = 0x3B;
+pub const OBJECT_WIPE_COPY: i32 = 0x38;
+pub const OBJECT_WIPE_ERASE: i32 = 0x5C;
+pub const OBJECT_CLICK_DISABLE: i32 = 0x8B;
+pub const OBJECT_MASK_NO: i32 = 0x91;
+pub const OBJECT_TONECURVE_NO: i32 = 0x6D;
+pub const OBJECT_LIGHT_NO: i32 = 0xA8;
+pub const OBJECT_FOG_USE: i32 = 0x90;
+pub const OBJECT_CULLING: i32 = 0x92;
+pub const OBJECT_ALPHA_TEST: i32 = 0x93;
+pub const OBJECT_ALPHA_BLEND: i32 = 0x94;
+pub const OBJECT_SRC_CLIP_USE: i32 = 0x95;
+pub const OBJECT_SRC_CLIP_LEFT: i32 = 0x96;
+pub const OBJECT_SRC_CLIP_TOP: i32 = 0x97;
+pub const OBJECT_SRC_CLIP_RIGHT: i32 = 0x98;
+pub const OBJECT_SRC_CLIP_BOTTOM: i32 = 0x99;
 
 /// Object command: CREATE.
 pub const OBJECT_CREATE: i32 = 38;

@@ -2,16 +2,16 @@
 //!
 //! Code comments are intentionally in English.
 
+pub mod app_path;
 pub mod assets;
 pub mod audio;
-pub mod app_path;
-pub mod movie;
 pub mod image_manager;
 pub mod layer;
+pub mod movie;
 pub mod resource;
+pub mod runtime;
 pub mod soft_render;
 pub mod text_render;
-pub mod runtime;
 
 pub mod elm_code;
 

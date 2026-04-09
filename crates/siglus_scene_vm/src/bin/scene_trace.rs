@@ -29,7 +29,8 @@ fn main() -> Result<()> {
                     .context("parse --max-steps")?;
             }
             "--help" | "-h" => {
-                eprintln!(r#"Usage: scene_trace [--project <dir>] [--pck <Scene.pck>] [--scene <name|index>] [--max-steps N]
+                eprintln!(
+                    r#"Usage: scene_trace [--project <dir>] [--pck <Scene.pck>] [--scene <name|index>] [--max-steps N]
 
 Notes:
   - If --project is omitted, the app base path is used.
@@ -46,7 +47,8 @@ Other controls:
   SIG_TEST=1
   SIGLUS_FM_LABEL (i32)
   SIGLUS_FM_LIST (i32)
-"#);
+"#
+                );
                 return Ok(());
             }
             other => return Err(anyhow!("unknown arg: {}", other)),
@@ -78,7 +80,8 @@ Other controls:
         return Err(anyhow!("scene chunk is empty: {}", scn_no));
     }
 
-    let stream = SceneStream::new(chunk)?;
+    let mut stream = SceneStream::new(chunk)?;
+    stream.jump_to_z_label(0)?;
     let ctx = CommandContext::new(project_dir.clone());
     let mut vm = SceneVm::new(stream, ctx);
     vm.cfg.max_steps = max_steps as u64;

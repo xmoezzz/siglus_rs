@@ -5,22 +5,49 @@ use crate::runtime::{CommandContext, Value};
 use super::codes::bgm_op;
 
 fn store_or_push_bgm_prop(ctx: &mut CommandContext, op: i64, args: &[Value]) {
-    let form_key = if ctx.ids.form_global_bgm != 0 { ctx.ids.form_global_bgm } else { super::codes::FORM_GLOBAL_BGM };
+    let form_key = if ctx.ids.form_global_bgm != 0 {
+        ctx.ids.form_global_bgm
+    } else {
+        super::codes::FORM_GLOBAL_BGM
+    };
     let prop = op as i32;
     if let Some(v) = args.get(1).cloned() {
         match v {
-            Value::Str(s) => { ctx.globals.str_props.entry(form_key).or_default().insert(prop, s); }
-            Value::Int(n) => { ctx.globals.int_props.entry(form_key).or_default().insert(prop, n); }
+            Value::Str(s) => {
+                ctx.globals
+                    .str_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, s);
+            }
+            Value::Int(n) => {
+                ctx.globals
+                    .int_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, n);
+            }
             _ => {}
         }
         ctx.push(Value::Int(0));
         return;
     }
-    if let Some(s) = ctx.globals.str_props.get(&form_key).and_then(|m| m.get(&prop)).cloned() {
+    if let Some(s) = ctx
+        .globals
+        .str_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop))
+        .cloned()
+    {
         ctx.push(Value::Str(s));
         return;
     }
-    let v = ctx.globals.int_props.get(&form_key).and_then(|m| m.get(&prop).copied()).unwrap_or(0);
+    let v = ctx
+        .globals
+        .int_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop).copied())
+        .unwrap_or(0);
     ctx.push(Value::Int(v));
 }
 
@@ -76,7 +103,11 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let play_name = || named_str(args, 0).or_else(|| arg_str(args, 1));
 
     match op {
-        bgm_op::PLAY | bgm_op::PLAY_WAIT | bgm_op::READY | bgm_op::PLAY_ONESHOT | bgm_op::READY_ONESHOT => {
+        bgm_op::PLAY
+        | bgm_op::PLAY_WAIT
+        | bgm_op::READY
+        | bgm_op::PLAY_ONESHOT
+        | bgm_op::READY_ONESHOT => {
             let name = match play_name() {
                 Some(s) => s,
                 None => {
@@ -85,9 +116,14 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                 }
             };
 
-            let default_loop = !matches!(op, bgm_op::PLAY_ONESHOT | bgm_op::READY_ONESHOT | bgm_op::PLAY_WAIT);
+            let default_loop = !matches!(
+                op,
+                bgm_op::PLAY_ONESHOT | bgm_op::READY_ONESHOT | bgm_op::PLAY_WAIT
+            );
             let loop_flag = named_int(args, 1).map(|v| v != 0).unwrap_or(default_loop);
-            let wait_flag = named_int(args, 2).map(|v| v != 0).unwrap_or(op == bgm_op::PLAY_WAIT);
+            let wait_flag = named_int(args, 2)
+                .map(|v| v != 0)
+                .unwrap_or(op == bgm_op::PLAY_WAIT);
             let _start_pos = named_int(args, 3).or_else(|| arg_int(args, 2));
             let _fade_in_time = named_int(args, 4).or_else(|| arg_int(args, 2));
             let _fade_out_time = named_int(args, 5).or_else(|| arg_int(args, 3));
@@ -124,10 +160,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             }
             Ok(true)
         }
-        bgm_op::WAIT
-        | bgm_op::WAIT_KEY
-        | bgm_op::WAIT_FADE
-        | bgm_op::WAIT_FADE_KEY => {
+        bgm_op::WAIT | bgm_op::WAIT_KEY | bgm_op::WAIT_FADE | bgm_op::WAIT_FADE_KEY => {
             if ctx.bgm.can_wait() {
                 let key = op == bgm_op::WAIT_KEY || op == bgm_op::WAIT_FADE_KEY;
                 ctx.wait

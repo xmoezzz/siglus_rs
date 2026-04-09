@@ -76,7 +76,11 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             let idx = args.get(1).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
             let set_value = args.get(2).and_then(|v| v.as_i64());
             let value = {
-                let list = ctx.globals.int_lists.entry(form_key).or_insert_with(|| vec![0; 32]);
+                let list = ctx
+                    .globals
+                    .int_lists
+                    .entry(form_key)
+                    .or_insert_with(|| vec![0; 32]);
                 if list.len() <= idx {
                     list.resize(idx + 1, 0);
                 }
@@ -94,19 +98,19 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         excall_op::OP_8 => {
             if args.len() >= 2 {
                 let v = args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) != 0;
-                ctx.syscalls.flag_2148 = v;
+                ctx.excall_state.flag_2148 = v;
                 ctx.push(Value::Int(0));
             } else {
-                ctx.push(Value::Int(if ctx.syscalls.flag_2148 { 1 } else { 0 }));
+                ctx.push(Value::Int(if ctx.excall_state.flag_2148 { 1 } else { 0 }));
             }
         }
         excall_op::OP_12 => {
             if args.len() >= 2 {
                 let v = args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) != 0;
-                ctx.syscalls.flag_204 = v;
+                ctx.excall_state.flag_204 = v;
                 ctx.push(Value::Int(0));
             } else {
-                ctx.push(Value::Int(if ctx.syscalls.flag_204 { 1 } else { 0 }));
+                ctx.push(Value::Int(if ctx.excall_state.flag_204 { 1 } else { 0 }));
             }
         }
         excall_op::OP_0

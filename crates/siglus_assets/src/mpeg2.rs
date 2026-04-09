@@ -38,9 +38,12 @@ pub fn fps_from_frame_rate_code(code: u8) -> Option<f32> {
 }
 
 /// Scan the first `max_scan_bytes` bytes of a file for a MPEG sequence header.
-pub fn probe_sequence_header(path: impl AsRef<Path>, max_scan_bytes: usize) -> Result<Option<MpegSeqHeader>> {
-    let mut f = File::open(&path)
-        .with_context(|| format!("open MPEG: {}", path.as_ref().display()))?;
+pub fn probe_sequence_header(
+    path: impl AsRef<Path>,
+    max_scan_bytes: usize,
+) -> Result<Option<MpegSeqHeader>> {
+    let mut f =
+        File::open(&path).with_context(|| format!("open MPEG: {}", path.as_ref().display()))?;
     let file_len = f.seek(SeekFrom::End(0))?;
     f.seek(SeekFrom::Start(0))?;
     let to_read = std::cmp::min(max_scan_bytes as u64, file_len) as usize;
@@ -188,7 +191,8 @@ pub fn decode_mpeg2_to_rgba_frames(
 
     let mut receive_and_convert = |decoder: &mut ffmpeg::decoder::Video,
                                    scaler: &mut ffmpeg::software::scaling::context::Context,
-                                   out: &mut Vec<VideoFrameRgba>| -> Result<()> {
+                                   out: &mut Vec<VideoFrameRgba>|
+     -> Result<()> {
         let mut decoded = ffmpeg::util::frame::video::Video::empty();
         while decoder.receive_frame(&mut decoded).is_ok() {
             let pts = decoded.pts();

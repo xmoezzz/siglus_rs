@@ -5,22 +5,49 @@ use crate::runtime::{CommandContext, Value};
 use super::codes::se_op;
 
 fn store_or_push_se_prop(ctx: &mut CommandContext, op: i64, args: &[Value]) {
-    let form_key = if ctx.ids.form_global_se != 0 { ctx.ids.form_global_se } else { super::codes::FORM_GLOBAL_SE };
+    let form_key = if ctx.ids.form_global_se != 0 {
+        ctx.ids.form_global_se
+    } else {
+        super::codes::FORM_GLOBAL_SE
+    };
     let prop = op as i32;
     if let Some(v) = args.get(1).cloned() {
         match v {
-            Value::Str(s) => { ctx.globals.str_props.entry(form_key).or_default().insert(prop, s); }
-            Value::Int(n) => { ctx.globals.int_props.entry(form_key).or_default().insert(prop, n); }
+            Value::Str(s) => {
+                ctx.globals
+                    .str_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, s);
+            }
+            Value::Int(n) => {
+                ctx.globals
+                    .int_props
+                    .entry(form_key)
+                    .or_default()
+                    .insert(prop, n);
+            }
             _ => {}
         }
         ctx.push(Value::Int(0));
         return;
     }
-    if let Some(s) = ctx.globals.str_props.get(&form_key).and_then(|m| m.get(&prop)).cloned() {
+    if let Some(s) = ctx
+        .globals
+        .str_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop))
+        .cloned()
+    {
         ctx.push(Value::Str(s));
         return;
     }
-    let v = ctx.globals.int_props.get(&form_key).and_then(|m| m.get(&prop).copied()).unwrap_or(0);
+    let v = ctx
+        .globals
+        .int_props
+        .get(&form_key)
+        .and_then(|m| m.get(&prop).copied())
+        .unwrap_or(0);
     ctx.push(Value::Int(v));
 }
 
@@ -82,8 +109,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     return Ok(true);
                 }
             };
-			let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-			let _ = se.play_file_name(audio, name)?;
+            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+            let _ = se.play_file_name(audio, name)?;
             Ok(true)
         }
         se_op::STOP => {
@@ -101,20 +128,20 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                 }
             };
             let fade = arg_int(args, 2).unwrap_or(0);
-			let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-			se.set_volume_raw_fade(audio, vol, fade)?;
+            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+            se.set_volume_raw_fade(audio, vol, fade)?;
             Ok(true)
         }
         se_op::SET_VOLUME_MAX => {
             let fade = arg_int(args, 1).unwrap_or(0);
-			let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-			se.set_volume_raw_fade(audio, 255, fade)?;
+            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+            se.set_volume_raw_fade(audio, 255, fade)?;
             Ok(true)
         }
         se_op::SET_VOLUME_MIN => {
             let fade = arg_int(args, 1).unwrap_or(0);
-			let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-			se.set_volume_raw_fade(audio, 0, fade)?;
+            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+            se.set_volume_raw_fade(audio, 0, fade)?;
             Ok(true)
         }
         se_op::GET_VOLUME => {
@@ -122,19 +149,21 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         se_op::CHECK => {
-			let playing = ctx.se.is_playing_any();
-			ctx.push(Value::Int(if playing { 1 } else { 0 }));
+            let playing = ctx.se.is_playing_any();
+            ctx.push(Value::Int(if playing { 1 } else { 0 }));
             Ok(true)
         }
         se_op::WAIT => {
-            ctx.wait.wait_audio(crate::runtime::wait::AudioWait::SeAny, false);
+            ctx.wait
+                .wait_audio(crate::runtime::wait::AudioWait::SeAny, false);
             if ret_form.unwrap_or(0) != 0 {
                 ctx.push(Value::Int(0));
             }
             Ok(true)
         }
         se_op::WAIT_KEY => {
-            ctx.wait.wait_audio(crate::runtime::wait::AudioWait::SeAny, true);
+            ctx.wait
+                .wait_audio(crate::runtime::wait::AudioWait::SeAny, true);
             if ret_form.unwrap_or(0) != 0 {
                 ctx.push(Value::Int(0));
             }
@@ -149,9 +178,9 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     return Ok(true);
                 }
             };
-			let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-			for cand in resolve_numeric_candidates(se_no) {
-				if se.play_file_name(audio, &cand).is_ok() {
+            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+            for cand in resolve_numeric_candidates(se_no) {
+                if se.play_file_name(audio, &cand).is_ok() {
                     return Ok(true);
                 }
             }

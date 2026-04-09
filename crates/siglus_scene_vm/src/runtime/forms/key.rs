@@ -63,11 +63,21 @@ fn query_ex(ctx: &mut CommandContext, which: ExKey, op: i64) -> i64 {
 
     match op {
         o if o == ctx.ids.key_op_dir as i64 => ctx.input.dir_mask(),
-        o if o == ctx.ids.key_op_on_down as i64 => bool_i64(keys.iter().any(|&k| ctx.input.vk_down_stock(k))),
-        o if o == ctx.ids.key_op_on_up as i64 => bool_i64(keys.iter().any(|&k| ctx.input.vk_up_stock(k))),
-        o if o == ctx.ids.key_op_on_down_up as i64 => bool_i64(keys.iter().any(|&k| ctx.input.vk_down_up_stock(k))),
-        o if o == ctx.ids.key_op_is_down as i64 => bool_i64(keys.iter().any(|&k| ctx.input.vk_is_down(k))),
-        o if o == ctx.ids.key_op_is_up as i64 => bool_i64(!keys.iter().any(|&k| ctx.input.vk_is_down(k))),
+        o if o == ctx.ids.key_op_on_down as i64 => {
+            bool_i64(keys.iter().any(|&k| ctx.input.vk_down_stock(k)))
+        }
+        o if o == ctx.ids.key_op_on_up as i64 => {
+            bool_i64(keys.iter().any(|&k| ctx.input.vk_up_stock(k)))
+        }
+        o if o == ctx.ids.key_op_on_down_up as i64 => {
+            bool_i64(keys.iter().any(|&k| ctx.input.vk_down_up_stock(k)))
+        }
+        o if o == ctx.ids.key_op_is_down as i64 => {
+            bool_i64(keys.iter().any(|&k| ctx.input.vk_is_down(k)))
+        }
+        o if o == ctx.ids.key_op_is_up as i64 => {
+            bool_i64(!keys.iter().any(|&k| ctx.input.vk_is_down(k)))
+        }
         o if o == ctx.ids.key_op_on_flick as i64 => 0,
         o if o == ctx.ids.key_op_flick as i64 => 0,
         o if o == ctx.ids.key_op_flick_angle as i64 => 0,
@@ -95,7 +105,11 @@ fn query_vk(ctx: &mut CommandContext, vk: u8, op: i64) -> i64 {
 }
 
 fn bool_i64(b: bool) -> i64 {
-    if b { 1 } else { 0 }
+    if b {
+        1
+    } else {
+        0
+    }
 }
 
 fn is_key_op(ctx: &CommandContext, v: i64) -> bool {

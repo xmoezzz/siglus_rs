@@ -93,10 +93,7 @@ impl ThumbTable {
     /// provide a file name (with or without extension); the extension is
     /// stripped and the remaining stem is lowercased before lookup.
     pub fn get_by_file_stem(&self, name: &str) -> Option<&String> {
-        let stem = name
-            .rsplit_once('.')
-            .map(|(s, _)| s)
-            .unwrap_or(name);
+        let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(name);
         self.get(stem)
     }
 }

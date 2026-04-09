@@ -37,8 +37,8 @@ const TILE_HEIGHT: usize = 5;
 
 // Tile mask pattern used by the DBS expander.
 const TILE: [u8; TILE_WIDTH * TILE_HEIGHT] = [
-    255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 255, 255, 255, 0, 255, 0, 0, 255, 0, 0, 0, 0,
-    0, 255, 255,
+    255, 0, 0, 255, 255, 0, 0, 255, 255, 0, 255, 255, 255, 0, 255, 0, 0, 255, 0, 0, 0, 0, 0, 255,
+    255,
 ];
 
 const XORCODE: [u32; 3] = [0x753A4098, 0x4A673CCC, 0xFE6215AF];
@@ -536,7 +536,11 @@ fn mask_copy_u32(
             // Exact `tile_copy` semantics for this expander:
             // - reverse==0 : copy where tile value >= limit
             // - reverse!=0 : copy where tile value < limit
-            let cond = if reverse == 0 { mv >= limit } else { mv < limit };
+            let cond = if reverse == 0 {
+                mv >= limit
+            } else {
+                mv < limit
+            };
             if !cond {
                 continue;
             }

@@ -94,9 +94,7 @@ impl Renderer {
             ..Default::default()
         });
 
-        let surface = instance
-            .create_surface(window)
-            .context("create_surface")?;
+        let surface = instance.create_surface(window).context("create_surface")?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -284,7 +282,11 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
-    pub fn render_sprites(&mut self, images: &ImageManager, sprites: &[RenderSprite]) -> Result<()> {
+    pub fn render_sprites(
+        &mut self,
+        images: &ImageManager,
+        sprites: &[RenderSprite],
+    ) -> Result<()> {
         let frame = self
             .surface
             .get_current_texture()
@@ -309,7 +311,8 @@ impl Renderer {
                 continue;
             };
 
-            let (src_left, src_top, src_right, src_bottom) = src_clip_rect(sprite.src_clip, img.width, img.height)?;
+            let (src_left, src_top, src_right, src_bottom) =
+                src_clip_rect(sprite.src_clip, img.width, img.height)?;
             let src_w = (src_right - src_left).max(1.0);
             let src_h = (src_bottom - src_top).max(1.0);
             let (dst_x, dst_y, dst_w, dst_h) = match sprite.fit {
@@ -366,12 +369,60 @@ impl Renderer {
             let (x3, y3) = pixel_to_ndc(p3.0, p3.1, win_w, win_h);
 
             self.verts.extend_from_slice(&[
-                Vertex { pos: [x0, y0], uv: [u0, v0], alpha, effects1, effects2, effects3, effects4 },
-                Vertex { pos: [x1, y1], uv: [u1, v0], alpha, effects1, effects2, effects3, effects4 },
-                Vertex { pos: [x2, y2], uv: [u1, v1], alpha, effects1, effects2, effects3, effects4 },
-                Vertex { pos: [x0, y0], uv: [u0, v0], alpha, effects1, effects2, effects3, effects4 },
-                Vertex { pos: [x2, y2], uv: [u1, v1], alpha, effects1, effects2, effects3, effects4 },
-                Vertex { pos: [x3, y3], uv: [u0, v1], alpha, effects1, effects2, effects3, effects4 },
+                Vertex {
+                    pos: [x0, y0],
+                    uv: [u0, v0],
+                    alpha,
+                    effects1,
+                    effects2,
+                    effects3,
+                    effects4,
+                },
+                Vertex {
+                    pos: [x1, y1],
+                    uv: [u1, v0],
+                    alpha,
+                    effects1,
+                    effects2,
+                    effects3,
+                    effects4,
+                },
+                Vertex {
+                    pos: [x2, y2],
+                    uv: [u1, v1],
+                    alpha,
+                    effects1,
+                    effects2,
+                    effects3,
+                    effects4,
+                },
+                Vertex {
+                    pos: [x0, y0],
+                    uv: [u0, v0],
+                    alpha,
+                    effects1,
+                    effects2,
+                    effects3,
+                    effects4,
+                },
+                Vertex {
+                    pos: [x2, y2],
+                    uv: [u1, v1],
+                    alpha,
+                    effects1,
+                    effects2,
+                    effects3,
+                    effects4,
+                },
+                Vertex {
+                    pos: [x3, y3],
+                    uv: [u0, v1],
+                    alpha,
+                    effects1,
+                    effects2,
+                    effects3,
+                    effects4,
+                },
             ]);
             self.draws.push(DrawCommand {
                 image_id: img_id,
@@ -383,9 +434,11 @@ impl Renderer {
 
         if self.verts.is_empty() {
             // Clear to black.
-            let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("siglus-clear-encoder"),
-            });
+            let mut encoder = self
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("siglus-clear-encoder"),
+                });
             {
                 let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("siglus-clear-pass"),
@@ -433,9 +486,11 @@ impl Renderer {
             }
         }
 
-        let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("siglus-sprite-encoder"),
-        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("siglus-sprite-encoder"),
+            });
 
         {
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -498,7 +553,12 @@ impl Renderer {
         Ok(())
     }
 
-    fn upload_texture(&self, id: &ImageId, img: &crate::assets::RgbaImage, version: u64) -> Result<GpuTexture> {
+    fn upload_texture(
+        &self,
+        id: &ImageId,
+        img: &crate::assets::RgbaImage,
+        version: u64,
+    ) -> Result<GpuTexture> {
         let tex = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some(&format!("siglus-texture-{}", id.index())),
             size: wgpu::Extent3d {
@@ -606,7 +666,15 @@ fn pixel_to_ndc(x: f32, y: f32, win_w: f32, win_h: f32) -> (f32, f32) {
     (nx, ny)
 }
 
-fn transform_point(px: f32, py: f32, dst_x: f32, dst_y: f32, _dst_w: f32, _dst_h: f32, sprite: &crate::layer::Sprite) -> (f32, f32) {
+fn transform_point(
+    px: f32,
+    py: f32,
+    dst_x: f32,
+    dst_y: f32,
+    _dst_w: f32,
+    _dst_h: f32,
+    sprite: &crate::layer::Sprite,
+) -> (f32, f32) {
     let pivot_x = sprite.pivot_x;
     let pivot_y = sprite.pivot_y;
     let lx = px - pivot_x;
@@ -653,7 +721,12 @@ fn dst_scissor_rect(clip: Option<ClipRect>, win_w: u32, win_h: u32) -> Option<Sc
     top = top.min(max_h);
     bottom = bottom.min(max_h);
     if right <= left || bottom <= top {
-        return Some(ScissorRect { x: 0, y: 0, w: 0, h: 0 });
+        return Some(ScissorRect {
+            x: 0,
+            y: 0,
+            w: 0,
+            h: 0,
+        });
     }
     Some(ScissorRect {
         x: left as u32,
@@ -713,21 +786,23 @@ fn fs_main(i: VsOut) -> @location(0) vec4<f32> {
   let color_tgt = vec3<f32>(i.effects3.y, i.effects3.z, i.effects3.w);
   let mask_mode = i.effects4.x;
 
-  c.rgb = mix(c.rgb, vec3<f32>(1.0) - c.rgb, rev);
-  let gray = dot(c.rgb, vec3<f32>(0.299, 0.587, 0.114));
-  c.rgb = mix(c.rgb, vec3<f32>(gray), mono);
-  c.rgb = c.rgb + vec3<f32>(bright);
-  c.rgb = c.rgb * (1.0 - dark);
-  c.rgb = mix(c.rgb, color_tgt, color_rate);
-  c.rgb = clamp(c.rgb + color_add, vec3<f32>(0.0), vec3<f32>(1.0));
+  var rgb = c.rgb;
+  rgb = mix(rgb, vec3<f32>(1.0) - rgb, rev);
+  let gray = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
+  rgb = mix(rgb, vec3<f32>(gray), mono);
+  rgb = rgb + vec3<f32>(bright);
+  rgb = rgb * (1.0 - dark);
+  rgb = mix(rgb, color_tgt, color_rate);
+  rgb = clamp(rgb + color_add, vec3<f32>(0.0), vec3<f32>(1.0));
 
+  var alpha = c.a;
   if (mask_mode > 0.5) {
     if (mask_mode < 1.5) {
-      c.a = gray;
+      alpha = gray;
     }
   }
 
-  let a = c.a * i.alpha * tr;
-  return vec4<f32>(c.rgb * a, a);
+  let a = alpha * i.alpha * tr;
+  return vec4<f32>(rgb * a, a);
 }
 "#;

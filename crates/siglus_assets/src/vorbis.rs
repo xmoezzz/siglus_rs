@@ -26,7 +26,8 @@ pub struct Pcm16 {
 pub fn decode_ogg_vorbis_reader<T: Read + Seek>(rdr: T) -> Result<Pcm16> {
     use lewton::inside_ogg::OggStreamReader;
 
-    let mut r = OggStreamReader::new(rdr).map_err(|e| anyhow!("ogg/vorbis: failed to parse headers: {e}"))?;
+    let mut r = OggStreamReader::new(rdr)
+        .map_err(|e| anyhow!("ogg/vorbis: failed to parse headers: {e}"))?;
 
     let channels = r.ident_hdr.audio_channels as u16;
     let sample_rate = r.ident_hdr.audio_sample_rate;
@@ -111,20 +112,28 @@ pub fn decode_ogg_vorbis_reader_to_wav<T: Read + Seek>(rdr: T) -> Result<Vec<u8>
 
 #[cfg(not(feature = "vorbis"))]
 pub fn decode_ogg_vorbis_reader<T: Read + Seek>(_rdr: T) -> Result<Pcm16> {
-    Err(anyhow!("ogg/vorbis decode disabled (enable Cargo feature: vorbis)"))
+    Err(anyhow!(
+        "ogg/vorbis decode disabled (enable Cargo feature: vorbis)"
+    ))
 }
 
 #[cfg(not(feature = "vorbis"))]
 pub fn decode_ogg_vorbis_bytes(_data: &[u8]) -> Result<Pcm16> {
-    Err(anyhow!("ogg/vorbis decode disabled (enable Cargo feature: vorbis)"))
+    Err(anyhow!(
+        "ogg/vorbis decode disabled (enable Cargo feature: vorbis)"
+    ))
 }
 
 #[cfg(not(feature = "vorbis"))]
 pub fn decode_ogg_vorbis_bytes_to_wav(_data: &[u8]) -> Result<Vec<u8>> {
-    Err(anyhow!("ogg/vorbis decode disabled (enable Cargo feature: vorbis)"))
+    Err(anyhow!(
+        "ogg/vorbis decode disabled (enable Cargo feature: vorbis)"
+    ))
 }
 
 #[cfg(not(feature = "vorbis"))]
 pub fn decode_ogg_vorbis_reader_to_wav<T: Read + Seek>(_rdr: T) -> Result<Vec<u8>> {
-    Err(anyhow!("ogg/vorbis decode disabled (enable Cargo feature: vorbis)"))
+    Err(anyhow!(
+        "ogg/vorbis decode disabled (enable Cargo feature: vorbis)"
+    ))
 }

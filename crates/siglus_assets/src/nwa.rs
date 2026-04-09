@@ -77,7 +77,8 @@ impl NwaReader {
     }
 
     pub fn open_with_offset(path: impl AsRef<Path>, base_offset: u64) -> Result<Self> {
-        let mut file = File::open(&path).with_context(|| format!("open NWA: {}", path.as_ref().display()))?;
+        let mut file =
+            File::open(&path).with_context(|| format!("open NWA: {}", path.as_ref().display()))?;
         if base_offset != 0 {
             file.seek(SeekFrom::Start(base_offset))?;
         }
@@ -139,12 +140,14 @@ impl NwaReader {
             bail!("unsupported channels: {}", self.header.channels);
         }
         if self.header.bits_per_sample != 8 && self.header.bits_per_sample != 16 {
-            bail!("unsupported bits_per_sample: {}", self.header.bits_per_sample);
+            bail!(
+                "unsupported bits_per_sample: {}",
+                self.header.bits_per_sample
+            );
         }
 
-        let need_byte_size = (frame_cnt as u64)
-            * (self.header.channels as u64)
-            * (self.one_sample_byte_size as u64);
+        let need_byte_size =
+            (frame_cnt as u64) * (self.header.channels as u64) * (self.one_sample_byte_size as u64);
         let mut out = vec![0u8; need_byte_size as usize];
         let mut dp = 0usize;
         let mut need = need_byte_size as i64;
@@ -165,7 +168,8 @@ impl NwaReader {
 
                 let ofs = ((self.read_sample_pos % self.header.unit_sample_cnt) as usize)
                     * (self.one_sample_byte_size as usize);
-                let mut cb = (self.cache.unit_sample_cnt as usize * self.one_sample_byte_size as usize)
+                let mut cb = (self.cache.unit_sample_cnt as usize
+                    * self.one_sample_byte_size as usize)
                     .saturating_sub(ofs);
                 if cb > need as usize {
                     cb = need as usize;
@@ -244,18 +248,28 @@ impl NwaReader {
         }
 
         if unit_no >= self.header.unit_cnt {
-            bail!("unit_no out of range: {} >= {}", unit_no, self.header.unit_cnt);
+            bail!(
+                "unit_no out of range: {} >= {}",
+                unit_no,
+                self.header.unit_cnt
+            );
         }
 
         if self.header.pack_mod == -1 {
             bail!("read_unit called for uncompressed NWA");
         }
         if self.header.bits_per_sample != 16 {
-            bail!("compressed NWA currently requires 16-bit PCM (got {})", self.header.bits_per_sample);
+            bail!(
+                "compressed NWA currently requires 16-bit PCM (got {})",
+                self.header.bits_per_sample
+            );
         }
 
         let (unit_sample_cnt, src_size) = if unit_no == self.header.unit_cnt - 1 {
-            (self.header.last_sample_cnt, self.header.last_sample_pack_size)
+            (
+                self.header.last_sample_cnt,
+                self.header.last_sample_pack_size,
+            )
         } else {
             let a = self.unit_offsets[unit_no as usize] as u64;
             let b = self.unit_offsets[unit_no as usize + 1] as u64;
@@ -383,12 +397,66 @@ fn nwa_unpack_unit(
     }
 
     match mod_map {
-        0 => unpack16(&mut br, zero_mod, src_smp_cnt, dst_le_i16, 3, &mut now_l, &mut now_r, &mut zero_cnt),
-        1 => unpack16(&mut br, zero_mod, src_smp_cnt, dst_le_i16, 4, &mut now_l, &mut now_r, &mut zero_cnt),
-        2 => unpack16(&mut br, zero_mod, src_smp_cnt, dst_le_i16, 5, &mut now_l, &mut now_r, &mut zero_cnt),
-        3 => unpack16(&mut br, zero_mod, src_smp_cnt, dst_le_i16, 6, &mut now_l, &mut now_r, &mut zero_cnt),
-        4 => unpack16(&mut br, zero_mod, src_smp_cnt, dst_le_i16, 7, &mut now_l, &mut now_r, &mut zero_cnt),
-        5 => unpack16(&mut br, zero_mod, src_smp_cnt, dst_le_i16, 8, &mut now_l, &mut now_r, &mut zero_cnt),
+        0 => unpack16(
+            &mut br,
+            zero_mod,
+            src_smp_cnt,
+            dst_le_i16,
+            3,
+            &mut now_l,
+            &mut now_r,
+            &mut zero_cnt,
+        ),
+        1 => unpack16(
+            &mut br,
+            zero_mod,
+            src_smp_cnt,
+            dst_le_i16,
+            4,
+            &mut now_l,
+            &mut now_r,
+            &mut zero_cnt,
+        ),
+        2 => unpack16(
+            &mut br,
+            zero_mod,
+            src_smp_cnt,
+            dst_le_i16,
+            5,
+            &mut now_l,
+            &mut now_r,
+            &mut zero_cnt,
+        ),
+        3 => unpack16(
+            &mut br,
+            zero_mod,
+            src_smp_cnt,
+            dst_le_i16,
+            6,
+            &mut now_l,
+            &mut now_r,
+            &mut zero_cnt,
+        ),
+        4 => unpack16(
+            &mut br,
+            zero_mod,
+            src_smp_cnt,
+            dst_le_i16,
+            7,
+            &mut now_l,
+            &mut now_r,
+            &mut zero_cnt,
+        ),
+        5 => unpack16(
+            &mut br,
+            zero_mod,
+            src_smp_cnt,
+            dst_le_i16,
+            8,
+            &mut now_l,
+            &mut now_r,
+            &mut zero_cnt,
+        ),
         _ => bail!("invalid pack_mod: {}", pack_mod),
     }
 }

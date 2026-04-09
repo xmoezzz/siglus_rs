@@ -3,9 +3,9 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use crate::assets::{load_image_any, RgbaImage};
 use crate::resource::{find_bg_image, find_g00_image};
+use anyhow::{Context, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ImageId(pub u32);
@@ -83,7 +83,10 @@ impl ImageManager {
             rgba: vec![rgba.0, rgba.1, rgba.2, rgba.3],
         };
         let id = ImageId(self.images.len() as u32);
-        self.images.push(ImageEntry { img: Arc::new(img), version: 0 });
+        self.images.push(ImageEntry {
+            img: Arc::new(img),
+            version: 0,
+        });
         id
     }
 
@@ -139,7 +142,10 @@ impl ImageManager {
     /// Insert an already-decoded image into the manager and return a new ImageId.
     pub fn insert_image(&mut self, img: RgbaImage) -> ImageId {
         let id = ImageId(self.images.len() as u32);
-        self.images.push(ImageEntry { img: Arc::new(img), version: 0 });
+        self.images.push(ImageEntry {
+            img: Arc::new(img),
+            version: 0,
+        });
         id
     }
 

@@ -29,7 +29,8 @@ pub fn load_image_any(path: &Path, g00_frame_index: usize) -> Result<RgbaImage> 
     match ext.as_str() {
         "g00" => {
             let bytes = std::fs::read(path).with_context(|| format!("read {:?}", path))?;
-            let decoded = g00::decode_g00(&bytes).with_context(|| format!("decode g00 {:?}", path))?;
+            let decoded =
+                g00::decode_g00(&bytes).with_context(|| format!("decode g00 {:?}", path))?;
             if decoded.frames.is_empty() {
                 bail!("g00 has no frames: {:?}", path);
             }
