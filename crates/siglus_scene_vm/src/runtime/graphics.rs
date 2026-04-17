@@ -1,8 +1,7 @@
 //! Graphics runtime: bridges VM stage/object operations to `LayerManager` + `ImageManager`.
 //!
-//! This is deliberately minimal and forgiving: unknown constants should not block
-//! bring-up. We map a subset of Stage/Object operations onto sprites so BG/CHR
-//! changes are visible while remaining operations can be added incrementally.
+//! This layer maps stage/object operations onto renderable sprites while preserving
+//! stable sprite identities for the VM runtime.
 
 use anyhow::{bail, Context, Result};
 
@@ -58,6 +57,8 @@ struct ObjectState {
     color_g: i64,
     color_b: i64,
     blend: i64,
+    light_no: i64,
+    fog_use: i64,
 }
 
 impl Default for ObjectState {
@@ -103,8 +104,37 @@ impl Default for ObjectState {
             color_g: 0,
             color_b: 0,
             blend: 0,
+            light_no: -1,
+            fog_use: 0,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct DebugObjectSpriteBinding {
+    pub stage: usize,
+    pub obj_idx: usize,
+    pub is_bg: bool,
+    pub layer_id: Option<LayerId>,
+    pub sprite_id: Option<SpriteId>,
+    pub file: Option<String>,
+    pub patno: i64,
+    pub disp: bool,
+    pub x: i64,
+    pub y: i64,
+    pub layer_no: i64,
+    pub order: i64,
+    pub alpha: i64,
+    pub z: i64,
+    pub tr: i64,
+    pub clip_use: i64,
+    pub clip_left: i64,
+    pub clip_top: i64,
+    pub clip_right: i64,
+    pub clip_bottom: i64,
+    pub scale_x: i64,
+    pub scale_y: i64,
+    pub rotate_z: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -184,6 +214,39 @@ impl GfxRuntime {
 
     fn object(&self, stage: usize, obj_idx: usize) -> Option<&ObjectState> {
         self.stages.get(stage)?.objects.get(obj_idx)
+    }
+
+    pub fn debug_object_snapshot(
+        &self,
+        stage: usize,
+        obj_idx: usize,
+    ) -> Option<DebugObjectSpriteBinding> {
+        let obj = self.object(stage, obj_idx)?;
+        Some(DebugObjectSpriteBinding {
+            stage,
+            obj_idx,
+            is_bg: obj.is_bg,
+            layer_id: obj.layer_id,
+            sprite_id: obj.sprite_id,
+            file: obj.file.clone(),
+            patno: obj.patno,
+            disp: obj.disp,
+            x: obj.x,
+            y: obj.y,
+            layer_no: obj.layer_no,
+            order: obj.order,
+            alpha: obj.alpha,
+            z: obj.z,
+            tr: obj.tr,
+            clip_use: obj.clip_use,
+            clip_left: obj.clip_left,
+            clip_top: obj.clip_top,
+            clip_right: obj.clip_right,
+            clip_bottom: obj.clip_bottom,
+            scale_x: obj.scale_x,
+            scale_y: obj.scale_y,
+            rotate_z: obj.rotate_z,
+        })
     }
 
     pub fn object_sprite_binding(&self, stage: i64, obj_idx: i64) -> Option<(LayerId, SpriteId)> {
@@ -303,10 +366,18 @@ impl GfxRuntime {
             bg.color_g = obj.color_g.clamp(0, 255) as u8;
             bg.color_b = obj.color_b.clamp(0, 255) as u8;
             bg.blend = SpriteBlend::from_i64(obj.blend);
+            bg.light_no = obj.light_no as i32;
+            bg.fog_use = obj.fog_use != 0;
 
             if let Some(file) = &obj.file {
-                let img_id = Self::load_any_image(images, file, obj.patno)?;
-                bg.image_id = Some(img_id);
+                match Self::load_any_image(images, file, obj.patno) {
+                    Ok(img_id) => bg.image_id = Some(img_id),
+                    Err(err) if is_probable_mesh_path(file) => {
+                        let _ = err;
+                        bg.image_id = None;
+                    }
+                    Err(err) => return Err(err),
+                }
             }
             return Ok(());
         }
@@ -353,6 +424,8 @@ impl GfxRuntime {
         sprite.color_g = obj.color_g.clamp(0, 255) as u8;
         sprite.color_b = obj.color_b.clamp(0, 255) as u8;
         sprite.blend = SpriteBlend::from_i64(obj.blend);
+        sprite.light_no = obj.light_no as i32;
+        sprite.fog_use = obj.fog_use != 0;
 
         // Order: stage layer_no is treated as a coarse z, order as fine z.
         let coarse = obj.layer_no.clamp(-10000, 10000) as i32;
@@ -360,8 +433,14 @@ impl GfxRuntime {
         sprite.order = coarse.saturating_mul(1000).saturating_add(fine);
 
         if let Some(file) = &obj.file {
-            let img_id = Self::load_any_image(images, file, obj.patno)?;
-            sprite.image_id = Some(img_id);
+            match Self::load_any_image(images, file, obj.patno) {
+                Ok(img_id) => sprite.image_id = Some(img_id),
+                Err(err) if is_probable_mesh_path(file) => {
+                    let _ = err;
+                    sprite.image_id = None;
+                }
+                Err(err) => return Err(err),
+            }
         }
 
         Ok(())
@@ -932,6 +1011,48 @@ impl GfxRuntime {
         self.sync_object_sprite(images, layers, stage_u, obj_u)
     }
 
+    pub fn object_set_light_no(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        light_no: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.light_no = light_no;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_set_fog_use(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        fog_use: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.fog_use = fog_use;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
     pub fn object_set_z(&mut self, stage: i64, obj_idx: i64, z: i64) -> Result<()> {
         let stage_i = stage as isize;
         if !(0..3).contains(&stage_i) || obj_idx < 0 {
@@ -1105,6 +1226,15 @@ impl GfxRuntime {
         let obj = self.object(stage_u, obj_u)?;
         obj.file.clone()
     }
+}
+
+fn is_probable_mesh_path(file: &str) -> bool {
+    let lower = file.to_ascii_lowercase();
+    lower.ends_with(".x")
+        || lower.ends_with(".obj")
+        || lower.ends_with(".fbx")
+        || lower.ends_with(".gltf")
+        || lower.ends_with(".glb")
 }
 
 fn clip_rect(use_flag: i64, left: i64, top: i64, right: i64, bottom: i64) -> Option<ClipRect> {

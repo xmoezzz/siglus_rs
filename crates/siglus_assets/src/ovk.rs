@@ -3,7 +3,6 @@
 //! Helpers for OVK (Ogg/Vorbis pack) and OWP (XORed Ogg) audio formats.
 
 use crate::ogg_xor::{validate_subrange, BoundedFile};
-#[cfg(feature = "vorbis")]
 use crate::vorbis;
 use anyhow::{bail, Result};
 use std::fs::File;
@@ -95,14 +94,12 @@ impl OvkPack {
     }
 
     /// Decode an entry (expected to be Ogg/Vorbis) into interleaved PCM16.
-    #[cfg(feature = "vorbis")]
     pub fn decode_entry_vorbis_pcm16(&self, idx: usize) -> Result<vorbis::Pcm16> {
         let s = self.open_entry_stream(idx)?;
         vorbis::decode_ogg_vorbis_reader(s)
     }
 
     /// Decode an entry (expected to be Ogg/Vorbis) and return a WAV (PCM16) buffer.
-    #[cfg(feature = "vorbis")]
     pub fn decode_entry_vorbis_wav(&self, idx: usize) -> Result<Vec<u8>> {
         let s = self.open_entry_stream(idx)?;
         vorbis::decode_ogg_vorbis_reader_to_wav(s)
@@ -139,14 +136,12 @@ impl OwpFile {
     }
 
     /// Decode the XORed Ogg/Vorbis file into interleaved PCM16.
-    #[cfg(feature = "vorbis")]
     pub fn decode_vorbis_pcm16(&self) -> Result<vorbis::Pcm16> {
         let s = self.open_stream()?;
         vorbis::decode_ogg_vorbis_reader(s)
     }
 
     /// Decode the XORed Ogg/Vorbis file and return a WAV (PCM16) buffer.
-    #[cfg(feature = "vorbis")]
     pub fn decode_vorbis_wav(&self) -> Result<Vec<u8>> {
         let s = self.open_stream()?;
         vorbis::decode_ogg_vorbis_reader_to_wav(s)

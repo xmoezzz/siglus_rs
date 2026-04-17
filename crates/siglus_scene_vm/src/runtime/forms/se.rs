@@ -11,7 +11,7 @@ fn store_or_push_se_prop(ctx: &mut CommandContext, op: i64, args: &[Value]) {
         super::codes::FORM_GLOBAL_SE
     };
     let prop = op as i32;
-    if let Some(v) = args.get(1).cloned() {
+    if let Some(v) = args.get(0).cloned() {
         match v {
             Value::Str(s) => {
                 ctx.globals
@@ -79,30 +79,17 @@ fn resolve_numeric_candidates(n: i64) -> Vec<String> {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
-    if args.is_empty() {
-        bail!("SE form expects at least one argument (op id)");
-    }
-
-    let mut ret_form: Option<i64> = None;
-    if args.len() >= 3
-        && matches!(args[args.len() - 3], Value::Element(_))
-        && matches!(args[args.len() - 2], Value::Int(_))
-        && matches!(args[args.len() - 1], Value::Int(_))
-    {
-        ret_form = args.get(args.len() - 1).and_then(|v| v.as_i64());
-    }
-
-    let op = match args[0] {
-        Value::Int(v) => v,
-        _ => {
-            ctx.push(Value::Int(0));
-            return Ok(true);
-        }
+    let ret_form: Option<i64> = crate::runtime::forms::prop_access::current_vm_meta(ctx).1;
+    let Some(op) =
+        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args).map(i64::from)
+    else {
+        bail!("SE form expects an element opcode");
     };
+    let args = crate::runtime::forms::prop_access::params_without_op(ctx, args);
 
     match op {
         se_op::PLAY_BY_FILE_NAME => {
-            let name = match arg_str(args, 1) {
+            let name = match arg_str(args, 0) {
                 Some(s) => s,
                 None => {
                     store_or_push_se_prop(ctx, op, args);
@@ -115,31 +102,31 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         }
         se_op::STOP => {
             // The original engine supports an optional fade time.
-            let fade = arg_int(args, 1);
+            let fade = arg_int(args, 0);
             ctx.se.stop(fade)?;
             Ok(true)
         }
         se_op::SET_VOLUME => {
-            let vol = match arg_int(args, 1) {
+            let vol = match arg_int(args, 0) {
                 Some(v) => v.clamp(0, 255) as u8,
                 None => {
                     store_or_push_se_prop(ctx, op, args);
                     return Ok(true);
                 }
             };
-            let fade = arg_int(args, 2).unwrap_or(0);
+            let fade = arg_int(args, 1).unwrap_or(0);
             let (se, audio) = (&mut ctx.se, &mut ctx.audio);
             se.set_volume_raw_fade(audio, vol, fade)?;
             Ok(true)
         }
         se_op::SET_VOLUME_MAX => {
-            let fade = arg_int(args, 1).unwrap_or(0);
+            let fade = arg_int(args, 0).unwrap_or(0);
             let (se, audio) = (&mut ctx.se, &mut ctx.audio);
             se.set_volume_raw_fade(audio, 255, fade)?;
             Ok(true)
         }
         se_op::SET_VOLUME_MIN => {
-            let fade = arg_int(args, 1).unwrap_or(0);
+            let fade = arg_int(args, 0).unwrap_or(0);
             let (se, audio) = (&mut ctx.se, &mut ctx.audio);
             se.set_volume_raw_fade(audio, 0, fade)?;
             Ok(true)
@@ -171,7 +158,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         }
 
         se_op::PLAY | se_op::PLAY_BY_SE_NO => {
-            let se_no = match arg_int(args, 1) {
+            let se_no = match arg_int(args, 0) {
                 Some(v) => v,
                 None => {
                     store_or_push_se_prop(ctx, op, args);
@@ -189,7 +176,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         }
 
         se_op::PLAY_BY_KOE_NO => {
-            let koe_no = match arg_int(args, 1) {
+            let koe_no = match arg_int(args, 0) {
                 Some(v) => v,
                 None => {
                     store_or_push_se_prop(ctx, op, args);

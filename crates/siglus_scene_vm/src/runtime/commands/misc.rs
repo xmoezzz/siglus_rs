@@ -1,31 +1,13 @@
 use anyhow::Result;
 
 use crate::runtime::commands::util;
+use crate::runtime::forms::syscom as syscom_form;
 use crate::runtime::globals::WipeState;
 use crate::runtime::{Command, CommandContext, Value};
 use std::path::{Path, PathBuf};
 
 fn is_noop_cmd(name: &str) -> bool {
-    matches!(
-        name,
-        "PAUSE"
-            | "YIELD"
-            | "NOP"
-            | "AUTO"
-            | "AUTO_ON"
-            | "AUTO_OFF"
-            | "SKIP"
-            | "SKIP_ON"
-            | "SKIP_OFF"
-            | "LOG"
-            | "PRINT"
-            | "DEBUG"
-            | "TRACE"
-            | "VIBRATE"
-            | "SOUND"
-            | "SOUND_ON"
-            | "SOUND_OFF"
-    )
+    matches!(name, "NOP" | "VIBRATE")
 }
 
 fn is_clear_cmd(name: &str) -> bool {
@@ -35,7 +17,7 @@ fn is_clear_cmd(name: &str) -> bool {
     )
 }
 
-/// Catch-all bring-up helpers for script commands that we can treat as no-ops.
+/// Catch-all helpers for script commands handled as no-ops.
 pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
     let name = cmd.name.to_ascii_uppercase();
     let args = util::strip_vm_meta(&cmd.args);
@@ -210,7 +192,20 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             ));
 
             if wait_flag {
-                ctx.wait.wait_wipe(key_wait_mode >= 0);
+                let key_skip = match key_wait_mode {
+                    0 => false,
+                    1 => true,
+                    _ => {
+                        ctx.globals
+                            .syscom
+                            .config_int
+                            .get(&197)
+                            .copied()
+                            .unwrap_or(0)
+                            != 0
+                    }
+                };
+                ctx.wait.wait_wipe(key_skip);
             }
             return Ok(true);
         }
@@ -223,7 +218,20 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
                     }
                 }
             }
-            ctx.wait.wait_wipe(key_wait_mode >= 0);
+            let key_skip = match key_wait_mode {
+                0 => false,
+                1 => true,
+                _ => {
+                    ctx.globals
+                        .syscom
+                        .config_int
+                        .get(&197)
+                        .copied()
+                        .unwrap_or(0)
+                        != 0
+                }
+            };
+            ctx.wait.wait_wipe(key_skip);
             return Ok(true);
         }
 
@@ -243,7 +251,7 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             return Ok(true);
         }
         "WAITKEY" | "WAIT_KEY" | "WAIT_KEYDOWN" | "WAITCLICK" | "WAIT_CLICK" => {
-            // We treat click/key the same for bring-up.
+            // Click and key share the same runtime path here.
             ctx.wait.wait_key();
             return Ok(true);
         }
@@ -261,6 +269,76 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             if ms > 0 {
                 ctx.wait.wait_ms(ms);
             }
+            return Ok(true);
+        }
+        _ => {}
+    }
+
+    match name.as_str() {
+        "PAUSE" | "YIELD" => {
+            if let Some(ms) = pos
+                .first()
+                .and_then(|v| parse_i32(v))
+                .map(|v| v.max(0) as u64)
+            {
+                if ms > 0 {
+                    ctx.wait.wait_ms(ms);
+                } else {
+                    ctx.wait.wait_key();
+                }
+            } else {
+                ctx.wait.wait_key();
+            }
+            return Ok(true);
+        }
+        "AUTO" | "AUTO_ON" => {
+            ctx.globals.script.auto_mode_flag = true;
+            ctx.globals.script.skip_trigger = false;
+            return Ok(true);
+        }
+        "AUTO_OFF" => {
+            ctx.globals.script.auto_mode_flag = false;
+            return Ok(true);
+        }
+        "SKIP" | "SKIP_ON" => {
+            if !ctx.globals.script.skip_disable {
+                ctx.globals.script.skip_trigger = true;
+                ctx.globals.script.auto_mode_flag = false;
+            }
+            return Ok(true);
+        }
+        "SKIP_OFF" => {
+            ctx.globals.script.skip_trigger = false;
+            return Ok(true);
+        }
+        "SOUND" | "SOUND_ON" => {
+            for key in [212, 213, 214, 215, 216, 217, 218] {
+                ctx.globals.syscom.config_int.insert(key, 1);
+            }
+            syscom_form::apply_audio_config(ctx);
+            return Ok(true);
+        }
+        "SOUND_OFF" => {
+            for key in [212, 213, 214, 215, 216, 217, 218] {
+                ctx.globals.syscom.config_int.insert(key, 0);
+            }
+            syscom_form::apply_audio_config(ctx);
+            return Ok(true);
+        }
+        "LOG" | "PRINT" | "DEBUG" | "TRACE" => {
+            let mut parts: Vec<String> = Vec::new();
+            for v in &pos {
+                parts.push(match v {
+                    Value::Int(x) => x.to_string(),
+                    Value::Str(s) => s.clone(),
+                    Value::List(xs) => format!("{:?}", xs),
+                    _ => String::new(),
+                });
+            }
+            if parts.is_empty() {
+                parts.push(name.clone());
+            }
+            ctx.globals.system.debug_logs.push(parts.join(" "));
             return Ok(true);
         }
         _ => {}

@@ -27,7 +27,7 @@ fn pct_to_raw(pct: i64) -> u8 {
 
 /// Best-effort named audio commands.
 ///
-/// This is bring-up quality: the goal is to let scripts run far enough to
+/// This keeps script-visible audio state moving without blocking unrelated runtime paths.
 /// validate decoding and VM control flow.
 pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
     let name = cmd.name.to_ascii_uppercase();
@@ -43,7 +43,7 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             _ => None,
         });
         if let Some(f) = file {
-            // Ignore errors in bring-up: record and continue.
+            // Record errors and continue.
             let (bgm, audio) = (&mut ctx.bgm, &mut ctx.audio);
             let _ = bgm.play_name(audio, f);
         }

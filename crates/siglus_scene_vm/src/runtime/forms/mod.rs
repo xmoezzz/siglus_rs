@@ -4,7 +4,7 @@
 //! single global switch ("forms"), and each form may further dispatch on a
 //! sub-op ID.
 //!
-//! This module implements only the forms needed by the current runtime plan.
+//! This module provides explicit form dispatch aligned to the original engine structure.
 
 pub mod bgm;
 pub mod bgm_table;
@@ -13,6 +13,7 @@ pub mod counter;
 pub mod excall;
 pub mod global;
 pub mod input;
+pub mod int_event;
 pub mod int_list;
 pub mod key;
 pub mod keylist;

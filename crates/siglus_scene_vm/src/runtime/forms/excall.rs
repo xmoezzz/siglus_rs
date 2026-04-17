@@ -3,6 +3,9 @@ use anyhow::{bail, Result};
 use crate::runtime::{CommandContext, Value};
 
 use super::codes::excall_op;
+use super::{counter, frame_action, frame_action_ch, int_list, script, stage};
+
+const EXCALL_LOCAL_NS_XOR: u32 = 0x4000;
 
 fn excall_form_key(ctx: &CommandContext) -> u32 {
     if ctx.ids.form_global_excall != 0 {
@@ -12,123 +15,254 @@ fn excall_form_key(ctx: &CommandContext) -> u32 {
     }
 }
 
-fn store_or_push_excall_prop(ctx: &mut CommandContext, form_key: u32, op: i64, args: &[Value]) {
-    let prop = op as i32;
-    if let Some(v) = args.get(1).cloned() {
-        match v {
-            Value::Str(s) => {
-                ctx.globals
-                    .str_props
-                    .entry(form_key)
-                    .or_default()
-                    .insert(prop, s);
-            }
-            Value::Int(n) => {
-                ctx.globals
-                    .int_props
-                    .entry(form_key)
-                    .or_default()
-                    .insert(prop, n);
-            }
-            _ => {}
-        }
-        ctx.push(Value::Int(0));
-        return;
+fn stage_form_key(ctx: &CommandContext) -> u32 {
+    if ctx.ids.form_global_stage != 0 {
+        ctx.ids.form_global_stage
+    } else {
+        super::codes::FORM_GLOBAL_STAGE
     }
+}
 
-    if let Some(s) = ctx
-        .globals
-        .str_props
-        .get(&form_key)
-        .and_then(|m| m.get(&prop))
-        .cloned()
+fn script_form_key(ctx: &CommandContext) -> u32 {
+    if ctx.ids.form_global_script != 0 {
+        ctx.ids.form_global_script
+    } else {
+        0
+    }
+}
+
+fn excall_stage_form_key(ctx: &CommandContext, selector: i32) -> u32 {
+    let base = stage_form_key(ctx);
+    if selector == 0 {
+        base
+    } else {
+        base ^ EXCALL_LOCAL_NS_XOR
+    }
+}
+
+fn synth_form_key(base: u32, selector: i32, op: i64) -> u32 {
+    (base << 8) ^ (((selector as u32) & 0x0f) << 4) ^ (op as u32 & 0x0f)
+}
+
+fn parse_call<'a>(
+    ctx: &'a CommandContext,
+    args: &'a [Value],
+) -> Option<(
+    usize,
+    &'a [i32],
+    i32,
+    i64,
+    &'a [Value],
+    Option<i64>,
+    Option<i64>,
+)> {
+    let form_id = excall_form_key(ctx);
+    let (chain_pos, chain) = super::prop_access::parse_element_chain_ctx(ctx, form_id, args)?;
+    let (selector, op_pos) = if chain.len() >= 3
+        && chain[1] == crate::runtime::forms::codes::ELM_ARRAY
+        && (chain[2] == 0 || chain[2] == 1)
     {
-        ctx.push(Value::Str(s));
-        return;
-    }
+        (chain[2], 3usize)
+    } else {
+        (1i32, 1usize)
+    };
+    let op = chain
+        .get(op_pos)
+        .copied()
+        .map(i64::from)
+        .or_else(|| args.get(0).and_then(|v| v.as_i64()))?;
+    let params = if chain_pos > 1 {
+        &args[1..chain_pos]
+    } else {
+        &[]
+    };
+    let (meta_al_id, meta_ret_form) = crate::runtime::forms::prop_access::current_vm_meta(ctx);
+    let al_id = meta_al_id;
+    let ret_form = meta_ret_form;
+    Some((chain_pos, chain, selector, op, params, al_id, ret_form))
+}
 
-    let v = ctx
-        .globals
-        .int_props
-        .get(&form_key)
-        .and_then(|m| m.get(&prop).copied())
-        .unwrap_or(0);
-    ctx.push(Value::Int(v));
+fn translated_call_args(
+    form_id: u32,
+    chain_tail: &[i32],
+    params: &[Value],
+    al_id: Option<i64>,
+    ret_form: Option<i64>,
+) -> Vec<Value> {
+    let mut out = Vec::new();
+    let op0 = chain_tail.first().copied().unwrap_or(0) as i64;
+    out.push(Value::Int(op0));
+    out.extend(params.iter().cloned());
+    let mut chain = Vec::with_capacity(1 + chain_tail.len());
+    chain.push(form_id as i32);
+    chain.extend_from_slice(chain_tail);
+    out.push(Value::Element(chain));
+    out.push(Value::Int(al_id.unwrap_or(0)));
+    out.push(Value::Int(ret_form.unwrap_or(0)));
+    out
+}
+
+fn translated_stage_args_to_form(
+    stage_form_id: u32,
+    stage_idx: Option<i32>,
+    chain_tail: &[i32],
+    params: &[Value],
+    al_id: Option<i64>,
+    ret_form: Option<i64>,
+) -> Vec<Value> {
+    let mut out = Vec::new();
+    let op0 = chain_tail.first().copied().unwrap_or(0) as i64;
+    out.push(Value::Int(op0));
+    out.extend(params.iter().cloned());
+
+    let mut chain = Vec::new();
+    chain.push(stage_form_id as i32);
+    if let Some(idx) = stage_idx {
+        chain.push(crate::runtime::forms::codes::ELM_ARRAY);
+        chain.push(idx);
+    }
+    chain.extend_from_slice(chain_tail);
+    out.push(Value::Element(chain));
+    out.push(Value::Int(al_id.unwrap_or(0)));
+    out.push(Value::Int(ret_form.unwrap_or(0)));
+    out
 }
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
-    if args.is_empty() {
-        bail!("EXCALL form expects at least one argument (op id)");
-    }
-
-    let op = match args[0] {
-        Value::Int(v) => v,
-        _ => {
-            ctx.push(Value::Int(0));
-            return Ok(true);
+    let Some((_chain_pos, chain, selector, op, params, al_id, ret_form)) = parse_call(ctx, args)
+    else {
+        if args.is_empty() {
+            bail!("EXCALL form expects at least one argument (op id)");
         }
+        return Ok(false);
     };
 
+    let op_pos = if chain.len() >= 3
+        && chain[1] == crate::runtime::forms::codes::ELM_ARRAY
+        && (chain[2] == 0 || chain[2] == 1)
+    {
+        3usize
+    } else {
+        1usize
+    };
+    let tail = chain.get(op_pos + 1..).unwrap_or(&[]);
     let form_key = excall_form_key(ctx);
 
     match op {
-        excall_op::ARRAY_INDEX => {
-            let idx = args.get(1).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
-            let set_value = args.get(2).and_then(|v| v.as_i64());
-            let value = {
-                let list = ctx
-                    .globals
-                    .int_lists
-                    .entry(form_key)
-                    .or_insert_with(|| vec![0; 32]);
-                if list.len() <= idx {
-                    list.resize(idx + 1, 0);
-                }
-                if let Some(v) = set_value {
-                    list[idx] = v;
-                    Some(Value::Int(0))
-                } else {
-                    Some(Value::Int(list[idx]))
-                }
-            };
-            if let Some(v) = value {
-                ctx.push(v);
-            }
+        excall_op::OP_4 => {
+            ctx.excall_state.ready = true;
+            ctx.push(Value::Int(0));
+        }
+        excall_op::OP_5 => {
+            ctx.excall_state.ready = false;
+            ctx.push(Value::Int(0));
         }
         excall_op::OP_8 => {
-            if args.len() >= 2 {
-                let v = args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) != 0;
-                ctx.excall_state.flag_2148 = v;
-                ctx.push(Value::Int(0));
-            } else {
-                ctx.push(Value::Int(if ctx.excall_state.flag_2148 { 1 } else { 0 }));
-            }
+            ctx.push(Value::Int(if ctx.excall_state.ready { 1 } else { 0 }));
         }
         excall_op::OP_12 => {
-            if args.len() >= 2 {
-                let v = args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) != 0;
-                ctx.excall_state.flag_204 = v;
-                ctx.push(Value::Int(0));
-            } else {
-                ctx.push(Value::Int(if ctx.excall_state.flag_204 { 1 } else { 0 }));
-            }
+            ctx.push(Value::Int(if selector == 1 { 1 } else { 0 }));
         }
-        excall_op::OP_0
-        | excall_op::OP_1
-        | excall_op::OP_2
-        | excall_op::OP_3
-        | excall_op::OP_4
-        | excall_op::OP_5
-        | excall_op::OP_6
-        | excall_op::OP_7
-        | excall_op::OP_9
-        | excall_op::OP_10
-        | excall_op::OP_13 => {
-            store_or_push_excall_prop(ctx, form_key, op, args);
+        excall_op::OP_0 => {
+            let forwarded = translated_stage_args_to_form(
+                excall_stage_form_key(ctx, selector),
+                None,
+                tail,
+                params,
+                al_id,
+                ret_form,
+            );
+            return stage::dispatch(ctx, &forwarded);
+        }
+        excall_op::OP_1 => {
+            let forwarded = translated_stage_args_to_form(
+                excall_stage_form_key(ctx, selector),
+                Some(0),
+                tail,
+                params,
+                al_id,
+                ret_form,
+            );
+            return stage::dispatch(ctx, &forwarded);
+        }
+        excall_op::OP_2 => {
+            let forwarded = translated_stage_args_to_form(
+                excall_stage_form_key(ctx, selector),
+                Some(1),
+                tail,
+                params,
+                al_id,
+                ret_form,
+            );
+            return stage::dispatch(ctx, &forwarded);
+        }
+        excall_op::OP_3 => {
+            let forwarded = translated_stage_args_to_form(
+                excall_stage_form_key(ctx, selector),
+                Some(2),
+                tail,
+                params,
+                al_id,
+                ret_form,
+            );
+            return stage::dispatch(ctx, &forwarded);
+        }
+        excall_op::OP_6 => {
+            let forwarded = translated_call_args(
+                synth_form_key(form_key, selector, op),
+                tail,
+                params,
+                al_id,
+                ret_form,
+            );
+            return counter::dispatch(ctx, synth_form_key(form_key, selector, op), &forwarded);
+        }
+        excall_op::OP_7 => {
+            let forwarded = translated_call_args(
+                synth_form_key(form_key, selector, op),
+                tail,
+                params,
+                al_id,
+                ret_form,
+            );
+            return int_list::dispatch(ctx, synth_form_key(form_key, selector, op), &forwarded);
+        }
+        excall_op::OP_9 => {
+            let forwarded = translated_call_args(
+                synth_form_key(form_key, selector, op),
+                tail,
+                params,
+                al_id,
+                ret_form,
+            );
+            return frame_action::dispatch(ctx, synth_form_key(form_key, selector, op), &forwarded);
+        }
+        excall_op::OP_10 => {
+            let forwarded = translated_call_args(
+                synth_form_key(form_key, selector, op),
+                tail,
+                params,
+                al_id,
+                ret_form,
+            );
+            return frame_action_ch::dispatch(
+                ctx,
+                synth_form_key(form_key, selector, op),
+                &forwarded,
+            );
+        }
+        excall_op::OP_13 => {
+            let script_form = script_form_key(ctx);
+            if script_form == 0 {
+                ctx.push(Value::Int(0));
+                return Ok(true);
+            }
+            let forwarded = translated_call_args(script_form, tail, params, al_id, ret_form);
+            return script::dispatch(ctx, script_form, &forwarded);
         }
         _ => {
-            let _label = ctx.ids.excall_op_name(op).unwrap_or("UNKNOWN");
-            store_or_push_excall_prop(ctx, form_key, op, args);
+            let _ = form_key;
+            ctx.push(Value::Int(0));
         }
     }
 

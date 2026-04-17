@@ -4,7 +4,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::assets::{load_image_any, RgbaImage};
-use crate::resource::{find_bg_image, find_g00_image};
 use anyhow::{Context, Result};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -40,6 +39,7 @@ impl Hash for ImageKey {
 #[derive(Debug)]
 pub struct ImageManager {
     project_dir: PathBuf,
+    current_append_dir: String,
     key_to_id: HashMap<ImageKey, ImageId>,
     images: Vec<ImageEntry>,
 }
@@ -54,6 +54,7 @@ impl ImageManager {
     pub fn new(project_dir: PathBuf) -> Self {
         Self {
             project_dir,
+            current_append_dir: String::new(),
             key_to_id: HashMap::new(),
             images: Vec::new(),
         }
@@ -61,6 +62,14 @@ impl ImageManager {
 
     pub fn project_dir(&self) -> &Path {
         &self.project_dir
+    }
+
+    pub fn current_append_dir(&self) -> &str {
+        &self.current_append_dir
+    }
+
+    pub fn set_current_append_dir(&mut self, append_dir: impl Into<String>) {
+        self.current_append_dir = append_dir.into();
     }
 
     pub fn get(&self, id: ImageId) -> Option<&Arc<RgbaImage>> {
@@ -94,15 +103,23 @@ impl ImageManager {
     ///
     /// BG is not animated in our current bring-up, so frame index is always 0.
     pub fn load_bg(&mut self, name: &str) -> Result<ImageId> {
-        let (path, _ty) = find_bg_image(&self.project_dir, name)
-            .with_context(|| format!("find bg resource {name}"))?;
+        let (path, _ty) = crate::resource::find_bg_image_with_append_dir(
+            &self.project_dir,
+            &self.current_append_dir,
+            name,
+        )
+        .with_context(|| format!("find bg resource {name}"))?;
         self.load_file(&path, 0)
     }
 
     /// Load a BG resource with an explicit frame index (kept for compatibility).
     pub fn load_bg_frame(&mut self, name: &str, frame_index: usize) -> Result<ImageId> {
-        let (path, _ty) = find_bg_image(&self.project_dir, name)
-            .with_context(|| format!("find bg resource {name}"))?;
+        let (path, _ty) = crate::resource::find_bg_image_with_append_dir(
+            &self.project_dir,
+            &self.current_append_dir,
+            name,
+        )
+        .with_context(|| format!("find bg resource {name}"))?;
         self.load_file(&path, frame_index)
     }
 
@@ -110,8 +127,12 @@ impl ImageManager {
     ///
     /// Used for CHR / sprite image loading.
     pub fn load_g00(&mut self, name: &str, frame_index: u32) -> Result<ImageId> {
-        let (path, _ty) = find_g00_image(&self.project_dir, name)
-            .with_context(|| format!("find g00 resource {name}"))?;
+        let (path, _ty) = crate::resource::find_g00_image_with_append_dir(
+            &self.project_dir,
+            &self.current_append_dir,
+            name,
+        )
+        .with_context(|| format!("find g00 resource {name}"))?;
         self.load_file(&path, frame_index as usize)
     }
 

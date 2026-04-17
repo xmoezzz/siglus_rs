@@ -1,11 +1,12 @@
 use anyhow::Result;
 
-use crate::runtime::globals::{EditBoxListState, EditBoxOpKind};
+use super::prop_access;
+use crate::runtime::constants;
+use crate::runtime::globals::EditBoxListState;
 use crate::runtime::{CommandContext, Value};
 
 fn default_for_ret_form(ret_form: i32) -> Value {
-    // Runtime heuristic used by property access: ret_form == 2 is string.
-    if ret_form == 2 {
+    if prop_access::ret_form_is_string(ret_form as i64) {
         Value::Str(String::new())
     } else {
         Value::Int(0)
@@ -20,17 +21,7 @@ fn editbox_cnt(ctx: &CommandContext) -> usize {
         .unwrap_or(0)
 }
 
-fn parse_element_chain(args: &[Value]) -> Option<(usize, Vec<i32>)> {
-    for (i, v) in args.iter().enumerate() {
-        if let Value::Element(chain) = v {
-            return Some((i, chain.clone()));
-        }
-    }
-    None
-}
-
 fn is_array_code(elm_array: i32, code: i32) -> bool {
-    // If `elm_array` is not known yet (default -1), accept any non-zero marker.
     if elm_array < 0 {
         return code != 0;
     }
@@ -41,76 +32,21 @@ fn is_editbox_like_chain(ctx: &CommandContext, form_id: u32, chain: &[i32]) -> b
     if chain.is_empty() || chain[0] as u32 != form_id {
         return false;
     }
-    // EDITBOX list ops are either:
-    // - [FORM, GET_SIZE]
-    // - [FORM, ELM_ARRAY, idx, ...]
     if chain.len() == 2 {
         return !is_array_code(ctx.ids.elm_array, chain[1]);
     }
     chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1])
 }
 
-fn classify_op(list: &EditBoxListState, params: &[Value], ret_form: i32) -> EditBoxOpKind {
-    let is_str_ret = ret_form == 2;
-    if is_str_ret {
-        return EditBoxOpKind::GetText;
-    }
-
-    let has_string = params.iter().any(|v| v.as_str().is_some());
-    let int_params = params.iter().filter(|v| v.as_i64().is_some()).count();
-
-    if has_string {
-        if int_params >= 1 {
-            return EditBoxOpKind::Create;
-        }
-        return EditBoxOpKind::SetText;
-    }
-
-    // Zero-arg: either focus/destroy/clear (void) or check_decided/check_canceled (int).
-    if params.is_empty() {
-        if ret_form != 0 {
-            if !list.has_kind(EditBoxOpKind::CheckDecided) {
-                return EditBoxOpKind::CheckDecided;
-            }
-            if !list.has_kind(EditBoxOpKind::CheckCanceled) {
-                return EditBoxOpKind::CheckCanceled;
-            }
-            return EditBoxOpKind::CheckDecided;
-        }
-
-        // ret_form == 0
-        if !list.has_kind(EditBoxOpKind::SetFocus) {
-            return EditBoxOpKind::SetFocus;
-        }
-        if !list.has_kind(EditBoxOpKind::ClearInput) {
-            return EditBoxOpKind::ClearInput;
-        }
-        if !list.has_kind(EditBoxOpKind::Destroy) {
-            return EditBoxOpKind::Destroy;
-        }
-        return EditBoxOpKind::ClearInput;
-    }
-
-    // Single int param is commonly used for focus on/off.
-    if params.len() == 1 && params[0].as_i64().is_some() && ret_form == 0 {
-        return EditBoxOpKind::SetFocus;
-    }
-
-    // Heuristic: many int params => create.
-    if int_params >= 4 && ret_form == 0 {
-        return EditBoxOpKind::Create;
-    }
-
-    EditBoxOpKind::Unknown
-}
-
-fn apply_op(
-    list: &mut EditBoxListState,
+fn apply_exact_op(
     form_id: u32,
+    list: &mut EditBoxListState,
     idx: usize,
-    kind: EditBoxOpKind,
+    op: i32,
     params: &[Value],
     ret_form: i32,
+    screen_w: i32,
+    screen_h: i32,
 ) -> (Option<Value>, Option<Option<(u32, usize)>>) {
     if idx >= list.boxes.len() {
         let r = if ret_form != 0 {
@@ -122,149 +58,121 @@ fn apply_op(
     }
 
     let eb = &mut list.boxes[idx];
-    match kind {
-        EditBoxOpKind::Create => {
-            eb.alive = true;
-            eb.decided = false;
-            eb.canceled = false;
-            if params.len() >= 5 {
-                if let Some(v) = params.get(4).and_then(|v| v.as_i64()) {
-                    eb.moji_size = v as i32;
-                }
-            }
-            if let Some(s) = params.iter().find_map(|v| v.as_str()) {
-                eb.text = s.to_string();
-            }
+    match op {
+        x if x == constants::elm_value::EDITBOX_CREATE => {
+            let x = params.get(0).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let y = params.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let w = params.get(2).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let h = params.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let moji_size = params.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            eb.create_like(x, y, w, h, moji_size, screen_w, screen_h);
+            eb.update_rect(screen_w, screen_h);
+            eb.frame(0);
+            (None, Some(Some((form_id, idx))))
         }
-        EditBoxOpKind::Destroy => {
-            eb.alive = false;
-            eb.text.clear();
-            eb.decided = false;
-            eb.canceled = false;
-            return (None, Some(None));
+        x if x == constants::elm_value::EDITBOX_DESTROY => {
+            eb.destroy_like();
+            (None, Some(None))
         }
-        EditBoxOpKind::SetText => {
-            if let Some(s) = params.iter().find_map(|v| v.as_str()) {
-                eb.text = s.to_string();
+        x if x == constants::elm_value::EDITBOX_SET_TEXT => {
+            eb.set_text_like(
+                params
+                    .iter()
+                    .find_map(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            );
+            (None, None)
+        }
+        x if x == constants::elm_value::EDITBOX_GET_TEXT => {
+            (Some(Value::Str(eb.text.clone())), None)
+        }
+        x if x == constants::elm_value::EDITBOX_SET_FOCUS => {
+            if eb.created {
+                (None, Some(Some((form_id, idx))))
             } else {
-                eb.text.clear();
+                (None, None)
             }
         }
-        EditBoxOpKind::GetText => {
-            return (Some(Value::Str(eb.text.clone())), None);
+        x if x == constants::elm_value::EDITBOX_CLEAR_INPUT => {
+            eb.clear_input();
+            (None, None)
         }
-        EditBoxOpKind::SetFocus => {
-            eb.alive = true;
-            eb.decided = false;
-            eb.canceled = false;
-            return (None, Some(Some((form_id, idx))));
+        x if x == constants::elm_value::EDITBOX_CHECK_DECIDED => {
+            (Some(Value::Int(if eb.is_decided() { 1 } else { 0 })), None)
         }
-        EditBoxOpKind::ClearInput => {
-            eb.text.clear();
-            eb.decided = false;
-            eb.canceled = false;
+        x if x == constants::elm_value::EDITBOX_CHECK_CANCELED => {
+            (Some(Value::Int(if eb.is_canceled() { 1 } else { 0 })), None)
         }
-        EditBoxOpKind::CheckDecided => {
-            let v = if eb.decided { 1 } else { 0 };
-            if eb.decided {
-                eb.decided = false;
-            }
-            return (Some(Value::Int(v)), None);
-        }
-        EditBoxOpKind::CheckCanceled => {
-            let v = if eb.canceled { 1 } else { 0 };
-            if eb.canceled {
-                eb.canceled = false;
-            }
-            return (Some(Value::Int(v)), None);
-        }
-        EditBoxOpKind::Unknown => {
-            if ret_form != 0 {
-                return (Some(default_for_ret_form(ret_form)), None);
-            }
+        _ => {
+            let r = if ret_form != 0 {
+                Some(default_for_ret_form(ret_form))
+            } else {
+                None
+            };
+            (r, None)
         }
     }
-
-    (None, None)
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    let Some((chain_pos, chain)) = parse_element_chain(args) else {
+    let Some((chain_pos, chain)) =
+        prop_access::parse_element_chain_ctx(ctx, form_id, args).map(|(i, ch)| (i, ch.to_vec()))
+    else {
         return Ok(false);
     };
     if !is_editbox_like_chain(ctx, form_id, &chain) {
         return Ok(false);
     }
 
-    // Handle assignment shape: [op_id, al_id, rhs, Element(chain)]
-    if chain_pos == 3 {
-        let al_id = args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let rhs = args.get(2);
-        if chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1]) {
-            let idx = chain.get(2).copied().unwrap_or(0);
-            let idx_usize = if idx < 0 { 0 } else { idx as usize };
-            if al_id == 1 {
-                if let Some(s) = rhs.and_then(|v| v.as_str()) {
-                    let cnt = editbox_cnt(ctx);
-                    let list = ctx
-                        .globals
-                        .editbox_lists
-                        .entry(form_id)
-                        .or_insert_with(|| EditBoxListState::new(cnt));
-                    list.ensure_size(cnt);
-                    let _ = apply_op(
-                        list,
-                        form_id,
-                        idx_usize,
-                        EditBoxOpKind::SetText,
-                        &[Value::Str(s.to_string())],
-                        0,
-                    );
+    let (meta_al_id, _meta_ret_form, rhs_meta) =
+        prop_access::infer_assign_and_ret_ctx(ctx, chain_pos, args);
+    if chain.len() >= 4 && is_array_code(ctx.ids.elm_array, chain[1]) && meta_al_id == Some(1) {
+        let rhs = rhs_meta.as_ref();
+        let idx = chain.get(2).copied().unwrap_or(0).max(0) as usize;
+        let op = chain[3];
+        let cnt = editbox_cnt(ctx);
+        let list = ctx
+            .globals
+            .editbox_lists
+            .entry(form_id)
+            .or_insert_with(|| EditBoxListState::new(cnt));
+        list.ensure_size(cnt);
+        let params = match rhs {
+            Some(Value::Str(s)) => vec![Value::Str(s.clone())],
+            Some(v) => vec![v.clone()],
+            None => Vec::new(),
+        };
+        let (_ret, focus_req) = apply_exact_op(
+            form_id,
+            list,
+            idx,
+            op,
+            &params,
+            0,
+            ctx.screen_w as i32,
+            ctx.screen_h as i32,
+        );
+        if let Some(req) = focus_req {
+            match req {
+                Some(tgt) => ctx.globals.focused_editbox = Some(tgt),
+                None => {
+                    if ctx.globals.focused_editbox == Some((form_id, idx)) {
+                        ctx.globals.focused_editbox = None;
+                    }
                 }
             }
         }
         return Ok(true);
     }
 
-    // Method-call shape:
-    // [op_id, param0, ..., Element(chain), al_id, ret_form]
-    let params = if chain_pos > 1 {
-        &args[1..chain_pos]
-    } else {
-        &[]
-    };
-    let al_id = args
-        .get(chain_pos + 1)
-        .and_then(|v| v.as_i64())
+    let params = prop_access::script_args(args, chain_pos);
+    let ret_form = crate::runtime::forms::prop_access::current_vm_meta(ctx)
+        .1
         .unwrap_or(0) as i32;
-    let ret_form = args
-        .get(chain_pos + 2)
-        .and_then(|v| v.as_i64())
-        .unwrap_or(0) as i32;
-    let _ = al_id;
     let elm_array = ctx.ids.elm_array;
 
-    // Pre-compute index for focus side effects (used after dropping the `editbox_lists` borrow).
-    let idx_for_focus = chain.get(2).copied().unwrap_or(0);
-    let idx_usize_for_focus = if idx_for_focus < 0 {
-        0
-    } else {
-        idx_for_focus as usize
-    };
-
-    // Decide whether we should confirm this form id as EDITBOXLIST before borrowing `editbox_lists`.
-    let should_confirm = ctx.globals.guessed_editbox_form_id.is_none()
-        && chain.len() >= 4
-        && is_array_code(elm_array, chain[1])
-        && {
-            let has_string = params.iter().any(|v| v.as_str().is_some());
-            let int_params = params.iter().filter(|v| v.as_i64().is_some()).count();
-            has_string || int_params >= 4
-        };
-    if should_confirm {
-        ctx.globals.guessed_editbox_form_id = Some(form_id);
-    }
-
+    let idx_for_focus = chain.get(2).copied().unwrap_or(0).max(0) as usize;
     let cnt = editbox_cnt(ctx);
     let (handled, ret, focus_req): (bool, Option<Value>, Option<Option<(u32, usize)>>) = 'blk: {
         let list = ctx
@@ -273,27 +181,22 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             .entry(form_id)
             .or_insert_with(|| EditBoxListState::new(cnt));
         list.ensure_size(cnt);
-        if should_confirm {
-            list.confirmed = true;
-        }
 
-        // EDITBOX.GET_SIZE
         if chain.len() == 2 && !is_array_code(elm_array, chain[1]) {
+            let op = chain[1];
+            if op == constants::elm_value::EDITBOXLIST_CLEAR_INPUT && ret_form == 0 {
+                for eb in list.boxes.iter_mut() {
+                    eb.clear_input();
+                }
+                break 'blk (true, None, None);
+            }
             if ret_form != 0 {
-                let r = Some(Value::Int(list.boxes.len() as i64));
-                break 'blk (true, r, None);
+                break 'blk (true, Some(Value::Int(list.boxes.len() as i64)), None);
             }
-            // EDITBOXLIST_CLEAR_INPUT
-            for eb in list.boxes.iter_mut() {
-                eb.text.clear();
-                eb.decided = false;
-                eb.canceled = false;
-            }
-            break 'blk (true, None, Some(None));
+            break 'blk (true, None, None);
         }
 
-        // EDITBOX[idx]
-        if chain.len() < 3 || !is_array_code(elm_array, chain[1]) {
+        if chain.len() < 4 || !is_array_code(elm_array, chain[1]) {
             let r = if ret_form != 0 {
                 Some(default_for_ret_form(ret_form))
             } else {
@@ -302,34 +205,18 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             break 'blk (true, r, None);
         }
 
-        let idx_usize = idx_usize_for_focus;
-        if idx_usize >= list.boxes.len() {
-            let r = if ret_form != 0 {
-                Some(default_for_ret_form(ret_form))
-            } else {
-                None
-            };
-            break 'blk (true, r, None);
-        }
-
-        if chain.len() == 3 {
-            let r = if ret_form != 0 {
-                Some(default_for_ret_form(ret_form))
-            } else {
-                None
-            };
-            break 'blk (true, r, None);
-        }
-
+        let idx = chain.get(2).copied().unwrap_or(0).max(0) as usize;
         let op = chain[3];
-        let kind = if let Some(k) = list.op_map.get(&op).copied() {
-            k
-        } else {
-            let k = classify_op(list, params, ret_form);
-            list.op_map.insert(op, k);
-            k
-        };
-        let (r, fr) = apply_op(list, form_id, idx_usize, kind, params, ret_form);
+        let (r, fr) = apply_exact_op(
+            form_id,
+            list,
+            idx,
+            op,
+            params,
+            ret_form,
+            ctx.screen_w as i32,
+            ctx.screen_h as i32,
+        );
         break 'blk (true, r, fr);
     };
 
@@ -338,58 +225,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
     if let Some(fr) = focus_req {
         match fr {
-            Some(tgt) => {
-                ctx.globals.focused_editbox = Some(tgt);
-            }
+            Some(tgt) => ctx.globals.focused_editbox = Some(tgt),
             None => {
-                if ctx.globals.focused_editbox == Some((form_id, idx_usize_for_focus)) {
+                if ctx.globals.focused_editbox == Some((form_id, idx_for_focus)) {
                     ctx.globals.focused_editbox = None;
                 }
             }
         }
     }
     Ok(handled)
-}
-
-/// Conservative dispatch for unknown global forms.
-///
-/// This is used when `form_global_editbox` is not mapped in `IdMap`.
-pub fn maybe_dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    // If explicitly mapped, the main dispatcher will call `dispatch` directly.
-    if ctx.ids.form_global_editbox != 0 {
-        return Ok(false);
-    }
-
-    // Avoid false positives if the title does not define editboxes.
-    if editbox_cnt(ctx) == 0 {
-        return Ok(false);
-    }
-
-    // If we've already guessed, only accept that exact form id.
-    if let Some(fid) = ctx.globals.guessed_editbox_form_id {
-        if fid != form_id {
-            return Ok(false);
-        }
-        return dispatch(ctx, form_id, args);
-    }
-
-    // Otherwise, require a strong-ish signature.
-    let Some((chain_pos, chain)) = parse_element_chain(args) else {
-        return Ok(false);
-    };
-    if !is_editbox_like_chain(ctx, form_id, &chain) {
-        return Ok(false);
-    }
-    let params = if chain_pos > 1 {
-        &args[1..chain_pos]
-    } else {
-        &[]
-    };
-    let has_string = params.iter().any(|v| v.as_str().is_some());
-    let int_params = params.iter().filter(|v| v.as_i64().is_some()).count();
-    if !has_string && int_params < 4 {
-        return Ok(false);
-    }
-
-    dispatch(ctx, form_id, args)
 }

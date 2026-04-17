@@ -5,6 +5,7 @@ members = [
   "crates/siglus_assets",
   "crates/na_mpeg2_decoder",
   "crates/siglus_omv_decoder",
+  "crates/theora-rs",
 ]
 
 [workspace.package]

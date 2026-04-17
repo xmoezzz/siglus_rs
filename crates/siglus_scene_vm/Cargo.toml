@@ -4,18 +4,6 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
-[features]
-# Ogg/Vorbis decode helpers (used by OVK/OWP audio).
-assets-vorbis = ["siglus_assets/vorbis"]
-
-# Keep defaults conservative: decoding helpers are useful for most workflows.
-default = ["assets-vorbis"]
-
-# Minimal interactive viewer (wgpu + winit)
-wgpu-winit = ["dep:wgpu", "dep:winit", "dep:pollster"]
-assets-mpeg2-ffmpeg = ["siglus_assets/mpeg2_ffmpeg"]
-assets-ffmpeg-build = ["assets-mpeg2-ffmpeg", "siglus_assets/ffmpeg_build"]
-
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
@@ -31,35 +19,17 @@ ureq = "2.10"
 siglus_omv_decoder = { path = "../siglus_omv_decoder" }
 na_mpeg2_decoder = { path = "../na_mpeg2_decoder" }
 
-siglus_assets = { path = "../siglus_assets", default-features = false }
+siglus_assets = { path = "../siglus_assets" }
 
-wgpu = { workspace = true, optional = true }
-winit = { workspace = true, optional = true }
-pollster = { workspace = true, optional = true }
+wgpu.workspace = true
+winit.workspace = true
+pollster.workspace = true
 
-[[bin]]
-name = "bg_viewer_wgpu"
-path = "src/bin/bg_viewer_wgpu.rs"
-required-features = ["wgpu-winit"]
-
-[[bin]]
-name = "scene_player_wgpu"
-path = "src/bin/scene_player_wgpu.rs"
-required-features = ["wgpu-winit"]
 
 [[bin]]
 name = "siglus_engine"
 path = "src/bin/siglus_engine.rs"
-required-features = ["wgpu-winit"]
 
 [[bin]]
-name = "bgm_tool"
-path = "src/bin/bgm_tool.rs"
-
-[[bin]]
-name = "mpeg2_probe"
-path = "src/bin/mpeg2_probe.rs"
-
-[[bin]]
-name = "gameexe_tool"
-path = "src/bin/gameexe_tool.rs"
+name = "mesh_asset_tool"
+path = "src/bin/mesh_asset_tool.rs"

@@ -43,6 +43,7 @@ impl MovieInfo {
 #[derive(Debug)]
 pub struct MovieManager {
     project_dir: PathBuf,
+    current_append_dir: String,
     current: Option<MovieInfo>,
     cache: HashMap<PathBuf, MovieAsset>,
     playbacks: HashMap<u64, MoviePlayback>,
@@ -53,6 +54,7 @@ impl MovieManager {
     pub fn new(project_dir: PathBuf) -> Self {
         Self {
             project_dir,
+            current_append_dir: String::new(),
             current: None,
             cache: HashMap::new(),
             playbacks: HashMap::new(),
@@ -64,6 +66,10 @@ impl MovieManager {
         self.current.as_ref()
     }
 
+    pub fn set_current_append_dir(&mut self, append_dir: impl Into<String>) {
+        self.current_append_dir = append_dir.into();
+    }
+
     pub fn stop(&mut self) {
         self.current = None;
     }
@@ -73,7 +79,7 @@ impl MovieManager {
     }
 
     pub fn play(&mut self, file_name: &str, _wait: bool, _key_skip: bool) -> Result<MovieInfo> {
-        let path = resolve_mov_path(&self.project_dir, file_name)?;
+        let path = resolve_mov_path(&self.project_dir, &self.current_append_dir, file_name)?;
         let ext = path
             .extension()
             .and_then(|s| s.to_str())
@@ -131,7 +137,7 @@ impl MovieManager {
 
     /// Resolve and decode a movie asset into RGBA frames (cached).
     pub fn ensure_asset(&mut self, file_name: &str) -> Result<(&MovieAsset, bool)> {
-        let path = resolve_mov_path(&self.project_dir, file_name)?;
+        let path = resolve_mov_path(&self.project_dir, &self.current_append_dir, file_name)?;
         let existed = self.cache.contains_key(&path);
         if !existed {
             let ext = path
@@ -194,45 +200,18 @@ impl MovieManager {
     }
 }
 
-fn resolve_mov_path(project_dir: &Path, file_name: &str) -> Result<PathBuf> {
-    let p = Path::new(file_name);
-    if p.is_absolute() || p.exists() {
-        return Ok(p.to_path_buf());
-    }
-
-    // Matches `tnm_find_mov(base_dir, "mov", ...)`.
-    let mov_dir = project_dir.join("mov");
-    let direct = mov_dir.join(file_name);
-    if direct.exists() {
-        return Ok(direct);
-    }
-
-    // Try known extensions. The original global MOV path searches wmv/mpg/avi.
-    // We also accept `.omv` here so the cross-platform port can inspect the same asset family.
-    for ext in ["wmv", "mpg", "mpeg", "avi", "omv"] {
-        let cand = mov_dir.join(format!("{}.{}", file_name, ext));
-        if cand.exists() {
-            return Ok(cand);
-        }
-    }
-
-    Err(anyhow!("movie not found: {file_name}"))
+fn resolve_mov_path(
+    project_dir: &Path,
+    current_append_dir: &str,
+    file_name: &str,
+) -> Result<PathBuf> {
+    let (path, _ty) =
+        crate::resource::find_mov_path_with_append_dir(project_dir, current_append_dir, file_name)?;
+    Ok(path)
 }
 
-fn decode_frames_if_enabled(path: &Path) -> Result<Option<usize>> {
-    #[cfg(feature = "assets-mpeg2-ffmpeg")]
-    {
-        // Decode is expensive; we keep only metadata (count).
-        let frames = siglus_assets::mpeg2::decode_mpeg2_to_rgba_frames(path, None)
-            .context("mpeg2 decode")?;
-        return Ok(Some(frames.len()));
-    }
-
-    #[cfg(not(feature = "assets-mpeg2-ffmpeg"))]
-    {
-        let _ = path;
-        Ok(None)
-    }
+fn decode_frames_if_enabled(_path: &Path) -> Result<Option<usize>> {
+    Ok(None)
 }
 
 #[derive(Debug, Clone)]
@@ -496,7 +475,14 @@ fn convert_omv_frame(
     let dh = display_height.max(1) as usize;
 
     let y_plane_len = w.saturating_mul(vh);
-    let (uv_w, uv_h) = yuv_plane_size(width, video_height, fmt);
+    // OMV alpha movies store the alpha channel in the lower half of the luma
+    // plane while keeping chroma sized for the visible display height.
+    let chroma_height = if vh > dh {
+        display_height
+    } else {
+        video_height
+    };
+    let (uv_w, uv_h) = yuv_plane_size(width, chroma_height, fmt);
     let uv_len = uv_w.saturating_mul(uv_h);
     let u_off = y_plane_len;
     let v_off = y_plane_len.saturating_add(uv_len);

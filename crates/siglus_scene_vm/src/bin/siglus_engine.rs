@@ -1,5 +1,3 @@
-#![cfg(feature = "wgpu-winit")]
-
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -159,6 +157,8 @@ fn map_keycode(k: KeyCode) -> Option<VmKey> {
         Space => Some(VmKey::Space),
         Backspace => Some(VmKey::Backspace),
         Tab => Some(VmKey::Tab),
+        ShiftLeft | ShiftRight => Some(VmKey::Shift),
+        AltLeft | AltRight => Some(VmKey::Alt),
 
         ArrowLeft => Some(VmKey::ArrowLeft),
         ArrowUp => Some(VmKey::ArrowUp),
@@ -277,6 +277,24 @@ impl App {
             .and_then(|s| s.trim().parse::<i32>().ok())
             .unwrap_or(0);
         Some((scene, z))
+    }
+
+    fn gameexe_game_name(cfg: &GameexeConfig) -> Option<String> {
+        if let Some(v) = cfg.get_unquoted("GAMENAME") {
+            let s = v.trim().trim_matches('"').to_string();
+            if !s.is_empty() {
+                return Some(s);
+            }
+        }
+        for entry in cfg.entries.iter().rev() {
+            if matches!(entry.key_parts.last().map(|s| s.as_str()), Some("GAMENAME")) {
+                let s = entry.scalar_unquoted().trim().trim_matches('"').to_string();
+                if !s.is_empty() {
+                    return Some(s);
+                }
+            }
+        }
+        None
     }
 
     fn resolve_boot_config(args: &Args) -> BootConfig {
@@ -588,7 +606,7 @@ impl App {
                 7 => (1920, 1080),
                 _ => (w0, h0),
             };
-            let _ = w.request_inner_size(winit::dpi::PhysicalSize::new(nw, nh));
+            let _ = (nw, nh);
             self.last_window_size = Some(size_mode);
         }
 
@@ -618,11 +636,17 @@ impl App {
 impl ApplicationHandler for App {
     fn resumed(&mut self, elwt: &ActiveEventLoop) {
         let size = LogicalSize::new(self.initial_size.0 as f64, self.initial_size.1 as f64);
+        let title = Self::resolve_project_dir(&self.args)
+            .as_deref()
+            .and_then(Self::try_load_gameexe)
+            .as_ref()
+            .and_then(Self::gameexe_game_name)
+            .unwrap_or_else(|| "Siglus Engine".to_string());
         let window = elwt
             .create_window(
                 WindowAttributes::default()
                     .with_inner_size(size)
-                    .with_title("Siglus Engine (Rust)"),
+                    .with_title(title),
             )
             .expect("create window");
         let window: &'static Window = Box::leak(Box::new(window));
@@ -663,10 +687,6 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if let Some(renderer) = self.renderer.as_mut() {
                     renderer.resize(size.width, size.height);
-                }
-                if let Some(vm) = self.vm.as_mut() {
-                    vm.ctx.screen_w = size.width.max(1);
-                    vm.ctx.screen_h = size.height.max(1);
                 }
                 if let Some(w) = self.window.as_ref() {
                     w.request_redraw();

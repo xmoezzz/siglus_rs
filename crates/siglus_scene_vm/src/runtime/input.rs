@@ -3,7 +3,7 @@
 //! Siglus scripts query input via numeric forms (INPUT/MOUSE/KEYLIST) and helper
 //! key objects. The original engine stores per-key state in fixed tables.
 //!
-//! For bring-up we keep:
+//! Runtime input model:
 //! - A fixed 0..=255 virtual-key table (down + edge "stock" flags)
 //! - Mouse position
 //! - Mouse wheel delta since last read / frame
@@ -15,6 +15,8 @@ pub enum VmKey {
     Space,
     Backspace,
     Tab,
+    Shift,
+    Alt,
     ArrowUp,
     ArrowDown,
     ArrowLeft,
@@ -360,7 +362,7 @@ impl InputState {
 
     /// Returns a direction bitmask based on arrow keys.
     ///
-    /// Bit layout (best-effort bring-up):
+    /// Bit layout:
     ///   1=left, 2=right, 4=up, 8=down
     pub fn dir_mask(&self) -> i64 {
         let mut m = 0;
@@ -387,6 +389,8 @@ fn vmkey_to_vk(k: VmKey) -> Option<u8> {
         VmKey::Space => Some(0x20),
         VmKey::Backspace => Some(0x08),
         VmKey::Tab => Some(0x09),
+        VmKey::Shift => Some(0x10),
+        VmKey::Alt => Some(0x12),
 
         VmKey::ArrowLeft => Some(0x25),
         VmKey::ArrowUp => Some(0x26),

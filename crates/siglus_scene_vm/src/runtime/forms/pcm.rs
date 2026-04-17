@@ -11,7 +11,7 @@ fn store_or_push_pcm_prop(ctx: &mut CommandContext, op: i64, args: &[Value]) {
         super::codes::FORM_GLOBAL_PCM
     };
     let prop = op as i32;
-    if let Some(v) = args.get(1).cloned() {
+    if let Some(v) = args.get(0).cloned() {
         match v {
             Value::Str(s) => {
                 ctx.globals
@@ -59,21 +59,16 @@ fn arg_str<'a>(args: &'a [Value], idx: usize) -> Option<&'a str> {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
-    if args.is_empty() {
-        bail!("PCM form expects at least one argument (op id)");
-    }
-
-    let op = match args[0] {
-        Value::Int(v) => v,
-        _ => {
-            ctx.push(Value::Int(0));
-            return Ok(true);
-        }
+    let Some(op) =
+        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args).map(i64::from)
+    else {
+        bail!("PCM form expects an element opcode");
     };
+    let args = crate::runtime::forms::prop_access::params_without_op(ctx, args);
 
     match op {
         pcm_op::PLAY => {
-            let name = match arg_str(args, 1) {
+            let name = match arg_str(args, 0) {
                 Some(s) => s,
                 None => {
                     store_or_push_pcm_prop(ctx, op, args);

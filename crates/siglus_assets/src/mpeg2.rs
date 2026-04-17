@@ -109,7 +109,7 @@ pub fn ensure_mpeg_like(path: impl AsRef<Path>) -> Result<MpegSeqHeader> {
 }
 
 // -----------------------------------------------------------------------------------------------
-// Decode (FFmpeg)
+// Decode (na_mpeg2_decoder)
 // -----------------------------------------------------------------------------------------------
 
 /// A decoded video frame in interleaved RGBA8.
@@ -117,162 +117,52 @@ pub fn ensure_mpeg_like(path: impl AsRef<Path>) -> Result<MpegSeqHeader> {
 pub struct VideoFrameRgba {
     pub width: u32,
     pub height: u32,
-    /// Raw PTS from the decoder (time base depends on container/stream).
     pub pts: Option<i64>,
-    /// Interleaved RGBA, row-major, tightly packed (width * height * 4 bytes).
     pub rgba: Vec<u8>,
 }
 
-/// Decode MPEG-1/2 video frames using FFmpeg and convert them to RGBA.
-///
-/// This is intended for Siglus shipped MPEG-PS/MPEG-2 assets. The original engine
-/// relies on platform decoders; here we route through FFmpeg for a consistent
-/// decoder on desktop.
-///
-/// Notes:
-/// - Requires Cargo feature `mpeg2_ffmpeg` (enabled by default in this workspace).
-/// - By default this links against system FFmpeg libraries. To build FFmpeg from
-///   source (static), enable feature `ffmpeg_build`.
-#[cfg(feature = "mpeg2_ffmpeg")]
 pub fn decode_mpeg2_to_rgba_frames(
     path: impl AsRef<Path>,
     max_frames: Option<usize>,
 ) -> Result<Vec<VideoFrameRgba>> {
-    use anyhow::anyhow;
-    use ffmpeg_next as ffmpeg;
-
-    ffmpeg::init().map_err(|e| anyhow!("ffmpeg init failed: {e}"))?;
-
     let path = path.as_ref();
-    let path_str = path
-        .to_str()
-        .ok_or_else(|| anyhow!("non-UTF8 path: {}", path.display()))?
-        .to_string();
-
-    let mut ictx = ffmpeg::format::input(&path_str)
-        .map_err(|e| anyhow!("ffmpeg open failed: {}: {e}", path.display()))?;
-
-    let input = ictx
-        .streams()
-        .best(ffmpeg::media::Type::Video)
-        .ok_or_else(|| anyhow!("no video stream: {}", path.display()))?;
-
-    let video_stream_index = input.index();
-
-    // Enforce MPEG-1/2 video to match the caller intent. (If Siglus packs other
-    // codecs in the future, callers should add a separate route.)
-    let codec_id = input.parameters().id();
-    if codec_id != ffmpeg::codec::Id::MPEG2VIDEO && codec_id != ffmpeg::codec::Id::MPEG1VIDEO {
-        return Err(anyhow!(
-            "not MPEG-1/2 video: codec_id={codec_id:?} ({})",
-            path.display()
-        ));
-    }
-
-    let context_decoder = ffmpeg::codec::context::Context::from_parameters(input.parameters())
-        .map_err(|e| anyhow!("ffmpeg context from parameters failed: {e}"))?;
-    let mut decoder = context_decoder
-        .decoder()
-        .video()
-        .map_err(|e| anyhow!("ffmpeg video decoder init failed: {e}"))?;
-
-    let mut scaler = ffmpeg::software::scaling::context::Context::get(
-        decoder.format(),
-        decoder.width(),
-        decoder.height(),
-        ffmpeg::format::Pixel::RGBA,
-        decoder.width(),
-        decoder.height(),
-        ffmpeg::software::scaling::flag::Flags::BILINEAR,
-    )
-    .map_err(|e| anyhow!("ffmpeg scaler init failed: {e}"))?;
-
+    let bytes = std::fs::read(path).with_context(|| format!("read MPEG: {}", path.display()))?;
     let mut out = Vec::<VideoFrameRgba>::new();
-
-    let mut receive_and_convert = |decoder: &mut ffmpeg::decoder::Video,
-                                   scaler: &mut ffmpeg::software::scaling::context::Context,
-                                   out: &mut Vec<VideoFrameRgba>|
-     -> Result<()> {
-        let mut decoded = ffmpeg::util::frame::video::Video::empty();
-        while decoder.receive_frame(&mut decoded).is_ok() {
-            let pts = decoded.pts();
-
-            let mut rgba_frame = ffmpeg::util::frame::video::Video::empty();
-            scaler
-                .run(&decoded, &mut rgba_frame)
-                .map_err(|e| anyhow!("ffmpeg scale failed: {e}"))?;
-
-            let w = rgba_frame.width();
-            let h = rgba_frame.height();
-            let stride = rgba_frame.stride(0);
-            let src = rgba_frame.data(0);
-            let row_bytes = (w as usize).saturating_mul(4);
-
-            if stride <= 0 {
-                return Err(anyhow!("invalid RGBA stride: {stride}"));
+    let mut pipeline = na_mpeg2_decoder::MpegVideoPipeline::new();
+    pipeline
+        .push_with(&bytes, None, |f| {
+            if max_frames.map_or(false, |limit| out.len() >= limit) {
+                return;
             }
-            let stride_u = stride as usize;
-
-            let mut rgba = vec![0u8; row_bytes.saturating_mul(h as usize)];
-            for y in 0..(h as usize) {
-                let src_off = y.saturating_mul(stride_u);
-                let dst_off = y.saturating_mul(row_bytes);
-                let src_end = src_off.saturating_add(row_bytes);
-                let dst_end = dst_off.saturating_add(row_bytes);
-                if src_end > src.len() || dst_end > rgba.len() {
-                    return Err(anyhow!(
-                        "frame copy out of range (src_end={src_end}, src_len={}, dst_end={dst_end}, dst_len={})",
-                        src.len(),
-                        rgba.len()
-                    ));
-                }
-                rgba[dst_off..dst_end].copy_from_slice(&src[src_off..src_end]);
-            }
-
+            let w = f.width as u32;
+            let h = f.height as u32;
+            let mut rgba = vec![0u8; (w as usize).saturating_mul(h as usize).saturating_mul(4)];
+            na_mpeg2_decoder::frame_to_rgba_bt601_limited(&f, &mut rgba);
             out.push(VideoFrameRgba {
                 width: w,
                 height: h,
-                pts,
+                pts: None,
                 rgba,
             });
-
-            if let Some(limit) = max_frames {
-                if out.len() >= limit {
-                    break;
-                }
-            }
+        })
+        .context("mpeg2 decode")?;
+    pipeline.flush_with(|f| {
+        if max_frames.map_or(false, |limit| out.len() >= limit) {
+            return;
         }
-        Ok(())
-    };
-
-    for (stream, packet) in ictx.packets() {
-        if stream.index() != video_stream_index {
-            continue;
-        }
-        decoder
-            .send_packet(&packet)
-            .map_err(|e| anyhow!("ffmpeg send_packet failed: {e}"))?;
-        receive_and_convert(&mut decoder, &mut scaler, &mut out)?;
-        if let Some(limit) = max_frames {
-            if out.len() >= limit {
-                break;
-            }
-        }
+        let w = f.width as u32;
+        let h = f.height as u32;
+        let mut rgba = vec![0u8; (w as usize).saturating_mul(h as usize).saturating_mul(4)];
+        na_mpeg2_decoder::frame_to_rgba_bt601_limited(&f, &mut rgba);
+        out.push(VideoFrameRgba {
+            width: w,
+            height: h,
+            pts: None,
+            rgba,
+        });
+    })?;
+    if let Some(limit) = max_frames {
+        out.truncate(limit);
     }
-
-    // Flush.
-    decoder
-        .send_eof()
-        .map_err(|e| anyhow!("ffmpeg send_eof failed: {e}"))?;
-    receive_and_convert(&mut decoder, &mut scaler, &mut out)?;
-
     Ok(out)
-}
-
-#[cfg(not(feature = "mpeg2_ffmpeg"))]
-pub fn decode_mpeg2_to_rgba_frames(
-    _path: impl AsRef<Path>,
-    _max_frames: Option<usize>,
-) -> Result<Vec<VideoFrameRgba>> {
-    bail!("mpeg2 decode disabled (enable Cargo feature: mpeg2_ffmpeg)")
 }

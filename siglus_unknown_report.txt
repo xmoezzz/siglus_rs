@@ -1,2 +1,0 @@
-runtime notes:
-  thumb_table.path.missing: x1

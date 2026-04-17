@@ -144,6 +144,48 @@ pub struct ScenePck {
     pub buf: Vec<u8>,
     pub header: PackScnHeader,
     pub scn_name_map: HashMap<String, usize>,
+    pub inc_prop_name_map: HashMap<u32, String>,
+    pub inc_cmd_name_map: HashMap<u32, String>,
+}
+
+fn read_indexed_utf16_name_map(
+    buf: &[u8],
+    index_list_ofs: usize,
+    count: usize,
+    list_ofs: usize,
+) -> Result<HashMap<u32, String>> {
+    let mut out = HashMap::new();
+    if index_list_ofs + count * 8 > buf.len() || list_ofs > buf.len() {
+        return Ok(out);
+    }
+    for i in 0..count {
+        let idx = CIndex::read(buf, index_list_ofs + i * 8)?;
+        let o = idx.offset.max(0) as usize;
+        let n = idx.size.max(0) as usize;
+        let byte_off = list_ofs
+            .checked_add(o * 2)
+            .ok_or_else(|| anyhow!("scene_pck: name offset overflow"))?;
+        let byte_end = byte_off
+            .checked_add(n * 2)
+            .ok_or_else(|| anyhow!("scene_pck: name size overflow"))?;
+        if byte_end > buf.len() {
+            continue;
+        }
+        let mut u16s = Vec::with_capacity(n);
+        for j in 0..n {
+            let p = byte_off + j * 2;
+            let w = u16::from_le_bytes([buf[p], buf[p + 1]]);
+            if w == 0 {
+                break;
+            }
+            u16s.push(w);
+        }
+        let s = String::from_utf16_lossy(&u16s);
+        if !s.is_empty() {
+            out.insert(i as u32, s);
+        }
+    }
+    Ok(out)
 }
 
 impl ScenePck {
@@ -310,10 +352,25 @@ impl ScenePck {
             }
         }
 
+        let inc_prop_name_map = read_indexed_utf16_name_map(
+            &out,
+            header.inc_prop_name_index_list_ofs.max(0) as usize,
+            header.inc_prop_name_cnt.max(0) as usize,
+            header.inc_prop_name_list_ofs.max(0) as usize,
+        )?;
+        let inc_cmd_name_map = read_indexed_utf16_name_map(
+            &out,
+            header.inc_cmd_name_index_list_ofs.max(0) as usize,
+            header.inc_cmd_name_cnt.max(0) as usize,
+            header.inc_cmd_name_list_ofs.max(0) as usize,
+        )?;
+
         Ok(Self {
             buf: out,
             header,
             scn_name_map,
+            inc_prop_name_map,
+            inc_cmd_name_map,
         })
     }
 

@@ -1,14 +1,12 @@
 //! Runtime scaffolding for command execution.
 //!
-//! This layer is intentionally pragmatic:
-//! - It supports named commands used by standalone runtime tools.
-//! - It supports numeric dispatch (forms) used by the VM.
-//! - Unknown or unfinished operations are recorded instead of crashing.
+//! This layer provides shared dispatch and runtime state for VM forms and
+//! named commands.
 
 pub mod commands;
+pub mod constants;
 pub mod forms;
 pub mod graphics;
-pub mod id_map;
 pub mod input;
 pub mod opcode;
 
@@ -18,24 +16,28 @@ pub mod globals;
 pub mod int_event;
 pub mod net;
 pub mod tables;
+pub mod tonecurve;
 pub mod ui;
 pub mod unknown;
 pub mod wait;
 use crate::runtime::forms::syscom as syscom_form;
 
 use anyhow::Result;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::assets::RgbaImage;
 use crate::audio::{AudioHub, BgmEngine, PcmEngine, SeEngine};
 use crate::image_manager::{ImageId, ImageManager};
 use crate::layer::{
-    ClipRect, LayerId, LayerManager, RenderSprite, Sprite, SpriteFit, SpriteId, SpriteSizeMode,
+    ClipRect, LayerId, LayerManager, RenderSprite, Sprite, SpriteFit, SpriteId, SpriteRuntimeLight,
+    SpriteSizeMode,
 };
 use crate::movie::MovieManager;
 use crate::soft_render;
 use crate::text_render::FontCache;
+use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -93,11 +95,12 @@ pub struct Command {
     pub args: Vec<Value>,
 }
 
-/// State used by a subset of EXCALL compatibility ops.
+/// State used by EXCALL runtime helpers.
 ///
 /// We intentionally keep these names offset-based instead of guessing their meaning.
 #[derive(Debug, Default, Clone)]
 pub struct ExcallCompatState {
+    pub ready: bool,
     pub flag_204: bool,
     pub flag_2148: bool,
 }
@@ -116,6 +119,13 @@ pub trait ExternalFormHandler: Send + Sync {
     ) -> anyhow::Result<bool>;
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct VmCallMeta {
+    pub element: Vec<i32>,
+    pub al_id: i64,
+    pub ret_form: i64,
+}
+
 pub struct CommandContext {
     pub project_dir: PathBuf,
 
@@ -132,13 +142,13 @@ pub struct CommandContext {
 
     pub movie: MovieManager,
 
-    /// Runtime numeric id map (form/element/op codes). Defaults can be overridden.
-    pub ids: id_map::IdMap,
+    /// Runtime numeric constants (form/element/op codes).
+    pub ids: constants::RuntimeConstants,
 
-    /// Minimal graphics runtime state for stage/object sprite binding.
+    /// Graphics runtime state for stage/object sprite binding.
     pub gfx: graphics::GfxRuntime,
 
-    /// Minimal UI runtime (text window, message waits, etc.).
+    /// UI runtime (text window, message waits, etc.).
     pub ui: ui::UiRuntime,
     /// Shared font cache for stage/object text rendering.
     pub font_cache: FontCache,
@@ -165,11 +175,32 @@ pub struct CommandContext {
     pub unknown: unknown::UnknownOpRecorder,
 
     pub globals: globals::GlobalState,
+    pub tonecurve: tonecurve::ToneCurveRuntime,
 
     pub excall_state: ExcallCompatState,
 
+    /// Last fully presented scene list before wipe composition.
+    pub last_presented_render_list: Vec<RenderSprite>,
+    /// Offscreen target image for the front/old stage during dual-source wipes.
+    pub wipe_front_rt_image: Option<ImageId>,
+    /// Offscreen target image for the next/new stage during dual-source wipes.
+    pub wipe_next_rt_image: Option<ImageId>,
+    /// Legacy runtime slot for overlay intermediate images. GPU overlay composition now bypasses it.
+    pub overlay_rt_image: Option<ImageId>,
+
     /// Optional project-provided form handler (game-specific).
     pub external_forms: Option<Arc<dyn ExternalFormHandler>>,
+
+    /// Current scene number tracked by the VM.
+    pub current_scene_no: Option<i64>,
+    /// Current scene name tracked by the VM.
+    pub current_scene_name: Option<String>,
+    /// Current source line tracked by the VM (`CD_NL`).
+    pub current_line_no: i64,
+
+    /// Current VM-originated form call metadata. Form handlers read this instead of
+    /// relying on trailing wrapper arguments.
+    pub vm_call: Option<VmCallMeta>,
 }
 
 impl CommandContext {
@@ -202,8 +233,78 @@ impl CommandContext {
         !dont_stop
     }
 
+    fn is_modifier_key(k: input::VmKey) -> bool {
+        matches!(k, input::VmKey::Shift | input::VmKey::Alt)
+    }
+
+    fn sync_editbox_runtime(&mut self) {
+        let sw = self.screen_w as i32;
+        let sh = self.screen_h as i32;
+        let display_cnt = self.globals.change_display_mode_proc_cnt;
+        for list in self.globals.editbox_lists.values_mut() {
+            for eb in &mut list.boxes {
+                eb.update_rect(sw, sh);
+                eb.frame(display_cnt);
+            }
+        }
+        if let Some((form_id, idx)) = self.globals.focused_editbox {
+            let keep = self
+                .globals
+                .editbox_lists
+                .get(&form_id)
+                .and_then(|list| list.boxes.get(idx))
+                .map(|eb| eb.created && eb.visible)
+                .unwrap_or(false);
+            if !keep {
+                self.globals.focused_editbox = None;
+            }
+        }
+    }
+
+    fn toggle_screen_size_mode_for_editbox(&mut self) {
+        const GET_WINDOW_MODE: i32 = 172;
+        let current = self
+            .globals
+            .syscom
+            .config_int
+            .get(&GET_WINDOW_MODE)
+            .copied()
+            .unwrap_or(0);
+        let next = if current == 0 { 1 } else { 0 };
+        self.globals.syscom.config_int.insert(GET_WINDOW_MODE, next);
+        self.globals.change_display_mode_proc_cnt =
+            self.globals.change_display_mode_proc_cnt.max(2);
+    }
+
+    fn move_editbox_focus(&mut self, forward: bool) {
+        let Some((form_id, idx)) = self.globals.focused_editbox else {
+            return;
+        };
+        let Some(list) = self.globals.editbox_lists.get(&form_id) else {
+            return;
+        };
+        let len = list.boxes.len();
+        if len == 0 {
+            return;
+        }
+        let mut cur = idx;
+        for _ in 0..len {
+            cur = if forward {
+                (cur + 1) % len
+            } else {
+                (cur + len - 1) % len
+            };
+            if let Some(eb) = list.boxes.get(cur) {
+                if eb.created {
+                    self.globals.focused_editbox = Some((form_id, cur));
+                    return;
+                }
+            }
+        }
+    }
+
     fn advance_message_wait(&mut self, allow: bool) {
-        if !allow || !self.ui.waiting_message {
+        if !allow || !self.ui.mwnd.msg.waiting {
             return;
         }
         self.ui.end_wait_message();
@@ -216,18 +317,12 @@ impl CommandContext {
         let mut unknown = unknown::UnknownOpRecorder::default();
         let tables = tables::AssetTables::load(&project_dir, &mut unknown);
 
-        let mut ids = id_map::IdMap::load_from_env();
-        // External configuration (repository file) is preferred over hard-coded defaults.
-        ids.try_load_idmap_file(&project_dir.join("id_map.txt"));
-        ids.try_load_idmap_file(&project_dir.join("siglus_id_map.txt"));
-        if ids.user_cmd_names.is_empty() {
-            ids.try_load_user_cmd_names_file(&project_dir.join("user_cmd_map.txt"));
-            ids.try_load_user_cmd_names_file(&project_dir.join("siglus_user_cmd_map.txt"));
-        }
+        let ids = constants::RuntimeConstants::default();
 
         let audio = AudioHub::new();
         let mut images = ImageManager::new(project_dir.clone());
         let solid_white = images.solid_rgba((255, 255, 255, 255));
+        let tonecurve = tonecurve::ToneCurveRuntime::new(&project_dir);
 
         Self {
             images,
@@ -253,9 +348,31 @@ impl CommandContext {
             screen_w: 1280,
             screen_h: 720,
             globals: globals::GlobalState::default(),
+            tonecurve,
             excall_state: ExcallCompatState::default(),
+            last_presented_render_list: Vec::new(),
+            wipe_front_rt_image: None,
+            wipe_next_rt_image: None,
+            overlay_rt_image: None,
             external_forms: None,
+            current_scene_no: None,
+            current_scene_name: None,
+            current_line_no: -1,
+            vm_call: None,
         }
+    }
+
+    pub fn lookup_scene_no(&self, scene_name: &str) -> Result<i64> {
+        if scene_name.is_empty() {
+            anyhow::bail!("empty scene name")
+        }
+        let scene_pck_path = find_scene_pck_in_project(&self.project_dir)?;
+        let opt = ScenePckDecodeOptions::from_project_dir(&self.project_dir)?;
+        let pck = ScenePck::load_and_rebuild(&scene_pck_path, &opt)?;
+        let scene_no = pck
+            .find_scene_no(scene_name)
+            .ok_or_else(|| anyhow::anyhow!("scene not found: {}", scene_name))?;
+        Ok(scene_no as i64)
     }
 
     pub fn reset_for_scene_restart(&mut self) {
@@ -265,8 +382,14 @@ impl CommandContext {
         self.wait = wait::VmWait::default();
         self.stack.clear();
         self.globals = globals::GlobalState::default();
+        self.tonecurve = tonecurve::ToneCurveRuntime::new(&self.project_dir);
         self.excall_state = ExcallCompatState::default();
+        self.last_presented_render_list.clear();
+        self.wipe_front_rt_image = None;
+        self.wipe_next_rt_image = None;
+        self.overlay_rt_image = None;
         self.input.clear_all();
+        self.vm_call = None;
     }
 
     /// Install or clear an external form handler.
@@ -416,7 +539,8 @@ impl CommandContext {
                                 .gfx
                                 .object_peek_patno(*stage_idx, obj_i as i64)
                                 .unwrap_or(0);
-                            if let Some(file) = obj.file_name.as_deref() {
+                            if let Some(file_name) = obj.file_name.clone() {
+                                let file = file_name.as_str();
                                 if let Some(img_id) =
                                     Self::load_any_image_for_hit(&mut self.images, file, patno)
                                 {
@@ -582,6 +706,9 @@ impl CommandContext {
             return;
         }
         self.input.on_key_down(k);
+        if Self::is_modifier_key(k) {
+            return;
+        }
 
         // EditBox runtime: map common keys and focus changes.
         self.handle_editbox_key(k);
@@ -674,11 +801,11 @@ impl CommandContext {
         let Some(eb) = list.boxes.get_mut(idx) else {
             return;
         };
-        if !eb.alive {
+        if !eb.created || !eb.visible {
             return;
         }
         if !text.is_empty() {
-            eb.text.push_str(text);
+            eb.insert_text_at_cursor(text);
         }
     }
 
@@ -693,6 +820,7 @@ impl CommandContext {
         }
         let handled_mwnd_selection = self.handle_mwnd_selection_click(b);
         self.input.on_mouse_down(b);
+        self.update_editbox_focus_from_mouse_down(b);
         if !handled_mwnd_selection {
             self.handle_object_button_mouse_down(b);
         }
@@ -734,6 +862,29 @@ impl CommandContext {
         }
         if wipe_skipped {
             self.globals.finish_wipe();
+        }
+    }
+
+    fn update_editbox_focus_from_mouse_down(&mut self, b: input::VmMouseButton) {
+        if !matches!(b, input::VmMouseButton::Left) {
+            return;
+        }
+        let x = self.input.mouse_x;
+        let y = self.input.mouse_y;
+        let mut new_focus = None;
+        for (form_id, list) in self.globals.editbox_lists.iter() {
+            for (idx, eb) in list.boxes.iter().enumerate() {
+                if eb.contains_point(x, y) {
+                    new_focus = Some((*form_id, idx));
+                    break;
+                }
+            }
+            if new_focus.is_some() {
+                break;
+            }
+        }
+        if new_focus.is_some() {
+            self.globals.focused_editbox = new_focus;
         }
     }
 
@@ -789,49 +940,46 @@ impl CommandContext {
         let Some((form_id, idx)) = self.globals.focused_editbox else {
             return;
         };
-        let Some(list) = self.globals.editbox_lists.get_mut(&form_id) else {
-            return;
-        };
-        let Some(eb) = list.boxes.get_mut(idx) else {
-            return;
-        };
-        if !eb.alive {
-            return;
-        }
+        let alt_down = self.input.vk_is_down(0x12);
+        let shift_down = self.input.vk_is_down(0x10);
+        let mut move_focus: Option<bool> = None;
+        let mut toggle_screen = false;
+        {
+            let Some(list) = self.globals.editbox_lists.get_mut(&form_id) else {
+                return;
+            };
+            let Some(eb) = list.boxes.get_mut(idx) else {
+                return;
+            };
+            if !eb.created || !eb.visible {
+                return;
+            }
 
-        match k {
-            input::VmKey::Enter => {
-                eb.decided = true;
-            }
-            input::VmKey::Escape => {
-                eb.canceled = true;
-            }
-            input::VmKey::Backspace => {
-                eb.text.pop();
-            }
-            input::VmKey::Tab => {
-                let next = if list.boxes.is_empty() {
-                    None
-                } else {
-                    let len = list.boxes.len() as i32;
-                    let mut cur = idx as i32;
-                    let mut found = None;
-                    for _ in 0..len {
-                        cur = (cur + 1).rem_euclid(len);
-                        if let Some(b) = list.boxes.get(cur as usize) {
-                            if b.alive {
-                                found = Some(cur as usize);
-                                break;
-                            }
-                        }
+            match k {
+                input::VmKey::Enter => {
+                    if alt_down {
+                        toggle_screen = true;
+                    } else {
+                        eb.action_flag = crate::runtime::globals::EDITBOX_ACTION_DECIDED;
                     }
-                    found
-                };
-                if let Some(n) = next {
-                    self.globals.focused_editbox = Some((form_id, n));
                 }
+                input::VmKey::Escape => {
+                    eb.action_flag = crate::runtime::globals::EDITBOX_ACTION_CANCELED;
+                }
+                input::VmKey::Backspace => {
+                    eb.backspace_like();
+                }
+                input::VmKey::Tab => {
+                    move_focus = Some(!shift_down);
+                }
+                _ => {}
             }
-            _ => {}
+        }
+        if toggle_screen {
+            self.toggle_screen_size_mode_for_editbox();
+        }
+        if let Some(forward) = move_focus {
+            self.move_editbox_focus(forward);
         }
     }
 
@@ -844,7 +992,7 @@ impl CommandContext {
             &mut self.pcm,
             &mut self.globals,
         );
-        wait.poll(stack, bgm, se, pcm, globals)
+        wait.poll(stack, bgm, se, pcm, globals, &self.ids)
     }
 
     pub fn push(&mut self, v: Value) {
@@ -859,9 +1007,12 @@ impl CommandContext {
         self.screen_w = w;
         self.screen_h = h;
         self.ui.sync_layout(&mut self.layers, w, h);
+        self.sync_editbox_runtime();
     }
 
     pub fn tick_frame(&mut self) {
+        self.sync_editbox_runtime();
+        self.sync_mwnd_window_ui();
         self.ui.tick(
             &mut self.layers,
             &mut self.images,
@@ -874,13 +1025,8 @@ impl CommandContext {
         // Apply syscom flags that should skip visual transitions immediately.
         self.apply_syscom_skip_flags();
         // Sync message length for auto-mode timing.
-        self.globals.script.auto_mode_moji_cnt = self
-            .ui
-            .current_message
-            .as_deref()
-            .unwrap_or("")
-            .chars()
-            .count() as i64;
+        self.globals.script.auto_mode_moji_cnt =
+            self.ui.message_text().unwrap_or("").chars().count() as i64;
         if self
             .ui
             .auto_advance_due(&self.globals.script, &self.globals.syscom)
@@ -889,11 +1035,12 @@ impl CommandContext {
         }
         // If scripts request message-window hide, enforce it after UI tick.
         if self.globals.script.mwnd_disp_off_flag {
-            self.ui.show_message_bg(false);
+            self.ui.force_message_bg_visible(false);
         }
         self.sync_syscom_menu_ui();
         self.sync_mwnd_selection_ui();
         self.globals.tick_frame();
+        let _ = self.bgm.tick(&mut self.audio);
         self.sync_movie_objects();
         self.apply_object_event_animations();
         self.apply_object_disp_override();
@@ -911,833 +1058,22 @@ impl CommandContext {
     }
 
     fn apply_object_event_animations(&mut self) {
+        let ids = self.ids.clone();
+        let gfx = &mut self.gfx;
+        let images = &mut self.images;
+        let layers = &mut self.layers;
         for st in self.globals.stage_forms.values_mut() {
             for (stage_idx, objs) in st.object_lists.iter_mut() {
                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                    if obj.extra_events.is_empty() && obj.rep_int_event_lists.is_empty() {
-                        continue;
-                    }
-
-                    let mut x: Option<i64> = None;
-                    let mut y: Option<i64> = None;
-                    let mut alpha: Option<i64> = None;
-                    let mut patno: Option<i64> = None;
-                    let mut order: Option<i64> = None;
-                    let mut layer_no: Option<i64> = None;
-                    let mut z: Option<i64> = None;
-                    let mut center_x: Option<i64> = None;
-                    let mut center_y: Option<i64> = None;
-                    let mut scale_x: Option<i64> = None;
-                    let mut scale_y: Option<i64> = None;
-                    let mut rotate_z: Option<i64> = None;
-                    let mut clip_left: Option<i64> = None;
-                    let mut clip_top: Option<i64> = None;
-                    let mut clip_right: Option<i64> = None;
-                    let mut clip_bottom: Option<i64> = None;
-                    let mut src_clip_left: Option<i64> = None;
-                    let mut src_clip_top: Option<i64> = None;
-                    let mut src_clip_right: Option<i64> = None;
-                    let mut src_clip_bottom: Option<i64> = None;
-                    let mut tr: Option<i64> = None;
-                    let mut mono: Option<i64> = None;
-                    let mut reverse: Option<i64> = None;
-                    let mut bright: Option<i64> = None;
-                    let mut dark: Option<i64> = None;
-                    let mut color_rate: Option<i64> = None;
-                    let mut color_add_r: Option<i64> = None;
-                    let mut color_add_g: Option<i64> = None;
-                    let mut color_add_b: Option<i64> = None;
-                    let mut color_r: Option<i64> = None;
-                    let mut color_g: Option<i64> = None;
-                    let mut color_b: Option<i64> = None;
-
-                    let ops: Vec<i32> = obj.extra_events.keys().copied().collect();
-                    for op in ops {
-                        let t = obj.event_target(op);
-                        let v = obj
-                            .extra_events
-                            .get(&op)
-                            .map(|ev| ev.get_total_value() as i64)
-                            .unwrap_or(0);
-                        match t {
-                            globals::ObjectEventTarget::X => x = Some(v),
-                            globals::ObjectEventTarget::Y => y = Some(v),
-                            globals::ObjectEventTarget::Alpha => alpha = Some(v),
-                            globals::ObjectEventTarget::Patno => patno = Some(v),
-                            globals::ObjectEventTarget::Order => order = Some(v),
-                            globals::ObjectEventTarget::Layer => layer_no = Some(v),
-                            globals::ObjectEventTarget::Z => z = Some(v),
-                            globals::ObjectEventTarget::CenterX => center_x = Some(v),
-                            globals::ObjectEventTarget::CenterY => center_y = Some(v),
-                            globals::ObjectEventTarget::ScaleX => scale_x = Some(v),
-                            globals::ObjectEventTarget::ScaleY => scale_y = Some(v),
-                            globals::ObjectEventTarget::RotateZ => rotate_z = Some(v),
-                            globals::ObjectEventTarget::ClipLeft => clip_left = Some(v),
-                            globals::ObjectEventTarget::ClipTop => clip_top = Some(v),
-                            globals::ObjectEventTarget::ClipRight => clip_right = Some(v),
-                            globals::ObjectEventTarget::ClipBottom => clip_bottom = Some(v),
-                            globals::ObjectEventTarget::SrcClipLeft => src_clip_left = Some(v),
-                            globals::ObjectEventTarget::SrcClipTop => src_clip_top = Some(v),
-                            globals::ObjectEventTarget::SrcClipRight => src_clip_right = Some(v),
-                            globals::ObjectEventTarget::SrcClipBottom => src_clip_bottom = Some(v),
-                            globals::ObjectEventTarget::Tr => tr = Some(v),
-                            globals::ObjectEventTarget::Mono => mono = Some(v),
-                            globals::ObjectEventTarget::Reverse => reverse = Some(v),
-                            globals::ObjectEventTarget::Bright => bright = Some(v),
-                            globals::ObjectEventTarget::Dark => dark = Some(v),
-                            globals::ObjectEventTarget::ColorRate => color_rate = Some(v),
-                            globals::ObjectEventTarget::ColorAddR => color_add_r = Some(v),
-                            globals::ObjectEventTarget::ColorAddG => color_add_g = Some(v),
-                            globals::ObjectEventTarget::ColorAddB => color_add_b = Some(v),
-                            globals::ObjectEventTarget::ColorR => color_r = Some(v),
-                            globals::ObjectEventTarget::ColorG => color_g = Some(v),
-                            globals::ObjectEventTarget::ColorB => color_b = Some(v),
-                            globals::ObjectEventTarget::Unknown => {}
-                        }
-                    }
-
-                    let list_ops: Vec<i32> = obj.rep_int_event_lists.keys().copied().collect();
-                    for op in list_ops {
-                        let t = obj.event_target(op);
-                        let v = obj
-                            .rep_int_event_lists
-                            .get(&op)
-                            .and_then(|list| list.get(0))
-                            .map(|ev| ev.get_total_value() as i64)
-                            .unwrap_or(0);
-                        match t {
-                            globals::ObjectEventTarget::X => x = Some(v),
-                            globals::ObjectEventTarget::Y => y = Some(v),
-                            globals::ObjectEventTarget::Alpha => alpha = Some(v),
-                            globals::ObjectEventTarget::Patno => patno = Some(v),
-                            globals::ObjectEventTarget::Order => order = Some(v),
-                            globals::ObjectEventTarget::Layer => layer_no = Some(v),
-                            globals::ObjectEventTarget::Z => z = Some(v),
-                            globals::ObjectEventTarget::CenterX => center_x = Some(v),
-                            globals::ObjectEventTarget::CenterY => center_y = Some(v),
-                            globals::ObjectEventTarget::ScaleX => scale_x = Some(v),
-                            globals::ObjectEventTarget::ScaleY => scale_y = Some(v),
-                            globals::ObjectEventTarget::RotateZ => rotate_z = Some(v),
-                            globals::ObjectEventTarget::ClipLeft => clip_left = Some(v),
-                            globals::ObjectEventTarget::ClipTop => clip_top = Some(v),
-                            globals::ObjectEventTarget::ClipRight => clip_right = Some(v),
-                            globals::ObjectEventTarget::ClipBottom => clip_bottom = Some(v),
-                            globals::ObjectEventTarget::SrcClipLeft => src_clip_left = Some(v),
-                            globals::ObjectEventTarget::SrcClipTop => src_clip_top = Some(v),
-                            globals::ObjectEventTarget::SrcClipRight => src_clip_right = Some(v),
-                            globals::ObjectEventTarget::SrcClipBottom => src_clip_bottom = Some(v),
-                            globals::ObjectEventTarget::Tr => tr = Some(v),
-                            globals::ObjectEventTarget::Mono => mono = Some(v),
-                            globals::ObjectEventTarget::Reverse => reverse = Some(v),
-                            globals::ObjectEventTarget::Bright => bright = Some(v),
-                            globals::ObjectEventTarget::Dark => dark = Some(v),
-                            globals::ObjectEventTarget::ColorRate => color_rate = Some(v),
-                            globals::ObjectEventTarget::ColorAddR => color_add_r = Some(v),
-                            globals::ObjectEventTarget::ColorAddG => color_add_g = Some(v),
-                            globals::ObjectEventTarget::ColorAddB => color_add_b = Some(v),
-                            globals::ObjectEventTarget::ColorR => color_r = Some(v),
-                            globals::ObjectEventTarget::ColorG => color_g = Some(v),
-                            globals::ObjectEventTarget::ColorB => color_b = Some(v),
-                            globals::ObjectEventTarget::Unknown => {}
-                        }
-                    }
-
-                    if x.is_none()
-                        && y.is_none()
-                        && alpha.is_none()
-                        && patno.is_none()
-                        && order.is_none()
-                        && layer_no.is_none()
-                        && z.is_none()
-                        && center_x.is_none()
-                        && center_y.is_none()
-                        && scale_x.is_none()
-                        && scale_y.is_none()
-                        && rotate_z.is_none()
-                        && clip_left.is_none()
-                        && clip_top.is_none()
-                        && clip_right.is_none()
-                        && clip_bottom.is_none()
-                        && src_clip_left.is_none()
-                        && src_clip_top.is_none()
-                        && src_clip_right.is_none()
-                        && src_clip_bottom.is_none()
-                        && tr.is_none()
-                        && mono.is_none()
-                        && reverse.is_none()
-                        && bright.is_none()
-                        && dark.is_none()
-                        && color_rate.is_none()
-                        && color_add_r.is_none()
-                        && color_add_g.is_none()
-                        && color_add_b.is_none()
-                        && color_r.is_none()
-                        && color_g.is_none()
-                        && color_b.is_none()
-                    {
-                        continue;
-                    }
-
-                    let stage_i64 = *stage_idx;
-                    let obj_i64 = obj_idx as i64;
-
-                    match &obj.backend {
-                        globals::ObjectBackend::Gfx => {
-                            if let Some(ax) = x {
-                                let _ = self.gfx.object_set_x(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    ax,
-                                );
-                            }
-                            if let Some(ay) = y {
-                                let _ = self.gfx.object_set_y(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    ay,
-                                );
-                            }
-                            if let Some(a) = alpha {
-                                let _ = self.gfx.object_set_alpha(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    a,
-                                );
-                            }
-                            if let Some(p) = patno {
-                                let _ = self.gfx.object_set_pat_no(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    p,
-                                );
-                            }
-                            if let Some(o) = order {
-                                let _ = self.gfx.object_set_order(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    o,
-                                );
-                            }
-                            if let Some(l) = layer_no {
-                                let _ = self.gfx.object_set_layer(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    l,
-                                );
-                            }
-                            if let Some(zv) = z {
-                                let _ = self.gfx.object_set_z(stage_i64, obj_i64, zv);
-                            }
-                            if let (Some(cx), Some(cy)) = (center_x, center_y) {
-                                let _ = self.gfx.object_set_center(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    cx,
-                                    cy,
-                                );
-                            }
-                            if let (Some(sx), Some(sy)) = (scale_x, scale_y) {
-                                let _ = self.gfx.object_set_scale(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    sx,
-                                    sy,
-                                );
-                            }
-                            if let Some(rz) = rotate_z {
-                                let _ = self.gfx.object_set_rotate(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    rz,
-                                );
-                            }
-                            if clip_left.is_some()
-                                || clip_top.is_some()
-                                || clip_right.is_some()
-                                || clip_bottom.is_some()
-                            {
-                                let use_flag = if self.ids.obj_clip_use != 0 {
-                                    obj.extra_int_props
-                                        .get(&self.ids.obj_clip_use)
-                                        .copied()
-                                        .unwrap_or(0)
-                                } else {
-                                    0
-                                };
-                                let left = clip_left
-                                    .or_else(|| {
-                                        if self.ids.obj_clip_left != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_clip_left)
-                                                .copied()
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(0);
-                                let top = clip_top
-                                    .or_else(|| {
-                                        if self.ids.obj_clip_top != 0 {
-                                            obj.extra_int_props.get(&self.ids.obj_clip_top).copied()
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(0);
-                                let right = clip_right
-                                    .or_else(|| {
-                                        if self.ids.obj_clip_right != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_clip_right)
-                                                .copied()
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(0);
-                                let bottom = clip_bottom
-                                    .or_else(|| {
-                                        if self.ids.obj_clip_bottom != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_clip_bottom)
-                                                .copied()
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(0);
-                                let _ = self.gfx.object_set_clip(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    use_flag,
-                                    left,
-                                    top,
-                                    right,
-                                    bottom,
-                                );
-                            }
-                            if src_clip_left.is_some()
-                                || src_clip_top.is_some()
-                                || src_clip_right.is_some()
-                                || src_clip_bottom.is_some()
-                            {
-                                let use_flag = if self.ids.obj_src_clip_use != 0 {
-                                    obj.extra_int_props
-                                        .get(&self.ids.obj_src_clip_use)
-                                        .copied()
-                                        .unwrap_or(0)
-                                } else {
-                                    0
-                                };
-                                let left = src_clip_left
-                                    .or_else(|| {
-                                        if self.ids.obj_src_clip_left != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_src_clip_left)
-                                                .copied()
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(0);
-                                let top = src_clip_top
-                                    .or_else(|| {
-                                        if self.ids.obj_src_clip_top != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_src_clip_top)
-                                                .copied()
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(0);
-                                let right = src_clip_right
-                                    .or_else(|| {
-                                        if self.ids.obj_src_clip_right != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_src_clip_right)
-                                                .copied()
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(0);
-                                let bottom = src_clip_bottom
-                                    .or_else(|| {
-                                        if self.ids.obj_src_clip_bottom != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_src_clip_bottom)
-                                                .copied()
-                                        } else {
-                                            None
-                                        }
-                                    })
-                                    .unwrap_or(0);
-                                let _ = self.gfx.object_set_src_clip(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    use_flag,
-                                    left,
-                                    top,
-                                    right,
-                                    bottom,
-                                );
-                            }
-                            if let Some(v) = tr {
-                                let _ = self.gfx.object_set_tr(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    v,
-                                );
-                            }
-                            if let Some(v) = mono {
-                                let _ = self.gfx.object_set_mono(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    v,
-                                );
-                            }
-                            if let Some(v) = reverse {
-                                let _ = self.gfx.object_set_reverse(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    v,
-                                );
-                            }
-                            if let Some(v) = bright {
-                                let _ = self.gfx.object_set_bright(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    v,
-                                );
-                            }
-                            if let Some(v) = dark {
-                                let _ = self.gfx.object_set_dark(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    v,
-                                );
-                            }
-                            if let Some(v) = color_rate {
-                                let _ = self.gfx.object_set_color_rate(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    v,
-                                );
-                            }
-                            if color_add_r.is_some()
-                                || color_add_g.is_some()
-                                || color_add_b.is_some()
-                            {
-                                let r = color_add_r.unwrap_or_else(|| {
-                                    if self.ids.obj_color_add_r != 0 {
-                                        *obj.extra_int_props
-                                            .get(&self.ids.obj_color_add_r)
-                                            .unwrap_or(&0)
-                                    } else {
-                                        0
-                                    }
-                                });
-                                let g = color_add_g.unwrap_or_else(|| {
-                                    if self.ids.obj_color_add_g != 0 {
-                                        *obj.extra_int_props
-                                            .get(&self.ids.obj_color_add_g)
-                                            .unwrap_or(&0)
-                                    } else {
-                                        0
-                                    }
-                                });
-                                let b = color_add_b.unwrap_or_else(|| {
-                                    if self.ids.obj_color_add_b != 0 {
-                                        *obj.extra_int_props
-                                            .get(&self.ids.obj_color_add_b)
-                                            .unwrap_or(&0)
-                                    } else {
-                                        0
-                                    }
-                                });
-                                let _ = self.gfx.object_set_color_add(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    r,
-                                    g,
-                                    b,
-                                );
-                            }
-                            if color_r.is_some() || color_g.is_some() || color_b.is_some() {
-                                let r = color_r.unwrap_or_else(|| {
-                                    if self.ids.obj_color_r != 0 {
-                                        *obj.extra_int_props
-                                            .get(&self.ids.obj_color_r)
-                                            .unwrap_or(&0)
-                                    } else {
-                                        0
-                                    }
-                                });
-                                let g = color_g.unwrap_or_else(|| {
-                                    if self.ids.obj_color_g != 0 {
-                                        *obj.extra_int_props
-                                            .get(&self.ids.obj_color_g)
-                                            .unwrap_or(&0)
-                                    } else {
-                                        0
-                                    }
-                                });
-                                let b = color_b.unwrap_or_else(|| {
-                                    if self.ids.obj_color_b != 0 {
-                                        *obj.extra_int_props
-                                            .get(&self.ids.obj_color_b)
-                                            .unwrap_or(&0)
-                                    } else {
-                                        0
-                                    }
-                                });
-                                let _ = self.gfx.object_set_color(
-                                    &mut self.images,
-                                    &mut self.layers,
-                                    stage_i64,
-                                    obj_i64,
-                                    r,
-                                    g,
-                                    b,
-                                );
-                            }
-                        }
-                        globals::ObjectBackend::Rect {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        }
-                        | globals::ObjectBackend::String {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        }
-                        | globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } => {
-                            if let Some(layer) = self.layers.layer_mut(*layer_id) {
-                                if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                    if let Some(ax) = x {
-                                        sprite.x = ax as i32;
-                                    }
-                                    if let Some(ay) = y {
-                                        sprite.y = ay as i32;
-                                    }
-                                    if let Some(a) = alpha {
-                                        sprite.alpha = a.clamp(0, 255) as u8;
-                                    }
-                                    if let (Some(cx), Some(cy)) = (center_x, center_y) {
-                                        sprite.pivot_x = cx as f32;
-                                        sprite.pivot_y = cy as f32;
-                                    }
-                                    if let (Some(sx), Some(sy)) = (scale_x, scale_y) {
-                                        sprite.scale_x = sx as f32 / 1000.0;
-                                        sprite.scale_y = sy as f32 / 1000.0;
-                                    }
-                                    if let Some(rz) = rotate_z {
-                                        sprite.rotate = rz as f32 * std::f32::consts::PI / 1800.0;
-                                    }
-                                    if clip_left.is_some()
-                                        || clip_top.is_some()
-                                        || clip_right.is_some()
-                                        || clip_bottom.is_some()
-                                    {
-                                        let use_flag = if self.ids.obj_clip_use != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_clip_use)
-                                                .copied()
-                                                .unwrap_or(0)
-                                        } else {
-                                            0
-                                        };
-                                        if use_flag != 0 {
-                                            let left = clip_left
-                                                .or_else(|| {
-                                                    if self.ids.obj_clip_left != 0 {
-                                                        obj.extra_int_props
-                                                            .get(&self.ids.obj_clip_left)
-                                                            .copied()
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or(0);
-                                            let top = clip_top
-                                                .or_else(|| {
-                                                    if self.ids.obj_clip_top != 0 {
-                                                        obj.extra_int_props
-                                                            .get(&self.ids.obj_clip_top)
-                                                            .copied()
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or(0);
-                                            let right = clip_right
-                                                .or_else(|| {
-                                                    if self.ids.obj_clip_right != 0 {
-                                                        obj.extra_int_props
-                                                            .get(&self.ids.obj_clip_right)
-                                                            .copied()
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or(0);
-                                            let bottom = clip_bottom
-                                                .or_else(|| {
-                                                    if self.ids.obj_clip_bottom != 0 {
-                                                        obj.extra_int_props
-                                                            .get(&self.ids.obj_clip_bottom)
-                                                            .copied()
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or(0);
-                                            sprite.dst_clip = Some(crate::layer::ClipRect {
-                                                left: left as i32,
-                                                top: top as i32,
-                                                right: right as i32,
-                                                bottom: bottom as i32,
-                                            });
-                                        } else {
-                                            sprite.dst_clip = None;
-                                        }
-                                    }
-                                    if src_clip_left.is_some()
-                                        || src_clip_top.is_some()
-                                        || src_clip_right.is_some()
-                                        || src_clip_bottom.is_some()
-                                    {
-                                        let use_flag = if self.ids.obj_src_clip_use != 0 {
-                                            obj.extra_int_props
-                                                .get(&self.ids.obj_src_clip_use)
-                                                .copied()
-                                                .unwrap_or(0)
-                                        } else {
-                                            0
-                                        };
-                                        if use_flag != 0 {
-                                            let left = src_clip_left
-                                                .or_else(|| {
-                                                    if self.ids.obj_src_clip_left != 0 {
-                                                        obj.extra_int_props
-                                                            .get(&self.ids.obj_src_clip_left)
-                                                            .copied()
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or(0);
-                                            let top = src_clip_top
-                                                .or_else(|| {
-                                                    if self.ids.obj_src_clip_top != 0 {
-                                                        obj.extra_int_props
-                                                            .get(&self.ids.obj_src_clip_top)
-                                                            .copied()
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or(0);
-                                            let right = src_clip_right
-                                                .or_else(|| {
-                                                    if self.ids.obj_src_clip_right != 0 {
-                                                        obj.extra_int_props
-                                                            .get(&self.ids.obj_src_clip_right)
-                                                            .copied()
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or(0);
-                                            let bottom = src_clip_bottom
-                                                .or_else(|| {
-                                                    if self.ids.obj_src_clip_bottom != 0 {
-                                                        obj.extra_int_props
-                                                            .get(&self.ids.obj_src_clip_bottom)
-                                                            .copied()
-                                                    } else {
-                                                        None
-                                                    }
-                                                })
-                                                .unwrap_or(0);
-                                            sprite.src_clip = Some(crate::layer::ClipRect {
-                                                left: left as i32,
-                                                top: top as i32,
-                                                right: right as i32,
-                                                bottom: bottom as i32,
-                                            });
-                                        } else {
-                                            sprite.src_clip = None;
-                                        }
-                                    }
-                                    if let Some(v) = tr {
-                                        sprite.tr = v.clamp(0, 255) as u8;
-                                    }
-                                    if let Some(v) = mono {
-                                        sprite.mono = v.clamp(0, 255) as u8;
-                                    }
-                                    if let Some(v) = reverse {
-                                        sprite.reverse = v.clamp(0, 255) as u8;
-                                    }
-                                    if let Some(v) = bright {
-                                        sprite.bright = v.clamp(0, 255) as u8;
-                                    }
-                                    if let Some(v) = dark {
-                                        sprite.dark = v.clamp(0, 255) as u8;
-                                    }
-                                    if let Some(v) = color_rate {
-                                        sprite.color_rate = v.clamp(0, 255) as u8;
-                                    }
-                                    if color_add_r.is_some()
-                                        || color_add_g.is_some()
-                                        || color_add_b.is_some()
-                                    {
-                                        sprite.color_add_r =
-                                            color_add_r.unwrap_or(0).clamp(0, 255) as u8;
-                                        sprite.color_add_g =
-                                            color_add_g.unwrap_or(0).clamp(0, 255) as u8;
-                                        sprite.color_add_b =
-                                            color_add_b.unwrap_or(0).clamp(0, 255) as u8;
-                                    }
-                                    if color_r.is_some() || color_g.is_some() || color_b.is_some() {
-                                        sprite.color_r = color_r.unwrap_or(0).clamp(0, 255) as u8;
-                                        sprite.color_g = color_g.unwrap_or(0).clamp(0, 255) as u8;
-                                        sprite.color_b = color_b.unwrap_or(0).clamp(0, 255) as u8;
-                                    }
-                                }
-                            }
-                        }
-                        globals::ObjectBackend::Number {
-                            layer_id,
-                            sprite_ids,
-                        } => {
-                            if let Some(a) = alpha {
-                                if let Some(layer) = self.layers.layer_mut(*layer_id) {
-                                    for &sid in sprite_ids {
-                                        if let Some(sprite) = layer.sprite_mut(sid) {
-                                            sprite.alpha = a.clamp(0, 255) as u8;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-    }
-
-    fn apply_gan_effects(&mut self, sprites: &mut Vec<RenderSprite>) {
-        let mut index: HashMap<(Option<LayerId>, Option<SpriteId>), usize> = HashMap::new();
-        for (i, s) in sprites.iter().enumerate() {
-            index.insert((s.layer_id, s.sprite_id), i);
-        }
-
-        for st in self.globals.stage_forms.values() {
-            for (stage_idx, objs) in st.object_lists.iter() {
-                for (obj_idx, obj) in objs.iter().enumerate() {
-                    let Some(pat) = obj.gan.current_pat() else {
-                        continue;
-                    };
-                    if pat.pat_no == 0 && pat.x == 0 && pat.y == 0 && pat.tr == 255 {
-                        continue;
-                    }
-
-                    let key: Option<(LayerId, SpriteId)> = match &obj.backend {
-                        globals::ObjectBackend::Rect {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        }
-                        | globals::ObjectBackend::String {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        }
-                        | globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } => Some((*layer_id, *sprite_id)),
-                        globals::ObjectBackend::Gfx => {
-                            self.gfx.object_sprite_binding(*stage_idx, obj_idx as i64)
-                        }
-                        _ => None,
-                    };
-                    let Some((layer_id, sprite_id)) = key else {
-                        continue;
-                    };
-                    let Some(&idx) = index.get(&(Some(layer_id), Some(sprite_id))) else {
-                        continue;
-                    };
-
-                    let sprite = &mut sprites[idx].sprite;
-                    if pat.x != 0 {
-                        sprite.x = sprite.x.saturating_add(pat.x);
-                    }
-                    if pat.y != 0 {
-                        sprite.y = sprite.y.saturating_add(pat.y);
-                    }
-                    if pat.tr != 255 {
-                        let tr = (sprite.tr as i64 * pat.tr as i64 / 255).clamp(0, 255) as u8;
-                        sprite.tr = tr;
-                    }
-
-                    if pat.pat_no != 0 {
-                        if let Some(file) = self.gfx.object_peek_file(*stage_idx, obj_idx as i64) {
-                            let base_pat = self
-                                .gfx
-                                .object_peek_patno(*stage_idx, obj_idx as i64)
-                                .unwrap_or(0);
-                            let pat_no = (base_pat + pat.pat_no as i64).max(0) as u32;
-                            if let Ok(id) = self.images.load_g00(&file, pat_no) {
-                                sprite.image_id = Some(id);
-                            }
-                        }
-                    }
+                    apply_object_event_animations_recursive(
+                        &ids,
+                        gfx,
+                        images,
+                        layers,
+                        *stage_idx,
+                        object_runtime_slot(obj_idx, obj) as i64,
+                        obj,
+                    );
                 }
             }
         }
@@ -1761,115 +1097,24 @@ impl CommandContext {
             }
         }
 
+        let ids = self.ids.clone();
+        let gfx = &mut self.gfx;
+        let images = &mut self.images;
+        let layers = &mut self.layers;
         for st in self.globals.stage_forms.values_mut() {
             for (stage_idx, objs) in st.object_lists.iter_mut() {
                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                    let mask_no = if self.ids.obj_mask_no != 0 {
-                        *obj.extra_int_props
-                            .get(&self.ids.obj_mask_no)
-                            .unwrap_or(&-1)
-                    } else {
-                        -1
-                    };
-                    if mask_no < 0 {
-                        continue;
-                    }
-                    let mask_idx = mask_no as usize;
-                    if mask_idx >= mask_info.len() {
-                        continue;
-                    }
-                    let Some((ref mask_name, mask_x, mask_y)) = mask_info[mask_idx] else {
-                        continue;
-                    };
-
-                    let mask_image_id = match resolved_masks.get(mask_name).copied() {
-                        Some(id) => id,
-                        None => continue,
-                    };
-
-                    let targets: Vec<(LayerId, SpriteId)> = match &obj.backend {
-                        globals::ObjectBackend::Rect {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        }
-                        | globals::ObjectBackend::String {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        }
-                        | globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } => {
-                            vec![(*layer_id, *sprite_id)]
-                        }
-                        globals::ObjectBackend::Number {
-                            layer_id,
-                            sprite_ids,
-                        } => sprite_ids.iter().map(|sid| (*layer_id, *sid)).collect(),
-                        globals::ObjectBackend::Gfx => self
-                            .gfx
-                            .object_sprite_binding(*stage_idx, obj_idx as i64)
-                            .into_iter()
-                            .collect(),
-                        _ => Vec::new(),
-                    };
-
-                    for (layer_id, sprite_id) in targets {
-                        let Some(sprite) = self
-                            .layers
-                            .layer_mut(layer_id)
-                            .and_then(|l| l.sprite_mut(sprite_id))
-                        else {
-                            continue;
-                        };
-                        let Some(base_id) = sprite.image_id else {
-                            continue;
-                        };
-
-                        let (base_img, base_ver) = match self.images.get_entry(base_id) {
-                            Some(v) => v,
-                            None => continue,
-                        };
-                        let (mask_img, mask_ver) = match self.images.get_entry(mask_image_id) {
-                            Some(v) => v,
-                            None => continue,
-                        };
-
-                        let key = (layer_id, sprite_id);
-                        let cached = obj.mask_cache.get(&key);
-                        if let Some(cache) = cached {
-                            if cache.base_image_id == base_id
-                                && cache.base_version == base_ver
-                                && cache.mask_image_id == mask_image_id
-                                && cache.mask_version == mask_ver
-                                && cache.mask_x == mask_x
-                                && cache.mask_y == mask_y
-                            {
-                                sprite.image_id = Some(cache.masked_image_id);
-                                continue;
-                            }
-                        }
-
-                        let masked = apply_mask_image(base_img, mask_img, mask_x, mask_y);
-                        let masked_id = self.images.insert_image(masked);
-
-                        obj.mask_cache.insert(
-                            key,
-                            globals::MaskedSpriteCache {
-                                base_image_id: base_id,
-                                base_version: base_ver,
-                                mask_image_id,
-                                mask_version: mask_ver,
-                                mask_x,
-                                mask_y,
-                                masked_image_id: masked_id,
-                            },
-                        );
-                        sprite.image_id = Some(masked_id);
-                    }
+                    apply_object_masks_recursive(
+                        &ids,
+                        gfx,
+                        images,
+                        layers,
+                        *stage_idx,
+                        object_runtime_slot(obj_idx, obj) as i64,
+                        obj,
+                        &mask_info,
+                        &resolved_masks,
+                    );
                 }
             }
         }
@@ -1877,12 +1122,9 @@ impl CommandContext {
 
     fn active_mask_list(&self) -> Option<&globals::MaskListState> {
         if self.ids.form_global_mask != 0 {
-            if let Some(ml) = self.globals.mask_lists.get(&self.ids.form_global_mask) {
-                return Some(ml);
-            }
+            return self.globals.mask_lists.get(&self.ids.form_global_mask);
         }
-        let fid = self.globals.guessed_mask_form_id?;
-        self.globals.mask_lists.get(&fid)
+        None
     }
 
     fn build_mask_info(&self) -> Option<Vec<Option<(String, i32, i32)>>> {
@@ -1922,6 +1164,55 @@ impl CommandContext {
         None
     }
 
+    fn apply_object_tonecurves(&mut self) {
+        let ids = self.ids.clone();
+        let gfx = &mut self.gfx;
+        let images = &mut self.images;
+        let layers = &mut self.layers;
+        let tonecurve = &mut self.tonecurve;
+        for st in self.globals.stage_forms.values_mut() {
+            for (stage_idx, objs) in st.object_lists.iter_mut() {
+                for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                    apply_object_tonecurves_recursive(
+                        &ids,
+                        gfx,
+                        images,
+                        layers,
+                        tonecurve,
+                        *stage_idx,
+                        object_runtime_slot(obj_idx, obj) as i64,
+                        obj,
+                    );
+                }
+            }
+        }
+    }
+
+    fn apply_gan_effects(&mut self, sprites: &mut Vec<RenderSprite>) {
+        let mut index: HashMap<(Option<LayerId>, Option<SpriteId>), usize> = HashMap::new();
+        for (i, s) in sprites.iter().enumerate() {
+            index.insert((s.layer_id, s.sprite_id), i);
+        }
+
+        let gfx = &mut self.gfx;
+        let images = &mut self.images;
+        for st in self.globals.stage_forms.values_mut() {
+            for (stage_idx, objs) in st.object_lists.iter_mut() {
+                for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                    apply_gan_effects_recursive(
+                        gfx,
+                        images,
+                        sprites,
+                        &index,
+                        *stage_idx,
+                        object_runtime_slot(obj_idx, obj) as i64,
+                        obj,
+                    );
+                }
+            }
+        }
+    }
+
     fn apply_object_disp_override(&mut self) {
         const GET_OBJECT_DISP_ONOFF: i32 = 278;
         let disp_on = self
@@ -1936,7 +1227,7 @@ impl CommandContext {
             return;
         }
 
-        let ui_layer = self.ui.ui_layer;
+        let ui_layer = self.ui.mwnd.layer;
         for (stage_idx, list) in self
             .globals
             .stage_forms
@@ -2188,9 +1479,14 @@ impl CommandContext {
         };
         let mut clear_focus = false;
         let mut handled = false;
+        let mut close_anim: Option<(i64, i64)> = None;
         if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
             if let Some(list) = st.mwnd_lists.get_mut(&stage_idx) {
                 if let Some(m) = list.get_mut(mwnd_idx) {
+                    let close_time = m.close_anime_time;
+                    let close_type = m.close_anime_type;
+                    let mut close_after = false;
+                    let mut clear_selection = false;
                     if let Some(sel) = m.selection.as_mut() {
                         handled = match k {
                             input::VmKey::ArrowUp => {
@@ -2211,11 +1507,15 @@ impl CommandContext {
                             }
                             input::VmKey::Enter => {
                                 sel.result = (sel.cursor as i64) + 1;
+                                close_after = sel.close_mwnd;
+                                clear_selection = true;
                                 clear_focus = true;
                                 true
                             }
                             input::VmKey::Escape if sel.cancel_enable => {
                                 sel.result = -1;
+                                close_after = sel.close_mwnd;
+                                clear_selection = true;
                                 clear_focus = true;
                                 true
                             }
@@ -2223,6 +1523,13 @@ impl CommandContext {
                         };
                     } else {
                         clear_focus = true;
+                    }
+                    if clear_selection {
+                        m.selection = None;
+                    }
+                    if close_after {
+                        m.open = false;
+                        close_anim = Some((close_type, close_time));
                     }
                 } else {
                     clear_focus = true;
@@ -2235,6 +1542,9 @@ impl CommandContext {
         }
         if clear_focus {
             self.globals.focused_stage_mwnd = None;
+        }
+        if let Some((ty, ms)) = close_anim {
+            self.ui.begin_mwnd_close(ty, ms);
         }
         handled
     }
@@ -2245,18 +1555,27 @@ impl CommandContext {
         };
         let mut clear_focus = false;
         let mut handled = false;
+        let mut close_anim: Option<(i64, i64)> = None;
         if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
             if let Some(list) = st.mwnd_lists.get_mut(&stage_idx) {
                 if let Some(m) = list.get_mut(mwnd_idx) {
+                    let close_time = m.close_anime_time;
+                    let close_type = m.close_anime_type;
+                    let mut close_after = false;
+                    let mut clear_selection = false;
                     if let Some(sel) = m.selection.as_mut() {
                         handled = match b {
                             input::VmMouseButton::Left => {
                                 sel.result = (sel.cursor as i64) + 1;
+                                close_after = sel.close_mwnd;
+                                clear_selection = true;
                                 clear_focus = true;
                                 true
                             }
                             input::VmMouseButton::Right if sel.cancel_enable => {
                                 sel.result = -1;
+                                close_after = sel.close_mwnd;
+                                clear_selection = true;
                                 clear_focus = true;
                                 true
                             }
@@ -2264,6 +1583,13 @@ impl CommandContext {
                         };
                     } else {
                         clear_focus = true;
+                    }
+                    if clear_selection {
+                        m.selection = None;
+                    }
+                    if close_after {
+                        m.open = false;
+                        close_anim = Some((close_type, close_time));
                     }
                 } else {
                     clear_focus = true;
@@ -2277,7 +1603,63 @@ impl CommandContext {
         if clear_focus {
             self.globals.focused_stage_mwnd = None;
         }
+        if let Some((ty, ms)) = close_anim {
+            self.ui.begin_mwnd_close(ty, ms);
+        }
         handled
+    }
+
+    fn sync_mwnd_window_ui(&mut self) {
+        let focused = self.globals.focused_stage_mwnd;
+        let mut selected: Option<crate::runtime::ui::MwndProjectionState> = None;
+
+        for (form_id, st) in &self.globals.stage_forms {
+            for (stage_idx, list) in &st.mwnd_lists {
+                for (mwnd_idx, m) in list.iter().enumerate() {
+                    if !m.open {
+                        continue;
+                    }
+                    let candidate = crate::runtime::ui::MwndProjectionState {
+                        bg_file: if m.waku_file.is_empty() {
+                            None
+                        } else {
+                            Some(m.waku_file.clone())
+                        },
+                        filter_file: if m.filter_file.is_empty() {
+                            None
+                        } else {
+                            Some(m.filter_file.clone())
+                        },
+                        face_file: if m.face_file.is_empty() {
+                            None
+                        } else {
+                            Some(m.face_file.clone())
+                        },
+                        face_no: m.face_no,
+                        rep_pos: m.rep_pos,
+                        window_pos: m.window_pos,
+                        window_size: m.window_size,
+                        window_moji_cnt: m.window_moji_cnt,
+                        moji_size: m.moji_size,
+                        moji_color: m.moji_color,
+                        slide_enabled: m.slide_msg,
+                        slide_time: m.slide_time,
+                        name_text: m.name_text.clone(),
+                        msg_text: m.msg_text.clone(),
+                    };
+                    let is_focused = focused == Some((*form_id, *stage_idx, mwnd_idx));
+                    if is_focused || selected.is_none() {
+                        selected = Some(candidate);
+                    }
+                }
+            }
+        }
+
+        if let Some(proj) = selected {
+            self.ui.apply_mwnd_projection(&proj);
+        } else if !self.ui.mwnd.anim.visible {
+            self.ui.clear_mwnd_window_state();
+        }
     }
 
     fn sync_mwnd_selection_ui(&mut self) {
@@ -2326,209 +1708,86 @@ impl CommandContext {
         for st in globals.stage_forms.values_mut() {
             for (stage_idx, objs) in st.object_lists.iter_mut() {
                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                    if !obj.used || obj.object_type != 9 {
-                        continue;
-                    }
-                    let Some(file) = obj.file_name.as_deref() else {
-                        continue;
-                    };
-
-                    if obj.movie.just_finished {
-                        if let Some(id) = obj.movie.audio_id.take() {
-                            movie_mgr.stop_audio(id);
-                        }
-                        obj.movie.just_finished = false;
-                        if obj.movie.auto_free_flag {
-                            if let globals::ObjectBackend::Movie {
-                                layer_id,
-                                sprite_id,
-                                ..
-                            } = obj.backend
-                            {
-                                if let Some(layer) = layers.layer_mut(layer_id) {
-                                    if let Some(sprite) = layer.sprite_mut(sprite_id) {
-                                        sprite.visible = false;
-                                        sprite.image_id = None;
-                                    }
-                                }
-                            }
-                            obj.init_type_like();
-                            continue;
-                        }
-                    } else if !obj.movie.playing {
-                        if let Some(id) = obj.movie.audio_id.take() {
-                            movie_mgr.stop_audio(id);
-                        }
-                    }
-
-                    let (layer_id, sprite_id) = if let globals::ObjectBackend::Movie {
-                        layer_id,
-                        sprite_id,
-                        ..
-                    } = &obj.backend
-                    {
-                        (*layer_id, *sprite_id)
-                    } else {
-                        let Some(layer_id) = gfx.ensure_stage_layer_id(layers, *stage_idx) else {
-                            continue;
-                        };
-                        let Some(layer) = layers.layer_mut(layer_id) else {
-                            continue;
-                        };
-                        let sid = layer.create_sprite();
-                        if let Some(sprite) = layer.sprite_mut(sid) {
-                            sprite.visible = true;
-                            sprite.alpha = 255;
-                            sprite.fit = SpriteFit::PixelRect;
-                            sprite.size_mode = SpriteSizeMode::Intrinsic;
-                            sprite.x = 0;
-                            sprite.y = 0;
-                            sprite.order = 0;
-                        }
-                        obj.backend = globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id: sid,
-                            image_id: None,
-                            width: 0,
-                            height: 0,
-                        };
-                        (layer_id, sid)
-                    };
-
-                    if let Some(layer) = layers.layer_mut(layer_id) {
-                        if let Some(sprite) = layer.sprite_mut(sprite_id) {
-                            let disp = if ids.obj_disp != 0 {
-                                obj.extra_int_props.get(&ids.obj_disp).copied().unwrap_or(1)
-                            } else {
-                                1
-                            };
-                            sprite.visible = disp != 0;
-                            if ids.obj_x != 0 {
-                                if let Some(v) = obj.extra_int_props.get(&ids.obj_x) {
-                                    sprite.x = *v as i32;
-                                }
-                            }
-                            if ids.obj_y != 0 {
-                                if let Some(v) = obj.extra_int_props.get(&ids.obj_y) {
-                                    sprite.y = *v as i32;
-                                }
-                            }
-                            if ids.obj_alpha != 0 {
-                                if let Some(v) = obj.extra_int_props.get(&ids.obj_alpha) {
-                                    sprite.alpha = (*v).clamp(0, 255) as u8;
-                                }
-                            }
-                            if ids.obj_order != 0 {
-                                if let Some(v) = obj.extra_int_props.get(&ids.obj_order) {
-                                    sprite.order = *v as i32;
-                                }
-                            }
-                        }
-                    }
-
-                    if obj.movie.seeked || obj.movie.just_looped {
-                        if let Some(id) = obj.movie.audio_id.take() {
-                            movie_mgr.stop_audio(id);
-                        }
-                    }
-                    obj.movie.seeked = false;
-                    obj.movie.just_looped = false;
-
-                    if obj.movie.pause_flag {
-                        if let Some(id) = obj.movie.audio_id {
-                            movie_mgr.pause_audio(id);
-                        }
-                    } else if obj.movie.playing {
-                        if let Some(id) = obj.movie.audio_id {
-                            movie_mgr.resume_audio(id);
-                        }
-                    }
-
-                    if obj.movie.playing && !obj.movie.pause_flag && obj.movie.audio_id.is_none() {
-                        let asset_audio = match movie_mgr.ensure_asset(file) {
-                            Ok((a, _)) => a.audio.clone(),
-                            Err(_) => None,
-                        };
-                        if let Some(track) = asset_audio.as_ref() {
-                            if let Ok(id) = movie_mgr.start_audio(audio, track, obj.movie.timer_ms)
-                            {
-                                obj.movie.audio_id = Some(id);
-                            }
-                        }
-                    }
-
-                    let asset = match movie_mgr.ensure_asset(file) {
-                        Ok((a, _)) => a,
-                        Err(_) => continue,
-                    };
-
-                    if asset.frames.is_empty() {
-                        continue;
-                    }
-                    let fps = asset.info.fps.unwrap_or(0.0);
-                    if fps <= 0.0 {
-                        continue;
-                    }
-                    let mut frame_idx =
-                        ((obj.movie.timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize;
-                    if obj.movie.loop_flag {
-                        frame_idx %= asset.frames.len();
-                    } else if frame_idx >= asset.frames.len() {
-                        frame_idx = asset.frames.len() - 1;
-                    }
-                    if obj.movie.last_frame_idx == Some(frame_idx) {
-                        continue;
-                    }
-                    obj.movie.last_frame_idx = Some(frame_idx);
-
-                    let frame = asset.frames[frame_idx].clone();
-                    if let globals::ObjectBackend::Movie {
-                        layer_id,
-                        sprite_id,
-                        image_id,
-                        width,
-                        height,
-                    } = &mut obj.backend
-                    {
-                        let img_id = match image_id {
-                            Some(id) => {
-                                let _ = images.replace_image_arc(*id, frame.clone());
-                                *id
-                            }
-                            None => {
-                                let id = images.insert_image_arc(frame.clone());
-                                if let Some(layer) = layers.layer_mut(*layer_id) {
-                                    if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                        sprite.image_id = Some(id);
-                                    }
-                                }
-                                *image_id = Some(id);
-                                id
-                            }
-                        };
-                        if let Some(layer) = layers.layer_mut(*layer_id) {
-                            if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                sprite.image_id = Some(img_id);
-                            }
-                        }
-                        *width = frame.width;
-                        *height = frame.height;
-                    }
+                    sync_movie_object_recursive(
+                        ids,
+                        layers,
+                        movie_mgr,
+                        audio,
+                        gfx,
+                        images,
+                        *stage_idx,
+                        object_runtime_slot(obj_idx, obj) as i64,
+                        obj,
+                    );
                 }
             }
         }
     }
 
-    /// Build a render list and apply screen/wipe effects (bring-up level).
-    pub fn render_list_with_effects(&mut self) -> Vec<RenderSprite> {
+    /// Build a render list and apply screen/wipe effects.
+    ///
+    /// Original Siglus does not render from a flat layer list. It first builds a
+    /// stage/object sprite tree and then flattens that tree. We mirror that shape here:
+    /// use the existing layer-backed sprites only as leaf payloads, but rebuild the final
+    /// submission order from stage -> top-level object -> child objects.
+    fn build_render_list_pre_wipe(&mut self) -> (Vec<RenderSprite>, Vec<String>) {
+        self.layers.reset_runtime_effects();
         self.apply_object_masks();
-        let mut list = self.layers.render_list();
+        self.apply_object_tonecurves();
+        let base = self.layers.render_list();
+        let (mut list, debug_lines) = build_siglus_object_render_list(self, &base);
         apply_quake(&self.globals, &mut list);
         apply_button_visuals(self, &mut list);
         self.apply_gan_effects(&mut list);
         apply_screen_effects(&self.globals, &self.ids, &mut list);
-        apply_wipe_effect(self, &mut list);
         apply_syscom_filter(self, &mut list);
+        (list, debug_lines)
+    }
+
+    pub fn render_list_with_effects(&mut self) -> Vec<RenderSprite> {
+        let (pre_wipe_list, debug_lines) = self.build_render_list_pre_wipe();
+        let mut list = if let Some(composed) = build_dual_source_wipe_list(self, &pre_wipe_list) {
+            composed
+        } else {
+            let mut l = pre_wipe_list.clone();
+            apply_wipe_effect(self, &mut l);
+            l
+        };
+        overlay_precompose_if_needed(self, &mut list);
+        if self.globals.wipe.is_none() {
+            self.last_presented_render_list = pre_wipe_list.clone();
+        }
+        if sg_debug_enabled() {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static FRAME_NO: AtomicU64 = AtomicU64::new(0);
+            let frame_no = FRAME_NO.fetch_add(1, Ordering::Relaxed) + 1;
+            eprintln!("[SG_DEBUG] ===== frame {} =====", frame_no);
+            for line in debug_lines {
+                eprintln!("{}", line);
+            }
+            eprintln!("[SG_DEBUG] submitted_render_list len={}", list.len());
+            for (i, rs) in list.iter().enumerate() {
+                eprintln!(
+                    "[SG_DEBUG]   render[{}] layer={:?} sprite={:?} img={:?} pos=({}, {}) order={} alpha={} tr={} fit={:?} size={:?} dst_clip={:?} src_clip={:?} scale=({:.3}, {:.3}) rot={:.3}",
+                    i,
+                    rs.layer_id,
+                    rs.sprite_id,
+                    rs.sprite.image_id,
+                    rs.sprite.x,
+                    rs.sprite.y,
+                    rs.sprite.order,
+                    rs.sprite.alpha,
+                    rs.sprite.tr,
+                    rs.sprite.fit,
+                    rs.sprite.size_mode,
+                    rs.sprite.dst_clip,
+                    rs.sprite.src_clip,
+                    rs.sprite.scale_x,
+                    rs.sprite.scale_y,
+                    rs.sprite.rotate,
+                );
+            }
+        }
         list
     }
 
@@ -2539,71 +1798,2038 @@ impl CommandContext {
     }
 }
 
+fn sg_debug_enabled() -> bool {
+    matches!(
+        std::env::var("SG_DEBUG").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
+#[derive(Debug, Clone, Default)]
+struct ObjectRenderInfo {
+    runtime_slot: usize,
+    used: bool,
+    object_type: i64,
+    disp: bool,
+    x: i64,
+    y: i64,
+    x_rep: i64,
+    y_rep: i64,
+    z_rep: i64,
+    order: i64,
+    layer: i64,
+    alpha: i64,
+    tr: i64,
+    tr_rep: i64,
+    mono: i64,
+    reverse: i64,
+    bright: i64,
+    dark: i64,
+    color_rate: i64,
+    color_add_r: i64,
+    color_add_g: i64,
+    color_add_b: i64,
+    color_r: i64,
+    color_g: i64,
+    color_b: i64,
+    z: i64,
+    world_no: i64,
+    center_x: i64,
+    center_y: i64,
+    center_z: i64,
+    center_rep_x: i64,
+    center_rep_y: i64,
+    center_rep_z: i64,
+    scale_x: i64,
+    scale_y: i64,
+    scale_z: i64,
+    rotate_x: i64,
+    rotate_y: i64,
+    rotate_z: i64,
+    culling: bool,
+    alpha_test: bool,
+    alpha_blend: bool,
+    fog_use: bool,
+    light_no: i64,
+    blend: crate::layer::SpriteBlend,
+    dst_clip: Option<ClipRect>,
+    billboard: bool,
+    file_name: Option<String>,
+    mesh_animation: crate::mesh3d::MeshAnimationState,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ParentRenderState {
+    world_no: i64,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
+    center_rep_x: f32,
+    center_rep_y: f32,
+    center_rep_z: f32,
+    scale_x: f32,
+    scale_y: f32,
+    scale_z: f32,
+    rotate_x: f32,
+    rotate_y: f32,
+    rotate_z: f32,
+    tr: i32,
+    mono: i32,
+    reverse: i32,
+    bright: i32,
+    dark: i32,
+    color_rate: i32,
+    color_r: i32,
+    color_g: i32,
+    color_b: i32,
+    color_add_r: i32,
+    color_add_g: i32,
+    color_add_b: i32,
+    blend: crate::layer::SpriteBlend,
+    dst_clip: Option<ClipRect>,
+    mask_image_id: Option<ImageId>,
+    mask_offset_x: i32,
+    mask_offset_y: i32,
+    tonecurve_image_id: Option<ImageId>,
+    tonecurve_row: f32,
+    tonecurve_sat: f32,
+}
+
+fn object_runtime_slot(obj_idx: usize, obj: &globals::ObjectState) -> usize {
+    obj.runtime_slot_or(obj_idx)
+}
+
+fn compose_parent_render_state(
+    parent: ParentRenderState,
+    mut cur: ParentRenderState,
+) -> ParentRenderState {
+    if cur.world_no < 0 {
+        cur.world_no = parent.world_no;
+    }
+
+    cur.pos_x = (cur.pos_x - parent.center_rep_x) * parent.scale_x + parent.center_rep_x;
+    cur.pos_y = (cur.pos_y - parent.center_rep_y) * parent.scale_y + parent.center_rep_y;
+    cur.pos_z = (cur.pos_z - parent.center_rep_z) * parent.scale_z + parent.center_rep_z;
+    {
+        let tmp_x = cur.pos_x;
+        let tmp_y = cur.pos_y;
+        let (s, c) = parent.rotate_z.sin_cos();
+        cur.pos_x = (tmp_x - parent.center_rep_x) * c - (tmp_y - parent.center_rep_y) * s
+            + parent.center_rep_x;
+        cur.pos_y = (tmp_x - parent.center_rep_x) * s
+            + (tmp_y - parent.center_rep_y) * c
+            + parent.center_rep_y;
+    }
+    cur.pos_x += parent.pos_x;
+    cur.pos_y += parent.pos_y;
+    cur.pos_z += parent.pos_z;
+    cur.scale_x *= parent.scale_x;
+    cur.scale_y *= parent.scale_y;
+    cur.scale_z *= parent.scale_z;
+    cur.rotate_x += parent.rotate_x;
+    cur.rotate_y += parent.rotate_y;
+    cur.rotate_z += parent.rotate_z;
+
+    if let Some(parent_clip) = parent.dst_clip {
+        cur.dst_clip = Some(match cur.dst_clip {
+            Some(child) => ClipRect {
+                left: child.left.min(parent_clip.left),
+                top: child.top.min(parent_clip.top),
+                right: child.right.max(parent_clip.right),
+                bottom: child.bottom.max(parent_clip.bottom),
+            },
+            None => parent_clip,
+        });
+    }
+
+    cur.tr = (cur.tr * parent.tr / 255).clamp(0, 255);
+    cur.mono = combine_lerp(cur.mono as u8, parent.mono) as i32;
+    cur.reverse = combine_lerp(cur.reverse as u8, parent.reverse) as i32;
+    cur.bright = combine_lerp(cur.bright as u8, parent.bright) as i32;
+    cur.dark = combine_lerp(cur.dark as u8, parent.dark) as i32;
+    if cur.color_rate + parent.color_rate > 0 {
+        let parent_rate = (parent.color_rate * 255 * 255)
+            / (255 * 255 - (255 - cur.color_rate) * (255 - parent.color_rate)).max(1);
+        cur.color_r = blend_color(cur.color_r as u8, parent.color_r, parent_rate) as i32;
+        cur.color_g = blend_color(cur.color_g as u8, parent.color_g, parent_rate) as i32;
+        cur.color_b = blend_color(cur.color_b as u8, parent.color_b, parent_rate) as i32;
+    }
+    cur.color_rate = combine_lerp(cur.color_rate as u8, parent.color_rate) as i32;
+    cur.color_add_r = clamp_add(cur.color_add_r as u8, parent.color_add_r) as i32;
+    cur.color_add_g = clamp_add(cur.color_add_g as u8, parent.color_add_g) as i32;
+    cur.color_add_b = clamp_add(cur.color_add_b as u8, parent.color_add_b) as i32;
+    if matches!(cur.blend, crate::layer::SpriteBlend::Normal) {
+        cur.blend = parent.blend;
+    }
+    if cur.mask_image_id.is_none() {
+        cur.mask_image_id = parent.mask_image_id;
+        cur.mask_offset_x = parent.mask_offset_x;
+        cur.mask_offset_y = parent.mask_offset_y;
+    }
+    if cur.tonecurve_image_id.is_none() {
+        cur.tonecurve_image_id = parent.tonecurve_image_id;
+        cur.tonecurve_row = parent.tonecurve_row;
+        cur.tonecurve_sat = parent.tonecurve_sat;
+    }
+    cur
+}
+
+fn apply_object_event_animations_recursive(
+    ids: &constants::RuntimeConstants,
+    gfx: &mut graphics::GfxRuntime,
+    images: &mut ImageManager,
+    layers: &mut LayerManager,
+    stage_i64: i64,
+    obj_i64: i64,
+    obj: &mut globals::ObjectState,
+) {
+    if obj.any_event_active() {
+        let read_ev = |op_id: i32, obj: &globals::ObjectState| -> Option<i64> {
+            if op_id == 0 {
+                None
+            } else {
+                obj.int_event_by_op(ids, op_id)
+                    .map(|ev| ev.get_total_value() as i64)
+            }
+        };
+        let read_list0 = |op_id: i32, obj: &globals::ObjectState| -> Option<i64> {
+            if op_id == 0 {
+                None
+            } else {
+                obj.int_event_list_by_op(ids, op_id)
+                    .and_then(|list| list.get(0))
+                    .map(|ev| ev.get_total_value() as i64)
+            }
+        };
+
+        let x: Option<i64> = read_ev(ids.obj_x_eve, obj);
+        let y: Option<i64> = read_ev(ids.obj_y_eve, obj);
+        let x_rep: Option<i64> = read_list0(ids.obj_x_rep_eve, obj);
+        let y_rep: Option<i64> = read_list0(ids.obj_y_rep_eve, obj);
+        let z_rep: Option<i64> = read_list0(ids.obj_z_rep_eve, obj);
+        let alpha: Option<i64> = None;
+        let patno: Option<i64> = read_ev(ids.obj_patno_eve, obj);
+        let order: Option<i64> = None;
+        let layer_no: Option<i64> = None;
+        let z: Option<i64> = read_ev(ids.obj_z_eve, obj);
+        let center_x: Option<i64> = read_ev(ids.obj_center_x_eve, obj);
+        let center_y: Option<i64> = read_ev(ids.obj_center_y_eve, obj);
+        let center_z: Option<i64> = read_ev(ids.obj_center_z_eve, obj);
+        let center_rep_x: Option<i64> = read_ev(ids.obj_center_rep_x_eve, obj);
+        let center_rep_y: Option<i64> = read_ev(ids.obj_center_rep_y_eve, obj);
+        let center_rep_z: Option<i64> = read_ev(ids.obj_center_rep_z_eve, obj);
+        let scale_x: Option<i64> = read_ev(ids.obj_scale_x_eve, obj);
+        let scale_y: Option<i64> = read_ev(ids.obj_scale_y_eve, obj);
+        let scale_z: Option<i64> = read_ev(ids.obj_scale_z_eve, obj);
+        let rotate_x: Option<i64> = read_ev(ids.obj_rotate_x_eve, obj);
+        let rotate_y: Option<i64> = read_ev(ids.obj_rotate_y_eve, obj);
+        let rotate_z: Option<i64> = read_ev(ids.obj_rotate_z_eve, obj);
+        let clip_left: Option<i64> = read_ev(ids.obj_clip_left_eve, obj);
+        let clip_top: Option<i64> = read_ev(ids.obj_clip_top_eve, obj);
+        let clip_right: Option<i64> = read_ev(ids.obj_clip_right_eve, obj);
+        let clip_bottom: Option<i64> = read_ev(ids.obj_clip_bottom_eve, obj);
+        let src_clip_left: Option<i64> = read_ev(ids.obj_src_clip_left_eve, obj);
+        let src_clip_top: Option<i64> = read_ev(ids.obj_src_clip_top_eve, obj);
+        let src_clip_right: Option<i64> = read_ev(ids.obj_src_clip_right_eve, obj);
+        let src_clip_bottom: Option<i64> = read_ev(ids.obj_src_clip_bottom_eve, obj);
+        let tr: Option<i64> = read_ev(ids.obj_tr_eve, obj);
+        let tr_rep: Option<i64> = read_list0(ids.obj_tr_rep_eve, obj);
+        let mono: Option<i64> = read_ev(ids.obj_mono_eve, obj);
+        let reverse: Option<i64> = read_ev(ids.obj_reverse_eve, obj);
+        let bright: Option<i64> = read_ev(ids.obj_bright_eve, obj);
+        let dark: Option<i64> = read_ev(ids.obj_dark_eve, obj);
+        let color_rate: Option<i64> = read_ev(ids.obj_color_rate_eve, obj);
+        let color_add_r: Option<i64> = read_ev(ids.obj_color_add_r_eve, obj);
+        let color_add_g: Option<i64> = read_ev(ids.obj_color_add_g_eve, obj);
+        let color_add_b: Option<i64> = read_ev(ids.obj_color_add_b_eve, obj);
+        let color_r: Option<i64> = read_ev(ids.obj_color_r_eve, obj);
+        let color_g: Option<i64> = read_ev(ids.obj_color_g_eve, obj);
+        let color_b: Option<i64> = read_ev(ids.obj_color_b_eve, obj);
+
+        let mut set_extra_prop = |prop_id: i32, val: Option<i64>| {
+            if prop_id != 0 {
+                if let Some(v) = val {
+                    obj.set_int_prop(ids, prop_id, v);
+                }
+            }
+        };
+        set_extra_prop(ids.obj_x, x);
+        set_extra_prop(ids.obj_y, y);
+        set_extra_prop(ids.obj_x_rep, x_rep);
+        set_extra_prop(ids.obj_y_rep, y_rep);
+        set_extra_prop(ids.obj_z_rep, z_rep);
+        set_extra_prop(ids.obj_alpha, alpha);
+        set_extra_prop(ids.obj_patno, patno);
+        set_extra_prop(ids.obj_order, order);
+        set_extra_prop(ids.obj_layer, layer_no);
+        set_extra_prop(ids.obj_z, z);
+        set_extra_prop(ids.obj_center_x, center_x);
+        set_extra_prop(ids.obj_center_y, center_y);
+        set_extra_prop(ids.obj_center_z, center_z);
+        set_extra_prop(ids.obj_center_rep_x, center_rep_x);
+        set_extra_prop(ids.obj_center_rep_y, center_rep_y);
+        set_extra_prop(ids.obj_center_rep_z, center_rep_z);
+        set_extra_prop(ids.obj_scale_x, scale_x);
+        set_extra_prop(ids.obj_scale_y, scale_y);
+        set_extra_prop(ids.obj_scale_z, scale_z);
+        set_extra_prop(ids.obj_rotate_x, rotate_x);
+        set_extra_prop(ids.obj_rotate_y, rotate_y);
+        set_extra_prop(ids.obj_rotate_z, rotate_z);
+        set_extra_prop(ids.obj_clip_left, clip_left);
+        set_extra_prop(ids.obj_clip_top, clip_top);
+        set_extra_prop(ids.obj_clip_right, clip_right);
+        set_extra_prop(ids.obj_clip_bottom, clip_bottom);
+        set_extra_prop(ids.obj_src_clip_left, src_clip_left);
+        set_extra_prop(ids.obj_src_clip_top, src_clip_top);
+        set_extra_prop(ids.obj_src_clip_right, src_clip_right);
+        set_extra_prop(ids.obj_src_clip_bottom, src_clip_bottom);
+        set_extra_prop(ids.obj_tr, tr);
+        set_extra_prop(ids.obj_tr_rep, tr_rep);
+        set_extra_prop(ids.obj_mono, mono);
+        set_extra_prop(ids.obj_reverse, reverse);
+        set_extra_prop(ids.obj_bright, bright);
+        set_extra_prop(ids.obj_dark, dark);
+        set_extra_prop(ids.obj_color_rate, color_rate);
+        set_extra_prop(ids.obj_color_add_r, color_add_r);
+        set_extra_prop(ids.obj_color_add_g, color_add_g);
+        set_extra_prop(ids.obj_color_add_b, color_add_b);
+        set_extra_prop(ids.obj_color_r, color_r);
+        set_extra_prop(ids.obj_color_g, color_g);
+        set_extra_prop(ids.obj_color_b, color_b);
+
+        if !(x.is_none()
+            && y.is_none()
+            && x_rep.is_none()
+            && y_rep.is_none()
+            && z_rep.is_none()
+            && alpha.is_none()
+            && patno.is_none()
+            && order.is_none()
+            && layer_no.is_none()
+            && z.is_none()
+            && center_x.is_none()
+            && center_y.is_none()
+            && center_z.is_none()
+            && center_rep_x.is_none()
+            && center_rep_y.is_none()
+            && center_rep_z.is_none()
+            && scale_x.is_none()
+            && scale_y.is_none()
+            && scale_z.is_none()
+            && rotate_x.is_none()
+            && rotate_y.is_none()
+            && rotate_z.is_none()
+            && clip_left.is_none()
+            && clip_top.is_none()
+            && clip_right.is_none()
+            && clip_bottom.is_none()
+            && src_clip_left.is_none()
+            && src_clip_top.is_none()
+            && src_clip_right.is_none()
+            && src_clip_bottom.is_none()
+            && tr.is_none()
+            && tr_rep.is_none()
+            && mono.is_none()
+            && reverse.is_none()
+            && bright.is_none()
+            && dark.is_none()
+            && color_rate.is_none()
+            && color_add_r.is_none()
+            && color_add_g.is_none()
+            && color_add_b.is_none()
+            && color_r.is_none()
+            && color_g.is_none()
+            && color_b.is_none())
+        {
+            match &obj.backend {
+                globals::ObjectBackend::Gfx => {
+                    if let Some(ax) = x {
+                        let _ = gfx.object_set_x(images, layers, stage_i64, obj_i64, ax);
+                    }
+                    if let Some(ay) = y {
+                        let _ = gfx.object_set_y(images, layers, stage_i64, obj_i64, ay);
+                    }
+                    if let Some(a) = alpha {
+                        let _ = gfx.object_set_alpha(images, layers, stage_i64, obj_i64, a);
+                    }
+                    if let Some(p) = patno {
+                        let _ = gfx.object_set_pat_no(images, layers, stage_i64, obj_i64, p);
+                    }
+                    if let Some(o) = order {
+                        let _ = gfx.object_set_order(images, layers, stage_i64, obj_i64, o);
+                    }
+                    if let Some(l) = layer_no {
+                        let _ = gfx.object_set_layer(images, layers, stage_i64, obj_i64, l);
+                    }
+                    if let Some(zv) = z {
+                        let _ = gfx.object_set_z(stage_i64, obj_i64, zv);
+                    }
+                    if center_x.is_some() || center_y.is_some() {
+                        let cx = center_x
+                            .or_else(|| {
+                                (ids.obj_center_x != 0)
+                                    .then_some(obj.get_int_prop(ids, ids.obj_center_x))
+                            })
+                            .unwrap_or(0);
+                        let cy = center_y
+                            .or_else(|| {
+                                (ids.obj_center_y != 0)
+                                    .then_some(obj.get_int_prop(ids, ids.obj_center_y))
+                            })
+                            .unwrap_or(0);
+                        let _ = gfx.object_set_center(images, layers, stage_i64, obj_i64, cx, cy);
+                    }
+                    if scale_x.is_some() || scale_y.is_some() {
+                        let sx = scale_x
+                            .or_else(|| {
+                                (ids.obj_scale_x != 0)
+                                    .then_some(obj.get_int_prop(ids, ids.obj_scale_x))
+                            })
+                            .unwrap_or(1000);
+                        let sy = scale_y
+                            .or_else(|| {
+                                (ids.obj_scale_y != 0)
+                                    .then_some(obj.get_int_prop(ids, ids.obj_scale_y))
+                            })
+                            .unwrap_or(1000);
+                        let _ = gfx.object_set_scale(images, layers, stage_i64, obj_i64, sx, sy);
+                    }
+                    if let Some(rz) = rotate_z {
+                        let _ = gfx.object_set_rotate(images, layers, stage_i64, obj_i64, rz);
+                    }
+                    if clip_left.is_some()
+                        || clip_top.is_some()
+                        || clip_right.is_some()
+                        || clip_bottom.is_some()
+                    {
+                        let use_flag = if ids.obj_clip_use != 0 {
+                            obj.get_int_prop(ids, ids.obj_clip_use)
+                        } else {
+                            0
+                        };
+                        let left = clip_left
+                            .or_else(|| {
+                                (ids.obj_clip_left != 0)
+                                    .then_some(obj.get_int_prop(ids, ids.obj_clip_left))
+                            })
+                            .unwrap_or(0);
+                        let top = clip_top
+                            .or_else(|| {
+                                (ids.obj_clip_top != 0)
+                                    .then_some(obj.get_int_prop(ids, ids.obj_clip_top))
+                            })
+                            .unwrap_or(0);
+                        let right = clip_right
+                            .or_else(|| {
+                                (ids.obj_clip_right != 0)
+                                    .then_some(obj.get_int_prop(ids, ids.obj_clip_right))
+                            })
+                            .unwrap_or(0);
+                        let bottom = clip_bottom
+                            .or_else(|| {
+                                (ids.obj_clip_bottom != 0)
+                                    .then_some(obj.get_int_prop(ids, ids.obj_clip_bottom))
+                            })
+                            .unwrap_or(0);
+                        let _ = gfx.object_set_clip(
+                            images, layers, stage_i64, obj_i64, use_flag, left, top, right, bottom,
+                        );
+                    }
+                    if src_clip_left.is_some()
+                        || src_clip_top.is_some()
+                        || src_clip_right.is_some()
+                        || src_clip_bottom.is_some()
+                    {
+                        let use_flag = if ids.obj_src_clip_use != 0 {
+                            obj.lookup_int_prop(ids, ids.obj_src_clip_use).unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        let left = src_clip_left
+                            .or_else(|| {
+                                if ids.obj_src_clip_left != 0 {
+                                    obj.lookup_int_prop(ids, ids.obj_src_clip_left)
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(0);
+                        let top = src_clip_top
+                            .or_else(|| {
+                                if ids.obj_src_clip_top != 0 {
+                                    obj.lookup_int_prop(ids, ids.obj_src_clip_top)
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(0);
+                        let right = src_clip_right
+                            .or_else(|| {
+                                if ids.obj_src_clip_right != 0 {
+                                    obj.lookup_int_prop(ids, ids.obj_src_clip_right)
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(0);
+                        let bottom = src_clip_bottom
+                            .or_else(|| {
+                                if ids.obj_src_clip_bottom != 0 {
+                                    obj.lookup_int_prop(ids, ids.obj_src_clip_bottom)
+                                } else {
+                                    None
+                                }
+                            })
+                            .unwrap_or(0);
+                        let _ = gfx.object_set_src_clip(
+                            images, layers, stage_i64, obj_i64, use_flag, left, top, right, bottom,
+                        );
+                    }
+                    if let Some(v) = tr {
+                        let _ = gfx.object_set_tr(images, layers, stage_i64, obj_i64, v);
+                    }
+                    if let Some(v) = mono {
+                        let _ = gfx.object_set_mono(images, layers, stage_i64, obj_i64, v);
+                    }
+                    if let Some(v) = reverse {
+                        let _ = gfx.object_set_reverse(images, layers, stage_i64, obj_i64, v);
+                    }
+                    if let Some(v) = bright {
+                        let _ = gfx.object_set_bright(images, layers, stage_i64, obj_i64, v);
+                    }
+                    if let Some(v) = dark {
+                        let _ = gfx.object_set_dark(images, layers, stage_i64, obj_i64, v);
+                    }
+                    if let Some(v) = color_rate {
+                        let _ = gfx.object_set_color_rate(images, layers, stage_i64, obj_i64, v);
+                    }
+                    if color_add_r.is_some() || color_add_g.is_some() || color_add_b.is_some() {
+                        let r = color_add_r.unwrap_or_else(|| {
+                            if ids.obj_color_add_r != 0 {
+                                obj.get_int_prop(ids, ids.obj_color_add_r)
+                            } else {
+                                0
+                            }
+                        });
+                        let g = color_add_g.unwrap_or_else(|| {
+                            if ids.obj_color_add_g != 0 {
+                                obj.get_int_prop(ids, ids.obj_color_add_g)
+                            } else {
+                                0
+                            }
+                        });
+                        let b = color_add_b.unwrap_or_else(|| {
+                            if ids.obj_color_add_b != 0 {
+                                obj.get_int_prop(ids, ids.obj_color_add_b)
+                            } else {
+                                0
+                            }
+                        });
+                        let _ =
+                            gfx.object_set_color_add(images, layers, stage_i64, obj_i64, r, g, b);
+                    }
+                    if color_r.is_some() || color_g.is_some() || color_b.is_some() {
+                        let r = color_r.unwrap_or_else(|| {
+                            if ids.obj_color_r != 0 {
+                                obj.get_int_prop(ids, ids.obj_color_r)
+                            } else {
+                                0
+                            }
+                        });
+                        let g = color_g.unwrap_or_else(|| {
+                            if ids.obj_color_g != 0 {
+                                obj.get_int_prop(ids, ids.obj_color_g)
+                            } else {
+                                0
+                            }
+                        });
+                        let b = color_b.unwrap_or_else(|| {
+                            if ids.obj_color_b != 0 {
+                                obj.get_int_prop(ids, ids.obj_color_b)
+                            } else {
+                                0
+                            }
+                        });
+                        let _ = gfx.object_set_color(images, layers, stage_i64, obj_i64, r, g, b);
+                    }
+                }
+                globals::ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                }
+                | globals::ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
+                    if let Some(layer) = layers.layer_mut(*layer_id) {
+                        if let Some(spr) = layer.sprite_mut(*sprite_id) {
+                            if let Some(ax) = x {
+                                spr.x = ax as i32;
+                            }
+                            if let Some(ay) = y {
+                                spr.y = ay as i32;
+                            }
+                            if let Some(v) = alpha {
+                                spr.alpha = v.clamp(0, 255) as u8;
+                            }
+                            if let Some(v) = order {
+                                spr.order = v as i32;
+                            }
+                            if let Some(v) = tr {
+                                spr.tr = v.clamp(0, 255) as u8;
+                            }
+                        }
+                    }
+                }
+                globals::ObjectBackend::Number { .. }
+                | globals::ObjectBackend::Movie { .. }
+                | globals::ObjectBackend::None => {}
+            }
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        apply_object_event_animations_recursive(
+            ids,
+            gfx,
+            images,
+            layers,
+            stage_i64,
+            object_runtime_slot(child_idx, child) as i64,
+            child,
+        );
+    }
+}
+
+fn sync_movie_object_recursive(
+    ids: &constants::RuntimeConstants,
+    layers: &mut LayerManager,
+    movie_mgr: &mut MovieManager,
+    audio: &mut AudioHub,
+    gfx: &mut graphics::GfxRuntime,
+    images: &mut ImageManager,
+    stage_idx: i64,
+    obj_idx: i64,
+    obj: &mut globals::ObjectState,
+) {
+    if obj.used && obj.object_type == 9 {
+        if let Some(file_name) = obj.file_name.clone() {
+            let file = file_name.as_str();
+            if obj.movie.just_finished {
+                if let Some(id) = obj.movie.audio_id.take() {
+                    movie_mgr.stop_audio(id);
+                }
+                obj.movie.just_finished = false;
+                if obj.movie.auto_free_flag {
+                    if let globals::ObjectBackend::Movie {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    } = obj.backend
+                    {
+                        if let Some(layer) = layers.layer_mut(layer_id) {
+                            if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                                sprite.visible = false;
+                                sprite.image_id = None;
+                            }
+                        }
+                    }
+                    obj.init_type_like();
+                }
+            } else if !obj.movie.playing {
+                if let Some(id) = obj.movie.audio_id.take() {
+                    movie_mgr.stop_audio(id);
+                }
+            }
+
+            if obj.object_type == 9 {
+                let (layer_id, sprite_id) = if let globals::ObjectBackend::Movie {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } = &obj.backend
+                {
+                    (*layer_id, *sprite_id)
+                } else {
+                    let Some(layer_id) = gfx.ensure_stage_layer_id(layers, stage_idx) else {
+                        return;
+                    };
+                    let Some(layer) = layers.layer_mut(layer_id) else {
+                        return;
+                    };
+                    let sid = layer.create_sprite();
+                    if let Some(sprite) = layer.sprite_mut(sid) {
+                        sprite.visible = true;
+                        sprite.alpha = 255;
+                        sprite.fit = SpriteFit::PixelRect;
+                        sprite.size_mode = SpriteSizeMode::Intrinsic;
+                        sprite.x = 0;
+                        sprite.y = 0;
+                        sprite.order = 0;
+                    }
+                    obj.backend = globals::ObjectBackend::Movie {
+                        layer_id,
+                        sprite_id: sid,
+                        image_id: None,
+                        width: 0,
+                        height: 0,
+                    };
+                    (layer_id, sid)
+                };
+
+                if let Some(layer) = layers.layer_mut(layer_id) {
+                    if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                        let disp = if ids.obj_disp != 0 {
+                            obj.get_int_prop(ids, ids.obj_disp)
+                        } else {
+                            1
+                        };
+                        sprite.visible = disp != 0;
+                        if ids.obj_x != 0 {
+                            sprite.x = obj.lookup_int_prop(ids, ids.obj_x).unwrap_or(0) as i32;
+                        }
+                        if ids.obj_y != 0 {
+                            sprite.y = obj.lookup_int_prop(ids, ids.obj_y).unwrap_or(0) as i32;
+                        }
+                        if ids.obj_alpha != 0 {
+                            sprite.alpha = obj
+                                .lookup_int_prop(ids, ids.obj_alpha)
+                                .unwrap_or(255)
+                                .clamp(0, 255) as u8;
+                        }
+                        if ids.obj_order != 0 {
+                            sprite.order =
+                                obj.lookup_int_prop(ids, ids.obj_order).unwrap_or(0) as i32;
+                        }
+                    }
+                }
+
+                if obj.movie.seeked || obj.movie.just_looped {
+                    if let Some(id) = obj.movie.audio_id.take() {
+                        movie_mgr.stop_audio(id);
+                    }
+                }
+                obj.movie.seeked = false;
+                obj.movie.just_looped = false;
+
+                if obj.movie.pause_flag {
+                    if let Some(id) = obj.movie.audio_id {
+                        movie_mgr.pause_audio(id);
+                    }
+                } else if obj.movie.playing {
+                    if let Some(id) = obj.movie.audio_id {
+                        movie_mgr.resume_audio(id);
+                    }
+                }
+
+                if obj.movie.playing && !obj.movie.pause_flag && obj.movie.audio_id.is_none() {
+                    let asset_audio = match movie_mgr.ensure_asset(file) {
+                        Ok((a, _)) => a.audio.clone(),
+                        Err(_) => None,
+                    };
+                    if let Some(track) = asset_audio.as_ref() {
+                        if let Ok(id) = movie_mgr.start_audio(audio, track, obj.movie.timer_ms) {
+                            obj.movie.audio_id = Some(id);
+                        }
+                    }
+                }
+
+                let asset = match movie_mgr.ensure_asset(file) {
+                    Ok((a, _)) => a,
+                    Err(_) => {
+                        for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+                            sync_movie_object_recursive(
+                                ids,
+                                layers,
+                                movie_mgr,
+                                audio,
+                                gfx,
+                                images,
+                                stage_idx,
+                                object_runtime_slot(child_idx, child) as i64,
+                                child,
+                            );
+                        }
+                        return;
+                    }
+                };
+                if !asset.frames.is_empty() {
+                    let fps = asset.info.fps.unwrap_or(0.0);
+                    if fps > 0.0 {
+                        let mut frame_idx =
+                            ((obj.movie.timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize;
+                        if obj.movie.loop_flag {
+                            frame_idx %= asset.frames.len();
+                        } else if frame_idx >= asset.frames.len() {
+                            frame_idx = asset.frames.len() - 1;
+                        }
+                        if obj.movie.last_frame_idx != Some(frame_idx) {
+                            obj.movie.last_frame_idx = Some(frame_idx);
+                            let frame = asset.frames[frame_idx].clone();
+                            if let globals::ObjectBackend::Movie {
+                                layer_id,
+                                sprite_id,
+                                image_id,
+                                width,
+                                height,
+                            } = &mut obj.backend
+                            {
+                                let img_id = match image_id {
+                                    Some(id) => {
+                                        let _ = images.replace_image_arc(*id, frame.clone());
+                                        *id
+                                    }
+                                    None => {
+                                        let id = images.insert_image_arc(frame.clone());
+                                        if let Some(layer) = layers.layer_mut(*layer_id) {
+                                            if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+                                                sprite.image_id = Some(id);
+                                            }
+                                        }
+                                        *image_id = Some(id);
+                                        id
+                                    }
+                                };
+                                if let Some(layer) = layers.layer_mut(*layer_id) {
+                                    if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+                                        sprite.image_id = Some(img_id);
+                                    }
+                                }
+                                *width = frame.width;
+                                *height = frame.height;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        sync_movie_object_recursive(
+            ids,
+            layers,
+            movie_mgr,
+            audio,
+            gfx,
+            images,
+            stage_idx,
+            object_runtime_slot(child_idx, child) as i64,
+            child,
+        );
+    }
+}
+
+fn apply_object_masks_recursive(
+    ids: &constants::RuntimeConstants,
+    gfx: &mut graphics::GfxRuntime,
+    images: &mut ImageManager,
+    layers: &mut LayerManager,
+    stage_i64: i64,
+    obj_i64: i64,
+    obj: &mut globals::ObjectState,
+    mask_info: &[Option<(String, i32, i32)>],
+    resolved_masks: &HashMap<String, ImageId>,
+) {
+    let mask_no = if ids.obj_mask_no != 0 {
+        obj.lookup_int_prop(ids, ids.obj_mask_no).unwrap_or(-1)
+    } else {
+        -1
+    };
+    if mask_no >= 0 {
+        let mask_idx = mask_no as usize;
+        if let Some(Some((mask_name, mask_x, mask_y))) = mask_info.get(mask_idx) {
+            if let Some(mask_image_id) = resolved_masks.get(mask_name).copied() {
+                let targets: Vec<(LayerId, SpriteId)> = match &obj.backend {
+                    globals::ObjectBackend::Rect {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    }
+                    | globals::ObjectBackend::String {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    }
+                    | globals::ObjectBackend::Movie {
+                        layer_id,
+                        sprite_id,
+                        ..
+                    } => vec![(*layer_id, *sprite_id)],
+                    globals::ObjectBackend::Number {
+                        layer_id,
+                        sprite_ids,
+                    } => sprite_ids.iter().map(|sid| (*layer_id, *sid)).collect(),
+                    globals::ObjectBackend::Gfx => gfx
+                        .object_sprite_binding(stage_i64, obj_i64)
+                        .into_iter()
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                for (layer_id, sprite_id) in targets {
+                    let Some(sprite) = layers
+                        .layer_mut(layer_id)
+                        .and_then(|l| l.sprite_mut(sprite_id))
+                    else {
+                        continue;
+                    };
+                    let Some(base_id) = sprite.image_id else {
+                        continue;
+                    };
+                    let (base_img, base_ver) = match images.get_entry(base_id) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let (mask_img, mask_ver) = match images.get_entry(mask_image_id) {
+                        Some(v) => v,
+                        None => continue,
+                    };
+                    let key = (layer_id, sprite_id);
+                    if let Some(cache) = obj.mask_cache.get(&key) {
+                        if cache.base_image_id == base_id
+                            && cache.base_version == base_ver
+                            && cache.mask_image_id == mask_image_id
+                            && cache.mask_version == mask_ver
+                            && cache.mask_x == *mask_x
+                            && cache.mask_y == *mask_y
+                        {
+                            sprite.image_id = Some(cache.masked_image_id);
+                            continue;
+                        }
+                    }
+                    let masked = apply_mask_image(base_img, mask_img, *mask_x, *mask_y);
+                    let masked_id = images.insert_image(masked);
+                    obj.mask_cache.insert(
+                        key,
+                        globals::MaskedSpriteCache {
+                            base_image_id: base_id,
+                            base_version: base_ver,
+                            mask_image_id,
+                            mask_version: mask_ver,
+                            mask_x: *mask_x,
+                            mask_y: *mask_y,
+                            masked_image_id: masked_id,
+                        },
+                    );
+                    sprite.image_id = Some(masked_id);
+                }
+            }
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        apply_object_masks_recursive(
+            ids,
+            gfx,
+            images,
+            layers,
+            stage_i64,
+            object_runtime_slot(child_idx, child) as i64,
+            child,
+            mask_info,
+            resolved_masks,
+        );
+    }
+}
+
+fn apply_object_tonecurves_recursive(
+    ids: &constants::RuntimeConstants,
+    gfx: &mut graphics::GfxRuntime,
+    images: &mut ImageManager,
+    layers: &mut LayerManager,
+    tonecurve: &mut tonecurve::ToneCurveRuntime,
+    stage_i64: i64,
+    obj_i64: i64,
+    obj: &mut globals::ObjectState,
+) {
+    let tonecurve_no = if ids.obj_tonecurve_no != 0 {
+        obj.lookup_int_prop(ids, ids.obj_tonecurve_no).unwrap_or(-1)
+    } else {
+        -1
+    };
+    if tonecurve_no >= 0 {
+        if let Some((tonecurve_image_id, tonecurve_row, tonecurve_sat)) =
+            tonecurve.shader_binding(images, tonecurve_no as i32)
+        {
+            let targets: Vec<(LayerId, SpriteId)> = match &obj.backend {
+                globals::ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                }
+                | globals::ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                }
+                | globals::ObjectBackend::Movie {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => vec![(*layer_id, *sprite_id)],
+                globals::ObjectBackend::Number {
+                    layer_id,
+                    sprite_ids,
+                } => sprite_ids.iter().map(|sid| (*layer_id, *sid)).collect(),
+                globals::ObjectBackend::Gfx => gfx
+                    .object_sprite_binding(stage_i64, obj_i64)
+                    .into_iter()
+                    .collect(),
+                _ => Vec::new(),
+            };
+            for (layer_id, sprite_id) in targets {
+                if let Some(sprite) = layers
+                    .layer_mut(layer_id)
+                    .and_then(|l| l.sprite_mut(sprite_id))
+                {
+                    sprite.tonecurve_image_id = Some(tonecurve_image_id);
+                    sprite.tonecurve_row = tonecurve_row;
+                    sprite.tonecurve_sat = tonecurve_sat;
+                }
+            }
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        apply_object_tonecurves_recursive(
+            ids,
+            gfx,
+            images,
+            layers,
+            tonecurve,
+            stage_i64,
+            object_runtime_slot(child_idx, child) as i64,
+            child,
+        );
+    }
+}
+
+fn apply_gan_effects_recursive(
+    gfx: &mut graphics::GfxRuntime,
+    images: &mut ImageManager,
+    sprites: &mut Vec<RenderSprite>,
+    index: &HashMap<(Option<LayerId>, Option<SpriteId>), usize>,
+    stage_i64: i64,
+    obj_i64: i64,
+    obj: &mut globals::ObjectState,
+) {
+    if let Some(pat) = obj.gan.current_pat() {
+        if !(pat.pat_no == 0 && pat.x == 0 && pat.y == 0 && pat.tr == 255) {
+            let key: Option<(LayerId, SpriteId)> = match &obj.backend {
+                globals::ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                }
+                | globals::ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                }
+                | globals::ObjectBackend::Movie {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => Some((*layer_id, *sprite_id)),
+                globals::ObjectBackend::Gfx => gfx.object_sprite_binding(stage_i64, obj_i64),
+                _ => None,
+            };
+            if let Some((layer_id, sprite_id)) = key {
+                if let Some(&idx) = index.get(&(Some(layer_id), Some(sprite_id))) {
+                    let sprite = &mut sprites[idx].sprite;
+                    if pat.x != 0 {
+                        sprite.x = sprite.x.saturating_add(pat.x);
+                    }
+                    if pat.y != 0 {
+                        sprite.y = sprite.y.saturating_add(pat.y);
+                    }
+                    if pat.tr != 255 {
+                        let tr = (sprite.tr as i64 * pat.tr as i64 / 255).clamp(0, 255) as u8;
+                        sprite.tr = tr;
+                    }
+                    if pat.pat_no != 0 {
+                        if let Some(file) = gfx.object_peek_file(stage_i64, obj_i64) {
+                            let base_pat = gfx.object_peek_patno(stage_i64, obj_i64).unwrap_or(0);
+                            let pat_no = (base_pat + pat.pat_no as i64).max(0) as u32;
+                            if let Ok(id) = images.load_g00(&file, pat_no) {
+                                sprite.image_id = Some(id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        apply_gan_effects_recursive(
+            gfx,
+            images,
+            sprites,
+            index,
+            stage_i64,
+            object_runtime_slot(child_idx, child) as i64,
+            child,
+        );
+    }
+}
+
+fn build_parent_render_state(
+    info: &ObjectRenderInfo,
+    first_sprite: Option<&Sprite>,
+) -> ParentRenderState {
+    ParentRenderState {
+        world_no: info.world_no,
+        pos_x: (info.x + info.x_rep) as f32,
+        pos_y: (info.y + info.y_rep) as f32,
+        pos_z: (info.z + info.z_rep) as f32,
+        center_rep_x: info.center_rep_x as f32,
+        center_rep_y: info.center_rep_y as f32,
+        center_rep_z: info.center_rep_z as f32,
+        scale_x: info.scale_x as f32 / 1000.0,
+        scale_y: info.scale_y as f32 / 1000.0,
+        scale_z: info.scale_z as f32 / 1000.0,
+        rotate_x: info.rotate_x as f32 * std::f32::consts::PI / 1800.0,
+        rotate_y: info.rotate_y as f32 * std::f32::consts::PI / 1800.0,
+        rotate_z: info.rotate_z as f32 * std::f32::consts::PI / 1800.0,
+        tr: ((info.tr.clamp(0, 255) * info.tr_rep.clamp(0, 255)) / 255) as i32,
+        mono: info.mono.clamp(0, 255) as i32,
+        reverse: info.reverse.clamp(0, 255) as i32,
+        bright: info.bright.clamp(0, 255) as i32,
+        dark: info.dark.clamp(0, 255) as i32,
+        color_rate: info.color_rate.clamp(0, 255) as i32,
+        color_r: info.color_r.clamp(0, 255) as i32,
+        color_g: info.color_g.clamp(0, 255) as i32,
+        color_b: info.color_b.clamp(0, 255) as i32,
+        color_add_r: info.color_add_r.clamp(0, 255) as i32,
+        color_add_g: info.color_add_g.clamp(0, 255) as i32,
+        color_add_b: info.color_add_b.clamp(0, 255) as i32,
+        blend: info.blend,
+        dst_clip: info.dst_clip,
+        mask_image_id: first_sprite.and_then(|s| s.mask_image_id),
+        mask_offset_x: first_sprite.map(|s| s.mask_offset_x).unwrap_or(0),
+        mask_offset_y: first_sprite.map(|s| s.mask_offset_y).unwrap_or(0),
+        tonecurve_image_id: first_sprite.and_then(|s| s.tonecurve_image_id),
+        tonecurve_row: first_sprite.map(|s| s.tonecurve_row).unwrap_or(0.0),
+        tonecurve_sat: first_sprite.map(|s| s.tonecurve_sat).unwrap_or(0.0),
+    }
+}
+
+fn apply_parent_render_state_to_sprite(
+    sprite: &mut Sprite,
+    info: &ObjectRenderInfo,
+    state: &ParentRenderState,
+) {
+    let dx = (state.pos_x + state.center_rep_x) - (info.x as f32);
+    let dy = (state.pos_y + state.center_rep_y) - (info.y as f32);
+    let dz = (state.pos_z + state.center_rep_z) - (info.z as f32);
+    sprite.x = sprite.x.saturating_add(dx.round() as i32);
+    sprite.y = sprite.y.saturating_add(dy.round() as i32);
+    sprite.z += dz;
+    sprite.pivot_x += state.center_rep_x;
+    sprite.pivot_y += state.center_rep_y;
+    sprite.pivot_z += state.center_rep_z;
+
+    let base_scale_x = (info.scale_x as f32 / 1000.0).abs().max(1e-6);
+    let base_scale_y = (info.scale_y as f32 / 1000.0).abs().max(1e-6);
+    let base_scale_z = (info.scale_z as f32 / 1000.0).abs().max(1e-6);
+    sprite.scale_x *= state.scale_x / base_scale_x;
+    sprite.scale_y *= state.scale_y / base_scale_y;
+    sprite.scale_z *= state.scale_z / base_scale_z;
+
+    let base_rx = info.rotate_x as f32 * std::f32::consts::PI / 1800.0;
+    let base_ry = info.rotate_y as f32 * std::f32::consts::PI / 1800.0;
+    let base_rz = info.rotate_z as f32 * std::f32::consts::PI / 1800.0;
+    sprite.rotate_x += state.rotate_x - base_rx;
+    sprite.rotate_y += state.rotate_y - base_ry;
+    sprite.rotate += state.rotate_z - base_rz;
+
+    sprite.tr = state.tr.clamp(0, 255) as u8;
+    sprite.mono = state.mono.clamp(0, 255) as u8;
+    sprite.reverse = state.reverse.clamp(0, 255) as u8;
+    sprite.bright = state.bright.clamp(0, 255) as u8;
+    sprite.dark = state.dark.clamp(0, 255) as u8;
+    sprite.color_rate = state.color_rate.clamp(0, 255) as u8;
+    sprite.color_r = state.color_r.clamp(0, 255) as u8;
+    sprite.color_g = state.color_g.clamp(0, 255) as u8;
+    sprite.color_b = state.color_b.clamp(0, 255) as u8;
+    sprite.color_add_r = state.color_add_r.clamp(0, 255) as u8;
+    sprite.color_add_g = state.color_add_g.clamp(0, 255) as u8;
+    sprite.color_add_b = state.color_add_b.clamp(0, 255) as u8;
+    sprite.blend = state.blend;
+    sprite.dst_clip = state.dst_clip;
+    if sprite.mask_image_id.is_none() {
+        sprite.mask_image_id = state.mask_image_id;
+        sprite.mask_offset_x = state.mask_offset_x;
+        sprite.mask_offset_y = state.mask_offset_y;
+    }
+    if sprite.tonecurve_image_id.is_none() {
+        sprite.tonecurve_image_id = state.tonecurve_image_id;
+        sprite.tonecurve_row = state.tonecurve_row;
+        sprite.tonecurve_sat = state.tonecurve_sat;
+    }
+
+    if state.world_no >= 0 {
+        sprite.world_no = state.world_no as i32;
+    }
+}
+
+fn apply_world_camera_mode(
+    sprite: &mut Sprite,
+    worlds: Option<&Vec<globals::WorldState>>,
+    screen_w: u32,
+    screen_h: u32,
+) {
+    if sprite.world_no < 0 {
+        return;
+    }
+    let Some(worlds) = worlds else {
+        return;
+    };
+    let Some(world) = worlds.get(sprite.world_no as usize) else {
+        return;
+    };
+
+    let cam_eye = [
+        world.camera_eye_x.get_total_value() as f32,
+        world.camera_eye_y.get_total_value() as f32,
+        world.camera_eye_z.get_total_value() as f32,
+    ];
+    let cam_target = [
+        world.camera_pint_x.get_total_value() as f32,
+        world.camera_pint_y.get_total_value() as f32,
+        world.camera_pint_z.get_total_value() as f32,
+    ];
+    let cam_up = [
+        world.camera_up_x.get_total_value() as f32,
+        world.camera_up_y.get_total_value() as f32,
+        world.camera_up_z.get_total_value() as f32,
+    ];
+    sprite.camera_view_angle_deg = (world.camera_view_angle as f32) / 10.0;
+    if world.mono != 0 {
+        let base = sprite.mono as i32;
+        let parent = world.mono.clamp(0, 255);
+        sprite.mono = (255 - (255 - base) * (255 - parent) / 255) as u8;
+    }
+
+    if world.mode == 0 {
+        let dz = sprite.z - cam_eye[2];
+        if dz <= 0.0 {
+            sprite.visible = false;
+            return;
+        }
+        let camera_scale = 1000.0 / dz;
+        let sw = screen_w as f32;
+        let sh = screen_h as f32;
+        sprite.x = (((sprite.x as f32) - cam_eye[0]) * camera_scale + sw * 0.5)
+            .round()
+            .clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+        sprite.y = (((sprite.y as f32) - cam_eye[1]) * camera_scale + sh * 0.5)
+            .round()
+            .clamp(i32::MIN as f32, i32::MAX as f32) as i32;
+        sprite.scale_x *= camera_scale;
+        sprite.scale_y *= camera_scale;
+        sprite.z = 0.0;
+        sprite.pivot_z = 0.0;
+        sprite.scale_z = 1.0;
+        sprite.rotate_x = 0.0;
+        sprite.rotate_y = 0.0;
+        sprite.billboard = false;
+        sprite.culling = false;
+        sprite.fog_use = false;
+        sprite.light_no = -1;
+        sprite.light_enabled = false;
+        sprite.light_diffuse = [1.0, 1.0, 1.0, 1.0];
+        sprite.light_ambient = [0.0, 0.0, 0.0, 1.0];
+        sprite.light_specular = [0.0, 0.0, 0.0, 1.0];
+        sprite.light_factor = 0.0;
+        sprite.light_kind = -1;
+        sprite.light_pos = [0.0, 0.0, 0.0, 0.0];
+        sprite.light_dir = [0.0, 0.0, -1.0, 0.0];
+        sprite.light_atten = [1.0, 0.0, 0.0, 5000.0];
+        sprite.light_cone = [0.0, 0.0, 1.0, 0.0];
+        sprite.fog_enabled = false;
+        sprite.fog_color = [0.0, 0.0, 0.0, 1.0];
+        sprite.fog_near = 0.0;
+        sprite.fog_far = 0.0;
+        sprite.fog_scroll_x = 0.0;
+        sprite.fog_texture_image_id = None;
+        sprite.camera_enabled = false;
+        sprite.camera_eye = [0.0, 0.0, -1000.0];
+        sprite.camera_target = [0.0, 0.0, 0.0];
+        sprite.camera_up = [0.0, 1.0, 0.0];
+        return;
+    }
+
+    sprite.camera_enabled = true;
+    sprite.camera_eye = cam_eye;
+    sprite.camera_target = cam_target;
+    sprite.camera_up = cam_up;
+}
+
+fn fetch_bound_render_sprites(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    runtime_slot: usize,
+    obj: &globals::ObjectState,
+) -> Vec<RenderSprite> {
+    fn push_one(ctx: &CommandContext, lid: LayerId, sid: SpriteId, out: &mut Vec<RenderSprite>) {
+        let Some(layer) = ctx.layers.layer(lid) else {
+            return;
+        };
+        let Some(sprite) = layer.sprite(sid) else {
+            return;
+        };
+        if !sprite.visible || sprite.image_id.is_none() {
+            return;
+        }
+        out.push(RenderSprite {
+            layer_id: Some(lid),
+            sprite_id: Some(sid),
+            sprite: sprite.clone(),
+        });
+    }
+
+    let mut out = Vec::new();
+    match &obj.backend {
+        globals::ObjectBackend::Gfx => {
+            if let Some((lid, sid)) = ctx
+                .gfx
+                .object_sprite_binding(stage_idx, runtime_slot as i64)
+            {
+                push_one(ctx, lid, sid, &mut out);
+            }
+        }
+        globals::ObjectBackend::Rect {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::String {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::Movie {
+            layer_id,
+            sprite_id,
+            ..
+        } => {
+            push_one(ctx, *layer_id, *sprite_id, &mut out);
+        }
+        globals::ObjectBackend::Number {
+            layer_id,
+            sprite_ids,
+        } => {
+            for sid in sprite_ids {
+                push_one(ctx, *layer_id, *sid, &mut out);
+            }
+        }
+        globals::ObjectBackend::None => {}
+    }
+    out
+}
+
+fn effective_object_info(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+) -> ObjectRenderInfo {
+    let runtime_slot = object_runtime_slot(obj_idx, obj);
+    let ids = &ctx.ids;
+    let extra = |id: i32, default: i64| -> i64 {
+        if id != 0 {
+            obj.lookup_int_prop(ids, id).unwrap_or(default)
+        } else {
+            default
+        }
+    };
+    let extra_str = |id: i32| -> Option<String> {
+        if id != 0 {
+            obj.lookup_str_prop(ids, id)
+        } else {
+            None
+        }
+    };
+
+    let dst_clip = if extra(ids.obj_clip_use, 0) != 0 {
+        Some(ClipRect {
+            left: extra(ids.obj_clip_left, 0) as i32,
+            top: extra(ids.obj_clip_top, 0) as i32,
+            right: extra(ids.obj_clip_right, 0) as i32,
+            bottom: extra(ids.obj_clip_bottom, 0) as i32,
+        })
+    } else {
+        None
+    };
+
+    let x_rep_total = obj
+        .runtime
+        .prop_event_lists
+        .x_rep
+        .iter()
+        .map(|ev| ev.get_total_value() as i64)
+        .sum::<i64>();
+    let y_rep_total = obj
+        .runtime
+        .prop_event_lists
+        .y_rep
+        .iter()
+        .map(|ev| ev.get_total_value() as i64)
+        .sum::<i64>();
+    let z_rep_total = obj
+        .runtime
+        .prop_event_lists
+        .z_rep
+        .iter()
+        .map(|ev| ev.get_total_value() as i64)
+        .sum::<i64>();
+    let tr_rep_total = obj
+        .runtime
+        .prop_event_lists
+        .tr_rep
+        .iter()
+        .fold(255i64, |acc, ev| {
+            acc.saturating_mul(ev.get_total_value() as i64)
+                .div_euclid(255)
+        });
+
+    let mut info = ObjectRenderInfo {
+        runtime_slot,
+        used: obj.used,
+        object_type: obj.object_type,
+        disp: extra(ids.obj_disp, 0) != 0,
+        x: extra(ids.obj_x, 0),
+        y: extra(ids.obj_y, 0),
+        x_rep: x_rep_total,
+        y_rep: y_rep_total,
+        z_rep: z_rep_total,
+        order: extra(ids.obj_order, 0),
+        layer: extra(ids.obj_layer, 0),
+        alpha: extra(ids.obj_alpha, 255),
+        tr: extra(ids.obj_tr, 255),
+        tr_rep: tr_rep_total,
+        mono: extra(ids.obj_mono, 0),
+        reverse: extra(ids.obj_reverse, 0),
+        bright: extra(ids.obj_bright, 0),
+        dark: extra(ids.obj_dark, 0),
+        color_rate: extra(ids.obj_color_rate, 0),
+        color_add_r: extra(ids.obj_color_add_r, 0),
+        color_add_g: extra(ids.obj_color_add_g, 0),
+        color_add_b: extra(ids.obj_color_add_b, 0),
+        color_r: extra(ids.obj_color_r, 0),
+        color_g: extra(ids.obj_color_g, 0),
+        color_b: extra(ids.obj_color_b, 0),
+        z: extra(ids.obj_z, 0),
+        world_no: extra(ids.obj_world, -1),
+        center_x: extra(ids.obj_center_x, 0),
+        center_y: extra(ids.obj_center_y, 0),
+        center_z: extra(ids.obj_center_z, 0),
+        center_rep_x: extra(ids.obj_center_rep_x, 0),
+        center_rep_y: extra(ids.obj_center_rep_y, 0),
+        center_rep_z: extra(ids.obj_center_rep_z, 0),
+        scale_x: extra(ids.obj_scale_x, 1000),
+        scale_y: extra(ids.obj_scale_y, 1000),
+        scale_z: extra(ids.obj_scale_z, 1000),
+        rotate_x: extra(ids.obj_rotate_x, 0),
+        rotate_y: extra(ids.obj_rotate_y, 0),
+        rotate_z: extra(ids.obj_rotate_z, 0),
+        culling: extra(ids.obj_culling, 0) != 0,
+        alpha_test: extra(ids.obj_alpha_test, 1) != 0,
+        alpha_blend: extra(ids.obj_alpha_blend, 1) != 0,
+        fog_use: extra(ids.obj_fog_use, 0) != 0,
+        light_no: extra(ids.obj_light_no, -1),
+        blend: crate::layer::SpriteBlend::from_i64(extra(ids.obj_blend, 0)),
+        dst_clip,
+        billboard: obj.object_type == 7,
+        file_name: obj.file_name.clone(),
+        mesh_animation: obj.mesh_animation_state.clone(),
+    };
+
+    match &obj.backend {
+        globals::ObjectBackend::Gfx => {
+            if let Some(v) = ctx.gfx.object_peek_disp(stage_idx, runtime_slot as i64) {
+                info.disp = v != 0;
+            }
+            if let Some((x, y)) = ctx.gfx.object_peek_pos(stage_idx, runtime_slot as i64) {
+                info.x = x;
+                info.y = y;
+            }
+            if let Some(v) = ctx.gfx.object_peek_order(stage_idx, runtime_slot as i64) {
+                info.order = v;
+            }
+            if let Some(v) = ctx.gfx.object_peek_layer(stage_idx, runtime_slot as i64) {
+                info.layer = v;
+            }
+            if let Some(v) = ctx.gfx.object_peek_alpha(stage_idx, runtime_slot as i64) {
+                info.alpha = v;
+            }
+            if let Some((lid, sid)) = ctx
+                .gfx
+                .object_sprite_binding(stage_idx, runtime_slot as i64)
+            {
+                if let Some(layer) = ctx.layers.layer(lid) {
+                    if let Some(sprite) = layer.sprite(sid) {
+                        info.tr = sprite.tr as i64;
+                    }
+                }
+            }
+        }
+        globals::ObjectBackend::Rect {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::String {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::Movie {
+            layer_id,
+            sprite_id,
+            ..
+        } => {
+            if let Some(layer) = ctx.layers.layer(*layer_id) {
+                if let Some(sprite) = layer.sprite(*sprite_id) {
+                    info.disp = sprite.visible;
+                    info.x = sprite.x as i64;
+                    info.y = sprite.y as i64;
+                    info.order = sprite.order as i64;
+                    info.alpha = sprite.alpha as i64;
+                    info.tr = sprite.tr as i64;
+                }
+            }
+        }
+        globals::ObjectBackend::Number {
+            layer_id,
+            sprite_ids,
+        } => {
+            if let Some(&sid) = sprite_ids.first() {
+                if let Some(layer) = ctx.layers.layer(*layer_id) {
+                    if let Some(sprite) = layer.sprite(sid) {
+                        info.disp = sprite.visible;
+                        info.x = sprite.x as i64;
+                        info.y = sprite.y as i64;
+                        info.order = sprite.order as i64;
+                        info.alpha = sprite.alpha as i64;
+                        info.tr = sprite.tr as i64;
+                    }
+                }
+            }
+        }
+        globals::ObjectBackend::None => {
+            if let Some(v) = obj.lookup_int_prop(ids, ids.obj_disp) {
+                info.disp = v != 0;
+            } else if obj.object_type == 0 && !obj.runtime.child_objects.is_empty() {
+                info.disp = true;
+            }
+        }
+    }
+
+    info
+}
+
+fn configure_sprite_3d(
+    sprite: &mut crate::layer::Sprite,
+    info: &ObjectRenderInfo,
+    worlds: Option<&Vec<globals::WorldState>>,
+    screen_w: u32,
+    screen_h: u32,
+) {
+    sprite.z = info.z as f32;
+    sprite.pivot_z = info.center_z as f32;
+    sprite.scale_z = info.scale_z as f32 / 1000.0;
+    sprite.rotate_x = info.rotate_x as f32 * std::f32::consts::PI / 1800.0;
+    sprite.rotate_y = info.rotate_y as f32 * std::f32::consts::PI / 1800.0;
+    sprite.culling = info.culling;
+    sprite.alpha_test = info.alpha_test;
+    sprite.alpha_blend = info.alpha_blend;
+    sprite.fog_use = info.fog_use;
+    sprite.light_no = info.light_no as i32;
+    sprite.world_no = info.world_no as i32;
+    sprite.billboard = info.billboard;
+    sprite.mesh_file_name = if matches!(info.object_type, 6 | 7) {
+        info.file_name.clone()
+    } else {
+        None
+    };
+    sprite.mesh_kind = if info.object_type == 6 {
+        1
+    } else if info.billboard {
+        2
+    } else {
+        0
+    };
+    sprite.shadow_cast = sprite.mesh_kind != 0;
+    sprite.shadow_receive = sprite.mesh_kind != 0;
+    sprite.mesh_animation = info.mesh_animation.clone();
+
+    let uses_3d = matches!(info.object_type, 6 | 7)
+        || info.billboard
+        || info.z != 0
+        || info.center_z != 0
+        || info.scale_z != 1000
+        || info.rotate_x != 0
+        || info.rotate_y != 0;
+
+    if info.world_no >= 0 {
+        if let Some(worlds) = worlds {
+            if let Some(world) = worlds.get(info.world_no as usize) {
+                if world.mode != 0 {
+                    sprite.camera_enabled = true;
+                    sprite.camera_eye = [
+                        world.camera_eye_x.get_total_value() as f32,
+                        world.camera_eye_y.get_total_value() as f32,
+                        world.camera_eye_z.get_total_value() as f32,
+                    ];
+                    sprite.camera_target = [
+                        world.camera_pint_x.get_total_value() as f32,
+                        world.camera_pint_y.get_total_value() as f32,
+                        world.camera_pint_z.get_total_value() as f32,
+                    ];
+                    sprite.camera_up = [
+                        world.camera_up_x.get_total_value() as f32,
+                        world.camera_up_y.get_total_value() as f32,
+                        world.camera_up_z.get_total_value() as f32,
+                    ];
+                    sprite.camera_view_angle_deg = (world.camera_view_angle as f32) / 10.0;
+                    return;
+                }
+            }
+        }
+    }
+
+    sprite.camera_enabled = uses_3d;
+    sprite.camera_eye = [0.0, 0.0, -1000.0];
+    sprite.camera_target = [0.0, 0.0, 0.0];
+    sprite.camera_up = [0.0, 1.0, 0.0];
+    sprite.camera_view_angle_deg = 45.0;
+}
+
+fn append_object_tree_sprites(
+    ctx: &CommandContext,
+    worlds: Option<&Vec<globals::WorldState>>,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    parent_visible: bool,
+    parent_order: i64,
+    parent_layer: i64,
+    parent_state: Option<ParentRenderState>,
+    out: &mut Vec<RenderSprite>,
+    object_keys: &mut HashSet<(LayerId, SpriteId)>,
+    debug_lines: &mut Vec<String>,
+) {
+    if !object_participates_in_tree(obj) {
+        return;
+    }
+
+    let info = effective_object_info(ctx, stage_idx, obj_idx, obj);
+    let local_tr = ((info.tr.clamp(0, 255) * info.tr_rep.clamp(0, 255)) / 255).clamp(0, 255);
+    let visible = parent_visible && info.disp && local_tr > 0;
+    let total_order = parent_order.saturating_add(info.order);
+    let total_layer = parent_layer.saturating_add(info.layer);
+
+    let bind_dbg = match &obj.backend {
+        globals::ObjectBackend::Gfx => ctx
+            .gfx
+            .object_sprite_binding(stage_idx, info.runtime_slot as i64),
+        globals::ObjectBackend::Rect {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::String {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::Movie {
+            layer_id,
+            sprite_id,
+            ..
+        } => Some((*layer_id, *sprite_id)),
+        globals::ObjectBackend::Number {
+            layer_id,
+            sprite_ids,
+        } => sprite_ids.first().copied().map(|sid| (*layer_id, sid)),
+        globals::ObjectBackend::None => None,
+    };
+    debug_lines.push(format!(
+        "[SG_DEBUG]     obj[{obj_idx}] slot={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) order={} layer={} alpha={} tr={} z={} bind={:?}",
+        info.runtime_slot,
+        obj.used,
+        obj.object_type,
+        obj.backend,
+        obj.file_name.as_deref().unwrap_or("-"),
+        info.disp,
+        info.x,
+        info.y,
+        info.order,
+        info.layer,
+        info.alpha,
+        info.tr,
+        info.z,
+        bind_dbg,
+    ));
+
+    let mut bound = fetch_bound_render_sprites(ctx, stage_idx, info.runtime_slot, obj);
+    for rs in &bound {
+        if let (Some(lid), Some(sid)) = (rs.layer_id, rs.sprite_id) {
+            object_keys.insert((lid, sid));
+        }
+    }
+    let mut cur_parent_state = build_parent_render_state(&info, bound.first().map(|rs| &rs.sprite));
+    if let Some(parent) = parent_state {
+        cur_parent_state = compose_parent_render_state(parent, cur_parent_state);
+    }
+
+    if visible {
+        if obj.object_type == 4 {
+            let out_len_before = out.len();
+            append_weather_sprites(
+                ctx,
+                worlds,
+                obj,
+                &info,
+                total_order,
+                total_layer,
+                &bound,
+                out,
+            );
+            for rs in out[out_len_before..].iter_mut() {
+                apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &cur_parent_state);
+                apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
+            }
+        } else {
+            for mut rs in bound.drain(..) {
+                rs.sprite.order = total_order
+                    .clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024)
+                    .saturating_mul(1024)
+                    .saturating_add(total_layer.clamp(-1023, 1023))
+                    as i32;
+                rs.sprite.alpha =
+                    ((rs.sprite.alpha as i64).saturating_mul(info.alpha.clamp(0, 255)) / 255)
+                        .clamp(0, 255) as u8;
+                rs.sprite.tr = ((rs.sprite.tr as i64).saturating_mul(info.tr.clamp(0, 255)) / 255)
+                    .clamp(0, 255) as u8;
+                configure_sprite_3d(&mut rs.sprite, &info, worlds, ctx.screen_w, ctx.screen_h);
+                apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &cur_parent_state);
+                apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
+                apply_runtime_light_and_fog(ctx, &mut rs.sprite);
+                if rs.sprite.tr > 0 {
+                    out.push(rs);
+                }
+            }
+        }
+    }
+
+    if !obj.runtime.child_objects.is_empty() {
+        debug_lines.push(format!(
+            "[SG_DEBUG]       child_list op=93 len={}",
+            obj.runtime.child_objects.len()
+        ));
+    }
+
+    let mut children: Vec<(usize, &globals::ObjectState)> = Vec::new();
+    for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+        if child.used {
+            children.push((child_idx, child));
+        }
+    }
+    children.sort_by_key(|(child_idx, child)| {
+        let ci = effective_object_info(ctx, stage_idx, *child_idx, child);
+        (
+            parent_order.saturating_add(ci.order),
+            parent_layer.saturating_add(ci.layer),
+            *child_idx as i64,
+        )
+    });
+    for (child_idx, child) in children {
+        append_object_tree_sprites(
+            ctx,
+            worlds,
+            stage_idx,
+            child_idx,
+            child,
+            visible,
+            total_order,
+            total_layer,
+            Some(cur_parent_state),
+            out,
+            object_keys,
+            debug_lines,
+        );
+    }
+}
+
+fn append_weather_sprites(
+    ctx: &CommandContext,
+    worlds: Option<&Vec<globals::WorldState>>,
+    obj: &globals::ObjectState,
+    info: &ObjectRenderInfo,
+    total_order: i64,
+    total_layer: i64,
+    bound: &[RenderSprite],
+    out: &mut Vec<RenderSprite>,
+) {
+    let Some(template) = bound.first() else {
+        return;
+    };
+    let wp = &obj.weather_param;
+    let cnt = wp.cnt.clamp(0, 256) as usize;
+    if cnt == 0 {
+        return;
+    }
+    let frame = ctx.globals.render_frame as f32;
+    let sw = ctx.screen_w as f32;
+    let sh = ctx.screen_h as f32;
+    let base_x = info.x as f32;
+    let base_y = info.y as f32;
+    let scale_x = (wp.scale_x as f32 / 1000.0).max(0.01);
+    let scale_y = (wp.scale_y as f32 / 1000.0).max(0.01);
+    for i in 0..cnt {
+        let phase = i as f32 / cnt.max(1) as f32;
+        let mut rs = template.clone();
+        let mut x = base_x;
+        let mut y = base_y;
+        let mut zoom = 1.0f32;
+        match wp.weather_type {
+            2 => {
+                let period = (wp.move_time.abs().max(1)) as f32;
+                let t = (frame / period + phase).fract();
+                let angle =
+                    (wp.center_rotate as f32 / 10.0).to_radians() + t * std::f32::consts::TAU;
+                let radius = (wp.appear_range as f32) * (0.2 + ((phase * 17.0).sin().abs() * 0.8));
+                x += wp.center_x as f32 + angle.cos() * radius;
+                y += wp.center_y as f32 + angle.sin() * radius * 0.65;
+                let zmin = wp.zoom_min as f32 / 1000.0;
+                let zmax = wp.zoom_max as f32 / 1000.0;
+                let mix = (0.5
+                    + 0.5 * ((frame / period) * std::f32::consts::TAU + phase * 9.0).sin())
+                .clamp(0.0, 1.0);
+                zoom = zmin + (zmax - zmin) * mix;
+            }
+            _ => {
+                let tx = (wp.move_time_x.abs().max(1)) as f32;
+                let ty = (wp.move_time_y.abs().max(1)) as f32;
+                let ux = (frame / tx + phase).fract();
+                let uy = (frame / ty + phase * 1.37).fract();
+                x += (ux - 0.5) * sw * 1.4;
+                y += (uy - 0.5) * sh * 1.4;
+                if wp.sin_time_x != 0 {
+                    x += ((frame / wp.sin_time_x.abs().max(1) as f32) * std::f32::consts::TAU
+                        + phase * 7.0)
+                        .sin()
+                        * wp.sin_power_x as f32;
+                }
+                if wp.sin_time_y != 0 {
+                    y += ((frame / wp.sin_time_y.abs().max(1) as f32) * std::f32::consts::TAU
+                        + phase * 11.0)
+                        .sin()
+                        * wp.sin_power_y as f32;
+                }
+            }
+        }
+        rs.sprite.x = x.round() as i32;
+        rs.sprite.y = y.round() as i32;
+        rs.sprite.scale_x *= scale_x * zoom;
+        rs.sprite.scale_y *= scale_y * zoom;
+        rs.sprite.order = total_order
+            .clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024)
+            .saturating_mul(1024)
+            .saturating_add(total_layer.clamp(-1023, 1023)) as i32;
+        rs.sprite.alpha = ((rs.sprite.alpha as i64).saturating_mul(info.alpha.clamp(0, 255)) / 255)
+            .clamp(0, 255) as u8;
+        rs.sprite.tr =
+            ((rs.sprite.tr as i64).saturating_mul(info.tr.clamp(0, 255)) / 255).clamp(0, 255) as u8;
+        if wp.active_time > 0 {
+            let life = (frame + phase * wp.active_time as f32).rem_euclid(wp.active_time as f32)
+                / wp.active_time as f32;
+            let fade = if life < 0.1 {
+                life / 0.1
+            } else if life > 0.9 {
+                (1.0 - life) / 0.1
+            } else {
+                1.0
+            };
+            rs.sprite.alpha = ((rs.sprite.alpha as f32) * fade.clamp(0.0, 1.0))
+                .round()
+                .clamp(0.0, 255.0) as u8;
+        }
+        configure_sprite_3d(&mut rs.sprite, info, worlds, ctx.screen_w, ctx.screen_h);
+        apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
+        apply_runtime_light_and_fog(ctx, &mut rs.sprite);
+        out.push(rs);
+    }
+}
+
+fn object_participates_in_tree(obj: &globals::ObjectState) -> bool {
+    if obj.used {
+        return true;
+    }
+    if !obj.runtime.child_objects.is_empty() {
+        return true;
+    }
+    !matches!(obj.backend, globals::ObjectBackend::None)
+}
+
+fn build_siglus_object_render_list(
+    ctx: &CommandContext,
+    base: &[RenderSprite],
+) -> (Vec<RenderSprite>, Vec<String>) {
+    let mut object_keys: HashSet<(LayerId, SpriteId)> = HashSet::new();
+    let mut object_list = Vec::new();
+    let mut debug = Vec::new();
+
+    let mut form_ids: Vec<u32> = ctx.globals.stage_forms.keys().copied().collect();
+    form_ids.sort_unstable();
+    for form_id in form_ids {
+        let Some(st) = ctx.globals.stage_forms.get(&form_id) else {
+            continue;
+        };
+        debug.push(format!("[SG_DEBUG] stage_form {}", form_id));
+        let mut stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
+        stage_ids.sort_unstable();
+        for stage_idx in stage_ids {
+            let Some(list) = st.object_lists.get(&stage_idx) else {
+                continue;
+            };
+            let active_cnt = list
+                .iter()
+                .filter(|o| object_participates_in_tree(o))
+                .count();
+            if active_cnt == 0 {
+                continue;
+            }
+            let worlds = st.world_lists.get(&stage_idx);
+            debug.push(format!(
+                "[SG_DEBUG]   stage {} active_objects={}",
+                stage_idx, active_cnt
+            ));
+            let mut top: Vec<(usize, &globals::ObjectState)> = list
+                .iter()
+                .enumerate()
+                .filter(|(_, o)| object_participates_in_tree(o))
+                .collect();
+            top.sort_by_key(|(obj_idx, obj)| {
+                let info = effective_object_info(ctx, stage_idx, *obj_idx, obj);
+                (info.order, info.layer, *obj_idx as i64)
+            });
+            for (obj_idx, obj) in top {
+                append_object_tree_sprites(
+                    ctx,
+                    worlds,
+                    stage_idx,
+                    obj_idx,
+                    obj,
+                    true,
+                    0,
+                    0,
+                    None,
+                    &mut object_list,
+                    &mut object_keys,
+                    &mut debug,
+                );
+            }
+        }
+    }
+
+    let mut bg = Vec::new();
+    let mut rest = Vec::new();
+    for rs in base {
+        match (rs.layer_id, rs.sprite_id) {
+            (Some(lid), Some(sid)) if object_keys.contains(&(lid, sid)) => {}
+            (None, None) => bg.push(rs.clone()),
+            _ => rest.push(rs.clone()),
+        }
+    }
+
+    let mut final_list = Vec::with_capacity(bg.len() + object_list.len() + rest.len());
+    final_list.extend(bg);
+    final_list.extend(object_list);
+    final_list.extend(rest);
+    (final_list, debug)
+}
+
 fn trace_codes_enabled() -> bool {
     std::env::var_os("SIGLUS_TRACE_CODES").is_some()
 }
 
-pub fn dispatch(ctx: &mut CommandContext, cmd: &Command) -> Result<()> {
-    // Numeric dispatch first (forms). If we don't recognize it yet,
-    // we record it and keep going.
-    if let Some(code) = cmd.code {
-        if trace_codes_enabled() {
-            let mut elem = String::new();
-            for arg in &cmd.args {
-                if let Value::Element(chain) = arg {
-                    elem = format!(" element={chain:?}");
-                    break;
-                }
+pub fn dispatch_form_code(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+    ctx.images
+        .set_current_append_dir(ctx.globals.append_dir.clone());
+    ctx.movie
+        .set_current_append_dir(ctx.globals.append_dir.clone());
+    ctx.bgm
+        .set_current_append_dir(ctx.globals.append_dir.clone());
+
+    let code = opcode::OpCode::form(form_id);
+    if trace_codes_enabled() {
+        let mut elem = String::new();
+        for arg in args {
+            if let Value::Element(chain) = arg {
+                elem = format!(" element={chain:?}");
+                break;
             }
-            eprintln!(
-                "[TRACE code] form={} args={}{}",
-                code.id,
-                cmd.args.len(),
-                elem
-            );
         }
-        if opcode::dispatch_code(ctx, code, &cmd.args)? {
-            return Ok(());
-        }
-        record_unknown_form_chain(ctx, code.id, &cmd.args);
-        ctx.unknown.record_code(code);
-        return Ok(());
+        eprintln!("[TRACE code] form={} args={}{}", form_id, args.len(), elem);
     }
 
-    // Named command dispatch (runtime tools).
-    if commands::misc::handle(ctx, cmd)? {
-        return Ok(());
-    }
-    if commands::text::handle(ctx, cmd)? {
-        return Ok(());
-    }
-    if commands::audio::handle(ctx, cmd)? {
-        return Ok(());
-    }
-    if commands::bg::handle(ctx, cmd)? {
-        return Ok(());
-    }
-    if commands::chr::handle(ctx, cmd)? {
-        return Ok(());
-    }
-    if commands::layer::handle(ctx, cmd)? {
-        return Ok(());
-    }
-
-    // Unknown named command: keep going, but record it for RE.
-    ctx.unknown.record_name(&cmd.name);
-
-    Ok(())
+    opcode::dispatch_code(ctx, code, args)
 }
 
-fn record_unknown_form_chain(ctx: &mut CommandContext, form_id: u32, args: &[Value]) {
-    for v in args {
-        if let Value::Element(chain) = v {
-            ctx.unknown
-                .record_element_chain(form_id, chain.as_slice(), "unhandled");
-            return;
-        }
+pub fn dispatch_named_command(
+    ctx: &mut CommandContext,
+    name: &str,
+    args: &[Value],
+) -> Result<bool> {
+    let cmd = Command {
+        name: name.to_string(),
+        code: None,
+        args: args.to_vec(),
+    };
+
+    if commands::misc::handle(ctx, &cmd)? {
+        return Ok(true);
     }
+    if commands::text::handle(ctx, &cmd)? {
+        return Ok(true);
+    }
+    if commands::audio::handle(ctx, &cmd)? {
+        return Ok(true);
+    }
+    if commands::bg::handle(ctx, &cmd)? {
+        return Ok(true);
+    }
+    if commands::chr::handle(ctx, &cmd)? {
+        return Ok(true);
+    }
+    if commands::layer::handle(ctx, &cmd)? {
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
+pub fn dispatch(ctx: &mut CommandContext, cmd: &Command) -> Result<()> {
+    if let Some(code) = cmd.code {
+        let handled = dispatch_form_code(ctx, code.id, &cmd.args)?;
+        if !handled {
+            anyhow::bail!("unhandled form code {}", code.id);
+        }
+        return Ok(());
+    }
+
+    let handled = dispatch_named_command(ctx, &cmd.name, &cmd.args)?;
+    if !handled {
+        anyhow::bail!("unhandled command {}", cmd.name);
+    }
+    Ok(())
 }
 
 fn apply_button_visuals(ctx: &CommandContext, sprites: &mut [RenderSprite]) {
@@ -2733,7 +3959,7 @@ fn apply_quake(globals: &globals::GlobalState, sprites: &mut [RenderSprite]) {
     let mut dx_total: f32 = 0.0;
     let mut dy_total: f32 = 0.0;
     for st in globals.screen_forms.values() {
-        if let Some(t) = st.shake_until {
+        if let Some(t) = st.shake.until {
             if std::time::Instant::now() < t {
                 let power = 6.0f32;
                 let ms = std::time::SystemTime::now()
@@ -2744,37 +3970,30 @@ fn apply_quake(globals: &globals::GlobalState, sprites: &mut [RenderSprite]) {
                 dy_total += (ms * 0.019).cos() * power;
             }
         }
-        for selector in &st.quake_selectors {
-            if let Some(list) = st.lists.get(selector) {
-                for item in &list.items {
-                    if item.quake_until.is_some() {
-                        let mut power = item.quake_power;
-                        if power == 0 {
-                            power = item.props.values().next().copied().unwrap_or(6) as i32;
-                        }
-                        if power <= 0 {
-                            continue;
-                        }
-                        let power = power.min(32) as f32;
-                        let t = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as f32;
-                        let mut dx = (t * 0.02).sin() * power;
-                        let mut dy = (t * 0.017).cos() * power;
-                        if item.quake_vec != 0 {
-                            let angle = (item.quake_vec as f32) * std::f32::consts::PI / 180.0;
-                            let (s, c) = angle.sin_cos();
-                            let rx = dx * c - dy * s;
-                            let ry = dx * s + dy * c;
-                            dx = rx;
-                            dy = ry;
-                        }
-                        dx_total += dx;
-                        dy_total += dy;
-                    }
-                }
+        for quake in &st.quake_list {
+            if quake.until.is_none() {
+                continue;
             }
+            let power = quake.power.min(32) as f32;
+            if power <= 0.0 {
+                continue;
+            }
+            let t = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as f32;
+            let mut dx = (t * 0.02).sin() * power;
+            let mut dy = (t * 0.017).cos() * power;
+            if quake.vec != 0 {
+                let angle = (quake.vec as f32) * std::f32::consts::PI / 180.0;
+                let (s, c) = angle.sin_cos();
+                let rx = dx * c - dy * s;
+                let ry = dx * s + dy * c;
+                dx = rx;
+                dy = ry;
+            }
+            dx_total += dx;
+            dy_total += dy;
         }
     }
     if dx_total == 0.0 && dy_total == 0.0 {
@@ -2810,7 +4029,7 @@ struct EffectParam {
 
 fn apply_screen_effects(
     globals: &globals::GlobalState,
-    ids: &id_map::IdMap,
+    ids: &constants::RuntimeConstants,
     sprites: &mut [RenderSprite],
 ) {
     let effects = collect_screen_effects(globals, ids);
@@ -2829,133 +4048,46 @@ fn apply_screen_effects(
     }
 }
 
-fn collect_screen_effects(globals: &globals::GlobalState, ids: &id_map::IdMap) -> Vec<EffectParam> {
+fn read_effect_event(ev: &crate::runtime::int_event::IntEvent) -> i32 {
+    ev.get_total_value() as i32
+}
+
+fn collect_screen_effects(
+    globals: &globals::GlobalState,
+    _ids: &constants::RuntimeConstants,
+) -> Vec<EffectParam> {
     let mut out = Vec::new();
     for st in globals.screen_forms.values() {
-        for (selector, list) in &st.lists {
-            if st.quake_selectors.contains(selector) {
-                continue;
+        for effect in &st.effect_list {
+            let mut rp = EffectParam {
+                x: read_effect_event(&effect.x),
+                y: read_effect_event(&effect.y),
+                mono: read_effect_event(&effect.mono),
+                reverse: read_effect_event(&effect.reverse),
+                bright: read_effect_event(&effect.bright),
+                dark: read_effect_event(&effect.dark),
+                color_r: read_effect_event(&effect.color_r),
+                color_g: read_effect_event(&effect.color_g),
+                color_b: read_effect_event(&effect.color_b),
+                color_rate: read_effect_event(&effect.color_rate),
+                color_add_r: read_effect_event(&effect.color_add_r),
+                color_add_g: read_effect_event(&effect.color_add_g),
+                color_add_b: read_effect_event(&effect.color_add_b),
+                begin_order: effect.begin_order,
+                begin_layer: effect.begin_layer,
+                end_order: effect.end_order,
+                end_layer: effect.end_layer,
+            };
+            if rp.begin_layer == 0 && rp.end_layer == 0 {
+                rp.begin_layer = i32::MIN;
+                rp.end_layer = i32::MAX;
             }
-            for item in &list.items {
-                if let Some(effect) = effect_from_screen_item(item, ids) {
-                    out.push(effect);
-                }
+            if effect_is_use(&rp) {
+                out.push(rp);
             }
         }
     }
     out
-}
-
-fn effect_from_screen_item(
-    item: &globals::ScreenItemState,
-    ids: &id_map::IdMap,
-) -> Option<EffectParam> {
-    let has_ids = ids.effect_x != 0
-        || ids.effect_y != 0
-        || ids.effect_z != 0
-        || ids.effect_mono != 0
-        || ids.effect_reverse != 0
-        || ids.effect_bright != 0
-        || ids.effect_dark != 0
-        || ids.effect_color_r != 0
-        || ids.effect_color_g != 0
-        || ids.effect_color_b != 0
-        || ids.effect_color_rate != 0
-        || ids.effect_color_add_r != 0
-        || ids.effect_color_add_g != 0
-        || ids.effect_color_add_b != 0
-        || ids.effect_begin_order != 0
-        || ids.effect_end_order != 0
-        || ids.effect_begin_layer != 0
-        || ids.effect_end_layer != 0;
-    if has_ids {
-        let read = |op: i32| -> i64 {
-            if op == 0 {
-                return 0;
-            }
-            if let Some(ev) = item.events.get(&op) {
-                return ev.get_total_value() as i64;
-            }
-            item.props.get(&op).copied().unwrap_or(0)
-        };
-        let mut effect = EffectParam {
-            x: read(ids.effect_x) as i32,
-            y: read(ids.effect_y) as i32,
-            mono: read(ids.effect_mono) as i32,
-            reverse: read(ids.effect_reverse) as i32,
-            bright: read(ids.effect_bright) as i32,
-            dark: read(ids.effect_dark) as i32,
-            color_r: read(ids.effect_color_r) as i32,
-            color_g: read(ids.effect_color_g) as i32,
-            color_b: read(ids.effect_color_b) as i32,
-            color_rate: read(ids.effect_color_rate) as i32,
-            color_add_r: read(ids.effect_color_add_r) as i32,
-            color_add_g: read(ids.effect_color_add_g) as i32,
-            color_add_b: read(ids.effect_color_add_b) as i32,
-            begin_order: read(ids.effect_begin_order) as i32,
-            begin_layer: read(ids.effect_begin_layer) as i32,
-            end_order: read(ids.effect_end_order) as i32,
-            end_layer: read(ids.effect_end_layer) as i32,
-        };
-        if effect.begin_layer == 0 && effect.end_layer == 0 {
-            effect.begin_layer = i32::MIN;
-            effect.end_layer = i32::MAX;
-        }
-        if !effect_is_use(&effect) {
-            return None;
-        }
-        return Some(effect);
-    }
-
-    let mut vals = vec![0i64; 20];
-    if !item.confirmed_event_ops.is_empty() {
-        for (i, op) in item.confirmed_event_ops.iter().enumerate().take(vals.len()) {
-            if let Some(ev) = item.events.get(op) {
-                vals[i] = ev.get_total_value() as i64;
-            }
-        }
-    } else if !item.props.is_empty() {
-        let mut props: Vec<(i32, i64)> = item.props.iter().map(|(k, v)| (*k, *v)).collect();
-        props.sort_by_key(|(k, _)| *k);
-        for (i, (_, v)) in props.into_iter().enumerate().take(vals.len()) {
-            vals[i] = v;
-        }
-    }
-
-    let mut effect = EffectParam {
-        x: vals.get(0).copied().unwrap_or(0) as i32,
-        y: vals.get(1).copied().unwrap_or(0) as i32,
-        mono: vals.get(3).copied().unwrap_or(0) as i32,
-        reverse: vals.get(4).copied().unwrap_or(0) as i32,
-        bright: vals.get(5).copied().unwrap_or(0) as i32,
-        dark: vals.get(6).copied().unwrap_or(0) as i32,
-        color_r: vals.get(7).copied().unwrap_or(0) as i32,
-        color_g: vals.get(8).copied().unwrap_or(0) as i32,
-        color_b: vals.get(9).copied().unwrap_or(0) as i32,
-        color_rate: vals.get(10).copied().unwrap_or(0) as i32,
-        color_add_r: vals.get(11).copied().unwrap_or(0) as i32,
-        color_add_g: vals.get(12).copied().unwrap_or(0) as i32,
-        color_add_b: vals.get(13).copied().unwrap_or(0) as i32,
-        begin_order: vals.get(14).copied().unwrap_or(0) as i32,
-        begin_layer: vals.get(15).copied().map(|v| v as i32).unwrap_or(i32::MIN),
-        end_order: vals.get(16).copied().unwrap_or(0) as i32,
-        end_layer: vals.get(17).copied().map(|v| v as i32).unwrap_or(i32::MAX),
-    };
-
-    // Defaults when only a subset of fields was provided.
-    if item.confirmed_event_ops.is_empty() && item.props.is_empty() {
-        return None;
-    }
-
-    if effect.begin_layer == 0 && effect.end_layer == 0 {
-        effect.begin_layer = i32::MIN;
-        effect.end_layer = i32::MAX;
-    }
-
-    if !effect_is_use(&effect) {
-        return None;
-    }
-    Some(effect)
 }
 
 fn effect_is_use(effect: &EffectParam) -> bool {
@@ -3033,6 +4165,493 @@ fn clamp_add(base: u8, add: i32) -> u8 {
     v.clamp(0, 255) as u8
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WipePartition {
+    Under,
+    Target,
+    Over,
+}
+
+fn classify_wipe_partition(
+    rs: &RenderSprite,
+    begin_layer: i32,
+    end_layer: i32,
+    begin_order: i32,
+    end_order: i32,
+    with_low: bool,
+) -> WipePartition {
+    let layer = rs.layer_id.map(|v| v as i32).unwrap_or(-1);
+    let order = rs.sprite.order;
+    if layer < begin_layer {
+        return WipePartition::Under;
+    }
+    if layer > end_layer {
+        return WipePartition::Over;
+    }
+    let affected = if with_low {
+        order <= end_order
+    } else {
+        order >= begin_order && order <= end_order
+    };
+    if affected {
+        WipePartition::Target
+    } else if order < begin_order {
+        WipePartition::Under
+    } else {
+        WipePartition::Over
+    }
+}
+
+fn upsert_runtime_image_slot(
+    images: &mut ImageManager,
+    slot: &mut Option<ImageId>,
+    img: RgbaImage,
+) -> ImageId {
+    if let Some(id) = *slot {
+        let _ = images.replace_image(id, img);
+        id
+    } else {
+        let id = images.insert_image(img);
+        *slot = Some(id);
+        id
+    }
+}
+
+fn overlay_precompose_if_needed(ctx: &mut CommandContext, _sprites: &mut Vec<RenderSprite>) {
+    // Overlay composition now stays in the GPU renderer. Keep the runtime slot cleared so
+    // stale CPU fallback images are not reused by other paths.
+    ctx.overlay_rt_image = None;
+}
+
+fn sprite_forward_dir(sprite: &Sprite) -> [f32; 3] {
+    let (sx, cx) = sprite.rotate_x.sin_cos();
+    let (sy, cy) = sprite.rotate_y.sin_cos();
+    let x = -sy * cx;
+    let y = sx;
+    let z = -cy * cx;
+    let len = (x * x + y * y + z * z).sqrt().max(1e-6);
+    [x / len, y / len, z / len]
+}
+
+fn apply_runtime_light_and_fog(ctx: &CommandContext, sprite: &mut Sprite) {
+    sprite.light_enabled = false;
+    sprite.mesh_runtime_lights.clear();
+    sprite.light_diffuse = [1.0, 1.0, 1.0, 1.0];
+    sprite.light_ambient = [0.0, 0.0, 0.0, 1.0];
+    sprite.light_specular = [0.0, 0.0, 0.0, 1.0];
+    sprite.light_factor = 0.0;
+    sprite.light_kind = -1;
+    sprite.light_pos = [0.0, 0.0, 0.0, 0.0];
+    sprite.light_dir = [0.0, 0.0, -1.0, 0.0];
+    sprite.light_atten = [1.0, 0.0, 0.0, 5000.0];
+    sprite.light_cone = [0.0, 0.0, 1.0, 0.0];
+    sprite.shadow_cast = sprite.mesh_kind != 0;
+    sprite.shadow_receive = sprite.mesh_kind != 0;
+    sprite.fog_enabled = false;
+    sprite.fog_color = [0.0, 0.0, 0.0, 1.0];
+    sprite.fog_near = 0.0;
+    sprite.fog_far = 0.0;
+    sprite.fog_scroll_x = 0.0;
+    sprite.fog_texture_image_id = None;
+
+    if sprite.light_no >= 0 {
+        if let Some(light) = ctx.globals.lights.get(&sprite.light_no) {
+            let n = if sprite.billboard {
+                [0.0, 0.0, -1.0]
+            } else {
+                sprite_forward_dir(sprite)
+            };
+            let pos = [sprite.x as f32, sprite.y as f32, sprite.z];
+            let mut ndotl = 0.0f32;
+            let mut attenuation = 1.0f32;
+            match light.kind {
+                globals::LightType::Directional => {
+                    let l = [-light.dir[0], -light.dir[1], -light.dir[2]];
+                    let ll = (l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).sqrt().max(1e-6);
+                    ndotl = (n[0] * (l[0] / ll) + n[1] * (l[1] / ll) + n[2] * (l[2] / ll)).max(0.0);
+                }
+                globals::LightType::Point
+                | globals::LightType::Spot
+                | globals::LightType::ShadowMapSpot => {
+                    let mut l = [
+                        light.pos[0] - pos[0],
+                        light.pos[1] - pos[1],
+                        light.pos[2] - pos[2],
+                    ];
+                    let dist = (l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).sqrt().max(1e-6);
+                    l = [l[0] / dist, l[1] / dist, l[2] / dist];
+                    ndotl = (n[0] * l[0] + n[1] * l[1] + n[2] * l[2]).max(0.0);
+                    attenuation = 1.0
+                        / (light.attenuation0
+                            + light.attenuation1 * dist
+                            + light.attenuation2 * dist * dist)
+                            .max(1.0);
+                    if light.range > 0.0 {
+                        attenuation *= (1.0 - dist / light.range).clamp(0.0, 1.0);
+                    }
+                    if matches!(
+                        light.kind,
+                        globals::LightType::Spot | globals::LightType::ShadowMapSpot
+                    ) {
+                        let spot_dir = [light.dir[0], light.dir[1], light.dir[2]];
+                        let sll = (spot_dir[0] * spot_dir[0]
+                            + spot_dir[1] * spot_dir[1]
+                            + spot_dir[2] * spot_dir[2])
+                            .sqrt()
+                            .max(1e-6);
+                        let cosang = (l[0] * (-spot_dir[0] / sll)
+                            + l[1] * (-spot_dir[1] / sll)
+                            + l[2] * (-spot_dir[2] / sll))
+                            .clamp(-1.0, 1.0);
+                        let cos_theta = (light.theta_deg.to_radians() * 0.5).cos();
+                        let cos_phi = (light.phi_deg.to_radians() * 0.5).cos();
+                        let spot = if cosang >= cos_theta {
+                            1.0
+                        } else if cosang <= cos_phi {
+                            0.0
+                        } else {
+                            ((cosang - cos_phi) / (cos_theta - cos_phi).max(1e-6))
+                                .powf(light.falloff.max(0.01))
+                        };
+                        attenuation *= spot;
+                    }
+                }
+                globals::LightType::None => {}
+            }
+            sprite.light_enabled = !matches!(light.kind, globals::LightType::None);
+            sprite.light_diffuse = light.diffuse;
+            sprite.light_ambient = light.ambient;
+            sprite.light_specular = light.specular;
+            sprite.light_factor = (ndotl * attenuation).clamp(0.0, 1.0);
+            sprite.light_kind = light.kind as i32;
+            sprite.light_pos = [light.pos[0], light.pos[1], light.pos[2], 1.0];
+            let dir_len = (light.dir[0] * light.dir[0]
+                + light.dir[1] * light.dir[1]
+                + light.dir[2] * light.dir[2])
+                .sqrt()
+                .max(1e-6);
+            sprite.light_dir = [
+                light.dir[0] / dir_len,
+                light.dir[1] / dir_len,
+                light.dir[2] / dir_len,
+                0.0,
+            ];
+            sprite.light_atten = [
+                light.attenuation0,
+                light.attenuation1,
+                light.attenuation2,
+                light.range,
+            ];
+            sprite.light_cone = [
+                (light.theta_deg.to_radians() * 0.5).cos(),
+                (light.phi_deg.to_radians() * 0.5).cos(),
+                light.falloff,
+                if matches!(light.kind, globals::LightType::ShadowMapSpot) {
+                    1.0
+                } else {
+                    0.0
+                },
+            ];
+            if matches!(light.kind, globals::LightType::ShadowMapSpot) {
+                sprite.shadow_cast = sprite.mesh_kind != 0;
+                sprite.shadow_receive = sprite.camera_enabled;
+            }
+        }
+    }
+
+    if sprite.mesh_kind != 0 || sprite.camera_enabled {
+        let mut ids: Vec<i32> = ctx.globals.lights.keys().copied().collect();
+        ids.sort_unstable();
+        for light_id in ids {
+            let Some(light) = ctx.globals.lights.get(&light_id) else {
+                continue;
+            };
+            if matches!(light.kind, globals::LightType::None) {
+                continue;
+            }
+            let dir_len = (light.dir[0] * light.dir[0]
+                + light.dir[1] * light.dir[1]
+                + light.dir[2] * light.dir[2])
+                .sqrt()
+                .max(1e-6);
+            sprite.mesh_runtime_lights.push(SpriteRuntimeLight {
+                id: light_id,
+                kind: light.kind as i32,
+                diffuse: light.diffuse,
+                ambient: light.ambient,
+                specular: light.specular,
+                pos: [light.pos[0], light.pos[1], light.pos[2], 1.0],
+                dir: [
+                    light.dir[0] / dir_len,
+                    light.dir[1] / dir_len,
+                    light.dir[2] / dir_len,
+                    0.0,
+                ],
+                atten: [
+                    light.attenuation0,
+                    light.attenuation1,
+                    light.attenuation2,
+                    light.range,
+                ],
+                cone: [
+                    (light.theta_deg.to_radians() * 0.5).cos(),
+                    (light.phi_deg.to_radians() * 0.5).cos(),
+                    light.falloff,
+                    if matches!(light.kind, globals::LightType::ShadowMapSpot) {
+                        1.0
+                    } else {
+                        0.0
+                    },
+                ],
+            });
+        }
+    }
+
+    if sprite.fog_use && sprite.camera_enabled && ctx.globals.fog_global.enabled {
+        let fog = &ctx.globals.fog_global;
+        sprite.fog_enabled = true;
+        sprite.fog_color = fog.color;
+        sprite.fog_near = fog.near;
+        sprite.fog_far = fog.far;
+        sprite.fog_scroll_x = fog.scroll_x;
+        sprite.fog_texture_image_id = fog.texture_image_id;
+    }
+}
+
+fn build_dual_source_wipe_list(
+    ctx: &mut CommandContext,
+    current: &[RenderSprite],
+) -> Option<Vec<RenderSprite>> {
+    let wipe = ctx.globals.wipe.as_ref()?;
+    let wipe_type = wipe.wipe_type;
+    if !(220..=243).contains(&wipe_type) {
+        return None;
+    }
+
+    let front = if ctx.last_presented_render_list.is_empty() {
+        current.to_vec()
+    } else {
+        ctx.last_presented_render_list.clone()
+    };
+
+    let begin_layer = wipe.begin_layer;
+    let end_layer = wipe.end_layer;
+    let begin_order = wipe.begin_order;
+    let end_order = wipe.end_order;
+    let with_low = wipe.with_low_order != 0;
+    let progress = wipe.progress();
+    let option = wipe.option.clone();
+
+    let mut under = Vec::new();
+    let mut front_target = Vec::new();
+    let mut over = Vec::new();
+    for rs in front.into_iter() {
+        match classify_wipe_partition(
+            &rs,
+            begin_layer,
+            end_layer,
+            begin_order,
+            end_order,
+            with_low,
+        ) {
+            WipePartition::Under => under.push(rs),
+            WipePartition::Target => front_target.push(rs),
+            WipePartition::Over => over.push(rs),
+        }
+    }
+    let mut next_target = Vec::new();
+    for rs in current.iter().cloned() {
+        if matches!(
+            classify_wipe_partition(
+                &rs,
+                begin_layer,
+                end_layer,
+                begin_order,
+                end_order,
+                with_low
+            ),
+            WipePartition::Target
+        ) {
+            next_target.push(rs);
+        }
+    }
+
+    let front_img =
+        soft_render::render_to_image(&ctx.images, &front_target, ctx.screen_w, ctx.screen_h);
+    let next_img =
+        soft_render::render_to_image(&ctx.images, &next_target, ctx.screen_w, ctx.screen_h);
+    let front_id =
+        upsert_runtime_image_slot(&mut ctx.images, &mut ctx.wipe_front_rt_image, front_img);
+    let next_id = upsert_runtime_image_slot(&mut ctx.images, &mut ctx.wipe_next_rt_image, next_img);
+
+    let mut comp = crate::layer::Sprite::default();
+    comp.visible = true;
+    comp.fit = SpriteFit::FullScreen;
+    comp.image_id = Some(next_id);
+    comp.wipe_src_image_id = Some(front_id);
+    comp.alpha_blend = true;
+    comp.alpha_test = false;
+    comp.tr = 255;
+    comp.alpha = 255;
+
+    match wipe_type {
+        220 => {
+            let axis = option.get(0).copied().unwrap_or(0);
+            let denom = option.get(1).copied().unwrap_or(1).max(1) as f32;
+            let wave_num = option.get(2).copied().unwrap_or(3) as f32;
+            let power = option.get(3).copied().unwrap_or(0) as f32;
+            comp.wipe_fx_mode = if axis == 0 { 12 } else { 11 };
+            comp.wipe_fx_params = [
+                if axis == 0 {
+                    ctx.screen_h as f32 / denom
+                } else {
+                    ctx.screen_w as f32 / denom
+                },
+                wave_num,
+                power,
+                progress,
+            ];
+        }
+        221 => {
+            let axis = option.get(0).copied().unwrap_or(0);
+            let denom = option.get(1).copied().unwrap_or(1).max(1) as f32;
+            let wave_num = option.get(2).copied().unwrap_or(3) as f32;
+            let power = option.get(3).copied().unwrap_or(0) as f32;
+            let front_bias = if option.get(4).copied().unwrap_or(0) != 0 {
+                1.0
+            } else {
+                0.0
+            };
+            comp.wipe_fx_mode = if axis == 0 { 12 } else { 11 };
+            comp.wipe_fx_params = [
+                if axis == 0 {
+                    ctx.screen_h as f32 / denom
+                } else {
+                    ctx.screen_w as f32 / denom
+                },
+                wave_num,
+                power,
+                progress,
+            ];
+            comp.tonecurve_row = 221.0;
+            comp.tonecurve_sat = front_bias;
+        }
+        230 => {
+            let (st, ed) = mosaic_size_pair(option.get(0).copied().unwrap_or(0));
+            let cut = if progress < 0.5 {
+                st + (ed - st) * (progress / 0.5)
+            } else {
+                ed + (st - ed) * ((progress - 0.5) / 0.5)
+            };
+            comp.wipe_fx_mode = 10;
+            comp.wipe_fx_params = [
+                cut.max(0.0005),
+                ctx.screen_w as f32 / ctx.screen_h.max(1) as f32,
+                progress,
+                230.0,
+            ];
+        }
+        231 => {
+            let (mut st, mut ed) = mosaic_size_pair(option.get(0).copied().unwrap_or(0));
+            let fade_mode = option.get(1).copied().unwrap_or(0);
+            if fade_mode == 1 {
+                std::mem::swap(&mut st, &mut ed);
+            }
+            let cut = (st + (ed - st) * progress).max(0.0005);
+            comp.wipe_fx_mode = 10;
+            comp.wipe_fx_params = [
+                cut,
+                ctx.screen_w as f32 / ctx.screen_h.max(1) as f32,
+                progress,
+                231.0,
+            ];
+            comp.tonecurve_sat = fade_mode as f32;
+        }
+        240 | 242 => {
+            let (alpha_type, alpha_reverse, bp_type, bp_reverse, blur_coeff) = if wipe_type == 240 {
+                (
+                    option.get(2).copied().unwrap_or(0),
+                    option.get(3).copied().unwrap_or(0),
+                    option.get(4).copied().unwrap_or(0),
+                    option.get(5).copied().unwrap_or(0),
+                    option.get(6).copied().unwrap_or(1) as f32,
+                )
+            } else {
+                (
+                    option.get(0).copied().unwrap_or(0),
+                    option.get(1).copied().unwrap_or(0),
+                    option.get(2).copied().unwrap_or(0),
+                    option.get(3).copied().unwrap_or(0),
+                    option.get(4).copied().unwrap_or(1) as f32,
+                )
+            };
+            let alpha_f = effect_curve(alpha_type, alpha_reverse != 0, progress);
+            let bp = effect_curve(bp_type, bp_reverse != 0, progress);
+            let (cx, cy) = if wipe_type == 242 {
+                (0.5, 0.5)
+            } else {
+                (
+                    option.get(0).copied().unwrap_or(ctx.screen_w as i32 / 2) as f32
+                        / ctx.screen_w.max(1) as f32,
+                    option.get(1).copied().unwrap_or(ctx.screen_h as i32 / 2) as f32
+                        / ctx.screen_h.max(1) as f32,
+                )
+            };
+            comp.wipe_fx_mode = 13;
+            comp.wipe_fx_params = [cx, cy, bp, blur_coeff];
+            comp.tonecurve_row = alpha_f;
+            comp.tonecurve_sat = wipe_type as f32;
+        }
+        241 | 243 => {
+            let (alpha_type, alpha_reverse, bp_type, bp_reverse, blur_coeff, front_bias) =
+                if wipe_type == 241 {
+                    (
+                        option.get(2).copied().unwrap_or(0),
+                        option.get(3).copied().unwrap_or(0),
+                        option.get(4).copied().unwrap_or(0),
+                        option.get(5).copied().unwrap_or(0),
+                        option.get(6).copied().unwrap_or(1) as f32,
+                        if option.get(7).copied().unwrap_or(0) == 0 {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                    )
+                } else {
+                    (
+                        option.get(0).copied().unwrap_or(0),
+                        option.get(1).copied().unwrap_or(0),
+                        option.get(2).copied().unwrap_or(0),
+                        option.get(3).copied().unwrap_or(0),
+                        option.get(4).copied().unwrap_or(1) as f32,
+                        if option.get(5).copied().unwrap_or(0) == 0 {
+                            1.0
+                        } else {
+                            0.0
+                        },
+                    )
+                };
+            let alpha_f = effect_curve(alpha_type, alpha_reverse != 0, progress);
+            let bp = effect_curve(bp_type, bp_reverse != 0, progress);
+            comp.wipe_fx_mode = 13;
+            comp.wipe_fx_params = [0.5, 0.5, bp, blur_coeff];
+            comp.tonecurve_row = alpha_f;
+            comp.tonecurve_sat = front_bias * 1000.0 + wipe_type as f32;
+        }
+        _ => return None,
+    }
+
+    let mut out = Vec::with_capacity(under.len() + 1 + over.len());
+    out.extend(under);
+    out.push(RenderSprite {
+        layer_id: None,
+        sprite_id: None,
+        sprite: comp,
+    });
+    out.extend(over);
+    Some(out)
+}
+
 fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
     let Some(wipe) = ctx.globals.wipe.as_mut() else {
         return;
@@ -3072,6 +4691,9 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
         } else if order < begin_order || order > end_order {
             continue;
         }
+
+        rs.sprite.wipe_fx_mode = 0;
+        rs.sprite.wipe_fx_params = [0.0; 4];
 
         if mask_file.is_some() {
             let Some(mask_id) = mask_image_id else {
@@ -3183,6 +4805,121 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
                     rs.sprite.tr = ((rs.sprite.tr as f32) * (fade as f32 / 255.0)) as u8;
                 }
             }
+            220 | 221 => {
+                if let Some((left, top, right, bottom)) = sprite_bounds(&rs.sprite, ctx) {
+                    let w = (right - left).max(1) as f32;
+                    let h = (bottom - top).max(1) as f32;
+                    let denom = option.get(1).copied().unwrap_or(1).max(1) as f32;
+                    let wave_num = option.get(2).copied().unwrap_or(3) as f32;
+                    let power = option.get(3).copied().unwrap_or(0) as f32;
+                    let reverse = option.get(4).copied().unwrap_or(0) != 0;
+                    let progress_eff = if wipe_type == 221 && reverse {
+                        1.0 - progress
+                    } else {
+                        progress
+                    };
+                    rs.sprite.wipe_fx_mode = if option.get(0).copied().unwrap_or(0) == 0 {
+                        3
+                    } else {
+                        2
+                    };
+                    rs.sprite.wipe_fx_params = [
+                        if option.get(0).copied().unwrap_or(0) == 0 {
+                            h / denom
+                        } else {
+                            w / denom
+                        },
+                        wave_num,
+                        power,
+                        progress_eff,
+                    ];
+                    rs.sprite.tr = ((rs.sprite.tr as f32)
+                        * (255.0 * progress_eff).clamp(0.0, 255.0)
+                        / 255.0) as u8;
+                }
+            }
+            230 | 231 => {
+                if let Some(id) = rs.sprite.image_id {
+                    if let Some((img, _)) = ctx.images.get_entry(id) {
+                        let (mut st, mut ed) =
+                            mosaic_size_pair(option.get(0).copied().unwrap_or(0));
+                        let mut cut = if wipe_type == 230 {
+                            if progress < 0.5 {
+                                st + (ed - st) * (progress / 0.5)
+                            } else {
+                                ed + (st - ed) * ((progress - 0.5) / 0.5)
+                            }
+                        } else {
+                            if option.get(1).copied().unwrap_or(0) == 1 {
+                                std::mem::swap(&mut st, &mut ed);
+                            }
+                            st + (ed - st) * progress
+                        };
+                        cut = cut.max(0.0005);
+                        rs.sprite.wipe_fx_mode = 1;
+                        rs.sprite.wipe_fx_params =
+                            [cut, img.width as f32 / img.height.max(1) as f32, 0.0, 0.0];
+                        if wipe_type == 231 {
+                            let trf = if option.get(1).copied().unwrap_or(0) == 0 {
+                                1.0 - progress
+                            } else {
+                                progress
+                            };
+                            rs.sprite.tr = ((rs.sprite.tr as f32) * (255.0 * trf).clamp(0.0, 255.0)
+                                / 255.0) as u8;
+                        }
+                    }
+                }
+            }
+            240 | 241 | 242 | 243 => {
+                if let Some(id) = rs.sprite.image_id {
+                    if let Some((img, _)) = ctx.images.get_entry(id) {
+                        let (alpha_type, alpha_reverse, bp_type, bp_reverse, blur_coeff) =
+                            if wipe_type == 240 || wipe_type == 241 {
+                                (
+                                    option.get(2).copied().unwrap_or(0),
+                                    option.get(3).copied().unwrap_or(0) != 0,
+                                    option.get(4).copied().unwrap_or(0),
+                                    option.get(5).copied().unwrap_or(0) != 0,
+                                    option.get(6).copied().unwrap_or(1) as f32,
+                                )
+                            } else {
+                                (
+                                    option.get(0).copied().unwrap_or(0),
+                                    option.get(1).copied().unwrap_or(0) != 0,
+                                    option.get(2).copied().unwrap_or(0),
+                                    option.get(3).copied().unwrap_or(0) != 0,
+                                    option.get(4).copied().unwrap_or(1) as f32,
+                                )
+                            };
+                        let alpha_f = effect_curve(alpha_type, alpha_reverse, progress);
+                        let bp = effect_curve(bp_type, bp_reverse, progress);
+                        let (cx, cy) = if wipe_type == 242 || wipe_type == 243 {
+                            let seed = ((rs.sprite.order as i64 * 1103515245
+                                + rs.sprite.x as i64 * 12345
+                                + rs.sprite.y as i64 * 34567
+                                + (progress * 997.0) as i64)
+                                & 0x7fffffff) as u64;
+                            (
+                                (seed % img.width.max(1) as u64) as f32 / img.width.max(1) as f32,
+                                (((seed / 97) % img.height.max(1) as u64) as f32)
+                                    / img.height.max(1) as f32,
+                            )
+                        } else {
+                            (
+                                option.get(0).copied().unwrap_or(img.width as i32 / 2) as f32
+                                    / img.width.max(1) as f32,
+                                option.get(1).copied().unwrap_or(img.height as i32 / 2) as f32
+                                    / img.height.max(1) as f32,
+                            )
+                        };
+                        rs.sprite.wipe_fx_mode = 4;
+                        rs.sprite.wipe_fx_params = [cx, cy, bp, blur_coeff];
+                        rs.sprite.tr = ((rs.sprite.tr as f32) * (255.0 * alpha_f).clamp(0.0, 255.0)
+                            / 255.0) as u8;
+                    }
+                }
+            }
             _ => {
                 rs.sprite.tr = ((rs.sprite.tr as f32) * (fade as f32 / 255.0)) as u8;
             }
@@ -3192,6 +4929,48 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
     if let Some(wipe) = ctx.globals.wipe.as_mut() {
         wipe.mask_cache = mask_cache;
     }
+}
+
+fn mosaic_size_pair(kind: i32) -> (f32, f32) {
+    match kind {
+        0 => (0.001, 0.025),
+        1 => (0.002, 0.04),
+        2 => (0.003, 0.06),
+        3 => (0.004, 0.08),
+        4 => (0.005, 0.10),
+        5 => (0.006, 0.15),
+        6 => (0.007, 0.20),
+        7 => (0.008, 0.30),
+        8 => (0.009, 0.40),
+        9 => (0.010, 0.50),
+        _ => (0.005, 0.10),
+    }
+}
+
+fn effect_curve(kind: i32, reverse: bool, progress: f32) -> f32 {
+    let mut v = if kind == 0 {
+        1.0 - progress
+    } else if kind == 10 {
+        progress
+    } else if (1..10).contains(&kind) {
+        let threshold = kind as f32 / 10.0;
+        if progress < threshold {
+            if threshold <= 0.0 {
+                1.0
+            } else {
+                progress / threshold
+            }
+        } else {
+            let span = (1.0 - threshold).max(1e-5);
+            ((1.0 - progress) / span).clamp(0.0, 1.0)
+        }
+    } else {
+        1.0
+    };
+    if reverse {
+        v = 1.0 - v;
+    }
+    v.clamp(0.0, 1.0)
 }
 
 fn sprite_bounds(sprite: &Sprite, ctx: &CommandContext) -> Option<(i32, i32, i32, i32)> {

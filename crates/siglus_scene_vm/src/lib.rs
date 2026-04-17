@@ -7,7 +7,9 @@ pub mod assets;
 pub mod audio;
 pub mod image_manager;
 pub mod layer;
+pub mod mesh3d;
 pub mod movie;
+pub mod render_math;
 pub mod resource;
 pub mod runtime;
 pub mod soft_render;
@@ -22,8 +24,6 @@ pub mod vm;
 // parsers/decoders without wiring a second direct dependency.
 pub use siglus_assets as formats;
 
-#[cfg(feature = "wgpu-winit")]
 pub mod render;
 
-#[cfg(feature = "wgpu-winit")]
 pub mod input;

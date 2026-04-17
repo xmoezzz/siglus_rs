@@ -1,20 +1,8 @@
 use crate::runtime::Value;
 
-/// In VM-driven execution, we append metadata to every command call:
-///   (ret_form: int, al_id: int, element: [i32]).
-///
-/// Named commands generally don't care, so we strip it when present.
+/// Command arguments are now the original script arguments.
+/// The VM no longer appends synthetic element/al_id/ret_form metadata here.
 pub fn strip_vm_meta(args: &[Value]) -> &[Value] {
-    if args.len() >= 3 {
-        let n = args.len();
-        // VM appends: Element(elm), Int(al_id), Int(ret_form)
-        if matches!(args[n - 3], Value::Element(_))
-            && matches!(args[n - 2], Value::Int(_))
-            && matches!(args[n - 1], Value::Int(_))
-        {
-            return &args[..n - 3];
-        }
-    }
     args
 }
 

@@ -23,7 +23,7 @@ fn cgtable_look_cnt(ctx: &CommandContext) -> i64 {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    let parsed = prop_access::parse_element_chain(form_id, args);
+    let parsed = prop_access::parse_element_chain_ctx(ctx, form_id, args);
     let (chain_pos, chain) = match parsed {
         Some((pos, ch)) if ch.len() >= 2 => (Some(pos), Some(ch)),
         _ => (None, None),
@@ -44,20 +44,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 let idx = idx_i32 as usize;
                 ensure_cg_flags_size(ctx, idx + 1);
 
-                let mut al_id: Option<i64> = None;
-                let mut rhs: Option<i64> = None;
-
-                if chain_pos.unwrap() + 2 < args.len() {
-                    al_id = args.get(chain_pos.unwrap() + 1).and_then(|v| v.as_i64());
-                    if al_id == Some(1) {
-                        rhs = args.get(0).and_then(|v| v.as_i64());
-                    }
-                } else if chain_pos == Some(args.len().saturating_sub(1)) {
-                    al_id = args.get(1).and_then(|v| v.as_i64());
-                    if al_id == Some(1) {
-                        rhs = args.get(2).and_then(|v| v.as_i64());
-                    }
-                }
+                let (al_id, _ret_form, rhs_value) =
+                    crate::runtime::forms::prop_access::infer_assign_and_ret_ctx(
+                        ctx,
+                        chain_pos.unwrap_or(args.len()),
+                        args,
+                    );
+                let rhs = rhs_value.as_ref().and_then(Value::as_i64);
 
                 if al_id == Some(1) {
                     if !ctx.globals.cg_table_off {
@@ -77,8 +70,8 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             return Ok(true);
         }
 
-        let params = if chain_pos.unwrap_or(0) > 1 {
-            &args[1..chain_pos.unwrap()]
+        let params = if let Some(pos) = chain_pos {
+            crate::runtime::forms::prop_access::script_args(args, pos)
         } else {
             &[]
         };
@@ -218,6 +211,5 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         return Ok(true);
     }
 
-    prop_access::dispatch_stateful_form(ctx, form_id, args);
-    Ok(true)
+    Ok(false)
 }

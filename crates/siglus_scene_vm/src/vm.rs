@@ -4,63 +4,62 @@ use anyhow::{anyhow, bail, Result};
 use std::collections::BTreeMap;
 
 use crate::elm_code;
-use crate::runtime::opcode::OpCode;
-use crate::runtime::{self, Command, CommandContext, Value};
+use crate::runtime::{self, constants, CommandContext, Value};
 use crate::scene_stream::SceneStream;
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
-const CD_NONE: u8 = 0x00;
-const CD_NL: u8 = 0x01;
-const CD_PUSH: u8 = 0x02;
-const CD_POP: u8 = 0x03;
-const CD_COPY: u8 = 0x04;
-const CD_PROPERTY: u8 = 0x05;
-const CD_COPY_ELM: u8 = 0x06;
-const CD_DEC_PROP: u8 = 0x07;
-const CD_ELM_POINT: u8 = 0x08;
-const CD_ARG: u8 = 0x09;
+const CD_NONE: u8 = constants::cd::NONE;
+const CD_NL: u8 = constants::cd::NL;
+const CD_PUSH: u8 = constants::cd::PUSH;
+const CD_POP: u8 = constants::cd::POP;
+const CD_COPY: u8 = constants::cd::COPY;
+const CD_PROPERTY: u8 = constants::cd::PROPERTY;
+const CD_COPY_ELM: u8 = constants::cd::COPY_ELM;
+const CD_DEC_PROP: u8 = constants::cd::DEC_PROP;
+const CD_ELM_POINT: u8 = constants::cd::ELM_POINT;
+const CD_ARG: u8 = constants::cd::ARG;
 
-const CD_GOTO: u8 = 0x10;
-const CD_GOTO_TRUE: u8 = 0x11;
-const CD_GOTO_FALSE: u8 = 0x12;
-const CD_GOSUB: u8 = 0x13;
-const CD_GOSUBSTR: u8 = 0x14;
-const CD_RETURN: u8 = 0x15;
-const CD_EOF: u8 = 0x16;
+const CD_GOTO: u8 = constants::cd::GOTO;
+const CD_GOTO_TRUE: u8 = constants::cd::GOTO_TRUE;
+const CD_GOTO_FALSE: u8 = constants::cd::GOTO_FALSE;
+const CD_GOSUB: u8 = constants::cd::GOSUB;
+const CD_GOSUBSTR: u8 = constants::cd::GOSUBSTR;
+const CD_RETURN: u8 = constants::cd::RETURN;
+const CD_EOF: u8 = constants::cd::EOF;
 
-const CD_ASSIGN: u8 = 0x20;
-const CD_OPERATE_1: u8 = 0x21;
-const CD_OPERATE_2: u8 = 0x22;
+const CD_ASSIGN: u8 = constants::cd::ASSIGN;
+const CD_OPERATE_1: u8 = constants::cd::OPERATE_1;
+const CD_OPERATE_2: u8 = constants::cd::OPERATE_2;
 
-const CD_COMMAND: u8 = 0x30;
-const CD_TEXT: u8 = 0x31;
-const CD_NAME: u8 = 0x32;
-const CD_SEL_BLOCK_START: u8 = 0x33;
-const CD_SEL_BLOCK_END: u8 = 0x34;
+const CD_COMMAND: u8 = constants::cd::COMMAND;
+const CD_TEXT: u8 = constants::cd::TEXT;
+const CD_NAME: u8 = constants::cd::NAME;
+const CD_SEL_BLOCK_START: u8 = constants::cd::SEL_BLOCK_START;
+const CD_SEL_BLOCK_END: u8 = constants::cd::SEL_BLOCK_END;
 
-const OP_PLUS: u8 = 0x01;
-const OP_MINUS: u8 = 0x02;
-const OP_MULTIPLE: u8 = 0x03;
-const OP_DIVIDE: u8 = 0x04;
-const OP_AMARI: u8 = 0x05;
+const OP_PLUS: u8 = constants::op::PLUS;
+const OP_MINUS: u8 = constants::op::MINUS;
+const OP_MULTIPLE: u8 = constants::op::MULTIPLE;
+const OP_DIVIDE: u8 = constants::op::DIVIDE;
+const OP_AMARI: u8 = constants::op::AMARI;
 
-const OP_EQUAL: u8 = 0x10;
-const OP_NOT_EQUAL: u8 = 0x11;
-const OP_GREATER: u8 = 0x12;
-const OP_GREATER_EQUAL: u8 = 0x13;
-const OP_LESS: u8 = 0x14;
-const OP_LESS_EQUAL: u8 = 0x15;
+const OP_EQUAL: u8 = constants::op::EQUAL;
+const OP_NOT_EQUAL: u8 = constants::op::NOT_EQUAL;
+const OP_GREATER: u8 = constants::op::GREATER;
+const OP_GREATER_EQUAL: u8 = constants::op::GREATER_EQUAL;
+const OP_LESS: u8 = constants::op::LESS;
+const OP_LESS_EQUAL: u8 = constants::op::LESS_EQUAL;
 
-const OP_LOGICAL_AND: u8 = 0x20;
-const OP_LOGICAL_OR: u8 = 0x21;
+const OP_LOGICAL_AND: u8 = constants::op::LOGICAL_AND;
+const OP_LOGICAL_OR: u8 = constants::op::LOGICAL_OR;
 
-const OP_TILDE: u8 = 0x30;
-const OP_AND: u8 = 0x31;
-const OP_OR: u8 = 0x32;
-const OP_HAT: u8 = 0x33;
-const OP_SL: u8 = 0x34;
-const OP_SR: u8 = 0x35;
-const OP_SR3: u8 = 0x36;
+const OP_TILDE: u8 = constants::op::TILDE;
+const OP_AND: u8 = constants::op::AND;
+const OP_OR: u8 = constants::op::OR;
+const OP_HAT: u8 = constants::op::HAT;
+const OP_SL: u8 = constants::op::SL;
+const OP_SR: u8 = constants::op::SR;
+const OP_SR3: u8 = constants::op::SR3;
 
 // -----------------------------------------------------------------------------
 // VM configuration (form codes are game-specific, so keep them injectable)
@@ -80,13 +79,6 @@ pub struct VmConfig {
 
 impl VmConfig {
     pub fn from_env() -> Self {
-        fn env_i32(key: &str, default: i32) -> i32 {
-            std::env::var(key)
-                .ok()
-                .and_then(|v| v.parse::<i32>().ok())
-                .unwrap_or(default)
-        }
-
         fn env_u64(key: &str, default: u64) -> u64 {
             std::env::var(key)
                 .ok()
@@ -94,30 +86,15 @@ impl VmConfig {
                 .unwrap_or(default)
         }
 
-        // These values are title-specific; override via environment variables if needed.
-        // Keep them overrideable.
-        let fm_void = env_i32("SIGLUS_FM_VOID", 0);
-        let fm_int = env_i32("SIGLUS_FM_INT", 10);
-        let fm_str = env_i32("SIGLUS_FM_STR", 20);
-
-        // These are often game-specific or version-specific. Default to -1
-        // so the VM doesn't silently misinterpret types.
-        let fm_label = env_i32("SIGLUS_FM_LABEL", -1);
-        let fm_list = env_i32("SIGLUS_FM_LIST", -1);
-        let fm_intlist = env_i32("SIGLUS_FM_INTLIST", -1);
-        let fm_strlist = env_i32("SIGLUS_FM_STRLIST", -1);
-
-        let max_steps = env_u64("SIGLUS_VM_MAX_STEPS", 5_000_000);
-
         Self {
-            fm_void,
-            fm_int,
-            fm_str,
-            fm_label,
-            fm_list,
-            fm_intlist,
-            fm_strlist,
-            max_steps,
+            fm_void: constants::fm::VOID,
+            fm_int: constants::fm::INT,
+            fm_str: constants::fm::STR,
+            fm_label: constants::fm::LABEL,
+            fm_list: constants::fm::LIST,
+            fm_intlist: constants::fm::INTLIST,
+            fm_strlist: constants::fm::STRLIST,
+            max_steps: env_u64("SIGLUS_VM_MAX_STEPS", 0),
         }
     }
 }
@@ -143,19 +120,23 @@ struct CallFrame {
     return_pc: usize,
     ret_form: i32,
     user_props: Vec<CallProp>,
+    int_args: Vec<i32>,
+    str_args: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 struct SceneExecFrame<'a> {
     stream: SceneStream<'a>,
+    user_cmd_names: std::collections::HashMap<u32, String>,
+    call_cmd_names: std::collections::HashMap<u32, String>,
     int_stack: Vec<i32>,
     str_stack: Vec<String>,
     element_points: Vec<usize>,
     call_stack: Vec<CallFrame>,
     user_props: BTreeMap<u16, Value>,
-    generic_packed_props: BTreeMap<i32, Value>,
     current_scene_no: Option<usize>,
     current_scene_name: Option<String>,
+    current_line_no: i32,
     ret_form: i32,
 }
 
@@ -172,10 +153,10 @@ pub struct SceneVm<'a> {
 
     call_stack: Vec<CallFrame>,
     user_props: BTreeMap<u16, Value>,
-    generic_packed_props: BTreeMap<i32, Value>,
     scene_stack: Vec<SceneExecFrame<'a>>,
     current_scene_no: Option<usize>,
     current_scene_name: Option<String>,
+    current_line_no: i32,
 
     pub unknown_opcodes: BTreeMap<u8, u64>,
     pub unknown_forms: BTreeMap<i32, u64>,
@@ -185,6 +166,9 @@ pub struct SceneVm<'a> {
 
     // When a command triggers a VM wait (movie wait-key etc.), its return value is produced when the wait completes.
     delayed_ret_form: Option<i32>,
+
+    user_cmd_names: std::collections::HashMap<u32, String>,
+    call_cmd_names: std::collections::HashMap<u32, String>,
 }
 
 impl<'a> SceneVm<'a> {
@@ -206,6 +190,8 @@ impl<'a> SceneVm<'a> {
             return_pc: 0,
             ret_form: cfg.fm_void,
             user_props: Vec::new(),
+            int_args: Vec::new(),
+            str_args: Vec::new(),
         };
         Self {
             cfg,
@@ -216,16 +202,18 @@ impl<'a> SceneVm<'a> {
             element_points: Vec::new(),
             call_stack: vec![base_call],
             user_props: BTreeMap::new(),
-            generic_packed_props: BTreeMap::new(),
             scene_stack: Vec::new(),
             current_scene_no: None,
             current_scene_name: None,
+            current_line_no: -1,
             unknown_opcodes: BTreeMap::new(),
             unknown_forms: BTreeMap::new(),
 
             steps: 0,
             halted: false,
             delayed_ret_form: None,
+            user_cmd_names: std::collections::HashMap::new(),
+            call_cmd_names: std::collections::HashMap::new(),
         }
     }
 
@@ -234,6 +222,8 @@ impl<'a> SceneVm<'a> {
             return_pc: 0,
             ret_form: cfg.fm_void,
             user_props: Vec::new(),
+            int_args: Vec::new(),
+            str_args: Vec::new(),
         };
         Self {
             cfg,
@@ -244,16 +234,18 @@ impl<'a> SceneVm<'a> {
             element_points: Vec::new(),
             call_stack: vec![base_call],
             user_props: BTreeMap::new(),
-            generic_packed_props: BTreeMap::new(),
             scene_stack: Vec::new(),
             current_scene_no: None,
             current_scene_name: None,
+            current_line_no: -1,
             unknown_opcodes: BTreeMap::new(),
             unknown_forms: BTreeMap::new(),
 
             steps: 0,
             halted: false,
             delayed_ret_form: None,
+            user_cmd_names: std::collections::HashMap::new(),
+            call_cmd_names: std::collections::HashMap::new(),
         }
     }
 
@@ -279,10 +271,13 @@ impl<'a> SceneVm<'a> {
         self.call_stack.clear();
         self.call_stack.push(self.scene_base_call());
         self.user_props.clear();
-        self.generic_packed_props.clear();
         self.scene_stack.clear();
         self.current_scene_no = Some(scene_no);
         self.current_scene_name = Some(scene_name.to_string());
+        self.current_line_no = -1;
+        self.ctx.current_scene_no = Some(scene_no as i64);
+        self.ctx.current_scene_name = Some(scene_name.to_string());
+        self.ctx.current_line_no = -1;
         self.halted = false;
         self.delayed_ret_form = None;
         Ok(())
@@ -305,7 +300,7 @@ impl<'a> SceneVm<'a> {
             self.take_ctx_return(rf);
         }
 
-        if self.steps >= self.cfg.max_steps {
+        if self.cfg.max_steps > 0 && self.steps >= self.cfg.max_steps {
             bail!(
                 "VM reached SIGLUS_VM_MAX_STEPS={} (possible infinite loop)",
                 self.cfg.max_steps
@@ -327,7 +322,9 @@ impl<'a> SceneVm<'a> {
 
         match opcode {
             CD_NL => {
-                let _line_no = self.stream.pop_i32()?;
+                let line_no = self.stream.pop_i32()?;
+                self.current_line_no = line_no;
+                self.ctx.current_line_no = line_no as i64;
             }
 
             CD_PUSH => {
@@ -447,10 +444,13 @@ impl<'a> SceneVm<'a> {
                 caller.ret_form = self.cfg.fm_int;
 
                 // Enter callee context.
+                let (int_args, str_args) = self.split_call_args(&_args);
                 self.call_stack.push(CallFrame {
                     return_pc: 0,
                     ret_form: self.cfg.fm_void,
                     user_props: Vec::new(),
+                    int_args,
+                    str_args,
                 });
 
                 self.stream.jump_to_label(label_no.max(0) as usize)?;
@@ -466,10 +466,13 @@ impl<'a> SceneVm<'a> {
                 caller.return_pc = self.stream.get_prg_cntr();
                 caller.ret_form = self.cfg.fm_str;
 
+                let (int_args, str_args) = self.split_call_args(&_args);
                 self.call_stack.push(CallFrame {
                     return_pc: 0,
                     ret_form: self.cfg.fm_void,
                     user_props: Vec::new(),
+                    int_args,
+                    str_args,
                 });
 
                 self.stream.jump_to_label(label_no.max(0) as usize)?;
@@ -551,7 +554,7 @@ impl<'a> SceneVm<'a> {
             }
             CD_SEL_BLOCK_END => {
                 // The original VM leaves a result on the int stack for certain selection constructs.
-                // For bring-up, default to 0 (first choice) if scripts expect a value.
+                // Default to 0 (first choice) if scripts expect a value.
                 self.push_int(0);
             }
 
@@ -565,7 +568,7 @@ impl<'a> SceneVm<'a> {
 
             CD_NONE => {
                 // In the original engine this is treated as a fatal script error.
-                // For bring-up, stop execution and record it.
+                // Stop execution and record it.
                 *self.unknown_opcodes.entry(opcode).or_insert(0) += 1;
                 println!("VM hit CD_NONE at pc=0x{:x}; stopping", pc_before);
                 self.halted = true;
@@ -669,6 +672,261 @@ impl<'a> SceneVm<'a> {
             Value::List(_) => Value::List(Vec::new()),
         }
     }
+    fn split_call_args(&self, args: &[Value]) -> (Vec<i32>, Vec<String>) {
+        let mut int_args = Vec::new();
+        let mut str_args = Vec::new();
+        for v in args {
+            match v {
+                Value::NamedArg { value, .. } => match value.as_ref() {
+                    Value::Int(n) => int_args.push(*n as i32),
+                    Value::Str(s) => str_args.push(s.clone()),
+                    _ => {}
+                },
+                Value::Int(n) => int_args.push(*n as i32),
+                Value::Str(s) => str_args.push(s.clone()),
+                _ => {}
+            }
+        }
+        (int_args, str_args)
+    }
+
+    fn call_array_marker(&self, code: i32) -> bool {
+        let mapped = self.ctx.ids.elm_array;
+        code == crate::runtime::forms::codes::ELM_ARRAY || (mapped >= 0 && code == mapped)
+    }
+
+    fn resolve_call_frame_index(&self, idx: i32) -> Option<usize> {
+        if idx < 0 {
+            return None;
+        }
+        let depth = self.call_stack.len();
+        let rev = idx as usize;
+        if rev >= depth {
+            return None;
+        }
+        Some(depth - 1 - rev)
+    }
+
+    fn exec_call_property(&mut self, elm: &[i32]) -> Result<bool> {
+        use crate::runtime::forms::codes::{FM_CALL, FM_CALLLIST};
+
+        if elm.is_empty() {
+            return Ok(false);
+        }
+        let head = elm[0];
+        if head != FM_CALL && head != FM_CALLLIST {
+            return Ok(false);
+        }
+
+        let (frame_idx, tail): (usize, &[i32]) = if head == FM_CALLLIST {
+            if elm.len() < 3 || !self.call_array_marker(elm[1]) {
+                self.push_int(0);
+                return Ok(true);
+            }
+            let Some(frame_idx) = self.resolve_call_frame_index(elm[2]) else {
+                self.push_int(0);
+                return Ok(true);
+            };
+            (frame_idx, &elm[3..])
+        } else {
+            let Some(frame_idx) = self.resolve_call_frame_index(0) else {
+                self.push_int(0);
+                return Ok(true);
+            };
+            (frame_idx, &elm[1..])
+        };
+
+        if tail.is_empty() {
+            self.push_int(0);
+            return Ok(true);
+        }
+
+        let frame = &self.call_stack[frame_idx];
+        match tail[0] {
+            0 => {
+                if tail.len() >= 3 && self.call_array_marker(tail[1]) {
+                    let idx = tail[2].max(0) as usize;
+                    self.push_int(frame.int_args.get(idx).copied().unwrap_or(0));
+                } else {
+                    self.push_int(frame.int_args.len() as i32);
+                }
+                Ok(true)
+            }
+            1 => {
+                if tail.len() >= 3 && self.call_array_marker(tail[1]) {
+                    let idx = tail[2].max(0) as usize;
+                    self.push_str(frame.str_args.get(idx).cloned().unwrap_or_default());
+                } else {
+                    self.push_int(frame.str_args.len() as i32);
+                }
+                Ok(true)
+            }
+            _ => {
+                self.push_int(0);
+                Ok(true)
+            }
+        }
+    }
+
+    fn exec_call_assign(&mut self, elm: &[i32], rhs: Value) -> Result<bool> {
+        use crate::runtime::forms::codes::{FM_CALL, FM_CALLLIST};
+
+        if elm.is_empty() {
+            return Ok(false);
+        }
+        let head = elm[0];
+        if head != FM_CALL && head != FM_CALLLIST {
+            return Ok(false);
+        }
+
+        let (frame_idx, tail): (usize, &[i32]) = if head == FM_CALLLIST {
+            if elm.len() < 3 || !self.call_array_marker(elm[1]) {
+                return Ok(true);
+            }
+            let Some(frame_idx) = self.resolve_call_frame_index(elm[2]) else {
+                return Ok(true);
+            };
+            (frame_idx, &elm[3..])
+        } else {
+            let Some(frame_idx) = self.resolve_call_frame_index(0) else {
+                return Ok(true);
+            };
+            (frame_idx, &elm[1..])
+        };
+
+        if tail.len() < 3 || !self.call_array_marker(tail[1]) {
+            return Ok(true);
+        }
+        let idx = tail[2].max(0) as usize;
+        let frame = &mut self.call_stack[frame_idx];
+        match (tail[0], rhs) {
+            (0, Value::Int(n)) => {
+                if frame.int_args.len() <= idx {
+                    frame.int_args.resize(idx + 1, 0);
+                }
+                frame.int_args[idx] = n as i32;
+            }
+            (1, Value::Str(s)) => {
+                if frame.str_args.len() <= idx {
+                    frame.str_args.resize_with(idx + 1, String::new);
+                }
+                frame.str_args[idx] = s;
+            }
+            _ => {}
+        }
+        Ok(true)
+    }
+
+    fn exec_call_command(
+        &mut self,
+        elm: &[i32],
+        al_id: i32,
+        ret_form: i32,
+        args: &[Value],
+    ) -> Result<bool> {
+        use crate::runtime::forms::codes::{FM_CALL, FM_CALLLIST};
+
+        if elm.is_empty() {
+            return Ok(false);
+        }
+        let head = elm[0];
+        if head != FM_CALL && head != FM_CALLLIST {
+            return Ok(false);
+        }
+
+        let (frame_idx, tail): (usize, &[i32]) = if head == FM_CALLLIST {
+            if elm.len() < 3 || !self.call_array_marker(elm[1]) {
+                self.push_default_for_ret(ret_form);
+                return Ok(true);
+            }
+            let Some(frame_idx) = self.resolve_call_frame_index(elm[2]) else {
+                self.push_default_for_ret(ret_form);
+                return Ok(true);
+            };
+            (frame_idx, &elm[3..])
+        } else {
+            let Some(frame_idx) = self.resolve_call_frame_index(0) else {
+                self.push_default_for_ret(ret_form);
+                return Ok(true);
+            };
+            (frame_idx, &elm[1..])
+        };
+
+        if tail.is_empty() {
+            self.push_default_for_ret(ret_form);
+            return Ok(true);
+        }
+
+        let params: &[Value] = args;
+        let has_array = tail.len() >= 3 && self.call_array_marker(tail[1]);
+        let idx = if has_array {
+            Some(tail[2].max(0) as usize)
+        } else {
+            None
+        };
+        match tail[0] {
+            0 => {
+                if let Some(idx) = idx {
+                    if al_id == 1 {
+                        let rhs = params.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+                        let frame = &mut self.call_stack[frame_idx];
+                        if frame.int_args.len() <= idx {
+                            frame.int_args.resize(idx + 1, 0);
+                        }
+                        frame.int_args[idx] = rhs;
+                        self.push_default_for_ret(ret_form);
+                    } else {
+                        let v = {
+                            let frame = &self.call_stack[frame_idx];
+                            frame.int_args.get(idx).copied().unwrap_or(0)
+                        };
+                        self.push_int(v);
+                    }
+                } else {
+                    let len = {
+                        let frame = &self.call_stack[frame_idx];
+                        frame.int_args.len() as i32
+                    };
+                    self.push_int(len);
+                }
+                Ok(true)
+            }
+            1 => {
+                if let Some(idx) = idx {
+                    if al_id == 1 {
+                        let rhs = params
+                            .first()
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        let frame = &mut self.call_stack[frame_idx];
+                        if frame.str_args.len() <= idx {
+                            frame.str_args.resize_with(idx + 1, String::new);
+                        }
+                        frame.str_args[idx] = rhs;
+                        self.push_default_for_ret(ret_form);
+                    } else {
+                        let v = {
+                            let frame = &self.call_stack[frame_idx];
+                            frame.str_args.get(idx).cloned().unwrap_or_default()
+                        };
+                        self.push_str(v);
+                    }
+                } else {
+                    let len = {
+                        let frame = &self.call_stack[frame_idx];
+                        frame.str_args.len() as i32
+                    };
+                    self.push_int(len);
+                }
+                Ok(true)
+            }
+            _ => {
+                self.push_default_for_ret(ret_form);
+                Ok(true)
+            }
+        }
+    }
 
     fn push_property_value(&mut self, v: Value, array_idx: Option<usize>) {
         match v {
@@ -712,31 +970,6 @@ impl<'a> SceneVm<'a> {
             }
         } else {
             self.user_props.insert(prop_id, rhs);
-        }
-    }
-
-    fn assign_generic_packed_prop(&mut self, packed_id: i32, array_idx: Option<usize>, rhs: Value) {
-        if let Some(i) = array_idx {
-            let default_like = self.default_value_like(&rhs);
-            let entry = self
-                .generic_packed_props
-                .entry(packed_id)
-                .or_insert_with(|| Value::List(Vec::new()));
-            match entry {
-                Value::List(items) => {
-                    if items.len() <= i {
-                        items.resize(i + 1, default_like);
-                    }
-                    items[i] = rhs;
-                }
-                other => {
-                    let mut items = vec![default_like; i + 1];
-                    items[i] = rhs;
-                    *other = Value::List(items);
-                }
-            }
-        } else {
-            self.generic_packed_props.insert(packed_id, rhs);
         }
     }
 
@@ -860,6 +1093,223 @@ impl<'a> SceneVm<'a> {
     // Command/Property dispatch bridging
     // ---------------------------------------------------------------------
 
+    fn canonical_runtime_form_id(&self, form_id: u32) -> u32 {
+        let ids = &self.ctx.ids;
+
+        if constants::is_stage_global_form(form_id, ids.form_global_stage) {
+            return constants::global_form::STAGE_ALT;
+        }
+        if constants::matches_form_id(form_id, ids.form_global_mov, constants::global_form::MOV) {
+            return constants::global_form::MOV;
+        }
+        if constants::matches_form_id(form_id, ids.form_global_bgm, constants::global_form::BGM) {
+            return constants::global_form::BGM;
+        }
+        if constants::matches_form_id(
+            form_id,
+            ids.form_global_bgm_table,
+            constants::global_form::BGMTABLE,
+        ) {
+            return constants::global_form::BGMTABLE;
+        }
+        if constants::matches_form_id(form_id, ids.form_global_pcm, constants::global_form::PCM) {
+            return constants::global_form::PCM;
+        }
+        if constants::matches_form_id(
+            form_id,
+            ids.form_global_pcmch,
+            constants::global_form::PCMCH,
+        ) {
+            return constants::global_form::PCMCH;
+        }
+        if constants::matches_form_id(form_id, ids.form_global_se, constants::global_form::SE) {
+            return constants::global_form::SE;
+        }
+        if constants::matches_form_id(
+            form_id,
+            ids.form_global_pcm_event,
+            constants::global_form::PCMEVENT,
+        ) {
+            return constants::global_form::PCMEVENT;
+        }
+        if constants::matches_form_id(
+            form_id,
+            ids.form_global_excall,
+            constants::global_form::EXCALL,
+        ) {
+            return constants::global_form::EXCALL;
+        }
+        if constants::matches_form_id(
+            form_id,
+            ids.form_global_screen,
+            constants::global_form::SCREEN,
+        ) {
+            return constants::global_form::SCREEN;
+        }
+        if constants::matches_form_id(
+            form_id,
+            ids.form_global_msgbk,
+            constants::global_form::MSGBK,
+        ) {
+            return constants::global_form::MSGBK;
+        }
+        if constants::matches_form_id(
+            form_id,
+            ids.form_global_koe_st,
+            constants::global_form::KOE_ST,
+        ) {
+            return constants::global_form::KOE_ST;
+        }
+        if constants::matches_form_id(form_id, ids.form_global_key, constants::global_form::KEY) {
+            return constants::global_form::KEY;
+        }
+        if form_id == constants::global_form::COUNTER {
+            return constants::global_form::COUNTER;
+        }
+        if constants::matches_form_id(
+            form_id,
+            ids.form_global_frame_action,
+            constants::global_form::FRAME_ACTION,
+        ) {
+            return constants::global_form::FRAME_ACTION;
+        }
+        if form_id == constants::global_form::TIMEWAIT {
+            return constants::global_form::TIMEWAIT;
+        }
+        if form_id == constants::global_form::TIMEWAIT_KEY {
+            return constants::global_form::TIMEWAIT_KEY;
+        }
+
+        form_id
+    }
+
+    fn try_parent_slot_property(&mut self, elm: &[i32]) -> bool {
+        if elm.len() != 3 || elm[1] != self.ctx.ids.elm_array || elm[2] <= 0 {
+            return false;
+        }
+        let parent_form = elm[2] as u32;
+        let slot = elm[0];
+        let ret_form = self
+            .ctx
+            .vm_call
+            .as_ref()
+            .map(|m| m.ret_form)
+            .unwrap_or(self.cfg.fm_int as i64);
+        if ret_form == self.cfg.fm_str as i64 {
+            let value = self
+                .ctx
+                .globals
+                .str_props
+                .get(&parent_form)
+                .and_then(|m| m.get(&slot))
+                .cloned()
+                .unwrap_or_default();
+            self.push_str(value);
+        } else if let Some(value) = self
+            .ctx
+            .globals
+            .str_props
+            .get(&parent_form)
+            .and_then(|m| m.get(&slot))
+            .cloned()
+        {
+            self.push_str(value);
+        } else {
+            let value = self
+                .ctx
+                .globals
+                .int_props
+                .get(&parent_form)
+                .and_then(|m| m.get(&slot).copied())
+                .unwrap_or(0);
+            self.push_int(value as i32);
+        }
+        true
+    }
+
+    fn try_compact_object_chain(&self, elm: &[i32]) -> Option<Vec<i32>> {
+        if elm.len() < 3 || elm[2] != self.ctx.ids.elm_array || elm[1] < 0 {
+            return None;
+        }
+
+        let op = elm[0];
+        let probe = crate::runtime::globals::ObjectState::default();
+        let is_object_event = probe.int_event_by_op(&self.ctx.ids, op).is_some();
+        let is_object_event_list = probe.int_event_list_by_op(&self.ctx.ids, op).is_some();
+        if !is_object_event && !is_object_event_list {
+            return None;
+        }
+
+        let stage_idx = elm[1];
+        let obj_idx = if elm.len() >= 4 {
+            elm[3]
+        } else if let Some((current_stage, current_obj)) = self.ctx.globals.current_stage_object {
+            if current_stage == stage_idx as i64 {
+                current_obj as i32
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+        if obj_idx < 0 {
+            return None;
+        }
+
+        let stage_form = if self.ctx.ids.form_global_stage != 0 {
+            self.ctx.ids.form_global_stage as i32
+        } else {
+            crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32
+        };
+        let stage_object = if self.ctx.ids.stage_elm_object != 0 {
+            self.ctx.ids.stage_elm_object
+        } else {
+            crate::runtime::forms::codes::STAGE_ELM_OBJECT
+        };
+        let mut synthetic = vec![
+            stage_form,
+            self.ctx.ids.elm_array,
+            stage_idx,
+            stage_object,
+            self.ctx.ids.elm_array,
+            obj_idx,
+            op,
+        ];
+        if elm.len() > 4 {
+            synthetic.extend_from_slice(&elm[4..]);
+        }
+        Some(synthetic)
+    }
+
+    fn try_parent_slot_assign(&mut self, elm: &[i32], rhs: &Value) -> bool {
+        if elm.len() != 3 || elm[1] != self.ctx.ids.elm_array || elm[2] <= 0 {
+            return false;
+        }
+        let parent_form = elm[2] as u32;
+        let slot = elm[0];
+        match rhs {
+            Value::Str(s) => {
+                self.ctx
+                    .globals
+                    .str_props
+                    .entry(parent_form)
+                    .or_default()
+                    .insert(slot, s.clone());
+            }
+            Value::Int(n) => {
+                self.ctx
+                    .globals
+                    .int_props
+                    .entry(parent_form)
+                    .or_default()
+                    .insert(slot, *n);
+            }
+            Value::NamedArg { value, .. } => return self.try_parent_slot_assign(elm, value),
+            _ => return false,
+        }
+        true
+    }
+
     fn exec_property(&mut self, elm: Vec<i32>) -> Result<()> {
         if elm.is_empty() {
             self.push_int(0);
@@ -867,6 +1317,10 @@ impl<'a> SceneVm<'a> {
         }
 
         // Call-local properties (declared by CD_DEC_PROP / populated by CD_ARG).
+        if self.exec_call_property(&elm)? {
+            return Ok(());
+        }
+
         let head = elm[0];
         let head_owner = elm_code::owner(head);
         if head_owner == elm_code::ELM_OWNER_CALL_PROP {
@@ -922,37 +1376,55 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
 
-        // The real engine passes only an element chain and expects the command
-        // processor to push the return value onto the VM stack.
-        //
-        // In this port, we attempt a best-effort numeric dispatch using:
-        // - form_id = elm[0]
-        // - op_id = elm[1] (if present)
-        if head_owner != 0 {
-            let array_idx = self.extract_array_index(&elm);
-            let v = self
-                .generic_packed_props
-                .get(&head)
-                .cloned()
-                .unwrap_or(Value::Int(0));
-            self.push_property_value(v, array_idx);
+        if head_owner != elm_code::ELM_OWNER_FORM {
+            bail!(
+                "unsupported property owner {} for element {:?}",
+                head_owner,
+                elm
+            );
+        }
+
+        if self.try_parent_slot_property(&elm) {
+            return Ok(());
+        }
+        if let Some(synthetic) = self.try_compact_object_chain(&elm) {
+            self.ctx.vm_call = Some(runtime::VmCallMeta {
+                element: synthetic.clone(),
+                al_id: 0,
+                ret_form: self.cfg.fm_int as i64,
+            });
+            let form_id = self.canonical_runtime_form_id(synthetic[0] as u32);
+            if !runtime::dispatch_form_code(&mut self.ctx, form_id, &[])? {
+                self.ctx.vm_call = None;
+                bail!(
+                    "unhandled compact object property chain {:?} -> {:?}",
+                    elm,
+                    synthetic
+                );
+            }
+            self.ctx.vm_call = None;
+            if let Some(v) = self.ctx.pop() {
+                self.push_return_value_raw(v);
+            } else {
+                self.push_int(0);
+            }
             return Ok(());
         }
 
-        let form_id = head;
-        let mut args: Vec<Value> = Vec::new();
-        if elm.len() >= 2 {
-            args.push(Value::Int(elm[1] as i64));
+        let form_id = self.canonical_runtime_form_id(head as u32);
+        let args: Vec<Value> = Vec::new();
+        self.ctx.vm_call = Some(runtime::VmCallMeta {
+            element: elm.clone(),
+            al_id: 0,
+            ret_form: self.cfg.fm_int as i64,
+        });
+
+        if !runtime::dispatch_form_code(&mut self.ctx, form_id, &args)? {
+            self.ctx.vm_call = None;
+            bail!("unhandled form property chain {:?}", elm);
         }
-        args.push(Value::Element(elm.clone()));
 
-        let cmd = Command {
-            name: format!("PROPERTY_{form_id}"),
-            code: Some(OpCode::form(form_id as u32)),
-            args,
-        };
-        runtime::dispatch(&mut self.ctx, &cmd)?;
-
+        self.ctx.vm_call = None;
         if let Some(v) = self.ctx.pop() {
             self.push_return_value_raw(v);
         } else {
@@ -968,6 +1440,10 @@ impl<'a> SceneVm<'a> {
         }
 
         // Call-local property assignment.
+        if self.exec_call_assign(&elm, rhs.clone())? {
+            return Ok(());
+        }
+
         let head = elm[0];
         let head_owner = elm_code::owner(head);
         if head_owner == elm_code::ELM_OWNER_CALL_PROP {
@@ -1014,30 +1490,84 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
 
-        // Non-call-prop assignment: forward a best-effort form dispatch.
-        if head_owner != 0 {
-            let array_idx = self.extract_array_index(&elm);
-            self.assign_generic_packed_prop(head, array_idx, rhs);
+        if head_owner != elm_code::ELM_OWNER_FORM {
+            bail!(
+                "unsupported assignment owner {} for element {:?}",
+                head_owner,
+                elm
+            );
+        }
+
+        if self.try_parent_slot_assign(&elm, &rhs) {
+            return Ok(());
+        }
+        if let Some(synthetic) = self.try_compact_object_chain(&elm) {
+            let args: Vec<Value> = vec![rhs];
+            self.ctx.vm_call = Some(runtime::VmCallMeta {
+                element: synthetic.clone(),
+                al_id: al_id as i64,
+                ret_form: 0,
+            });
+            let form_id = self.canonical_runtime_form_id(synthetic[0] as u32);
+            if !runtime::dispatch_form_code(&mut self.ctx, form_id, &args)? {
+                self.ctx.vm_call = None;
+                bail!(
+                    "unhandled compact object assignment chain {:?} -> {:?}",
+                    elm,
+                    synthetic
+                );
+            }
+            self.ctx.vm_call = None;
+            self.ctx.stack.clear();
             return Ok(());
         }
 
-        let form_id = head;
-        let mut args: Vec<Value> = Vec::new();
-        if elm.len() >= 2 {
-            args.push(Value::Int(elm[1] as i64));
+        let form_id = self.canonical_runtime_form_id(head as u32);
+        let args: Vec<Value> = vec![rhs];
+        if std::env::var_os("SIGLUS_TRACE_VM_COMMANDS").is_some() {
+            eprintln!(
+                "[vm form assign] form={} al_id={} elm={:?} rhs={:?}",
+                form_id,
+                al_id,
+                elm,
+                args.first()
+            );
         }
-        args.push(Value::Int(al_id as i64));
-        args.push(rhs);
-        args.push(Value::Element(elm.clone()));
+        self.ctx.vm_call = Some(runtime::VmCallMeta {
+            element: elm.clone(),
+            al_id: al_id as i64,
+            ret_form: 0,
+        });
 
-        let cmd = Command {
-            name: format!("ASSIGN_{form_id}"),
-            code: Some(OpCode::form(form_id as u32)),
-            args,
-        };
-        runtime::dispatch(&mut self.ctx, &cmd)?;
+        if !runtime::dispatch_form_code(&mut self.ctx, form_id, &args)? {
+            self.ctx.vm_call = None;
+            bail!("unhandled form assignment chain {:?}", elm);
+        }
+        self.ctx.vm_call = None;
         self.ctx.stack.clear();
         Ok(())
+    }
+
+    fn dispatch_owner_named_command(
+        &mut self,
+        owner: u8,
+        raw_head: i32,
+        args: &[Value],
+    ) -> Result<bool> {
+        let cmd_no = elm_code::code(raw_head) as u32;
+        let name = match owner {
+            o if o == elm_code::ELM_OWNER_USER_CMD => {
+                self.user_cmd_names.get(&cmd_no).map(String::as_str)
+            }
+            o if o == elm_code::ELM_OWNER_CALL_CMD => {
+                self.call_cmd_names.get(&cmd_no).map(String::as_str)
+            }
+            _ => None,
+        };
+        let Some(name) = name else {
+            return Ok(false);
+        };
+        runtime::dispatch_named_command(&mut self.ctx, name, args)
     }
 
     fn exec_command(
@@ -1052,101 +1582,91 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
 
-        let form_id = elm[0];
-        let owner = elm_code::owner(form_id);
+        if self.exec_call_command(&elm, al_id, ret_form, args)? {
+            return Ok(());
+        }
 
-        if owner == elm_code::ELM_OWNER_FORM {
-            if self.exec_builtin_scene_form(form_id, al_id, ret_form, args)? {
-                return Ok(());
+        let raw_head = elm[0];
+        let owner = elm_code::owner(raw_head);
+
+        match owner {
+            o if o == elm_code::ELM_OWNER_FORM => {
+                let form_id = self.canonical_runtime_form_id(raw_head as u32) as i32;
+                if self.exec_builtin_scene_form(form_id, al_id, ret_form, args)? {
+                    return Ok(());
+                }
+
+                let op_id = if elm.len() >= 2 { elm[1] } else { al_id };
+                self.ctx.vm_call = Some(runtime::VmCallMeta {
+                    element: elm.clone(),
+                    al_id: al_id as i64,
+                    ret_form: ret_form as i64,
+                });
+
+                if std::env::var_os("SIGLUS_TRACE_VM_COMMANDS").is_some() {
+                    let elm_tail = elm
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let args_dbg = args
+                        .iter()
+                        .map(|v| format!("{v:?}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    eprintln!(
+                        "[vm form cmd] form={} op={} argc={} ret_form={} al_id={} elm=[{}] args=[{}]",
+                        form_id,
+                        op_id,
+                        args.len(),
+                        ret_form,
+                        al_id,
+                        elm_tail,
+                        args_dbg
+                    );
+                }
+
+                if !runtime::dispatch_form_code(&mut self.ctx, form_id as u32, args)? {
+                    self.ctx.vm_call = None;
+                    bail!("unhandled form command chain {:?}", elm);
+                }
+                self.ctx.vm_call = None;
             }
-        }
-
-        // For classic forms (owner==0), we keep the previous calling convention:
-        // prepend a sub-op id derived from the element chain.
-        if owner == elm_code::ELM_OWNER_FORM {
-            // Map element chain to sub-op when possible.
-            // In the fork, nested element codes often represent method/property selectors.
-            let op_id = if elm.len() >= 2 { elm[1] } else { al_id };
-            args.insert(0, Value::Int(op_id as i64));
-        }
-
-        // Preserve the element chain plus call metadata (helps interpret overloads).
-        // Layout: [op_id, ...args, Element(elm), al_id, ret_form]
-        args.push(Value::Element(elm.clone()));
-        args.push(Value::Int(al_id as i64));
-        args.push(Value::Int(ret_form as i64));
-
-        let (name, code) = match owner {
-            o if o == elm_code::ELM_OWNER_FORM => (
-                format!("FORM_{form_id}"),
-                Some(OpCode::form(form_id as u32)),
-            ),
             o if o == elm_code::ELM_OWNER_USER_CMD || o == elm_code::ELM_OWNER_CALL_CMD => {
-                let cmd_no = elm_code::code(form_id) as u32;
-                let name = if o == elm_code::ELM_OWNER_CALL_CMD {
-                    self.ctx
-                        .ids
-                        .call_cmd_name(cmd_no)
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("CALL_CMD#{cmd_no}"))
-                } else {
-                    self.ctx
-                        .ids
-                        .user_cmd_name(cmd_no)
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| format!("USER_CMD#{cmd_no}"))
-                };
-                (name, None)
+                if std::env::var_os("SIGLUS_TRACE_VM_COMMANDS").is_some() {
+                    let cmd_no = elm_code::code(raw_head);
+                    let elm_tail = elm
+                        .iter()
+                        .map(|v| v.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let args_dbg = args
+                        .iter()
+                        .map(|v| format!("{v:?}"))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    eprintln!(
+                        "[vm owner cmd] owner={} cmd_no={} argc={} ret_form={} al_id={} elm=[{}] args=[{}]",
+                        owner,
+                        cmd_no,
+                        args.len(),
+                        ret_form,
+                        al_id,
+                        elm_tail,
+                        args_dbg
+                    );
+                }
+
+                if !self.dispatch_owner_named_command(owner, raw_head, args)? {
+                    bail!("unhandled owner command chain {:?}", elm);
+                }
             }
             _ => {
-                let cmd_no = elm_code::code(form_id) as u32;
-                (
-                    format!(
-                        "ELM_OWNER{}_GROUP{}_CODE{}",
-                        owner,
-                        elm_code::group(form_id),
-                        cmd_no
-                    ),
-                    None,
-                )
+                bail!("unsupported command owner {} for element {:?}", owner, elm);
             }
-        };
-
-        let cmd = Command {
-            name,
-            code,
-            args: args.clone(),
-        };
-        if std::env::var_os("SIGLUS_TRACE_VM_COMMANDS").is_some() {
-            let op0 = cmd.args.get(0).and_then(|v| v.as_i64()).unwrap_or(-1);
-            let elm_tail = elm
-                .iter()
-                .map(|v| v.to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            let args_dbg = cmd
-                .args
-                .iter()
-                .map(|v| format!("{v:?}"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            eprintln!(
-                "[vm cmd] name={} owner={} head={} op0={} argc={} ret_form={} al_id={} elm=[{}] args=[{}]",
-                cmd.name,
-                owner,
-                form_id,
-                op0,
-                cmd.args.len(),
-                ret_form,
-                al_id,
-                elm_tail,
-                args_dbg
-            );
         }
-        runtime::dispatch(&mut self.ctx, &cmd)?;
 
         if ret_form != self.cfg.fm_void {
-            // If a wait is active, the return value will be pushed when the wait completes.
             if self.ctx.wait_poll() {
                 self.delayed_ret_form = Some(ret_form);
                 return Ok(());
@@ -1201,10 +1721,16 @@ impl<'a> SceneVm<'a> {
             return_pc: 0,
             ret_form: self.cfg.fm_void,
             user_props: Vec::new(),
+            int_args: Vec::new(),
+            str_args: Vec::new(),
         }
     }
 
-    fn load_scene_stream(&self, scene_name: &str, z_no: i32) -> Result<(SceneStream<'a>, usize)> {
+    fn load_scene_stream(
+        &mut self,
+        scene_name: &str,
+        z_no: i32,
+    ) -> Result<(SceneStream<'a>, usize)> {
         let scene_pck_path = find_scene_pck_in_project(&self.ctx.project_dir)?;
         let opt = ScenePckDecodeOptions::from_project_dir(&self.ctx.project_dir)?;
         let pck = ScenePck::load_and_rebuild(&scene_pck_path, &opt)?;
@@ -1214,6 +1740,8 @@ impl<'a> SceneVm<'a> {
         let chunk = pck.scn_data_slice(scene_no)?;
         let chunk_leaked: &'static [u8] = Box::leak(chunk.to_vec().into_boxed_slice());
         let mut stream = SceneStream::new(chunk_leaked)?;
+        self.call_cmd_names = pck.inc_cmd_name_map.clone();
+        self.user_cmd_names = stream.scn_cmd_name_map.clone();
         stream.jump_to_z_label(z_no.max(0) as usize)?;
         Ok((stream, scene_no))
     }
@@ -1230,9 +1758,12 @@ impl<'a> SceneVm<'a> {
         self.call_stack.clear();
         self.call_stack.push(self.scene_base_call());
         self.user_props.clear();
-        self.generic_packed_props.clear();
         self.current_scene_no = Some(scene_no);
         self.current_scene_name = Some(scene_name.to_string());
+        self.current_line_no = -1;
+        self.ctx.current_scene_no = Some(scene_no as i64);
+        self.ctx.current_scene_name = Some(scene_name.to_string());
+        self.ctx.current_line_no = -1;
         Ok(())
     }
 
@@ -1245,14 +1776,16 @@ impl<'a> SceneVm<'a> {
         }
         let saved = SceneExecFrame {
             stream: self.stream.clone(),
+            user_cmd_names: self.user_cmd_names.clone(),
+            call_cmd_names: self.call_cmd_names.clone(),
             int_stack: std::mem::take(&mut self.int_stack),
             str_stack: std::mem::take(&mut self.str_stack),
             element_points: std::mem::take(&mut self.element_points),
             call_stack: std::mem::take(&mut self.call_stack),
             user_props: std::mem::take(&mut self.user_props),
-            generic_packed_props: std::mem::take(&mut self.generic_packed_props),
             current_scene_no: self.current_scene_no,
             current_scene_name: self.current_scene_name.clone(),
+            current_line_no: self.current_line_no,
             ret_form,
         };
         self.scene_stack.push(saved);
@@ -1261,6 +1794,10 @@ impl<'a> SceneVm<'a> {
         self.call_stack.push(self.scene_base_call());
         self.current_scene_no = Some(scene_no);
         self.current_scene_name = Some(scene_name.to_string());
+        self.current_line_no = -1;
+        self.ctx.current_scene_no = Some(scene_no as i64);
+        self.ctx.current_scene_name = Some(scene_name.to_string());
+        self.ctx.current_line_no = -1;
         Ok(())
     }
 
@@ -1280,9 +1817,14 @@ impl<'a> SceneVm<'a> {
         self.element_points = saved.element_points;
         self.call_stack = saved.call_stack;
         self.user_props = saved.user_props;
-        self.generic_packed_props = saved.generic_packed_props;
         self.current_scene_no = saved.current_scene_no;
         self.current_scene_name = saved.current_scene_name;
+        self.current_line_no = saved.current_line_no;
+        self.ctx.current_scene_no = self.current_scene_no.map(|v| v as i64);
+        self.ctx.current_scene_name = self.current_scene_name.clone();
+        self.ctx.current_line_no = self.current_line_no as i64;
+        self.user_cmd_names = saved.user_cmd_names;
+        self.call_cmd_names = saved.call_cmd_names;
 
         match saved.ret_form {
             f if f == self.cfg.fm_int || f == self.cfg.fm_label => {

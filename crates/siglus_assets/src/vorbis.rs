@@ -22,7 +22,6 @@ pub struct Pcm16 {
 /// This uses `lewton::inside_ogg::OggStreamReader`, which expects a *pure audio*
 /// Ogg/Vorbis stream (i.e., not OGV with multiple streams). This matches the
 /// typical Siglus usage (BGM/SE stored as .ogg/.owp or embedded in OVK).
-#[cfg(feature = "vorbis")]
 pub fn decode_ogg_vorbis_reader<T: Read + Seek>(rdr: T) -> Result<Pcm16> {
     use lewton::inside_ogg::OggStreamReader;
 
@@ -48,7 +47,6 @@ pub fn decode_ogg_vorbis_reader<T: Read + Seek>(rdr: T) -> Result<Pcm16> {
 }
 
 /// Decode an Ogg/Vorbis blob in memory.
-#[cfg(feature = "vorbis")]
 pub fn decode_ogg_vorbis_bytes(data: &[u8]) -> Result<Pcm16> {
     decode_ogg_vorbis_reader(std::io::Cursor::new(data))
 }
@@ -97,43 +95,13 @@ pub fn pcm16_to_wav_bytes(pcm: &Pcm16) -> Vec<u8> {
 }
 
 /// Decode Ogg/Vorbis bytes and immediately return WAV bytes.
-#[cfg(feature = "vorbis")]
 pub fn decode_ogg_vorbis_bytes_to_wav(data: &[u8]) -> Result<Vec<u8>> {
     let pcm = decode_ogg_vorbis_bytes(data)?;
     Ok(pcm16_to_wav_bytes(&pcm))
 }
 
 /// Decode an Ogg/Vorbis stream and immediately return WAV bytes.
-#[cfg(feature = "vorbis")]
 pub fn decode_ogg_vorbis_reader_to_wav<T: Read + Seek>(rdr: T) -> Result<Vec<u8>> {
     let pcm = decode_ogg_vorbis_reader(rdr)?;
     Ok(pcm16_to_wav_bytes(&pcm))
-}
-
-#[cfg(not(feature = "vorbis"))]
-pub fn decode_ogg_vorbis_reader<T: Read + Seek>(_rdr: T) -> Result<Pcm16> {
-    Err(anyhow!(
-        "ogg/vorbis decode disabled (enable Cargo feature: vorbis)"
-    ))
-}
-
-#[cfg(not(feature = "vorbis"))]
-pub fn decode_ogg_vorbis_bytes(_data: &[u8]) -> Result<Pcm16> {
-    Err(anyhow!(
-        "ogg/vorbis decode disabled (enable Cargo feature: vorbis)"
-    ))
-}
-
-#[cfg(not(feature = "vorbis"))]
-pub fn decode_ogg_vorbis_bytes_to_wav(_data: &[u8]) -> Result<Vec<u8>> {
-    Err(anyhow!(
-        "ogg/vorbis decode disabled (enable Cargo feature: vorbis)"
-    ))
-}
-
-#[cfg(not(feature = "vorbis"))]
-pub fn decode_ogg_vorbis_reader_to_wav<T: Read + Seek>(_rdr: T) -> Result<Vec<u8>> {
-    Err(anyhow!(
-        "ogg/vorbis decode disabled (enable Cargo feature: vorbis)"
-    ))
 }

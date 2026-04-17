@@ -10,52 +10,43 @@ use crate::runtime::{CommandContext, Value};
 use super::prop_access;
 use super::syscom;
 
-const GET_CALENDAR: i32 = 0;
-const GET_UNIX_TIME: i32 = 1;
-const CHECK_ACTIVE: i32 = 2;
-const CHECK_DEBUG_FLAG: i32 = 3;
-const SHELL_OPEN_FILE: i32 = 4;
+const CHECK_ACTIVE: i32 = 0;
+const SHELL_OPEN_FILE: i32 = 1;
+const CHECK_DUMMY_FILE_ONCE: i32 = 2;
+const OPEN_DIALOG_FOR_CHIHAYA_BENCH: i32 = 3;
+const GET_SPEC_INFO_FOR_CHIHAYA_BENCH: i32 = 4;
 const SHELL_OPEN_WEB: i32 = 5;
 const CHECK_FILE_EXIST: i32 = 6;
-const CHECK_FILE_EXIST_SAVE_DIR: i32 = 7;
-const CHECK_DUMMY_FILE_ONCE: i32 = 8;
-const CLEAR_DUMMY_FILE: i32 = 9;
-const MESSAGEBOX_OK: i32 = 10;
-const MESSAGEBOX_OKCANCEL: i32 = 11;
-const MESSAGEBOX_YESNO: i32 = 12;
-const MESSAGEBOX_YESNOCANCEL: i32 = 13;
-const DEBUG_MESSAGEBOX_OK: i32 = 14;
-const DEBUG_MESSAGEBOX_OKCANCEL: i32 = 15;
-const DEBUG_MESSAGEBOX_YESNO: i32 = 16;
-const DEBUG_MESSAGEBOX_YESNOCANCEL: i32 = 17;
-const DEBUG_WRITE_LOG: i32 = 18;
-const GET_SPEC_INFO_FOR_CHIHAYA_BENCH: i32 = 19;
-const OPEN_DIALOG_FOR_CHIHAYA_BENCH: i32 = 20;
-const GET_LANGUAGE: i32 = 21;
+const DEBUG_MESSAGEBOX_OK: i32 = 7;
+const DEBUG_MESSAGEBOX_OKCANCEL: i32 = 8;
+const DEBUG_MESSAGEBOX_YESNO: i32 = 9;
+const DEBUG_MESSAGEBOX_YESNOCANCEL: i32 = 10;
+const DEBUG_WRITE_LOG: i32 = 11;
+const CHECK_FILE_EXIST_SAVE_DIR: i32 = 12;
+const CHECK_DEBUG_FLAG: i32 = 13;
+const GET_CALENDAR: i32 = 14;
+const GET_UNIX_TIME: i32 = 15;
+const GET_LANGUAGE: i32 = 16;
+const MESSAGEBOX_OK: i32 = 17;
+const MESSAGEBOX_OKCANCEL: i32 = 18;
+const MESSAGEBOX_YESNO: i32 = 19;
+const MESSAGEBOX_YESNOCANCEL: i32 = 20;
+const CLEAR_DUMMY_FILE: i32 = 21;
 
 struct Call<'a> {
     op: i32,
     params: &'a [Value],
 }
 
-fn parse_call(form_id: u32, args: &[Value]) -> Option<Call<'_>> {
-    if let Some((chain_pos, chain)) = prop_access::parse_element_chain(form_id, args) {
-        if chain.len() >= 2 {
-            let params = if chain_pos > 1 {
-                &args[1..chain_pos]
-            } else {
-                &[]
-            };
-            return Some(Call {
-                op: chain[1],
-                params,
-            });
-        }
+fn parse_call<'a>(ctx: &CommandContext, form_id: u32, args: &'a [Value]) -> Option<Call<'a>> {
+    let (chain_pos, chain) = prop_access::parse_element_chain_ctx(ctx, form_id, args)?;
+    if chain.len() < 2 {
+        return None;
     }
-    let op = args.get(0).and_then(|v| v.as_i64())? as i32;
+    let params = prop_access::script_args(args, chain_pos);
     Some(Call {
-        op,
-        params: &args[1..],
+        op: chain[1],
+        params,
     })
 }
 
@@ -77,14 +68,12 @@ fn join_game_path(base: &Path, raw: &str) -> PathBuf {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    let Some(call) = parse_call(form_id, args) else {
+    let Some(call) = parse_call(ctx, form_id, args) else {
         return Ok(false);
     };
 
     match call.op {
         GET_CALENDAR => {
-            // Original engine writes local-time fields to the supplied element destinations.
-            // Runtime: support the common case where the parameters are element chains.
             let tm = local_time_fields();
             let vals = [tm.0, tm.1, tm.2, tm.3, tm.4, tm.5, tm.6, tm.7];
             for (idx, value) in vals.iter().enumerate() {
@@ -92,7 +81,6 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                     prop_access::assign_to_chain(ctx, chain, Value::Int(*value));
                 }
             }
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         GET_UNIX_TIME => {
@@ -128,7 +116,6 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .system
                 .debug_logs
                 .push(format!("shell_open_file:{}", path.display()));
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         SHELL_OPEN_WEB => {
@@ -138,7 +125,6 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .system
                 .debug_logs
                 .push(format!("shell_open_web:{url}"));
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         CHECK_FILE_EXIST => {
@@ -158,43 +144,48 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             let code = p_str(call.params, 2);
             let sig = format!("{name}:{key}:{code}");
             ctx.globals.system.dummy_checks.insert(sig);
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         CLEAR_DUMMY_FILE => {
             ctx.globals.system.dummy_checks.clear();
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         MESSAGEBOX_OK | MESSAGEBOX_OKCANCEL => {
-            // Without a native dialog, default to "OK" (0).
-            ctx.push(Value::Int(0));
+            let text = messagebox_text(ctx, call.params);
+            let ret = handle_messagebox(ctx, call.op, false, text, 1, 0);
+            ctx.push(Value::Int(ret));
             return Ok(true);
         }
         MESSAGEBOX_YESNO | MESSAGEBOX_YESNOCANCEL => {
-            // Default to "YES" (0).
-            ctx.push(Value::Int(0));
+            let text = messagebox_text(ctx, call.params);
+            let max = if call.op == MESSAGEBOX_YESNO { 1 } else { 2 };
+            let ret = handle_messagebox(ctx, call.op, false, text, max, 0);
+            ctx.push(Value::Int(ret));
             return Ok(true);
         }
         DEBUG_MESSAGEBOX_OK | DEBUG_MESSAGEBOX_OKCANCEL => {
-            // Only meaningful in debug builds; default to OK.
-            if ctx.globals.system.debug_flag {
-                ctx.globals
-                    .system
-                    .debug_logs
-                    .push("debug_messagebox_ok".to_string());
-            }
-            ctx.push(Value::Int(0));
+            let text = messagebox_text(ctx, call.params);
+            let ret = if ctx.globals.system.debug_flag {
+                handle_messagebox(ctx, call.op, true, text, 1, 0)
+            } else {
+                0
+            };
+            ctx.push(Value::Int(ret));
             return Ok(true);
         }
         DEBUG_MESSAGEBOX_YESNO | DEBUG_MESSAGEBOX_YESNOCANCEL => {
-            if ctx.globals.system.debug_flag {
-                ctx.globals
-                    .system
-                    .debug_logs
-                    .push("debug_messagebox_yesno".to_string());
-            }
-            ctx.push(Value::Int(0));
+            let text = messagebox_text(ctx, call.params);
+            let ret = if ctx.globals.system.debug_flag {
+                let max = if call.op == DEBUG_MESSAGEBOX_YESNO {
+                    1
+                } else {
+                    2
+                };
+                handle_messagebox(ctx, call.op, true, text, max, 0)
+            } else {
+                0
+            };
+            ctx.push(Value::Int(ret));
             return Ok(true);
         }
         DEBUG_WRITE_LOG => {
@@ -204,14 +195,18 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                     Some(Value::Str(s)) => s.clone(),
                     _ => String::new(),
                 };
-                write_debug_log(&ctx.project_dir, &s);
+                write_debug_log(
+                    &ctx.project_dir,
+                    &s,
+                    ctx.current_scene_name.as_deref(),
+                    ctx.current_line_no,
+                );
                 ctx.globals.system.debug_logs.push(s);
             }
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         GET_SPEC_INFO_FOR_CHIHAYA_BENCH => {
-            ctx.push(Value::Str("siglus_scene_vm".to_string()));
+            ctx.push(Value::Str(ctx.globals.system.spec_info.clone()));
             return Ok(true);
         }
         OPEN_DIALOG_FOR_CHIHAYA_BENCH => {
@@ -219,7 +214,6 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .system
                 .bench_dialogs
                 .push(p_str(call.params, 0).to_string());
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         GET_LANGUAGE => {
@@ -229,8 +223,45 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         _ => {}
     }
 
-    prop_access::dispatch_stateful_form(ctx, form_id, args);
-    Ok(true)
+    Ok(false)
+}
+
+fn messagebox_text(ctx: &CommandContext, params: &[Value]) -> String {
+    match params.first() {
+        Some(Value::Int(v)) => v.to_string(),
+        Some(Value::Str(s)) => s.clone(),
+        Some(v) => v.as_str().unwrap_or("").to_string(),
+        None => {
+            if let Some(name) = ctx.current_scene_name.as_deref() {
+                format!("{name}:{}", ctx.current_line_no)
+            } else {
+                String::new()
+            }
+        }
+    }
+}
+
+fn handle_messagebox(
+    ctx: &mut CommandContext,
+    kind: i32,
+    debug_only: bool,
+    text: String,
+    max_value: i64,
+    default_value: i64,
+) -> i64 {
+    ctx.globals
+        .system
+        .messagebox_history
+        .push(crate::runtime::globals::SystemMessageBoxRecord {
+            kind,
+            text,
+            debug_only,
+        });
+    if !ctx.globals.system.messagebox_response_queue.is_empty() {
+        let v = ctx.globals.system.messagebox_response_queue.remove(0);
+        return v.clamp(0, max_value);
+    }
+    default_value.clamp(0, max_value)
 }
 
 fn local_time_fields() -> (i64, i64, i64, i64, i64, i64, i64, i64) {
@@ -248,7 +279,7 @@ fn local_time_fields() -> (i64, i64, i64, i64, i64, i64, i64, i64) {
     )
 }
 
-fn write_debug_log(project_dir: &Path, msg: &str) {
+fn write_debug_log(project_dir: &Path, msg: &str, scene_name: Option<&str>, line_no: i64) {
     if msg.is_empty() {
         return;
     }
@@ -258,6 +289,10 @@ fn write_debug_log(project_dir: &Path, msg: &str) {
     let now = Local::now();
     let stamp = now.format("[%Y-%m-%d %H:%M:%S]").to_string();
     if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = writeln!(f, "{}\t{}", stamp, msg);
+        if let Some(scene) = scene_name {
+            let _ = writeln!(f, "{}\t({}.ss line={})\t{}", stamp, scene, line_no, msg);
+        } else {
+            let _ = writeln!(f, "{}\t{}", stamp, msg);
+        }
     }
 }

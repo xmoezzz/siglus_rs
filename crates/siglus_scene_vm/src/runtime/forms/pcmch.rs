@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use siglus_assets::gameexe::{decode_gameexe_dat_bytes, GameexeConfig, GameexeDecodeOptions};
 
 use crate::audio::bgm::decode_bgm_to_wav_bytes;
 use crate::runtime::{CommandContext, Value};
@@ -76,11 +77,15 @@ fn named_int(args: &[Value], id: i32) -> Option<i64> {
     })
 }
 
-fn parse_channel_from_chain(ctx: &CommandContext, chain: &[i32]) -> Option<(usize, i64)> {
+fn parse_channel_from_chain(
+    form_id: u32,
+    ctx: &CommandContext,
+    chain: &[i32],
+) -> Option<(usize, i64)> {
     if chain.len() < 4 {
         return None;
     }
-    if chain[0] as u32 != ctx.ids.form_global_pcmch {
+    if chain[0] as u32 != form_id {
         return None;
     }
     let elm_array = ctx.ids.elm_array;
@@ -111,22 +116,84 @@ fn resolve_numeric_candidates(n: i64) -> Vec<String> {
     ]
 }
 
-fn resolve_subdir_path(project_dir: &Path, subdir: &str, file_name: &str) -> Option<PathBuf> {
-    let direct = Path::new(file_name);
-    if direct.exists() {
-        return Some(direct.to_path_buf());
-    }
+fn resolve_subdir_path(
+    project_dir: &Path,
+    current_append_dir: &str,
+    subdir: &str,
+    file_name: &str,
+) -> Option<PathBuf> {
+    crate::resource::find_audio_path_with_append_dir(
+        project_dir,
+        current_append_dir,
+        subdir,
+        file_name,
+    )
+    .ok()
+    .map(|(path, _ty)| path)
+}
 
-    let dir = project_dir.join(subdir);
-    let base = dir.join(file_name);
-    if base.extension().is_some() && base.exists() {
-        return Some(base);
-    }
-
-    for ext in ["wav", "nwa", "ogg", "owp", "ovk"] {
-        let p = base.with_extension(ext);
-        if p.exists() {
+fn find_gameexe_path(project_dir: &Path) -> Option<PathBuf> {
+    const CANDIDATES: &[&str] = &[
+        "Gameexe.dat",
+        "Gameexe.ini",
+        "gameexe.dat",
+        "gameexe.ini",
+        "GameexeEN.dat",
+        "GameexeEN.ini",
+        "GameexeZH.dat",
+        "GameexeZH.ini",
+        "GameexeZHTW.dat",
+        "GameexeZHTW.ini",
+        "GameexeDE.dat",
+        "GameexeDE.ini",
+        "GameexeES.dat",
+        "GameexeES.ini",
+        "GameexeFR.dat",
+        "GameexeFR.ini",
+        "GameexeID.dat",
+        "GameexeID.ini",
+    ];
+    for name in CANDIDATES {
+        let p = project_dir.join(name);
+        if p.is_file() {
             return Some(p);
+        }
+    }
+    None
+}
+
+fn load_gameexe_config(project_dir: &Path) -> Option<GameexeConfig> {
+    let path = find_gameexe_path(project_dir)?;
+    let raw = std::fs::read(&path).ok()?;
+    if path
+        .extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("ini"))
+    {
+        let text = String::from_utf8(raw).ok()?;
+        return Some(GameexeConfig::from_text(&text));
+    }
+    let opt = GameexeDecodeOptions::from_project_dir(project_dir).ok()?;
+    let (text, _report) = decode_gameexe_dat_bytes(&raw, &opt).ok()?;
+    Some(GameexeConfig::from_text(&text))
+}
+
+fn lookup_gameexe_bgm_file_name(project_dir: &Path, regist_name: &str) -> Option<String> {
+    let cfg = load_gameexe_config(project_dir)?;
+    let target = regist_name.trim().to_ascii_lowercase();
+    let cnt = cfg.indexed_count("BGM");
+    for i in 0..cnt {
+        let Some(key_name) = cfg.get_indexed_item_unquoted("BGM", i, 0) else {
+            continue;
+        };
+        if key_name.trim().to_ascii_lowercase() != target {
+            continue;
+        }
+        let Some(file_name) = cfg.get_indexed_item_unquoted("BGM", i, 1) else {
+            continue;
+        };
+        if !file_name.trim().is_empty() {
+            return Some(file_name.trim().to_string());
         }
     }
     None
@@ -161,7 +228,20 @@ fn play_named_source(
     }
 
     if let Some(name) = bgm_name.filter(|s| !s.is_empty()) {
-        if let Some(path) = resolve_subdir_path(&ctx.project_dir, "bgm", name) {
+        if let Some(mapped_name) = lookup_gameexe_bgm_file_name(&ctx.project_dir, name) {
+            if let Some(path) = resolve_subdir_path(
+                &ctx.project_dir,
+                &ctx.globals.append_dir,
+                "bgm",
+                &mapped_name,
+            ) {
+                play_path_on_pcm_slot(ctx, ch, &format!("bgm:{name}"), &path, loop_flag)?;
+                return Ok(true);
+            }
+        }
+        if let Some(path) =
+            resolve_subdir_path(&ctx.project_dir, &ctx.globals.append_dir, "bgm", name)
+        {
             play_path_on_pcm_slot(ctx, ch, &format!("bgm:{name}"), &path, loop_flag)?;
             return Ok(true);
         }
@@ -175,7 +255,9 @@ fn play_named_source(
 
     if let Some(no) = se_no {
         for cand in resolve_numeric_candidates(no) {
-            if let Some(path) = resolve_subdir_path(&ctx.project_dir, "se", &cand) {
+            if let Some(path) =
+                resolve_subdir_path(&ctx.project_dir, &ctx.globals.append_dir, "se", &cand)
+            {
                 play_path_on_pcm_slot(ctx, ch, &format!("se:{cand}"), &path, loop_flag)?;
                 return Ok(true);
             }
@@ -185,40 +267,15 @@ fn play_named_source(
     Ok(false)
 }
 
-pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
-    if args.is_empty() {
-        bail!("PCMCH form expects arguments");
-    }
-
-    let mut ch: usize = 0;
-    let mut op: Option<i64> = None;
-    let mut real_args: &[Value] = &args[1..];
-    let mut ret_form: Option<i64> = None;
-
-    if args.len() >= 3 {
-        if let (Some(Value::Element(chain)), Some(Value::Int(_)), Some(Value::Int(_))) = (
-            args.get(args.len() - 3),
-            args.get(args.len() - 2),
-            args.get(args.len() - 1),
-        ) {
-            if let Some((c, o)) = parse_channel_from_chain(ctx, chain) {
-                ch = c;
-                op = Some(o);
-                real_args = &args[1..args.len() - 3];
-                ret_form = args.get(args.len() - 1).and_then(|v| v.as_i64());
-            }
-        }
-    }
-
-    let op = op.unwrap_or_else(|| match args[0] {
-        Value::Int(v) => v,
-        _ => -9_999_999,
-    });
-    if op == -9_999_999 {
-        ctx.push(Value::Int(0));
-        return Ok(true);
-    }
-    dispatch_inner(ctx, ch, op, real_args, ret_form)
+pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+    let vm_call = match ctx.vm_call.as_ref() {
+        Some(v) => v,
+        None => return Ok(false),
+    };
+    let Some((ch, op)) = parse_channel_from_chain(form_id, ctx, &vm_call.element) else {
+        return Ok(false);
+    };
+    dispatch_inner(ctx, ch, op, args, Some(vm_call.ret_form))
 }
 
 fn dispatch_inner(
@@ -266,7 +323,9 @@ fn dispatch_inner(
                 }
             };
             for cand in resolve_numeric_candidates(se_no) {
-                if let Some(path) = resolve_subdir_path(&ctx.project_dir, "se", &cand) {
+                if let Some(path) =
+                    resolve_subdir_path(&ctx.project_dir, &ctx.globals.append_dir, "se", &cand)
+                {
                     play_path_on_pcm_slot(ctx, ch, &format!("se:{cand}"), &path, false)?;
                     return Ok(true);
                 }

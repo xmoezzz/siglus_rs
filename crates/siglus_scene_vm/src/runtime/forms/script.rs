@@ -4,126 +4,176 @@ use crate::runtime::{CommandContext, Value};
 
 use super::prop_access;
 
-const SET_AUTO_SAVEPOINT_OFF: i32 = 0;
-const SET_AUTO_SAVEPOINT_ON: i32 = 1;
-const SET_SKIP_DISABLE: i32 = 2;
-const SET_SKIP_ENABLE: i32 = 3;
-const SET_SKIP_DISABLE_FLAG: i32 = 4;
-const GET_SKIP_DISABLE_FLAG: i32 = 5;
-const SET_CTRL_SKIP_DISABLE: i32 = 6;
-const SET_CTRL_SKIP_ENABLE: i32 = 7;
-const SET_CTRL_SKIP_DISABLE_FLAG: i32 = 8;
-const GET_CTRL_SKIP_DISABLE_FLAG: i32 = 9;
-const CHECK_SKIP: i32 = 10;
-const SET_STOP_SKIP_BY_KEY_DISABLE: i32 = 11;
-const SET_STOP_SKIP_BY_KEY_ENABLE: i32 = 12;
-const SET_END_MSG_BY_KEY_DISABLE: i32 = 13;
-const SET_END_MSG_BY_KEY_ENABLE: i32 = 14;
-const SET_SKIP_UNREAD_MESSAGE_FLAG: i32 = 15;
-const GET_SKIP_UNREAD_MESSAGE_FLAG: i32 = 16;
-const START_AUTO_MODE: i32 = 17;
-const END_AUTO_MODE: i32 = 18;
-const SET_AUTO_MODE_MOJI_WAIT: i32 = 19;
-const SET_AUTO_MODE_MOJI_WAIT_DEFAULT: i32 = 20;
-const GET_AUTO_MODE_MOJI_WAIT: i32 = 21;
-const SET_AUTO_MODE_MIN_WAIT: i32 = 22;
-const SET_AUTO_MODE_MIN_WAIT_DEFAULT: i32 = 23;
-const GET_AUTO_MODE_MIN_WAIT: i32 = 24;
-const SET_AUTO_MODE_MOJI_CNT: i32 = 25;
-const SET_MOUSE_CURSOR_HIDE_ONOFF: i32 = 26;
-const SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT: i32 = 27;
-const GET_MOUSE_CURSOR_HIDE_ONOFF: i32 = 28;
-const SET_MOUSE_CURSOR_HIDE_TIME: i32 = 29;
-const SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT: i32 = 30;
-const GET_MOUSE_CURSOR_HIDE_TIME: i32 = 31;
-const SET_MESSAGE_SPEED: i32 = 32;
-const SET_MESSAGE_SPEED_DEFAULT: i32 = 33;
-const GET_MESSAGE_SPEED: i32 = 34;
-const SET_MESSAGE_NOWAIT_FLAG: i32 = 35;
-const GET_MESSAGE_NOWAIT_FLAG: i32 = 36;
-const SET_MSG_ASYNC_MODE_ON: i32 = 37;
-const SET_MSG_ASYNC_MODE_ON_ONCE: i32 = 38;
-const SET_MSG_ASYNC_MODE_OFF: i32 = 39;
-const SET_HIDE_MWND_DISABLE: i32 = 40;
-const SET_HIDE_MWND_ENABLE: i32 = 41;
-const SET_MSG_BACK_DISABLE: i32 = 42;
-const SET_MSG_BACK_ENABLE: i32 = 43;
-const SET_MSG_BACK_OFF: i32 = 44;
-const SET_MSG_BACK_ON: i32 = 45;
-const SET_MSG_BACK_DISP_OFF: i32 = 46;
-const SET_MSG_BACK_DISP_ON: i32 = 47;
-const SET_MOUSE_DISP_OFF: i32 = 48;
-const SET_MOUSE_DISP_ON: i32 = 49;
-const SET_MOUSE_MOVE_BY_KEY_DISABLE: i32 = 50;
-const SET_MOUSE_MOVE_BY_KEY_ENABLE: i32 = 51;
-const SET_KEY_DISABLE: i32 = 52;
-const SET_KEY_ENABLE: i32 = 53;
-const SET_MWND_ANIME_OFF_FLAG: i32 = 54;
-const GET_MWND_ANIME_OFF_FLAG: i32 = 55;
-const SET_MWND_ANIME_ON_FLAG: i32 = 56;
-const GET_MWND_ANIME_ON_FLAG: i32 = 57;
-const SET_MWND_DISP_OFF_FLAG: i32 = 58;
-const GET_MWND_DISP_OFF_FLAG: i32 = 59;
-const SET_KOE_DONT_STOP_ON_FLAG: i32 = 60;
-const GET_KOE_DONT_STOP_ON_FLAG: i32 = 61;
-const SET_KOE_DONT_STOP_OFF_FLAG: i32 = 62;
-const GET_KOE_DONT_STOP_OFF_FLAG: i32 = 63;
-const SET_SHORTCUT_ENABLE: i32 = 64;
-const SET_SHORTCUT_DISABLE: i32 = 65;
-const SET_QUAKE_STOP_FLAG: i32 = 66;
-const GET_QUAKE_STOP_FLAG: i32 = 67;
-const SET_EMOTE_MOUTH_STOP_FLAG: i32 = 68;
-const GET_EMOTE_MOUTH_STOP_FLAG: i32 = 69;
-const START_BGMFADE: i32 = 70;
-const END_BGMFADE: i32 = 71;
-const SET_VSYNC_WAIT_OFF_FLAG: i32 = 72;
-const GET_VSYNC_WAIT_OFF_FLAG: i32 = 73;
-const SET_SKIP_TRIGGER: i32 = 74;
-const IGNORE_R_ON: i32 = 75;
-const IGNORE_R_OFF: i32 = 76;
-const SET_CURSOR_NO: i32 = 77;
-const GET_CURSOR_NO: i32 = 78;
-const SET_TIME_STOP_FLAG: i32 = 79;
-const GET_TIME_STOP_FLAG: i32 = 80;
-const SET_COUNTER_TIME_STOP_FLAG: i32 = 81;
-const GET_COUNTER_TIME_STOP_FLAG: i32 = 82;
-const SET_FRAME_ACTION_TIME_STOP_FLAG: i32 = 83;
-const GET_FRAME_ACTION_TIME_STOP_FLAG: i32 = 84;
-const SET_STAGE_TIME_STOP_FLAG: i32 = 85;
-const GET_STAGE_TIME_STOP_FLAG: i32 = 86;
-const SET_FONT_NAME: i32 = 87;
-const SET_FONT_NAME_DEFAULT: i32 = 88;
-const GET_FONT_NAME: i32 = 89;
-const SET_FONT_BOLD: i32 = 90;
-const SET_FONT_BOLD_DEFAULT: i32 = 91;
-const GET_FONT_BOLD: i32 = 92;
-const SET_FONT_SHADOW: i32 = 93;
-const SET_FONT_SHADOW_DEFAULT: i32 = 94;
-const GET_FONT_SHADOW: i32 = 95;
+const SET_AUTO_SAVEPOINT_OFF: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_AUTO_SAVEPOINT_OFF;
+const SET_AUTO_SAVEPOINT_ON: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_AUTO_SAVEPOINT_ON;
+const SET_SKIP_DISABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_SKIP_DISABLE;
+const SET_SKIP_ENABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_SKIP_ENABLE;
+const SET_SKIP_DISABLE_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_SKIP_DISABLE_FLAG;
+const GET_SKIP_DISABLE_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_SKIP_DISABLE_FLAG;
+const SET_CTRL_SKIP_DISABLE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_CTRL_SKIP_DISABLE;
+const SET_CTRL_SKIP_ENABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_CTRL_SKIP_ENABLE;
+const SET_CTRL_SKIP_DISABLE_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_CTRL_SKIP_DISABLE_FLAG;
+const GET_CTRL_SKIP_DISABLE_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_CTRL_SKIP_DISABLE_FLAG;
+const CHECK_SKIP: i32 = crate::runtime::constants::elm_value::SCRIPT_CHECK_SKIP;
+const SET_STOP_SKIP_BY_KEY_DISABLE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_STOP_SKIP_BY_KEY_DISABLE;
+const SET_STOP_SKIP_BY_KEY_ENABLE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_STOP_SKIP_BY_KEY_ENABLE;
+const SET_END_MSG_BY_KEY_DISABLE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_END_MSG_BY_KEY_DISABLE;
+const SET_END_MSG_BY_KEY_ENABLE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_END_MSG_BY_KEY_ENABLE;
+const SET_SKIP_UNREAD_MESSAGE_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_SKIP_UNREAD_MESSAGE_FLAG;
+const GET_SKIP_UNREAD_MESSAGE_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_SKIP_UNREAD_MESSAGE_FLAG;
+const START_AUTO_MODE: i32 = crate::runtime::constants::elm_value::SCRIPT_START_AUTO_MODE;
+const END_AUTO_MODE: i32 = crate::runtime::constants::elm_value::SCRIPT_END_AUTO_MODE;
+const SET_AUTO_MODE_MOJI_WAIT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_AUTO_MODE_MOJI_WAIT;
+const SET_AUTO_MODE_MOJI_WAIT_DEFAULT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_AUTO_MODE_MOJI_WAIT_DEFAULT;
+const GET_AUTO_MODE_MOJI_WAIT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_AUTO_MODE_MOJI_WAIT;
+const SET_AUTO_MODE_MIN_WAIT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_AUTO_MODE_MIN_WAIT;
+const SET_AUTO_MODE_MIN_WAIT_DEFAULT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_AUTO_MODE_MIN_WAIT_DEFAULT;
+const GET_AUTO_MODE_MIN_WAIT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_AUTO_MODE_MIN_WAIT;
+const SET_AUTO_MODE_MOJI_CNT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_AUTO_MODE_MOJI_CNT;
+const SET_MOUSE_CURSOR_HIDE_ONOFF: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MOUSE_CURSOR_HIDE_ONOFF;
+const SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT;
+const GET_MOUSE_CURSOR_HIDE_ONOFF: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_MOUSE_CURSOR_HIDE_ONOFF;
+const SET_MOUSE_CURSOR_HIDE_TIME: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MOUSE_CURSOR_HIDE_TIME;
+const SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT;
+const GET_MOUSE_CURSOR_HIDE_TIME: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_MOUSE_CURSOR_HIDE_TIME;
+const SET_MESSAGE_SPEED: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_MESSAGE_SPEED;
+const SET_MESSAGE_SPEED_DEFAULT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MESSAGE_SPEED_DEFAULT;
+const GET_MESSAGE_SPEED: i32 = crate::runtime::constants::elm_value::SCRIPT_GET_MESSAGE_SPEED;
+const SET_MESSAGE_NOWAIT_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MESSAGE_NOWAIT_FLAG;
+const GET_MESSAGE_NOWAIT_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_MESSAGE_NOWAIT_FLAG;
+const SET_MSG_ASYNC_MODE_ON: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MSG_ASYNC_MODE_ON;
+const SET_MSG_ASYNC_MODE_ON_ONCE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MSG_ASYNC_MODE_ON_ONCE;
+const SET_MSG_ASYNC_MODE_OFF: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MSG_ASYNC_MODE_OFF;
+const SET_HIDE_MWND_DISABLE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_HIDE_MWND_DISABLE;
+const SET_HIDE_MWND_ENABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_HIDE_MWND_ENABLE;
+const SET_MSG_BACK_DISABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_MSG_BACK_DISABLE;
+const SET_MSG_BACK_ENABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_MSG_BACK_ENABLE;
+const SET_MSG_BACK_OFF: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_MSG_BACK_OFF;
+const SET_MSG_BACK_ON: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_MSG_BACK_ON;
+const SET_MSG_BACK_DISP_OFF: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MSG_BACK_DISP_OFF;
+const SET_MSG_BACK_DISP_ON: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_MSG_BACK_DISP_ON;
+const SET_MOUSE_DISP_OFF: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_MOUSE_DISP_OFF;
+const SET_MOUSE_DISP_ON: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_MOUSE_DISP_ON;
+const SET_MOUSE_MOVE_BY_KEY_DISABLE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MOUSE_MOVE_BY_KEY_DISABLE;
+const SET_MOUSE_MOVE_BY_KEY_ENABLE: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MOUSE_MOVE_BY_KEY_ENABLE;
+const SET_KEY_DISABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_KEY_DISABLE;
+const SET_KEY_ENABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_KEY_ENABLE;
+const SET_MWND_ANIME_OFF_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MWND_ANIME_OFF_FLAG;
+const GET_MWND_ANIME_OFF_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_MWND_ANIME_OFF_FLAG;
+const SET_MWND_ANIME_ON_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MWND_ANIME_ON_FLAG;
+const GET_MWND_ANIME_ON_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_MWND_ANIME_ON_FLAG;
+const SET_MWND_DISP_OFF_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_MWND_DISP_OFF_FLAG;
+const GET_MWND_DISP_OFF_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_MWND_DISP_OFF_FLAG;
+const SET_KOE_DONT_STOP_ON_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_KOE_DONT_STOP_ON_FLAG;
+const GET_KOE_DONT_STOP_ON_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_KOE_DONT_STOP_ON_FLAG;
+const SET_KOE_DONT_STOP_OFF_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_KOE_DONT_STOP_OFF_FLAG;
+const GET_KOE_DONT_STOP_OFF_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_KOE_DONT_STOP_OFF_FLAG;
+const SET_SHORTCUT_ENABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_SHORTCUT_ENABLE;
+const SET_SHORTCUT_DISABLE: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_SHORTCUT_DISABLE;
+const SET_QUAKE_STOP_FLAG: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_QUAKE_STOP_FLAG;
+const GET_QUAKE_STOP_FLAG: i32 = crate::runtime::constants::elm_value::SCRIPT_GET_QUAKE_STOP_FLAG;
+const SET_EMOTE_MOUTH_STOP_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_EMOTE_MOUTH_STOP_FLAG;
+const GET_EMOTE_MOUTH_STOP_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_EMOTE_MOUTH_STOP_FLAG;
+const START_BGMFADE: i32 = crate::runtime::constants::elm_value::SCRIPT_START_BGMFADE;
+const END_BGMFADE: i32 = crate::runtime::constants::elm_value::SCRIPT_END_BGMFADE;
+const SET_VSYNC_WAIT_OFF_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_VSYNC_WAIT_OFF_FLAG;
+const GET_VSYNC_WAIT_OFF_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_VSYNC_WAIT_OFF_FLAG;
+const SET_SKIP_TRIGGER: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_SKIP_TRIGGER;
+const IGNORE_R_ON: i32 = crate::runtime::constants::elm_value::SCRIPT_IGNORE_R_ON;
+const IGNORE_R_OFF: i32 = crate::runtime::constants::elm_value::SCRIPT_IGNORE_R_OFF;
+const SET_CURSOR_NO: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_CURSOR_NO;
+const GET_CURSOR_NO: i32 = crate::runtime::constants::elm_value::SCRIPT_GET_CURSOR_NO;
+const SET_TIME_STOP_FLAG: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_TIME_STOP_FLAG;
+const GET_TIME_STOP_FLAG: i32 = crate::runtime::constants::elm_value::SCRIPT_GET_TIME_STOP_FLAG;
+const SET_COUNTER_TIME_STOP_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_COUNTER_TIME_STOP_FLAG;
+const GET_COUNTER_TIME_STOP_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_COUNTER_TIME_STOP_FLAG;
+const SET_FRAME_ACTION_TIME_STOP_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_FRAME_ACTION_TIME_STOP_FLAG;
+const GET_FRAME_ACTION_TIME_STOP_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_FRAME_ACTION_TIME_STOP_FLAG;
+const SET_STAGE_TIME_STOP_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_STAGE_TIME_STOP_FLAG;
+const GET_STAGE_TIME_STOP_FLAG: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_GET_STAGE_TIME_STOP_FLAG;
+const SET_FONT_NAME: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_FONT_NAME;
+const SET_FONT_NAME_DEFAULT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_FONT_NAME_DEFAULT;
+const GET_FONT_NAME: i32 = crate::runtime::constants::elm_value::SCRIPT_GET_FONT_NAME;
+const SET_FONT_BOLD: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_FONT_BOLD;
+const SET_FONT_BOLD_DEFAULT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_FONT_BOLD_DEFAULT;
+const GET_FONT_BOLD: i32 = crate::runtime::constants::elm_value::SCRIPT_GET_FONT_BOLD;
+const SET_FONT_SHADOW: i32 = crate::runtime::constants::elm_value::SCRIPT_SET_FONT_SHADOW;
+const SET_FONT_SHADOW_DEFAULT: i32 =
+    crate::runtime::constants::elm_value::SCRIPT_SET_FONT_SHADOW_DEFAULT;
+const GET_FONT_SHADOW: i32 = crate::runtime::constants::elm_value::SCRIPT_GET_FONT_SHADOW;
 
 struct Call<'a> {
     op: i32,
     params: &'a [Value],
 }
 
-fn parse_call(form_id: u32, args: &[Value]) -> Option<Call<'_>> {
-    if let Some((chain_pos, chain)) = prop_access::parse_element_chain(form_id, args) {
-        if chain.len() >= 2 {
-            let params = if chain_pos > 1 {
-                &args[1..chain_pos]
-            } else {
-                &[]
-            };
-            return Some(Call {
-                op: chain[1],
-                params,
-            });
-        }
+fn parse_call<'a>(ctx: &CommandContext, form_id: u32, args: &'a [Value]) -> Option<Call<'a>> {
+    let (chain_pos, chain) = prop_access::parse_element_chain_ctx(ctx, form_id, args)?;
+    if chain.len() < 2 {
+        return None;
     }
-    let op = args.get(0).and_then(|v| v.as_i64())? as i32;
+    let params = prop_access::script_args(args, chain_pos);
     Some(Call {
-        op,
-        params: &args[1..],
+        op: chain[1],
+        params,
     })
 }
 
@@ -144,7 +194,7 @@ fn p_str(params: &[Value], idx: usize) -> String {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    let Some(call) = parse_call(form_id, args) else {
+    let Some(call) = parse_call(ctx, form_id, args) else {
         return Ok(false);
     };
     let op = call.op;
@@ -372,8 +422,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             return Ok(true);
         }
         _ => {
-            prop_access::dispatch_stateful_form(ctx, form_id, args);
-            return Ok(true);
+            return Ok(false);
         }
     }
 

@@ -13,7 +13,7 @@ use super::prop_access;
 const CALL_EX: i32 = 0;
 const CALL_SYSCOM_MENU: i32 = 1;
 const SET_SYSCOM_MENU_ENABLE: i32 = 2;
-const SET_SYSCOM_MENU_DISABLE: i32 = 3;
+const SET_SYSCOM_MENU_DISABLE: i32 = 7;
 const SET_MWND_BTN_ENABLE: i32 = 4;
 const SET_MWND_BTN_DISABLE: i32 = 5;
 const SET_MWND_BTN_TOUCH_ENABLE: i32 = 6;
@@ -41,8 +41,8 @@ const SET_AUTO_MODE_EXIST_FLAG: i32 = 27;
 const GET_AUTO_MODE_EXIST_FLAG: i32 = 28;
 const CHECK_AUTO_MODE_ENABLE: i32 = 29;
 const SET_HIDE_MWND_ONOFF_FLAG: i32 = 30;
-const GET_HIDE_MWND_ONOFF_FLAG: i32 = 31;
-const SET_HIDE_MWND_ENABLE_FLAG: i32 = 32;
+const GET_HIDE_MWND_ONOFF_FLAG: i32 = 222;
+const SET_HIDE_MWND_ENABLE_FLAG: i32 = 223;
 const GET_HIDE_MWND_ENABLE_FLAG: i32 = 33;
 const SET_HIDE_MWND_EXIST_FLAG: i32 = 34;
 const GET_HIDE_MWND_EXIST_FLAG: i32 = 35;
@@ -351,24 +351,15 @@ struct Call<'a> {
     params: &'a [Value],
 }
 
-fn parse_call(form_id: u32, args: &[Value]) -> Option<Call<'_>> {
-    if let Some((chain_pos, chain)) = prop_access::parse_element_chain(form_id, args) {
-        if chain.len() >= 2 {
-            let params = if chain_pos > 1 {
-                &args[1..chain_pos]
-            } else {
-                &[]
-            };
-            return Some(Call {
-                op: chain[1],
-                params,
-            });
-        }
+fn parse_call<'a>(ctx: &CommandContext, form_id: u32, args: &'a [Value]) -> Option<Call<'a>> {
+    let (chain_pos, chain) = prop_access::parse_element_chain_ctx(ctx, form_id, args)?;
+    if chain.len() < 2 {
+        return None;
     }
-    let op = args.get(0).and_then(|v| v.as_i64())? as i32;
+    let params = prop_access::script_args(args, chain_pos);
     Some(Call {
-        op,
-        params: &args[1..],
+        op: chain[1],
+        params,
     })
 }
 
@@ -881,22 +872,21 @@ fn write_msg_back(ctx: &CommandContext) {
     let mut out = String::new();
     for (i, entry) in st.history.iter().enumerate() {
         out.push_str(&format!("-- entry {} --\n", i));
-        for atom in &entry.atoms {
-            match atom {
-                crate::runtime::globals::MsgBackAtom::Name(s) => {
-                    out.push_str("NAME: ");
-                    out.push_str(&s);
-                    out.push('\n');
-                }
-                crate::runtime::globals::MsgBackAtom::Text(s) => {
-                    out.push_str("TEXT: ");
-                    out.push_str(&s);
-                    out.push('\n');
-                }
-                crate::runtime::globals::MsgBackAtom::Koe { koe_no, chara_no } => {
-                    out.push_str(&format!("KOE: {} {}\n", koe_no, chara_no));
-                }
-            }
+        if !entry.original_name.is_empty() || !entry.disp_name.is_empty() {
+            out.push_str("NAME: ");
+            out.push_str(&entry.disp_name);
+            out.push('\n');
+        }
+        if !entry.msg_str.is_empty() {
+            out.push_str("TEXT: ");
+            out.push_str(&entry.msg_str);
+            out.push('\n');
+        }
+        for (koe_no, chara_no) in entry.koe_no_list.iter().zip(entry.chr_no_list.iter()) {
+            out.push_str(&format!("KOE: {} {}\n", koe_no, chara_no));
+        }
+        if entry.scn_no >= 0 || entry.line_no >= 0 {
+            out.push_str(&format!("SCENE_LINE: {} {}\n", entry.scn_no, entry.line_no));
         }
         out.push('\n');
     }
@@ -1107,7 +1097,7 @@ fn font_exists(project_dir: &Path, name: &str) -> bool {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    let Some(call) = parse_call(form_id, args) else {
+    let Some(call) = parse_call(ctx, form_id, args) else {
         return Ok(false);
     };
     let op = call.op;
@@ -2187,8 +2177,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             return Ok(true);
         }
         _ => {
-            prop_access::dispatch_stateful_form(ctx, form_id, args);
-            return Ok(true);
+            return Ok(false);
         }
     }
 

@@ -222,6 +222,13 @@ impl Default for ScriptRuntimeState {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SystemMessageBoxRecord {
+    pub kind: i32,
+    pub text: String,
+    pub debug_only: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct SystemRuntimeState {
     pub active_flag: bool,
@@ -230,6 +237,9 @@ pub struct SystemRuntimeState {
     pub debug_logs: Vec<String>,
     pub dummy_checks: HashSet<String>,
     pub bench_dialogs: Vec<String>,
+    pub messagebox_history: Vec<SystemMessageBoxRecord>,
+    pub messagebox_response_queue: Vec<i64>,
+    pub spec_info: String,
 }
 
 impl Default for SystemRuntimeState {
@@ -241,6 +251,9 @@ impl Default for SystemRuntimeState {
             debug_logs: Vec::new(),
             dummy_checks: HashSet::new(),
             bench_dialogs: Vec::new(),
+            messagebox_history: Vec::new(),
+            messagebox_response_queue: Vec::new(),
+            spec_info: "siglus_scene_vm".to_string(),
         }
     }
 }
@@ -345,6 +358,90 @@ pub struct SyscomRuntimeState {
 ///
 /// This crate keeps these structures generic on purpose: many Siglus
 /// "global elements" are simple lists, counters, etc.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LightType {
+    None = -1,
+    Directional = 0,
+    Point = 1,
+    Spot = 2,
+    ShadowMapSpot = 3,
+}
+
+pub const WORLD_LIGHT_MAX: usize = 128;
+pub const OBJ_DIRECTIONAL_LIGHT_MAX: usize = 4;
+pub const OBJ_POINT_LIGHT_MAX: usize = 4;
+pub const OBJ_SPOT_LIGHT_MAX: usize = 4;
+
+#[derive(Debug, Clone)]
+pub struct LightState {
+    pub id: i32,
+    pub kind: LightType,
+    pub diffuse: [f32; 4],
+    pub ambient: [f32; 4],
+    pub specular: [f32; 4],
+    pub pos: [f32; 3],
+    pub dir: [f32; 3],
+    pub attenuation0: f32,
+    pub attenuation1: f32,
+    pub attenuation2: f32,
+    pub range: f32,
+    pub theta_deg: f32,
+    pub phi_deg: f32,
+    pub falloff: f32,
+}
+
+impl LightState {
+    pub fn directional(id: i32, dir: [f32; 3]) -> Self {
+        Self {
+            id,
+            kind: LightType::Directional,
+            diffuse: [1.0, 1.0, 1.0, 1.0],
+            ambient: [0.18, 0.18, 0.18, 1.0],
+            specular: [0.0, 0.0, 0.0, 1.0],
+            pos: [0.0, 0.0, 0.0],
+            dir,
+            attenuation0: 1.0,
+            attenuation1: 0.0,
+            attenuation2: 0.0,
+            range: 5000.0,
+            theta_deg: 20.0,
+            phi_deg: 40.0,
+            falloff: 1.0,
+        }
+    }
+}
+
+impl Default for LightState {
+    fn default() -> Self {
+        Self::directional(0, [0.0, 0.0, -1.0])
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct FogGlobalState {
+    pub enabled: bool,
+    pub name: String,
+    pub near: f32,
+    pub far: f32,
+    pub color: [f32; 4],
+    pub scroll_x: f32,
+    pub texture_image_id: Option<ImageId>,
+}
+
+impl Default for FogGlobalState {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            name: String::new(),
+            near: 400.0,
+            far: 2600.0,
+            color: [0.62, 0.62, 0.62, 1.0],
+            scroll_x: 0.0,
+            texture_image_id: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct GlobalState {
     /// Generic int-list storage keyed by the global form ID.
@@ -353,6 +450,13 @@ pub struct GlobalState {
     pub str_lists: HashMap<u32, Vec<String>>,
     /// Counter-list storage keyed by the global form ID.
     pub counter_lists: HashMap<u32, Vec<Counter>>,
+    /// PCM-event lists keyed by the global form ID.
+    pub pcm_event_lists: HashMap<u32, Vec<PcmEventState>>,
+
+    /// Generic integer-event roots keyed by the form ID.
+    pub int_event_roots: HashMap<u32, IntEvent>,
+    /// Generic integer-event lists keyed by the form ID.
+    pub int_event_lists: HashMap<u32, Vec<IntEvent>>,
 
     /// Generic int properties keyed by (form_id -> op_id).
     pub int_props: HashMap<u32, HashMap<i32, i64>>,
@@ -378,24 +482,22 @@ pub struct GlobalState {
 
     /// Mask subsystem state keyed by the (guessed or mapped) form id.
     pub mask_lists: HashMap<u32, MaskListState>,
-    /// Auto-detected mask form id when no explicit id-map entry exists.
-    pub guessed_mask_form_id: Option<u32>,
-
     /// EditBox subsystem state keyed by the (guessed or mapped) form id.
     pub editbox_lists: HashMap<u32, EditBoxListState>,
-    /// Auto-detected editbox form id when no explicit id-map entry exists.
-    pub guessed_editbox_form_id: Option<u32>,
     /// Currently focused editbox (form_id, index).
     pub focused_editbox: Option<(u32, usize)>,
+    /// Display-mode transition counter used by editbox frame visibility.
+    pub change_display_mode_proc_cnt: i32,
 
     /// Stage UI subsystem state keyed by the stage form ID.
     pub stage_forms: HashMap<u32, StageFormState>,
-    /// Auto-detected stage form id when no explicit id-map entry exists.
-    pub guessed_stage_form_id: Option<u32>,
     /// Currently focused stage group selection (form_id, stage_idx, group_idx).
     pub focused_stage_group: Option<(u32, i64, usize)>,
     /// Currently focused message-window selection (form_id, stage_idx, mwnd_idx).
     pub focused_stage_mwnd: Option<(u32, i64, usize)>,
+    /// Last object target touched by stage/object dispatch. Compact object-only chains in scene bytecode
+    /// use this as the ambient current-object context when they omit the object index.
+    pub current_stage_object: Option<(i64, usize)>,
 
     /// Screen subsystem state keyed by the screen form ID.
     pub screen_forms: HashMap<u32, ScreenFormState>,
@@ -422,6 +524,14 @@ pub struct GlobalState {
 
     /// Active wipe transition (WIPE / MASK_WIPE).
     pub wipe: Option<WipeState>,
+
+    /// Global light manager keyed by original engine light id.
+    pub lights: HashMap<i32, LightState>,
+    /// Global fog state.
+    pub fog_global: FogGlobalState,
+
+    /// Monotonic frame counter used by render effects.
+    pub render_frame: u64,
 }
 
 impl Default for GlobalState {
@@ -430,6 +540,9 @@ impl Default for GlobalState {
             int_lists: HashMap::new(),
             str_lists: HashMap::new(),
             counter_lists: HashMap::new(),
+            pcm_event_lists: HashMap::new(),
+            int_event_roots: HashMap::new(),
+            int_event_lists: HashMap::new(),
             int_props: HashMap::new(),
             str_props: HashMap::new(),
             intlist_bit_widths: HashMap::new(),
@@ -439,16 +552,14 @@ impl Default for GlobalState {
             g00buf: Vec::new(),
             rng_state: 0,
             mask_lists: HashMap::new(),
-            guessed_mask_form_id: None,
-
             editbox_lists: HashMap::new(),
-            guessed_editbox_form_id: None,
             focused_editbox: None,
+            change_display_mode_proc_cnt: 0,
 
             stage_forms: HashMap::new(),
-            guessed_stage_form_id: None,
             focused_stage_group: None,
             focused_stage_mwnd: None,
+            current_stage_object: None,
 
             screen_forms: HashMap::new(),
             msgbk_forms: HashMap::new(),
@@ -462,19 +573,31 @@ impl Default for GlobalState {
             bgm_table_all_flag: false,
 
             wipe: None,
+            lights: HashMap::new(),
+            fog_global: FogGlobalState::default(),
+            render_frame: 0,
         }
     }
 }
 
-/// A minimal counter implementation.
-///
-/// The original engine supports multiple timing modes (game/real/frame), looping,
-/// and a sizable command surface. For bring-up, we model a monotonic millisecond
-/// counter that can be started/stopped/resumed and set directly.
+#[derive(Debug, Clone, Copy)]
+pub enum CounterMode {
+    Idle,
+    RunningMs,
+    RunningFrame {
+        from: i64,
+        to: i64,
+        frame_span: i64,
+        looped: bool,
+    },
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Counter {
     base_ms: i64,
     start: Option<Instant>,
+    start_frame: i64,
+    mode: CounterMode,
 }
 
 impl Default for Counter {
@@ -482,62 +605,169 @@ impl Default for Counter {
         Self {
             base_ms: 0,
             start: None,
+            start_frame: 0,
+            mode: CounterMode::Idle,
         }
     }
 }
 
 impl Counter {
     pub fn reset(&mut self) {
-        self.base_ms = 0;
-        self.start = None;
+        *self = Self::default();
     }
 
     pub fn set_count(&mut self, count_ms: i64) {
         self.base_ms = count_ms;
         self.start = None;
+        self.mode = CounterMode::Idle;
     }
 
     pub fn start(&mut self) {
-        if self.start.is_none() {
-            self.start = Some(Instant::now());
-        }
+        self.mode = CounterMode::RunningMs;
+        self.start = Some(Instant::now());
+    }
+
+    pub fn start_real(&mut self) {
+        self.start();
+    }
+
+    pub fn start_frame(&mut self, from: i64, to: i64, frame_span: i64, current_frame: i64) {
+        self.base_ms = 0;
+        self.start = None;
+        self.start_frame = current_frame;
+        self.mode = CounterMode::RunningFrame {
+            from,
+            to,
+            frame_span: frame_span.max(1),
+            looped: false,
+        };
+    }
+
+    pub fn start_frame_real(&mut self, from: i64, to: i64, frame_span: i64, current_frame: i64) {
+        self.start_frame(from, to, frame_span, current_frame);
+    }
+
+    pub fn start_frame_loop(&mut self, from: i64, to: i64, frame_span: i64, current_frame: i64) {
+        self.base_ms = 0;
+        self.start = None;
+        self.start_frame = current_frame;
+        self.mode = CounterMode::RunningFrame {
+            from,
+            to,
+            frame_span: frame_span.max(1),
+            looped: true,
+        };
+    }
+
+    pub fn start_frame_loop_real(
+        &mut self,
+        from: i64,
+        to: i64,
+        frame_span: i64,
+        current_frame: i64,
+    ) {
+        self.start_frame_loop(from, to, frame_span, current_frame);
     }
 
     pub fn stop(&mut self) {
-        if let Some(s) = self.start.take() {
-            self.base_ms += Instant::now().duration_since(s).as_millis() as i64;
+        match self.mode {
+            CounterMode::RunningMs => {
+                if let Some(s) = self.start.take() {
+                    self.base_ms += Instant::now().duration_since(s).as_millis() as i64;
+                }
+                self.mode = CounterMode::Idle;
+            }
+            CounterMode::RunningFrame { .. } => {
+                self.mode = CounterMode::Idle;
+            }
+            CounterMode::Idle => {}
         }
     }
 
     pub fn resume(&mut self) {
-        // In the original engine, resume continues from the current stored value.
-        // Our bring-up model matches that behavior.
-        self.start = Some(Instant::now());
+        if matches!(self.mode, CounterMode::Idle) {
+            self.mode = CounterMode::RunningMs;
+            self.start = Some(Instant::now());
+        }
     }
 
     pub fn get_count(&self) -> i64 {
-        match self.start {
-            Some(s) => self.base_ms + Instant::now().duration_since(s).as_millis() as i64,
-            None => self.base_ms,
+        match self.mode {
+            CounterMode::RunningMs => match self.start {
+                Some(s) => self.base_ms + Instant::now().duration_since(s).as_millis() as i64,
+                None => self.base_ms,
+            },
+            _ => self.base_ms,
+        }
+    }
+
+    pub fn get_count_with_frame(&self, current_frame: i64) -> i64 {
+        match self.mode {
+            CounterMode::RunningFrame {
+                from,
+                to,
+                frame_span,
+                looped,
+            } => {
+                let elapsed = (current_frame - self.start_frame).max(0);
+                if looped {
+                    if frame_span <= 0 {
+                        return from;
+                    }
+                    let pos = elapsed % frame_span;
+                    from + (to - from) * pos / frame_span
+                } else if elapsed >= frame_span {
+                    to
+                } else {
+                    from + (to - from) * elapsed / frame_span
+                }
+            }
+            _ => self.get_count(),
         }
     }
 
     pub fn is_running(&self) -> bool {
-        self.start.is_some()
+        !matches!(self.mode, CounterMode::Idle)
     }
 }
 
-/// Mask state (bring-up level).
-///
-/// The original engine backs masks with a D3D PCT album; here we only track
-/// the script-visible fields and integer events.
+#[derive(Debug, Clone, Default)]
+pub struct PcmEventLine {
+    pub file_name: String,
+    pub probability: i32,
+    pub min_time: i32,
+    pub max_time: i32,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PcmEventState {
+    pub active: bool,
+    pub looped: bool,
+    pub random: bool,
+    pub volume_type: i32,
+    pub chara_no: i32,
+    pub bgm_fade_target_flag: bool,
+    pub bgm_fade2_target_flag: bool,
+    pub bgm_fade2_source_flag: bool,
+    pub real_flag: bool,
+    pub time_type: bool,
+    pub lines: Vec<PcmEventLine>,
+}
+
+impl PcmEventState {
+    pub fn reinit(&mut self) {
+        *self = Self::default();
+    }
+}
+
+/// Mask state.
 #[derive(Debug, Clone)]
 pub struct MaskState {
     pub name: Option<String>,
     pub x_event: IntEvent,
     pub y_event: IntEvent,
     pub extra_int: HashMap<i32, i32>,
-    pub extra_events: HashMap<i32, IntEvent>,
+    pub script_events: HashMap<i32, IntEvent>,
 }
 
 impl MaskState {
@@ -547,7 +777,7 @@ impl MaskState {
             x_event: IntEvent::new(0),
             y_event: IntEvent::new(0),
             extra_int: HashMap::new(),
-            extra_events: HashMap::new(),
+            script_events: HashMap::new(),
         }
     }
 
@@ -556,20 +786,13 @@ impl MaskState {
         self.x_event.reinit();
         self.y_event.reinit();
         self.extra_int.clear();
-        self.extra_events.clear();
+        self.script_events.clear();
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct MaskListState {
     pub masks: Vec<MaskState>,
-    /// First seen property op -> X, second -> Y.
-    pub x_op: Option<i32>,
-    pub y_op: Option<i32>,
-    /// First seen event-op -> X_EVE, second -> Y_EVE.
-    pub x_eve_op: Option<i32>,
-    pub y_eve_op: Option<i32>,
-    pub confirmed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -583,59 +806,183 @@ pub struct MaskedSpriteCache {
     pub masked_image_id: ImageId,
 }
 
-/// EditBox state (bring-up level).
-///
-/// We only model the minimum script-visible behavior needed to avoid deadlocks:
-/// - text content
-/// - decided/canceled edges (driven by Enter/Esc when focused)
+pub const EDITBOX_ACTION_NOT_DECIDED: i32 = 0;
+pub const EDITBOX_ACTION_DECIDED: i32 = 1;
+pub const EDITBOX_ACTION_CANCELED: i32 = -1;
+
 #[derive(Debug, Clone)]
 pub struct EditBoxState {
-    pub alive: bool,
+    pub created: bool,
+    pub visible: bool,
     pub text: String,
-    pub decided: bool,
-    pub canceled: bool,
+    pub cursor_pos: usize,
+    pub action_flag: i32,
     pub moji_size: i32,
+    pub rect_x: i32,
+    pub rect_y: i32,
+    pub rect_w: i32,
+    pub rect_h: i32,
+    pub design_screen_w: i32,
+    pub design_screen_h: i32,
+    pub window_x: i32,
+    pub window_y: i32,
+    pub window_w: i32,
+    pub window_h: i32,
+    pub window_moji_size: i32,
 }
 
 impl Default for EditBoxState {
     fn default() -> Self {
         Self {
-            alive: false,
+            created: false,
+            visible: false,
             text: String::new(),
-            decided: false,
-            canceled: false,
+            cursor_pos: 0,
+            action_flag: EDITBOX_ACTION_NOT_DECIDED,
             moji_size: 0,
+            rect_x: 0,
+            rect_y: 0,
+            rect_w: 0,
+            rect_h: 0,
+            design_screen_w: 0,
+            design_screen_h: 0,
+            window_x: 0,
+            window_y: 0,
+            window_w: 0,
+            window_h: 0,
+            window_moji_size: 0,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum EditBoxOpKind {
-    Create,
-    Destroy,
-    SetText,
-    GetText,
-    SetFocus,
-    ClearInput,
-    CheckDecided,
-    CheckCanceled,
-    Unknown,
+impl EditBoxState {
+    pub fn create_like(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        moji_size: i32,
+        design_screen_w: i32,
+        design_screen_h: i32,
+    ) {
+        self.created = true;
+        self.visible = false;
+        self.text.clear();
+        self.cursor_pos = 0;
+        self.action_flag = EDITBOX_ACTION_NOT_DECIDED;
+        self.rect_x = x;
+        self.rect_y = y;
+        self.rect_w = w;
+        self.rect_h = h;
+        self.moji_size = moji_size;
+        self.design_screen_w = design_screen_w.max(1);
+        self.design_screen_h = design_screen_h.max(1);
+        self.window_x = 0;
+        self.window_y = 0;
+        self.window_w = 0;
+        self.window_h = 0;
+        self.window_moji_size = 0;
+    }
+
+    pub fn destroy_like(&mut self) {
+        self.created = false;
+        self.visible = false;
+        self.text.clear();
+        self.cursor_pos = 0;
+        self.action_flag = EDITBOX_ACTION_NOT_DECIDED;
+        self.rect_x = 0;
+        self.rect_y = 0;
+        self.rect_w = 0;
+        self.rect_h = 0;
+        self.moji_size = 0;
+        self.design_screen_w = 0;
+        self.design_screen_h = 0;
+        self.window_x = 0;
+        self.window_y = 0;
+        self.window_w = 0;
+        self.window_h = 0;
+        self.window_moji_size = 0;
+    }
+
+    pub fn set_text_like(&mut self, text: String) {
+        self.text = text;
+        self.cursor_pos = self.text.len();
+    }
+
+    pub fn insert_text_at_cursor(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let pos = self.cursor_pos.min(self.text.len());
+        self.text.insert_str(pos, text);
+        self.cursor_pos = pos.saturating_add(text.len()).min(self.text.len());
+    }
+
+    pub fn backspace_like(&mut self) {
+        if self.cursor_pos == 0 || self.text.is_empty() {
+            return;
+        }
+        let mut prev = 0usize;
+        for (i, _) in self.text.char_indices() {
+            if i >= self.cursor_pos {
+                break;
+            }
+            prev = i;
+        }
+        self.text.drain(prev..self.cursor_pos.min(self.text.len()));
+        self.cursor_pos = prev;
+    }
+
+    pub fn update_rect(&mut self, screen_w: i32, screen_h: i32) {
+        let base_w = self.design_screen_w.max(1);
+        let base_h = self.design_screen_h.max(1);
+        let sw = screen_w.max(1);
+        let sh = screen_h.max(1);
+        self.window_x = self.rect_x.saturating_mul(sw) / base_w;
+        self.window_y = self.rect_y.saturating_mul(sh) / base_h;
+        self.window_w = self.rect_w.saturating_mul(sw) / base_w;
+        self.window_h = self.rect_h.saturating_mul(sh) / base_h;
+        self.window_moji_size = self.moji_size.saturating_mul(sh) / base_h;
+    }
+
+    pub fn frame(&mut self, display_mode_change_proc_cnt: i32) {
+        self.visible = self.created && display_mode_change_proc_cnt == 0;
+    }
+
+    pub fn clear_input(&mut self) {
+        self.action_flag = EDITBOX_ACTION_NOT_DECIDED;
+    }
+
+    pub fn is_decided(&self) -> bool {
+        self.action_flag == EDITBOX_ACTION_DECIDED
+    }
+
+    pub fn is_canceled(&self) -> bool {
+        self.action_flag == EDITBOX_ACTION_CANCELED
+    }
+
+    pub fn contains_point(&self, x: i32, y: i32) -> bool {
+        self.created
+            && self.visible
+            && self.window_w > 0
+            && self.window_h > 0
+            && x >= self.window_x
+            && y >= self.window_y
+            && x < self.window_x.saturating_add(self.window_w)
+            && y < self.window_y.saturating_add(self.window_h)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct EditBoxListState {
     pub boxes: Vec<EditBoxState>,
-    /// Auto-learned mapping: op-id -> semantic kind.
-    pub op_map: HashMap<i32, EditBoxOpKind>,
-    pub confirmed: bool,
 }
 
 impl EditBoxListState {
     pub fn new(cnt: usize) -> Self {
         Self {
             boxes: vec![EditBoxState::default(); cnt],
-            op_map: HashMap::new(),
-            confirmed: false,
         }
     }
 
@@ -647,24 +994,11 @@ impl EditBoxListState {
             self.boxes.truncate(cnt);
         }
     }
-
-    pub fn has_kind(&self, k: EditBoxOpKind) -> bool {
-        self.op_map.values().any(|&v| v == k)
-    }
 }
 
 // -----------------------------------------------------------------------------
 // Stage/MWND/Group state
 // -----------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StageChildKind {
-    ObjectList,
-    GroupList,
-    MwndList,
-    WorldList,
-    Unknown,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WorldListOpKind {
@@ -747,6 +1081,7 @@ impl WorldRotateEvent {
 #[derive(Debug, Clone)]
 pub struct WorldState {
     pub world_no: i32,
+    pub mode: i32,
     pub camera_eye_x: IntEvent,
     pub camera_eye_y: IntEvent,
     pub camera_eye_z: IntEvent,
@@ -763,7 +1098,7 @@ pub struct WorldState {
     pub wipe_copy: i32,
     pub wipe_erase: i32,
     pub camera_eye_xz_eve: WorldRotateEvent,
-    pub extra_events: HashMap<i32, IntEvent>,
+    pub script_events: HashMap<i32, IntEvent>,
     pub extra_int: HashMap<i32, i64>,
     pub extra_str: HashMap<i32, String>,
 }
@@ -772,6 +1107,7 @@ impl WorldState {
     pub fn new(world_no: i32) -> Self {
         let mut out = Self {
             world_no,
+            mode: 1,
             camera_eye_x: IntEvent::new(0),
             camera_eye_y: IntEvent::new(0),
             camera_eye_z: IntEvent::new(-1000),
@@ -788,7 +1124,7 @@ impl WorldState {
             wipe_copy: 0,
             wipe_erase: 0,
             camera_eye_xz_eve: WorldRotateEvent::new(),
-            extra_events: HashMap::new(),
+            script_events: HashMap::new(),
             extra_int: HashMap::new(),
             extra_str: HashMap::new(),
         };
@@ -797,6 +1133,7 @@ impl WorldState {
     }
 
     pub fn reinit(&mut self) {
+        self.mode = 1;
         self.camera_eye_x = IntEvent::new(0);
         self.camera_eye_y = IntEvent::new(0);
         self.camera_eye_z = IntEvent::new(-1000);
@@ -1017,10 +1354,15 @@ impl Default for ObjectBackend {
     }
 }
 
+pub const OBJECT_NESTED_SLOT_KEY: i32 = i32::MIN + 1;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ObjectEventTarget {
     X,
     Y,
+    XRep,
+    YRep,
+    ZRep,
     Alpha,
     Patno,
     Order,
@@ -1028,9 +1370,17 @@ pub enum ObjectEventTarget {
     Z,
     CenterX,
     CenterY,
+    CenterZ,
+    CenterRepX,
+    CenterRepY,
+    CenterRepZ,
     ScaleX,
     ScaleY,
+    ScaleZ,
+    RotateX,
+    RotateY,
     RotateZ,
+    TrRep,
     ClipLeft,
     ClipTop,
     ClipRight,
@@ -1315,8 +1665,561 @@ pub struct ObjectFrameActionState {
     pub args: Vec<i64>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ObjectBaseState {
+    pub wipe_copy: i64,
+    pub wipe_erase: i64,
+    pub click_disable: i64,
+    pub disp: i64,
+    pub patno: i64,
+    pub world: i64,
+    pub order: i64,
+    pub layer: i64,
+    pub x: i64,
+    pub y: i64,
+    pub z: i64,
+    pub center_x: i64,
+    pub center_y: i64,
+    pub center_z: i64,
+    pub center_rep_x: i64,
+    pub center_rep_y: i64,
+    pub center_rep_z: i64,
+    pub scale_x: i64,
+    pub scale_y: i64,
+    pub scale_z: i64,
+    pub rotate_x: i64,
+    pub rotate_y: i64,
+    pub rotate_z: i64,
+    pub clip_use: i64,
+    pub clip_left: i64,
+    pub clip_top: i64,
+    pub clip_right: i64,
+    pub clip_bottom: i64,
+    pub src_clip_use: i64,
+    pub src_clip_left: i64,
+    pub src_clip_top: i64,
+    pub src_clip_right: i64,
+    pub src_clip_bottom: i64,
+    pub alpha: i64,
+    pub tr: i64,
+    pub mono: i64,
+    pub reverse: i64,
+    pub bright: i64,
+    pub dark: i64,
+    pub color_r: i64,
+    pub color_g: i64,
+    pub color_b: i64,
+    pub color_rate: i64,
+    pub color_add_r: i64,
+    pub color_add_g: i64,
+    pub color_add_b: i64,
+    pub mask_no: i64,
+    pub tonecurve_no: i64,
+    pub light_no: i64,
+    pub fog_use: i64,
+    pub culling: i64,
+    pub alpha_test: i64,
+    pub alpha_blend: i64,
+    pub blend: i64,
+}
+
+impl Default for ObjectBaseState {
+    fn default() -> Self {
+        Self {
+            wipe_copy: 0,
+            wipe_erase: 0,
+            click_disable: 0,
+            disp: 0,
+            patno: 0,
+            world: -1,
+            order: 0,
+            layer: 0,
+            x: 0,
+            y: 0,
+            z: 0,
+            center_x: 0,
+            center_y: 0,
+            center_z: 0,
+            center_rep_x: 0,
+            center_rep_y: 0,
+            center_rep_z: 0,
+            scale_x: 1000,
+            scale_y: 1000,
+            scale_z: 1000,
+            rotate_x: 0,
+            rotate_y: 0,
+            rotate_z: 0,
+            clip_use: 0,
+            clip_left: 0,
+            clip_top: 0,
+            clip_right: 0,
+            clip_bottom: 0,
+            src_clip_use: 0,
+            src_clip_left: 0,
+            src_clip_top: 0,
+            src_clip_right: 0,
+            src_clip_bottom: 0,
+            alpha: 255,
+            tr: 255,
+            mono: 0,
+            reverse: 0,
+            bright: 0,
+            dark: 0,
+            color_r: 0,
+            color_g: 0,
+            color_b: 0,
+            color_rate: 0,
+            color_add_r: 0,
+            color_add_g: 0,
+            color_add_b: 0,
+            mask_no: -1,
+            tonecurve_no: -1,
+            light_no: -1,
+            fog_use: 0,
+            culling: 0,
+            alpha_test: 1,
+            alpha_blend: 1,
+            blend: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectPropEvents {
+    pub patno: IntEvent,
+    pub x: IntEvent,
+    pub y: IntEvent,
+    pub z: IntEvent,
+    pub center_x: IntEvent,
+    pub center_y: IntEvent,
+    pub center_z: IntEvent,
+    pub center_rep_x: IntEvent,
+    pub center_rep_y: IntEvent,
+    pub center_rep_z: IntEvent,
+    pub scale_x: IntEvent,
+    pub scale_y: IntEvent,
+    pub scale_z: IntEvent,
+    pub rotate_x: IntEvent,
+    pub rotate_y: IntEvent,
+    pub rotate_z: IntEvent,
+    pub clip_left: IntEvent,
+    pub clip_top: IntEvent,
+    pub clip_right: IntEvent,
+    pub clip_bottom: IntEvent,
+    pub src_clip_left: IntEvent,
+    pub src_clip_top: IntEvent,
+    pub src_clip_right: IntEvent,
+    pub src_clip_bottom: IntEvent,
+    pub tr: IntEvent,
+    pub mono: IntEvent,
+    pub reverse: IntEvent,
+    pub bright: IntEvent,
+    pub dark: IntEvent,
+    pub color_r: IntEvent,
+    pub color_g: IntEvent,
+    pub color_b: IntEvent,
+    pub color_rate: IntEvent,
+    pub color_add_r: IntEvent,
+    pub color_add_g: IntEvent,
+    pub color_add_b: IntEvent,
+}
+
+impl Default for ObjectPropEvents {
+    fn default() -> Self {
+        Self {
+            patno: IntEvent::new(0),
+            x: IntEvent::new(0),
+            y: IntEvent::new(0),
+            z: IntEvent::new(0),
+            center_x: IntEvent::new(0),
+            center_y: IntEvent::new(0),
+            center_z: IntEvent::new(0),
+            center_rep_x: IntEvent::new(0),
+            center_rep_y: IntEvent::new(0),
+            center_rep_z: IntEvent::new(0),
+            scale_x: IntEvent::new(0),
+            scale_y: IntEvent::new(0),
+            scale_z: IntEvent::new(0),
+            rotate_x: IntEvent::new(0),
+            rotate_y: IntEvent::new(0),
+            rotate_z: IntEvent::new(0),
+            clip_left: IntEvent::new(0),
+            clip_top: IntEvent::new(0),
+            clip_right: IntEvent::new(0),
+            clip_bottom: IntEvent::new(0),
+            src_clip_left: IntEvent::new(0),
+            src_clip_top: IntEvent::new(0),
+            src_clip_right: IntEvent::new(0),
+            src_clip_bottom: IntEvent::new(0),
+            tr: IntEvent::new(0),
+            mono: IntEvent::new(0),
+            reverse: IntEvent::new(0),
+            bright: IntEvent::new(0),
+            dark: IntEvent::new(0),
+            color_r: IntEvent::new(0),
+            color_g: IntEvent::new(0),
+            color_b: IntEvent::new(0),
+            color_rate: IntEvent::new(0),
+            color_add_r: IntEvent::new(0),
+            color_add_g: IntEvent::new(0),
+            color_add_b: IntEvent::new(0),
+        }
+    }
+}
+
+impl ObjectPropEvents {
+    pub fn clear(&mut self) {
+        self.patno.reinit();
+        self.x.reinit();
+        self.y.reinit();
+        self.z.reinit();
+        self.center_x.reinit();
+        self.center_y.reinit();
+        self.center_z.reinit();
+        self.center_rep_x.reinit();
+        self.center_rep_y.reinit();
+        self.center_rep_z.reinit();
+        self.scale_x.reinit();
+        self.scale_y.reinit();
+        self.scale_z.reinit();
+        self.rotate_x.reinit();
+        self.rotate_y.reinit();
+        self.rotate_z.reinit();
+        self.clip_left.reinit();
+        self.clip_top.reinit();
+        self.clip_right.reinit();
+        self.clip_bottom.reinit();
+        self.src_clip_left.reinit();
+        self.src_clip_top.reinit();
+        self.src_clip_right.reinit();
+        self.src_clip_bottom.reinit();
+        self.tr.reinit();
+        self.mono.reinit();
+        self.reverse.reinit();
+        self.bright.reinit();
+        self.dark.reinit();
+        self.color_r.reinit();
+        self.color_g.reinit();
+        self.color_b.reinit();
+        self.color_rate.reinit();
+        self.color_add_r.reinit();
+        self.color_add_g.reinit();
+        self.color_add_b.reinit();
+    }
+
+    pub fn tick(&mut self, delta: i32) {
+        self.patno.tick(delta);
+        self.x.tick(delta);
+        self.y.tick(delta);
+        self.z.tick(delta);
+        self.center_x.tick(delta);
+        self.center_y.tick(delta);
+        self.center_z.tick(delta);
+        self.center_rep_x.tick(delta);
+        self.center_rep_y.tick(delta);
+        self.center_rep_z.tick(delta);
+        self.scale_x.tick(delta);
+        self.scale_y.tick(delta);
+        self.scale_z.tick(delta);
+        self.rotate_x.tick(delta);
+        self.rotate_y.tick(delta);
+        self.rotate_z.tick(delta);
+        self.clip_left.tick(delta);
+        self.clip_top.tick(delta);
+        self.clip_right.tick(delta);
+        self.clip_bottom.tick(delta);
+        self.src_clip_left.tick(delta);
+        self.src_clip_top.tick(delta);
+        self.src_clip_right.tick(delta);
+        self.src_clip_bottom.tick(delta);
+        self.tr.tick(delta);
+        self.mono.tick(delta);
+        self.reverse.tick(delta);
+        self.bright.tick(delta);
+        self.dark.tick(delta);
+        self.color_r.tick(delta);
+        self.color_g.tick(delta);
+        self.color_b.tick(delta);
+        self.color_rate.tick(delta);
+        self.color_add_r.tick(delta);
+        self.color_add_g.tick(delta);
+        self.color_add_b.tick(delta);
+    }
+
+    pub fn any_active(&self) -> bool {
+        self.patno.check_event()
+            || self.x.check_event()
+            || self.y.check_event()
+            || self.z.check_event()
+            || self.center_x.check_event()
+            || self.center_y.check_event()
+            || self.center_z.check_event()
+            || self.center_rep_x.check_event()
+            || self.center_rep_y.check_event()
+            || self.center_rep_z.check_event()
+            || self.scale_x.check_event()
+            || self.scale_y.check_event()
+            || self.scale_z.check_event()
+            || self.rotate_x.check_event()
+            || self.rotate_y.check_event()
+            || self.rotate_z.check_event()
+            || self.clip_left.check_event()
+            || self.clip_top.check_event()
+            || self.clip_right.check_event()
+            || self.clip_bottom.check_event()
+            || self.src_clip_left.check_event()
+            || self.src_clip_top.check_event()
+            || self.src_clip_right.check_event()
+            || self.src_clip_bottom.check_event()
+            || self.tr.check_event()
+            || self.mono.check_event()
+            || self.reverse.check_event()
+            || self.bright.check_event()
+            || self.dark.check_event()
+            || self.color_r.check_event()
+            || self.color_g.check_event()
+            || self.color_b.check_event()
+            || self.color_rate.check_event()
+            || self.color_add_r.check_event()
+            || self.color_add_g.check_event()
+            || self.color_add_b.check_event()
+    }
+
+    pub fn end_all(&mut self) {
+        self.patno.end_event();
+        self.x.end_event();
+        self.y.end_event();
+        self.z.end_event();
+        self.center_x.end_event();
+        self.center_y.end_event();
+        self.center_z.end_event();
+        self.center_rep_x.end_event();
+        self.center_rep_y.end_event();
+        self.center_rep_z.end_event();
+        self.scale_x.end_event();
+        self.scale_y.end_event();
+        self.scale_z.end_event();
+        self.rotate_x.end_event();
+        self.rotate_y.end_event();
+        self.rotate_z.end_event();
+        self.clip_left.end_event();
+        self.clip_top.end_event();
+        self.clip_right.end_event();
+        self.clip_bottom.end_event();
+        self.src_clip_left.end_event();
+        self.src_clip_top.end_event();
+        self.src_clip_right.end_event();
+        self.src_clip_bottom.end_event();
+        self.tr.end_event();
+        self.mono.end_event();
+        self.reverse.end_event();
+        self.bright.end_event();
+        self.dark.end_event();
+        self.color_r.end_event();
+        self.color_g.end_event();
+        self.color_b.end_event();
+        self.color_rate.end_event();
+        self.color_add_r.end_event();
+        self.color_add_g.end_event();
+        self.color_add_b.end_event();
+    }
+
+    pub fn get(&self, target: ObjectEventTarget) -> Option<&IntEvent> {
+        match target {
+            ObjectEventTarget::Patno => Some(&self.patno),
+            ObjectEventTarget::X => Some(&self.x),
+            ObjectEventTarget::Y => Some(&self.y),
+            ObjectEventTarget::Z => Some(&self.z),
+            ObjectEventTarget::CenterX => Some(&self.center_x),
+            ObjectEventTarget::CenterY => Some(&self.center_y),
+            ObjectEventTarget::CenterZ => Some(&self.center_z),
+            ObjectEventTarget::CenterRepX => Some(&self.center_rep_x),
+            ObjectEventTarget::CenterRepY => Some(&self.center_rep_y),
+            ObjectEventTarget::CenterRepZ => Some(&self.center_rep_z),
+            ObjectEventTarget::ScaleX => Some(&self.scale_x),
+            ObjectEventTarget::ScaleY => Some(&self.scale_y),
+            ObjectEventTarget::ScaleZ => Some(&self.scale_z),
+            ObjectEventTarget::RotateX => Some(&self.rotate_x),
+            ObjectEventTarget::RotateY => Some(&self.rotate_y),
+            ObjectEventTarget::RotateZ => Some(&self.rotate_z),
+            ObjectEventTarget::ClipLeft => Some(&self.clip_left),
+            ObjectEventTarget::ClipTop => Some(&self.clip_top),
+            ObjectEventTarget::ClipRight => Some(&self.clip_right),
+            ObjectEventTarget::ClipBottom => Some(&self.clip_bottom),
+            ObjectEventTarget::SrcClipLeft => Some(&self.src_clip_left),
+            ObjectEventTarget::SrcClipTop => Some(&self.src_clip_top),
+            ObjectEventTarget::SrcClipRight => Some(&self.src_clip_right),
+            ObjectEventTarget::SrcClipBottom => Some(&self.src_clip_bottom),
+            ObjectEventTarget::Tr => Some(&self.tr),
+            ObjectEventTarget::Mono => Some(&self.mono),
+            ObjectEventTarget::Reverse => Some(&self.reverse),
+            ObjectEventTarget::Bright => Some(&self.bright),
+            ObjectEventTarget::Dark => Some(&self.dark),
+            ObjectEventTarget::ColorR => Some(&self.color_r),
+            ObjectEventTarget::ColorG => Some(&self.color_g),
+            ObjectEventTarget::ColorB => Some(&self.color_b),
+            ObjectEventTarget::ColorRate => Some(&self.color_rate),
+            ObjectEventTarget::ColorAddR => Some(&self.color_add_r),
+            ObjectEventTarget::ColorAddG => Some(&self.color_add_g),
+            ObjectEventTarget::ColorAddB => Some(&self.color_add_b),
+            ObjectEventTarget::XRep
+            | ObjectEventTarget::YRep
+            | ObjectEventTarget::ZRep
+            | ObjectEventTarget::TrRep
+            | ObjectEventTarget::Alpha
+            | ObjectEventTarget::Order
+            | ObjectEventTarget::Layer
+            | ObjectEventTarget::Unknown => None,
+        }
+    }
+
+    pub fn get_mut(&mut self, target: ObjectEventTarget) -> Option<&mut IntEvent> {
+        match target {
+            ObjectEventTarget::Patno => Some(&mut self.patno),
+            ObjectEventTarget::X => Some(&mut self.x),
+            ObjectEventTarget::Y => Some(&mut self.y),
+            ObjectEventTarget::Z => Some(&mut self.z),
+            ObjectEventTarget::CenterX => Some(&mut self.center_x),
+            ObjectEventTarget::CenterY => Some(&mut self.center_y),
+            ObjectEventTarget::CenterZ => Some(&mut self.center_z),
+            ObjectEventTarget::CenterRepX => Some(&mut self.center_rep_x),
+            ObjectEventTarget::CenterRepY => Some(&mut self.center_rep_y),
+            ObjectEventTarget::CenterRepZ => Some(&mut self.center_rep_z),
+            ObjectEventTarget::ScaleX => Some(&mut self.scale_x),
+            ObjectEventTarget::ScaleY => Some(&mut self.scale_y),
+            ObjectEventTarget::ScaleZ => Some(&mut self.scale_z),
+            ObjectEventTarget::RotateX => Some(&mut self.rotate_x),
+            ObjectEventTarget::RotateY => Some(&mut self.rotate_y),
+            ObjectEventTarget::RotateZ => Some(&mut self.rotate_z),
+            ObjectEventTarget::ClipLeft => Some(&mut self.clip_left),
+            ObjectEventTarget::ClipTop => Some(&mut self.clip_top),
+            ObjectEventTarget::ClipRight => Some(&mut self.clip_right),
+            ObjectEventTarget::ClipBottom => Some(&mut self.clip_bottom),
+            ObjectEventTarget::SrcClipLeft => Some(&mut self.src_clip_left),
+            ObjectEventTarget::SrcClipTop => Some(&mut self.src_clip_top),
+            ObjectEventTarget::SrcClipRight => Some(&mut self.src_clip_right),
+            ObjectEventTarget::SrcClipBottom => Some(&mut self.src_clip_bottom),
+            ObjectEventTarget::Tr => Some(&mut self.tr),
+            ObjectEventTarget::Mono => Some(&mut self.mono),
+            ObjectEventTarget::Reverse => Some(&mut self.reverse),
+            ObjectEventTarget::Bright => Some(&mut self.bright),
+            ObjectEventTarget::Dark => Some(&mut self.dark),
+            ObjectEventTarget::ColorR => Some(&mut self.color_r),
+            ObjectEventTarget::ColorG => Some(&mut self.color_g),
+            ObjectEventTarget::ColorB => Some(&mut self.color_b),
+            ObjectEventTarget::ColorRate => Some(&mut self.color_rate),
+            ObjectEventTarget::ColorAddR => Some(&mut self.color_add_r),
+            ObjectEventTarget::ColorAddG => Some(&mut self.color_add_g),
+            ObjectEventTarget::ColorAddB => Some(&mut self.color_add_b),
+            ObjectEventTarget::XRep
+            | ObjectEventTarget::YRep
+            | ObjectEventTarget::ZRep
+            | ObjectEventTarget::TrRep
+            | ObjectEventTarget::Alpha
+            | ObjectEventTarget::Order
+            | ObjectEventTarget::Layer
+            | ObjectEventTarget::Unknown => None,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
-pub struct ObjectCompatState {
+pub struct ObjectPropEventLists {
+    pub x_rep: Vec<IntEvent>,
+    pub y_rep: Vec<IntEvent>,
+    pub z_rep: Vec<IntEvent>,
+    pub tr_rep: Vec<IntEvent>,
+}
+
+impl ObjectPropEventLists {
+    pub fn clear(&mut self) {
+        self.x_rep.clear();
+        self.y_rep.clear();
+        self.z_rep.clear();
+        self.tr_rep.clear();
+    }
+
+    pub fn tick(&mut self, delta: i32) {
+        for ev in &mut self.x_rep {
+            ev.tick(delta);
+        }
+        for ev in &mut self.y_rep {
+            ev.tick(delta);
+        }
+        for ev in &mut self.z_rep {
+            ev.tick(delta);
+        }
+        for ev in &mut self.tr_rep {
+            ev.tick(delta);
+        }
+    }
+
+    pub fn any_active(&self) -> bool {
+        self.x_rep.iter().any(|e| e.check_event())
+            || self.y_rep.iter().any(|e| e.check_event())
+            || self.z_rep.iter().any(|e| e.check_event())
+            || self.tr_rep.iter().any(|e| e.check_event())
+    }
+
+    pub fn end_all(&mut self) {
+        for ev in &mut self.x_rep {
+            ev.end_event();
+        }
+        for ev in &mut self.y_rep {
+            ev.end_event();
+        }
+        for ev in &mut self.z_rep {
+            ev.end_event();
+        }
+        for ev in &mut self.tr_rep {
+            ev.end_event();
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectPropLists {
+    pub x_rep: Vec<i64>,
+    pub y_rep: Vec<i64>,
+    pub z_rep: Vec<i64>,
+    pub tr_rep: Vec<i64>,
+    pub f: Vec<i64>,
+}
+
+impl Default for ObjectPropLists {
+    fn default() -> Self {
+        Self {
+            x_rep: Vec::new(),
+            y_rep: Vec::new(),
+            z_rep: Vec::new(),
+            tr_rep: Vec::new(),
+            f: vec![0; 32],
+        }
+    }
+}
+
+impl ObjectPropLists {
+    pub fn clear(&mut self) {
+        self.x_rep.clear();
+        self.y_rep.clear();
+        self.z_rep.clear();
+        self.tr_rep.clear();
+        self.f.fill(0);
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ObjectRuntimeState {
+    pub explicit_int_props: HashSet<i32>,
+    pub explicit_str_props: HashSet<i32>,
+    pub prop_events: ObjectPropEvents,
+    pub prop_event_lists: ObjectPropEventLists,
+    pub prop_lists: ObjectPropLists,
+    pub child_objects: Vec<ObjectState>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct ObjectState {
     pub used: bool,
     pub backend: ObjectBackend,
     pub file_name: Option<String>,
@@ -1325,7 +2228,7 @@ pub struct ObjectCompatState {
     /// TNM_OBJECT_TYPE_* (0=none, 1=rect, 2=pct, 3=string, 4=weather, 5=number, ...).
     pub object_type: i64,
 
-    /// For NUMBER objects (and compatibility), stores the current number value.
+    /// For NUMBER objects, stores the current number value.
     pub number_value: i64,
 
     /// For STRING objects.
@@ -1346,43 +2249,31 @@ pub struct ObjectCompatState {
     /// For E-mote objects.
     pub emote: ObjectEmoteParam,
 
-    /// Best-effort: last loaded GAN file.
+    /// Last loaded GAN file.
     pub gan_file: Option<String>,
     /// GAN runtime state.
     pub gan: GanState,
 
-    /// OBJECT.FRAME_ACTION compatibility state.
+    /// OBJECT.FRAME_ACTION state.
     pub frame_action: ObjectFrameActionState,
-    /// OBJECT.FRAME_ACTION_CH compatibility state.
+    /// OBJECT.FRAME_ACTION_CH state.
     pub frame_action_ch: Vec<ObjectFrameActionState>,
 
     /// Cached masked sprite images keyed by (layer_id, sprite_id).
     pub mask_cache: HashMap<(LayerId, SpriteId), MaskedSpriteCache>,
 
+    pub base: ObjectBaseState,
+
     pub button: ObjectButtonState,
 
-    /// Last seen integer argument vector for command-like ops keyed by op.
-    /// This is a compatibility cache for bring-up when numeric IDs are not fully known.
-    pub cmd_int_args: HashMap<i32, Vec<i64>>,
+    pub runtime: ObjectRuntimeState,
 
-    pub extra_int_props: HashMap<i32, i64>,
-    pub extra_str_props: HashMap<i32, String>,
-
-    // Misc compatibility storage
-    pub extra_events: HashMap<i32, IntEvent>,
-    pub rep_int_lists: HashMap<i32, Vec<i64>>,
-    pub rep_int_event_lists: HashMap<i32, Vec<IntEvent>>,
-    /// Decomp-confirmed nested object lists (for op 0x5D and siblings when present).
-    pub child_object_lists: HashMap<i32, Vec<ObjectCompatState>>,
-
-    /// Learned event-op -> target property mapping (for animation bring-up).
-    pub event_targets: HashMap<i32, ObjectEventTarget>,
-    /// First-seen ordering of event ops (used to guess X/Y/Alpha/etc.).
-    pub confirmed_event_ops: Vec<i32>,
+    pub mesh_animation_state: crate::mesh3d::MeshAnimationState,
+    pub nested_runtime_slot: Option<usize>,
 }
 
-impl ObjectCompatState {
-    /// Reset type-specific parameters (approximation of the original implementation C_elm_object::init_type(true)).
+impl ObjectState {
+    /// Reset type-specific parameters (mirrors C_elm_object::init_type(true)).
     ///
     /// Important: this does NOT clear button/groups/events (those are part of init_param/reinit in the original implementation).
     pub fn init_type_like(&mut self) {
@@ -1403,74 +2294,875 @@ impl ObjectCompatState {
         self.gan_file = None;
         self.gan.reset();
         self.mask_cache.clear();
+        self.mesh_animation_state = crate::mesh3d::MeshAnimationState::default();
+    }
+
+    pub fn init_param_like(&mut self) {
+        self.base = ObjectBaseState::default();
+        self.button.clear();
+        self.runtime.explicit_int_props.clear();
+        self.runtime.explicit_str_props.clear();
+        self.runtime.prop_events.clear();
+        self.runtime.prop_lists.clear();
+        self.runtime.prop_event_lists.clear();
+        self.frame_action = ObjectFrameActionState::default();
+        self.frame_action_ch.clear();
+        self.gan_file = None;
+        self.gan.reset();
+    }
+
+    pub fn clear_runtime_only(&mut self) {
+        self.runtime.explicit_int_props.clear();
+        self.runtime.explicit_str_props.clear();
+        self.runtime.prop_events.clear();
+        self.runtime.prop_lists.clear();
+        self.runtime.prop_event_lists.clear();
+        self.frame_action = ObjectFrameActionState::default();
+        self.frame_action_ch.clear();
+    }
+
+    pub fn set_int_prop(
+        &mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+        value: i64,
+    ) {
+        self.runtime.explicit_int_props.insert(op);
+        let ok =
+            self.sync_fixed_int_prop(ids, op, value) || self.sync_special_int_prop(ids, op, value);
+        assert!(ok, "unknown object int property op {}", op);
+    }
+
+    pub fn has_int_prop(&self, op: i32) -> bool {
+        self.runtime.explicit_int_props.contains(&op)
+    }
+
+    pub fn remove_int_prop(&mut self, op: i32) {
+        self.runtime.explicit_int_props.remove(&op);
+    }
+
+    pub fn set_str_prop(
+        &mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+        value: String,
+    ) {
+        self.runtime.explicit_str_props.insert(op);
+        let ok = self.sync_special_str_prop(ids, op, value);
+        assert!(ok, "unknown object string property op {}", op);
+    }
+
+    pub fn lookup_str_prop(
+        &self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<String> {
+        self.special_str_prop(ids, op)
+    }
+
+    pub fn has_str_prop(&self, op: i32) -> bool {
+        self.runtime.explicit_str_props.contains(&op)
+    }
+
+    pub fn remove_str_prop(&mut self, ids: &crate::runtime::constants::RuntimeConstants, op: i32) {
+        self.runtime.explicit_str_props.remove(&op);
+        if ids.obj_mesh_anim_clip_name != 0 && op == ids.obj_mesh_anim_clip_name {
+            let mut next = self.mesh_animation_state.clone();
+            next.clip_name = None;
+            self.set_mesh_animation_state(next);
+        } else if ids.obj_mesh_anim_blend_clip_name != 0 && op == ids.obj_mesh_anim_blend_clip_name
+        {
+            let mut next = self.mesh_animation_state.clone();
+            next.blend_clip_name = None;
+            self.set_mesh_animation_state(next);
+        }
+    }
+
+    pub fn lookup_int_prop(
+        &self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<i64> {
+        self.fixed_int_prop(ids, op)
+            .or_else(|| self.special_int_prop(ids, op))
+    }
+
+    pub fn get_int_prop(&self, ids: &crate::runtime::constants::RuntimeConstants, op: i32) -> i64 {
+        self.lookup_int_prop(ids, op).unwrap_or(0)
+    }
+
+    pub fn runtime_slot_or(&self, fallback: usize) -> usize {
+        self.nested_runtime_slot.unwrap_or(fallback)
+    }
+
+    pub fn ensure_runtime_slot(&mut self, next_slot: &mut usize) -> usize {
+        if let Some(slot) = self.nested_runtime_slot {
+            return slot;
+        }
+        let slot = *next_slot;
+        *next_slot += 1;
+        self.nested_runtime_slot = Some(slot);
+        slot
+    }
+
+    pub fn int_list_by_op<'a>(
+        &'a self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<&'a Vec<i64>> {
+        if ids.obj_f != 0 && op == ids.obj_f {
+            Some(&self.runtime.prop_lists.f)
+        } else {
+            None
+        }
+    }
+
+    pub fn int_list_by_op_mut<'a>(
+        &'a mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<&'a mut Vec<i64>> {
+        if ids.obj_f != 0 && op == ids.obj_f {
+            Some(&mut self.runtime.prop_lists.f)
+        } else {
+            None
+        }
+    }
+
+    pub fn rep_int_event_list_by_rep_op<'a>(
+        &'a self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<&'a Vec<IntEvent>> {
+        if ids.obj_x_rep != 0 && op == ids.obj_x_rep {
+            Some(&self.runtime.prop_event_lists.x_rep)
+        } else if ids.obj_y_rep != 0 && op == ids.obj_y_rep {
+            Some(&self.runtime.prop_event_lists.y_rep)
+        } else if ids.obj_z_rep != 0 && op == ids.obj_z_rep {
+            Some(&self.runtime.prop_event_lists.z_rep)
+        } else if ids.obj_tr_rep != 0 && op == ids.obj_tr_rep {
+            Some(&self.runtime.prop_event_lists.tr_rep)
+        } else {
+            None
+        }
+    }
+
+    pub fn rep_int_event_list_by_rep_op_mut<'a>(
+        &'a mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<&'a mut Vec<IntEvent>> {
+        if ids.obj_x_rep != 0 && op == ids.obj_x_rep {
+            Some(&mut self.runtime.prop_event_lists.x_rep)
+        } else if ids.obj_y_rep != 0 && op == ids.obj_y_rep {
+            Some(&mut self.runtime.prop_event_lists.y_rep)
+        } else if ids.obj_z_rep != 0 && op == ids.obj_z_rep {
+            Some(&mut self.runtime.prop_event_lists.z_rep)
+        } else if ids.obj_tr_rep != 0 && op == ids.obj_tr_rep {
+            Some(&mut self.runtime.prop_event_lists.tr_rep)
+        } else {
+            None
+        }
+    }
+
+    pub fn int_event_by_op<'a>(
+        &'a self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<&'a IntEvent> {
+        self.runtime.prop_events.get(self.event_target(ids, op))
+    }
+
+    pub fn int_event_by_op_mut<'a>(
+        &'a mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<&'a mut IntEvent> {
+        let target = self.event_target(ids, op);
+        self.runtime.prop_events.get_mut(target)
+    }
+
+    pub fn int_event_list_by_op<'a>(
+        &'a self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<&'a Vec<IntEvent>> {
+        if ids.obj_x_rep_eve != 0 && op == ids.obj_x_rep_eve {
+            Some(&self.runtime.prop_event_lists.x_rep)
+        } else if ids.obj_y_rep_eve != 0 && op == ids.obj_y_rep_eve {
+            Some(&self.runtime.prop_event_lists.y_rep)
+        } else if ids.obj_z_rep_eve != 0 && op == ids.obj_z_rep_eve {
+            Some(&self.runtime.prop_event_lists.z_rep)
+        } else if ids.obj_tr_rep_eve != 0 && op == ids.obj_tr_rep_eve {
+            Some(&self.runtime.prop_event_lists.tr_rep)
+        } else {
+            None
+        }
+    }
+
+    pub fn int_event_list_by_op_mut<'a>(
+        &'a mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<&'a mut Vec<IntEvent>> {
+        if ids.obj_x_rep_eve != 0 && op == ids.obj_x_rep_eve {
+            Some(&mut self.runtime.prop_event_lists.x_rep)
+        } else if ids.obj_y_rep_eve != 0 && op == ids.obj_y_rep_eve {
+            Some(&mut self.runtime.prop_event_lists.y_rep)
+        } else if ids.obj_z_rep_eve != 0 && op == ids.obj_z_rep_eve {
+            Some(&mut self.runtime.prop_event_lists.z_rep)
+        } else if ids.obj_tr_rep_eve != 0 && op == ids.obj_tr_rep_eve {
+            Some(&mut self.runtime.prop_event_lists.tr_rep)
+        } else {
+            None
+        }
+    }
+
+    fn sync_fixed_int_prop(
+        &mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+        value: i64,
+    ) -> bool {
+        macro_rules! set_if {
+            ($id:expr, $field:ident) => {
+                if $id != 0 && op == $id {
+                    self.base.$field = value;
+                    return true;
+                }
+            };
+        }
+        if op == ids.obj_disp {
+            self.base.disp = value;
+            return true;
+        }
+        set_if!(ids.obj_wipe_copy, wipe_copy);
+        set_if!(ids.obj_wipe_erase, wipe_erase);
+        set_if!(ids.obj_click_disable, click_disable);
+        set_if!(ids.obj_patno, patno);
+        set_if!(ids.obj_world, world);
+        set_if!(ids.obj_order, order);
+        set_if!(ids.obj_layer, layer);
+        set_if!(ids.obj_x, x);
+        set_if!(ids.obj_y, y);
+        set_if!(ids.obj_z, z);
+        set_if!(ids.obj_center_x, center_x);
+        set_if!(ids.obj_center_y, center_y);
+        set_if!(ids.obj_center_z, center_z);
+        set_if!(ids.obj_center_rep_x, center_rep_x);
+        set_if!(ids.obj_center_rep_y, center_rep_y);
+        set_if!(ids.obj_center_rep_z, center_rep_z);
+        set_if!(ids.obj_scale_x, scale_x);
+        set_if!(ids.obj_scale_y, scale_y);
+        set_if!(ids.obj_scale_z, scale_z);
+        set_if!(ids.obj_rotate_x, rotate_x);
+        set_if!(ids.obj_rotate_y, rotate_y);
+        set_if!(ids.obj_rotate_z, rotate_z);
+        set_if!(ids.obj_clip_use, clip_use);
+        set_if!(ids.obj_clip_left, clip_left);
+        set_if!(ids.obj_clip_top, clip_top);
+        set_if!(ids.obj_clip_right, clip_right);
+        set_if!(ids.obj_clip_bottom, clip_bottom);
+        set_if!(ids.obj_src_clip_use, src_clip_use);
+        set_if!(ids.obj_src_clip_left, src_clip_left);
+        set_if!(ids.obj_src_clip_top, src_clip_top);
+        set_if!(ids.obj_src_clip_right, src_clip_right);
+        set_if!(ids.obj_src_clip_bottom, src_clip_bottom);
+        set_if!(ids.obj_alpha, alpha);
+        set_if!(ids.obj_tr, tr);
+        set_if!(ids.obj_mono, mono);
+        set_if!(ids.obj_reverse, reverse);
+        set_if!(ids.obj_bright, bright);
+        set_if!(ids.obj_dark, dark);
+        set_if!(ids.obj_color_r, color_r);
+        set_if!(ids.obj_color_g, color_g);
+        set_if!(ids.obj_color_b, color_b);
+        set_if!(ids.obj_color_rate, color_rate);
+        set_if!(ids.obj_color_add_r, color_add_r);
+        set_if!(ids.obj_color_add_g, color_add_g);
+        set_if!(ids.obj_color_add_b, color_add_b);
+        set_if!(ids.obj_mask_no, mask_no);
+        set_if!(ids.obj_tonecurve_no, tonecurve_no);
+        set_if!(ids.obj_light_no, light_no);
+        set_if!(ids.obj_fog_use, fog_use);
+        set_if!(ids.obj_culling, culling);
+        set_if!(ids.obj_alpha_test, alpha_test);
+        set_if!(ids.obj_alpha_blend, alpha_blend);
+        set_if!(ids.obj_blend, blend);
+        false
+    }
+
+    fn sync_special_int_prop(
+        &mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+        value: i64,
+    ) -> bool {
+        if op == OBJECT_NESTED_SLOT_KEY {
+            self.nested_runtime_slot = (value >= 0).then_some(value as usize);
+            return true;
+        }
+        if ids.obj_x_rep != 0 && op == ids.obj_x_rep {
+            if self.runtime.prop_event_lists.x_rep.is_empty() {
+                self.runtime.prop_event_lists.x_rep.push(IntEvent::new(0));
+            }
+            self.runtime.prop_event_lists.x_rep[0].set_value(value as i32);
+            return true;
+        }
+        if ids.obj_y_rep != 0 && op == ids.obj_y_rep {
+            if self.runtime.prop_event_lists.y_rep.is_empty() {
+                self.runtime.prop_event_lists.y_rep.push(IntEvent::new(0));
+            }
+            self.runtime.prop_event_lists.y_rep[0].set_value(value as i32);
+            return true;
+        }
+        if ids.obj_z_rep != 0 && op == ids.obj_z_rep {
+            if self.runtime.prop_event_lists.z_rep.is_empty() {
+                self.runtime.prop_event_lists.z_rep.push(IntEvent::new(0));
+            }
+            self.runtime.prop_event_lists.z_rep[0].set_value(value as i32);
+            return true;
+        }
+        if ids.obj_tr_rep != 0 && op == ids.obj_tr_rep {
+            if self.runtime.prop_event_lists.tr_rep.is_empty() {
+                self.runtime
+                    .prop_event_lists
+                    .tr_rep
+                    .push(IntEvent::new(255));
+            }
+            self.runtime.prop_event_lists.tr_rep[0].set_value(value as i32);
+            return true;
+        }
+        if ids.obj_mesh_anim_clip != 0 && op == ids.obj_mesh_anim_clip {
+            let mut next = self.mesh_animation_state.clone();
+            next.change_animation_clip(None, (value >= 0).then_some(value as usize));
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_rate != 0 && op == ids.obj_mesh_anim_rate {
+            let mut next = self.mesh_animation_state.clone();
+            next.rate = (value as f32) / 1000.0;
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_time_offset != 0 && op == ids.obj_mesh_anim_time_offset {
+            let mut next = self.mesh_animation_state.clone();
+            next.time_offset_sec = (value as f32) / 1000.0;
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_pause != 0 && op == ids.obj_mesh_anim_pause {
+            let mut next = self.mesh_animation_state.clone();
+            next.paused = value != 0;
+            next.is_anim = !next.paused;
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_hold_time != 0 && op == ids.obj_mesh_anim_hold_time {
+            let mut next = self.mesh_animation_state.clone();
+            next.hold_time_sec = ((value as f32) / 1000.0).max(0.0);
+            next.time_sec = if next.rate > 0.0 {
+                next.hold_time_sec / next.rate.max(0.000_001)
+            } else {
+                0.0
+            };
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_shift_time != 0 && op == ids.obj_mesh_anim_shift_time {
+            let mut next = self.mesh_animation_state.clone();
+            next.set_anim_shift_time_sec(((value as f32) / 1000.0).max(0.0));
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_loop != 0 && op == ids.obj_mesh_anim_loop {
+            let mut next = self.mesh_animation_state.clone();
+            next.looped = value != 0;
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_blend_clip != 0 && op == ids.obj_mesh_anim_blend_clip {
+            let mut next = self.mesh_animation_state.clone();
+            next.blend_clip_index = (value >= 0).then_some(value as usize);
+            next.blend_clip_name = None;
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_blend_weight != 0 && op == ids.obj_mesh_anim_blend_weight {
+            let mut next = self.mesh_animation_state.clone();
+            next.blend_weight = ((value as f32) / 1000.0).clamp(0.0, 1.0);
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        false
+    }
+
+    fn special_int_prop(
+        &self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<i64> {
+        if op == OBJECT_NESTED_SLOT_KEY {
+            return self.nested_runtime_slot.map(|v| v as i64);
+        }
+        if ids.obj_x_rep != 0 && op == ids.obj_x_rep {
+            return self
+                .runtime
+                .prop_event_lists
+                .x_rep
+                .first()
+                .map(|ev| ev.get_value() as i64);
+        }
+        if ids.obj_y_rep != 0 && op == ids.obj_y_rep {
+            return self
+                .runtime
+                .prop_event_lists
+                .y_rep
+                .first()
+                .map(|ev| ev.get_value() as i64);
+        }
+        if ids.obj_z_rep != 0 && op == ids.obj_z_rep {
+            return self
+                .runtime
+                .prop_event_lists
+                .z_rep
+                .first()
+                .map(|ev| ev.get_value() as i64);
+        }
+        if ids.obj_tr_rep != 0 && op == ids.obj_tr_rep {
+            return self
+                .runtime
+                .prop_event_lists
+                .tr_rep
+                .first()
+                .map(|ev| ev.get_value() as i64);
+        }
+        if ids.obj_mesh_anim_clip != 0 && op == ids.obj_mesh_anim_clip {
+            return Some(
+                self.mesh_animation_state
+                    .clip_index
+                    .map(|v| v as i64)
+                    .unwrap_or(-1),
+            );
+        }
+        if ids.obj_mesh_anim_rate != 0 && op == ids.obj_mesh_anim_rate {
+            return Some((self.mesh_animation_state.rate * 1000.0).round() as i64);
+        }
+        if ids.obj_mesh_anim_time_offset != 0 && op == ids.obj_mesh_anim_time_offset {
+            return Some((self.mesh_animation_state.time_offset_sec * 1000.0).round() as i64);
+        }
+        if ids.obj_mesh_anim_pause != 0 && op == ids.obj_mesh_anim_pause {
+            return Some(if self.mesh_animation_state.paused {
+                1
+            } else {
+                0
+            });
+        }
+        if ids.obj_mesh_anim_hold_time != 0 && op == ids.obj_mesh_anim_hold_time {
+            return Some((self.mesh_animation_state.hold_time_sec * 1000.0).round() as i64);
+        }
+        if ids.obj_mesh_anim_shift_time != 0 && op == ids.obj_mesh_anim_shift_time {
+            return Some((self.mesh_animation_state.anim_shift_time_sec * 1000.0).round() as i64);
+        }
+        if ids.obj_mesh_anim_loop != 0 && op == ids.obj_mesh_anim_loop {
+            return Some(if self.mesh_animation_state.looped {
+                1
+            } else {
+                0
+            });
+        }
+        if ids.obj_mesh_anim_blend_clip != 0 && op == ids.obj_mesh_anim_blend_clip {
+            return Some(
+                self.mesh_animation_state
+                    .blend_clip_index
+                    .map(|v| v as i64)
+                    .unwrap_or(-1),
+            );
+        }
+        if ids.obj_mesh_anim_blend_weight != 0 && op == ids.obj_mesh_anim_blend_weight {
+            return Some((self.mesh_animation_state.blend_weight * 1000.0).round() as i64);
+        }
+        None
+    }
+
+    fn sync_special_str_prop(
+        &mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+        value: String,
+    ) -> bool {
+        if ids.obj_mesh_anim_clip_name != 0 && op == ids.obj_mesh_anim_clip_name {
+            let mut next = self.mesh_animation_state.clone();
+            next.change_animation_clip(Some(value), None);
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        if ids.obj_mesh_anim_blend_clip_name != 0 && op == ids.obj_mesh_anim_blend_clip_name {
+            let mut next = self.mesh_animation_state.clone();
+            next.blend_clip_name = Some(value);
+            next.blend_clip_index = None;
+            self.set_mesh_animation_state(next);
+            return true;
+        }
+        false
+    }
+
+    fn special_str_prop(
+        &self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<String> {
+        if ids.obj_mesh_anim_clip_name != 0 && op == ids.obj_mesh_anim_clip_name {
+            return self.mesh_animation_state.clip_name.clone();
+        }
+        if ids.obj_mesh_anim_blend_clip_name != 0 && op == ids.obj_mesh_anim_blend_clip_name {
+            return self.mesh_animation_state.blend_clip_name.clone();
+        }
+        None
+    }
+
+    fn fixed_int_prop(
+        &self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+    ) -> Option<i64> {
+        macro_rules! get_if {
+            ($id:expr, $field:ident) => {
+                if $id != 0 && op == $id {
+                    return Some(self.base.$field);
+                }
+            };
+        }
+        if op == ids.obj_disp {
+            return Some(self.base.disp);
+        }
+        get_if!(ids.obj_wipe_copy, wipe_copy);
+        get_if!(ids.obj_wipe_erase, wipe_erase);
+        get_if!(ids.obj_click_disable, click_disable);
+        get_if!(ids.obj_patno, patno);
+        get_if!(ids.obj_world, world);
+        get_if!(ids.obj_order, order);
+        get_if!(ids.obj_layer, layer);
+        get_if!(ids.obj_x, x);
+        get_if!(ids.obj_y, y);
+        get_if!(ids.obj_z, z);
+        get_if!(ids.obj_center_x, center_x);
+        get_if!(ids.obj_center_y, center_y);
+        get_if!(ids.obj_center_z, center_z);
+        get_if!(ids.obj_center_rep_x, center_rep_x);
+        get_if!(ids.obj_center_rep_y, center_rep_y);
+        get_if!(ids.obj_center_rep_z, center_rep_z);
+        get_if!(ids.obj_scale_x, scale_x);
+        get_if!(ids.obj_scale_y, scale_y);
+        get_if!(ids.obj_scale_z, scale_z);
+        get_if!(ids.obj_rotate_x, rotate_x);
+        get_if!(ids.obj_rotate_y, rotate_y);
+        get_if!(ids.obj_rotate_z, rotate_z);
+        get_if!(ids.obj_clip_use, clip_use);
+        get_if!(ids.obj_clip_left, clip_left);
+        get_if!(ids.obj_clip_top, clip_top);
+        get_if!(ids.obj_clip_right, clip_right);
+        get_if!(ids.obj_clip_bottom, clip_bottom);
+        get_if!(ids.obj_src_clip_use, src_clip_use);
+        get_if!(ids.obj_src_clip_left, src_clip_left);
+        get_if!(ids.obj_src_clip_top, src_clip_top);
+        get_if!(ids.obj_src_clip_right, src_clip_right);
+        get_if!(ids.obj_src_clip_bottom, src_clip_bottom);
+        get_if!(ids.obj_alpha, alpha);
+        get_if!(ids.obj_tr, tr);
+        get_if!(ids.obj_mono, mono);
+        get_if!(ids.obj_reverse, reverse);
+        get_if!(ids.obj_bright, bright);
+        get_if!(ids.obj_dark, dark);
+        get_if!(ids.obj_color_r, color_r);
+        get_if!(ids.obj_color_g, color_g);
+        get_if!(ids.obj_color_b, color_b);
+        get_if!(ids.obj_color_rate, color_rate);
+        get_if!(ids.obj_color_add_r, color_add_r);
+        get_if!(ids.obj_color_add_g, color_add_g);
+        get_if!(ids.obj_color_add_b, color_add_b);
+        get_if!(ids.obj_mask_no, mask_no);
+        get_if!(ids.obj_tonecurve_no, tonecurve_no);
+        get_if!(ids.obj_light_no, light_no);
+        get_if!(ids.obj_fog_use, fog_use);
+        get_if!(ids.obj_culling, culling);
+        get_if!(ids.obj_alpha_test, alpha_test);
+        get_if!(ids.obj_alpha_blend, alpha_blend);
+        get_if!(ids.obj_blend, blend);
+        None
+    }
+
+    pub fn set_mesh_animation_state(&mut self, next: crate::mesh3d::MeshAnimationState) {
+        self.apply_mesh_animation_state(next, None);
+    }
+
+    fn apply_mesh_animation_state(
+        &mut self,
+        next: crate::mesh3d::MeshAnimationState,
+        explicit_hold_override: Option<f32>,
+    ) {
+        let prev = self.mesh_animation_state.clone();
+        let mut merged = next.sanitized();
+        let clip_changed =
+            prev.clip_name != merged.clip_name || prev.clip_index != merged.clip_index;
+        let pause_enter = !prev.paused && merged.paused;
+        let pause_exit = prev.paused && !merged.paused;
+        let prev_base = prev.current_sample_base_sec();
+
+        merged.anim_track_no = prev.anim_track_no;
+        merged.is_anim = !merged.paused;
+        merged.time_sec = prev.time_sec.max(0.0);
+        merged.hold_time_sec = prev.hold_time_sec.max(0.0);
+        merged.prev_clip_name = prev.prev_clip_name.clone();
+        merged.prev_clip_index = prev.prev_clip_index;
+        merged.prev_time_sec = prev.prev_time_sec.max(0.0);
+        merged.prev_time_offset_sec = prev.prev_time_offset_sec.max(0.0);
+        merged.prev_rate = prev.prev_rate.max(0.0);
+        merged.transition_elapsed_sec = prev.transition_elapsed_sec.max(0.0);
+
+        if clip_changed {
+            merged.change_animation_clip(merged.clip_name.clone(), merged.clip_index);
+        }
+
+        if let Some(hold_sec) = explicit_hold_override {
+            let hold_sec = hold_sec.max(0.0);
+            merged.hold_time_sec = hold_sec;
+            merged.time_sec = if merged.rate > 0.0 {
+                hold_sec / merged.rate.max(0.000_001)
+            } else {
+                0.0
+            };
+        } else if pause_enter {
+            merged.hold_time_sec = prev_base;
+        } else if pause_exit {
+            merged.time_sec = if merged.rate > 0.0 {
+                prev.hold_time_sec.max(0.0) / merged.rate.max(0.000_001)
+            } else {
+                prev.time_sec.max(0.0)
+            };
+        } else if merged.paused {
+            merged.hold_time_sec = prev.hold_time_sec.max(0.0);
+        } else if !clip_changed && (prev.rate - merged.rate).abs() > 0.000_001 {
+            merged.time_sec = if merged.rate > 0.0 {
+                prev_base / merged.rate.max(0.000_001)
+            } else {
+                prev.time_sec.max(0.0)
+            };
+        }
+
+        self.mesh_animation_state = merged.sanitized();
+    }
+
+    pub fn sync_mesh_animation_state_from_props(
+        &mut self,
+        ids: &super::constants::RuntimeConstants,
+    ) {
+        let int_prop = |id: i32, default: i64| -> i64 {
+            if id != 0 {
+                self.lookup_int_prop(ids, id).unwrap_or(default)
+            } else {
+                default
+            }
+        };
+        let str_prop = |id: i32| -> Option<String> {
+            if id != 0 {
+                self.lookup_str_prop(ids, id)
+            } else {
+                None
+            }
+        };
+        let explicit_hold =
+            ids.obj_mesh_anim_hold_time != 0 && self.has_int_prop(ids.obj_mesh_anim_hold_time);
+        let requested_hold_sec = (int_prop(ids.obj_mesh_anim_hold_time, 0) as f32) / 1000.0;
+        let requested_shift_sec = (int_prop(
+            ids.obj_mesh_anim_shift_time,
+            (self.mesh_animation_state.anim_shift_time_sec * 1000.0).round() as i64,
+        ) as f32)
+            / 1000.0;
+        let next = crate::mesh3d::MeshAnimationState {
+            clip_name: str_prop(ids.obj_mesh_anim_clip_name),
+            clip_index: (int_prop(ids.obj_mesh_anim_clip, -1) >= 0).then_some(int_prop(
+                ids.obj_mesh_anim_clip,
+                -1,
+            )
+                as usize),
+            blend_clip_name: str_prop(ids.obj_mesh_anim_blend_clip_name),
+            blend_clip_index: (int_prop(ids.obj_mesh_anim_blend_clip, -1) >= 0)
+                .then_some(int_prop(ids.obj_mesh_anim_blend_clip, -1) as usize),
+            blend_weight: ((int_prop(ids.obj_mesh_anim_blend_weight, 0) as f32) / 1000.0)
+                .clamp(0.0, 1.0),
+            time_sec: self.mesh_animation_state.time_sec,
+            rate: (int_prop(ids.obj_mesh_anim_rate, 1000) as f32) / 1000.0,
+            time_offset_sec: (int_prop(ids.obj_mesh_anim_time_offset, 0) as f32) / 1000.0,
+            hold_time_sec: if explicit_hold {
+                requested_hold_sec
+            } else {
+                self.mesh_animation_state.hold_time_sec
+            },
+            paused: int_prop(ids.obj_mesh_anim_pause, 0) != 0,
+            looped: int_prop(ids.obj_mesh_anim_loop, 1) != 0,
+            anim_track_no: self.mesh_animation_state.anim_track_no,
+            anim_shift_time_sec: requested_shift_sec.max(0.0),
+            is_anim: !(int_prop(ids.obj_mesh_anim_pause, 0) != 0),
+            prev_clip_name: self.mesh_animation_state.prev_clip_name.clone(),
+            prev_clip_index: self.mesh_animation_state.prev_clip_index,
+            prev_time_sec: self.mesh_animation_state.prev_time_sec,
+            prev_time_offset_sec: self.mesh_animation_state.prev_time_offset_sec,
+            prev_rate: self.mesh_animation_state.prev_rate,
+            transition_elapsed_sec: self.mesh_animation_state.transition_elapsed_sec,
+        };
+        self.apply_mesh_animation_state(next, explicit_hold.then_some(requested_hold_sec));
+    }
+
+    pub fn uses_mesh_animation_bridge_op(
+        ids: &super::constants::RuntimeConstants,
+        op: i32,
+    ) -> bool {
+        [
+            ids.obj_mesh_anim_clip,
+            ids.obj_mesh_anim_clip_name,
+            ids.obj_mesh_anim_rate,
+            ids.obj_mesh_anim_time_offset,
+            ids.obj_mesh_anim_pause,
+            ids.obj_mesh_anim_hold_time,
+            ids.obj_mesh_anim_shift_time,
+            ids.obj_mesh_anim_loop,
+            ids.obj_mesh_anim_blend_clip,
+            ids.obj_mesh_anim_blend_clip_name,
+            ids.obj_mesh_anim_blend_weight,
+        ]
+        .into_iter()
+        .any(|id| id != 0 && op == id)
     }
 
     pub fn tick(&mut self, delta: i32) {
-        for ev in self.extra_events.values_mut() {
-            ev.tick(delta);
-        }
-        for list in self.rep_int_event_lists.values_mut() {
-            for ev in list {
-                ev.tick(delta);
-            }
+        self.runtime.prop_events.tick(delta);
+        self.runtime.prop_event_lists.tick(delta);
+        for child in &mut self.runtime.child_objects {
+            child.tick(delta);
         }
         self.movie.tick();
         self.gan.update_time(delta, delta);
+        if matches!(self.object_type, 6 | 7) {
+            self.mesh_animation_state.advance_controller_frames(delta);
+        }
 
-        // When a MOVIE ends, non-auto-free stays paused. Auto-free is handled by runtime
-        // so we can release sprites/audio cleanly.
         if self.object_type == 9 && self.movie.just_finished && !self.movie.auto_free_flag {
             self.movie.pause_flag = true;
         }
     }
 
     pub fn any_event_active(&self) -> bool {
-        if self.extra_events.values().any(|e| e.check_event()) {
+        if self.runtime.prop_events.any_active() || self.runtime.prop_event_lists.any_active() {
             return true;
         }
-        for list in self.rep_int_event_lists.values() {
-            if list.iter().any(|e| e.check_event()) {
-                return true;
-            }
+        if self
+            .runtime
+            .child_objects
+            .iter()
+            .any(|child| child.any_event_active())
+        {
+            return true;
         }
         false
     }
 
     pub fn end_all_events(&mut self) {
-        for ev in self.extra_events.values_mut() {
-            ev.end_event();
-        }
-        for list in self.rep_int_event_lists.values_mut() {
-            for ev in list {
-                ev.end_event();
-            }
+        self.runtime.prop_events.end_all();
+        self.runtime.prop_event_lists.end_all();
+        for child in &mut self.runtime.child_objects {
+            child.end_all_events();
         }
     }
 
-    pub fn event_target(&mut self, op: i32) -> ObjectEventTarget {
-        if let Some(&t) = self.event_targets.get(&op) {
-            return t;
+    pub fn event_target(
+        &self,
+        ids: &super::constants::RuntimeConstants,
+        op: i32,
+    ) -> ObjectEventTarget {
+        if ids.obj_x_eve != 0 && op == ids.obj_x_eve {
+            ObjectEventTarget::X
+        } else if ids.obj_y_eve != 0 && op == ids.obj_y_eve {
+            ObjectEventTarget::Y
+        } else if ids.obj_x_rep_eve != 0 && op == ids.obj_x_rep_eve {
+            ObjectEventTarget::XRep
+        } else if ids.obj_y_rep_eve != 0 && op == ids.obj_y_rep_eve {
+            ObjectEventTarget::YRep
+        } else if ids.obj_z_rep_eve != 0 && op == ids.obj_z_rep_eve {
+            ObjectEventTarget::ZRep
+        } else if ids.obj_tr_eve != 0 && op == ids.obj_tr_eve {
+            ObjectEventTarget::Tr
+        } else if ids.obj_tr_rep_eve != 0 && op == ids.obj_tr_rep_eve {
+            ObjectEventTarget::TrRep
+        } else if ids.obj_patno_eve != 0 && op == ids.obj_patno_eve {
+            ObjectEventTarget::Patno
+        } else if ids.obj_z_eve != 0 && op == ids.obj_z_eve {
+            ObjectEventTarget::Z
+        } else if ids.obj_center_x_eve != 0 && op == ids.obj_center_x_eve {
+            ObjectEventTarget::CenterX
+        } else if ids.obj_center_y_eve != 0 && op == ids.obj_center_y_eve {
+            ObjectEventTarget::CenterY
+        } else if ids.obj_center_z_eve != 0 && op == ids.obj_center_z_eve {
+            ObjectEventTarget::CenterZ
+        } else if ids.obj_center_rep_x_eve != 0 && op == ids.obj_center_rep_x_eve {
+            ObjectEventTarget::CenterRepX
+        } else if ids.obj_center_rep_y_eve != 0 && op == ids.obj_center_rep_y_eve {
+            ObjectEventTarget::CenterRepY
+        } else if ids.obj_center_rep_z_eve != 0 && op == ids.obj_center_rep_z_eve {
+            ObjectEventTarget::CenterRepZ
+        } else if ids.obj_scale_x_eve != 0 && op == ids.obj_scale_x_eve {
+            ObjectEventTarget::ScaleX
+        } else if ids.obj_scale_y_eve != 0 && op == ids.obj_scale_y_eve {
+            ObjectEventTarget::ScaleY
+        } else if ids.obj_scale_z_eve != 0 && op == ids.obj_scale_z_eve {
+            ObjectEventTarget::ScaleZ
+        } else if ids.obj_rotate_x_eve != 0 && op == ids.obj_rotate_x_eve {
+            ObjectEventTarget::RotateX
+        } else if ids.obj_rotate_y_eve != 0 && op == ids.obj_rotate_y_eve {
+            ObjectEventTarget::RotateY
+        } else if ids.obj_rotate_z_eve != 0 && op == ids.obj_rotate_z_eve {
+            ObjectEventTarget::RotateZ
+        } else if ids.obj_clip_left_eve != 0 && op == ids.obj_clip_left_eve {
+            ObjectEventTarget::ClipLeft
+        } else if ids.obj_clip_top_eve != 0 && op == ids.obj_clip_top_eve {
+            ObjectEventTarget::ClipTop
+        } else if ids.obj_clip_right_eve != 0 && op == ids.obj_clip_right_eve {
+            ObjectEventTarget::ClipRight
+        } else if ids.obj_clip_bottom_eve != 0 && op == ids.obj_clip_bottom_eve {
+            ObjectEventTarget::ClipBottom
+        } else if ids.obj_src_clip_left_eve != 0 && op == ids.obj_src_clip_left_eve {
+            ObjectEventTarget::SrcClipLeft
+        } else if ids.obj_src_clip_top_eve != 0 && op == ids.obj_src_clip_top_eve {
+            ObjectEventTarget::SrcClipTop
+        } else if ids.obj_src_clip_right_eve != 0 && op == ids.obj_src_clip_right_eve {
+            ObjectEventTarget::SrcClipRight
+        } else if ids.obj_src_clip_bottom_eve != 0 && op == ids.obj_src_clip_bottom_eve {
+            ObjectEventTarget::SrcClipBottom
+        } else if ids.obj_mono_eve != 0 && op == ids.obj_mono_eve {
+            ObjectEventTarget::Mono
+        } else if ids.obj_reverse_eve != 0 && op == ids.obj_reverse_eve {
+            ObjectEventTarget::Reverse
+        } else if ids.obj_bright_eve != 0 && op == ids.obj_bright_eve {
+            ObjectEventTarget::Bright
+        } else if ids.obj_dark_eve != 0 && op == ids.obj_dark_eve {
+            ObjectEventTarget::Dark
+        } else if ids.obj_color_rate_eve != 0 && op == ids.obj_color_rate_eve {
+            ObjectEventTarget::ColorRate
+        } else if ids.obj_color_add_r_eve != 0 && op == ids.obj_color_add_r_eve {
+            ObjectEventTarget::ColorAddR
+        } else if ids.obj_color_add_g_eve != 0 && op == ids.obj_color_add_g_eve {
+            ObjectEventTarget::ColorAddG
+        } else if ids.obj_color_add_b_eve != 0 && op == ids.obj_color_add_b_eve {
+            ObjectEventTarget::ColorAddB
+        } else if ids.obj_color_r_eve != 0 && op == ids.obj_color_r_eve {
+            ObjectEventTarget::ColorR
+        } else if ids.obj_color_g_eve != 0 && op == ids.obj_color_g_eve {
+            ObjectEventTarget::ColorG
+        } else if ids.obj_color_b_eve != 0 && op == ids.obj_color_b_eve {
+            ObjectEventTarget::ColorB
+        } else {
+            ObjectEventTarget::Unknown
         }
-        if !self.confirmed_event_ops.contains(&op) {
-            self.confirmed_event_ops.push(op);
-        }
-        let idx = self
-            .confirmed_event_ops
-            .iter()
-            .position(|&v| v == op)
-            .unwrap_or(usize::MAX);
-        let t = match idx {
-            0 => ObjectEventTarget::X,
-            1 => ObjectEventTarget::Y,
-            2 => ObjectEventTarget::Alpha,
-            3 => ObjectEventTarget::Patno,
-            4 => ObjectEventTarget::Order,
-            5 => ObjectEventTarget::Layer,
-            6 => ObjectEventTarget::Z,
-            _ => ObjectEventTarget::Unknown,
-        };
-        self.event_targets.insert(op, t);
-        t
     }
 }
 
@@ -1518,7 +3210,7 @@ pub struct GroupState {
     pub layer: i64,
     pub cancel_priority: i64,
     pub props: HashMap<i32, i64>,
-    pub str_props: HashMap<i32, String>,
+    pub aux_str_props: HashMap<i32, String>,
 }
 
 impl GroupState {
@@ -1545,6 +3237,8 @@ impl GroupState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MwndListOpKind {
     CloseAll,
+    CloseAllWait,
+    CloseAllNowait,
     Unknown,
 }
 
@@ -1659,8 +3353,16 @@ pub struct MwndSelectionState {
 }
 
 #[derive(Debug, Default, Clone)]
+pub struct BtnSelItemState {
+    pub object_list: Vec<ObjectState>,
+    pub strict: bool,
+}
+
+#[derive(Debug, Default, Clone)]
 pub struct MwndState {
     pub open: bool,
+    pub name_text: String,
+    pub msg_text: String,
     pub waku_file: String,
     pub filter_file: String,
     pub face_file: String,
@@ -1686,276 +3388,429 @@ pub struct MwndState {
     pub close_anime_time: i64,
     pub selection: Option<MwndSelectionState>,
 
-    /// Whether any text-related op (PRINT/ADD_MSG/NL) has been observed since the last wait/clear.
-    ///
-    /// This is used only for conservative bring-up heuristics to avoid mis-classifying
-    /// proceed-like ops (PP/R/PAGE/WAIT) as structural ops (OPEN/CLOSE/CLEAR).
     pub text_dirty: bool,
 
-    /// Additional integer properties for unmapped MWND ops.
+    pub button_list: Vec<ObjectState>,
+    pub button_list_strict: bool,
+    pub face_list: Vec<ObjectState>,
+    pub face_list_strict: bool,
+    pub object_list: Vec<ObjectState>,
+    pub object_list_strict: bool,
     pub props: HashMap<i32, i64>,
-    pub str_props: HashMap<i32, String>,
+    pub aux_str_props: HashMap<i32, String>,
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct StageFormState {
-    /// Auto-learned mapping: stage child element code -> child kind.
-    pub child_kind: HashMap<i32, StageChildKind>,
-
     /// Group list storage per stage index.
     pub group_lists: HashMap<i64, Vec<GroupState>>,
-    /// Auto-learned mapping: group-list op-id -> semantic kind.
-    pub group_list_op_map: HashMap<i32, GroupListOpKind>,
-    /// Auto-learned mapping: group op-id -> semantic kind.
-    pub group_op_map: HashMap<i32, GroupOpKind>,
-
+    /// BTNSELITEM list storage per stage index.
+    pub btnselitem_lists: HashMap<i64, Vec<BtnSelItemState>>,
     /// MWND list storage per stage index.
     pub mwnd_lists: HashMap<i64, Vec<MwndState>>,
-    /// Auto-learned mapping: mwnd-list op-id -> semantic kind.
-    pub mwnd_list_op_map: HashMap<i32, MwndListOpKind>,
-    /// Auto-learned mapping: mwnd op-id -> semantic kind.
-    pub mwnd_op_map: HashMap<i32, MwndOpKind>,
-
     /// World list storage per stage index.
     pub world_lists: HashMap<i64, Vec<WorldState>>,
-    /// Auto-learned mapping: world-list op-id -> semantic kind.
-    pub world_list_op_map: HashMap<i32, WorldListOpKind>,
-    /// Auto-learned mapping: world op-id -> semantic kind.
-    pub world_op_map: HashMap<i32, WorldOpKind>,
-
     // --- OBJECT / OBJECTLIST ---
-    /// Per-stage object compat state (used for property fallback, string objects, rect objects, etc.).
-    pub object_lists: HashMap<i64, Vec<ObjectCompatState>>,
+    /// Per-stage object state (string objects, rect objects, nested child objects, etc.).
+    pub object_lists: HashMap<i64, Vec<ObjectState>>,
     /// Whether this stage's object list should enforce its current size (enabled after RESIZE).
     pub object_list_strict: HashMap<i64, bool>,
     /// Rectangle-object layer per stage (created lazily).
     pub rect_layers: HashMap<i64, LayerId>,
 
-    /// Learned OBJECTLIST op ids (GET_SIZE / RESIZE).
-    pub object_list_op_map: HashMap<i32, ObjectListOpKind>,
-    /// Learned OBJECT op ids (INIT/FREE/CREATE/etc.).
-    pub object_op_map: HashMap<i32, ObjectOpKind>,
-    /// Ops that have been observed to return or accept strings.
-    pub object_str_ops: HashSet<i32>,
-
-    /// Generic stateful fallback storage for unresolved stage child chains.
-    pub child_int_props: HashMap<String, i64>,
-    pub child_str_props: HashMap<String, String>,
+    /// Stable slot assignment for embedded object lists and nested child objects.
+    pub embedded_object_slots: HashMap<String, usize>,
+    pub next_embedded_object_slot: HashMap<i64, usize>,
+    pub next_nested_object_slot: HashMap<i64, usize>,
 }
 
 // -----------------------------------------------------------------------------
-// Screen (GLOBAL.SCREEN) bring-up state
+// Screen (GLOBAL.SCREEN) state
 // -----------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ScreenSelectorKind {
-    /// Selector that behaves like a list (e.g., EFFECTLIST / QUAKELIST).
-    List,
-    /// Selector that behaves like an integer event (e.g., X_EVE).
-    Event,
-    /// Selector that behaves like a plain property (get/set).
-    Prop,
-    /// Selector used as a side-effect command (e.g., SHAKE).
-    Command,
-    Unknown,
+#[derive(Debug, Clone)]
+pub struct ScreenEffectState {
+    pub x: IntEvent,
+    pub y: IntEvent,
+    pub z: IntEvent,
+    pub mono: IntEvent,
+    pub reverse: IntEvent,
+    pub bright: IntEvent,
+    pub dark: IntEvent,
+    pub color_r: IntEvent,
+    pub color_g: IntEvent,
+    pub color_b: IntEvent,
+    pub color_rate: IntEvent,
+    pub color_add_r: IntEvent,
+    pub color_add_g: IntEvent,
+    pub color_add_b: IntEvent,
+    pub begin_order: i32,
+    pub begin_layer: i32,
+    pub end_order: i32,
+    pub end_layer: i32,
+    pub wipe_copy: i32,
+    pub wipe_erase: i32,
 }
 
-#[derive(Debug, Default, Clone)]
-pub struct ScreenItemState {
-    pub props: HashMap<i32, i64>,
-    pub events: HashMap<i32, IntEvent>,
-
-    /// Confirmed event-op codes in first-seen order.
-    pub confirmed_event_ops: Vec<i32>,
-    /// Heuristic aliasing: property-op -> event-op.
-    pub prop_to_event: HashMap<i32, i32>,
-
-    // --- Quake ---
-    //
-    // The original engine's QUAKE element supports START/END/WAIT/CHECK.
-    // We do not render actual quake transforms yet, but we must preserve
-    // script-visible control flow (wait/check loops must not deadlock).
-    //
-    // We model quake activity as a wall-clock deadline.
-    pub quake_until: Option<Instant>,
-    pub quake_type: i32,
-    pub quake_power: i32,
-    pub quake_vec: i32,
-    pub quake_center_x: i32,
-    pub quake_center_y: i32,
+impl Default for ScreenEffectState {
+    fn default() -> Self {
+        Self {
+            x: IntEvent::new(0),
+            y: IntEvent::new(0),
+            z: IntEvent::new(0),
+            mono: IntEvent::new(0),
+            reverse: IntEvent::new(0),
+            bright: IntEvent::new(0),
+            dark: IntEvent::new(0),
+            color_r: IntEvent::new(0),
+            color_g: IntEvent::new(0),
+            color_b: IntEvent::new(0),
+            color_rate: IntEvent::new(0),
+            color_add_r: IntEvent::new(0),
+            color_add_g: IntEvent::new(0),
+            color_add_b: IntEvent::new(0),
+            begin_order: 0,
+            begin_layer: 0,
+            end_order: 0,
+            end_layer: 0,
+            wipe_copy: 0,
+            wipe_erase: 0,
+        }
+    }
 }
-
-impl ScreenItemState {
+impl ScreenEffectState {
     pub fn reinit(&mut self) {
-        self.props.clear();
-        self.events.clear();
-        self.confirmed_event_ops.clear();
-        self.prop_to_event.clear();
-        self.quake_until = None;
-        self.quake_type = 0;
-        self.quake_power = 0;
-        self.quake_vec = 0;
-        self.quake_center_x = 0;
-        self.quake_center_y = 0;
+        *self = Self::default();
     }
 
-    pub fn quake_start_ms(&mut self, time_ms: i64) {
+    pub fn tick(&mut self, delta: i32) {
+        self.x.tick(delta);
+        self.y.tick(delta);
+        self.z.tick(delta);
+        self.mono.tick(delta);
+        self.reverse.tick(delta);
+        self.bright.tick(delta);
+        self.dark.tick(delta);
+        self.color_r.tick(delta);
+        self.color_g.tick(delta);
+        self.color_b.tick(delta);
+        self.color_rate.tick(delta);
+        self.color_add_r.tick(delta);
+        self.color_add_g.tick(delta);
+        self.color_add_b.tick(delta);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ScreenQuakeState {
+    pub until: Option<Instant>,
+    pub quake_type: i32,
+    pub power: i32,
+    pub vec: i32,
+    pub center_x: i32,
+    pub center_y: i32,
+    pub begin_order: i32,
+    pub end_order: i32,
+    pub ending: bool,
+}
+
+impl Default for ScreenQuakeState {
+    fn default() -> Self {
+        Self {
+            until: None,
+            quake_type: -1,
+            power: 0,
+            vec: 0,
+            center_x: 0,
+            center_y: 0,
+            begin_order: 0,
+            end_order: 0,
+            ending: false,
+        }
+    }
+}
+
+impl ScreenQuakeState {
+    pub fn reinit(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn start_kind(&mut self, quake_type: i32, time_ms: i64) {
+        self.ending = false;
+        self.quake_type = quake_type;
         let ms = time_ms.max(0) as u64;
-        if ms == 0 {
-            self.quake_until = None;
+        self.until = if ms == 0 {
+            None
         } else {
-            self.quake_until = Some(Instant::now() + Duration::from_millis(ms));
+            Some(Instant::now() + Duration::from_millis(ms))
+        };
+        if ms == 0 {
+            self.reinit();
         }
     }
 
-    pub fn quake_set_params(&mut self, quake_type: i32, power: i32, vec: i32, cx: i32, cy: i32) {
-        self.quake_type = quake_type;
-        self.quake_power = power;
-        self.quake_vec = vec;
-        self.quake_center_x = cx;
-        self.quake_center_y = cy;
+    pub fn end_ms(&mut self, time_ms: i64) {
+        self.ending = true;
+        let ms = time_ms.max(0) as u64;
+        self.until = if ms == 0 {
+            None
+        } else {
+            Some(Instant::now() + Duration::from_millis(ms))
+        };
+        if ms == 0 {
+            self.reinit();
+        }
     }
 
-    pub fn quake_end_ms(&mut self, time_ms: i64) {
-        // The original engine supports an optional end fade time.
-        // Bring-up: treat it as an additional active interval.
-        self.quake_start_ms(time_ms);
+    pub fn check_value(&mut self) -> i32 {
+        let _ = self.is_active();
+        if self.quake_type < 0 {
+            0
+        } else if self.ending {
+            2
+        } else {
+            1
+        }
     }
 
-    pub fn quake_is_active(&mut self) -> bool {
-        if let Some(t) = self.quake_until {
+    pub fn is_active(&mut self) -> bool {
+        if let Some(t) = self.until {
             if Instant::now() >= t {
-                self.quake_until = None;
+                self.reinit();
+                return false;
             }
         }
-        self.quake_until.is_some()
+        self.quake_type >= 0 && self.until.is_some()
     }
 
-    pub fn quake_remaining_ms(&mut self) -> u64 {
-        let Some(t) = self.quake_until else {
+    pub fn remaining_ms(&mut self) -> u64 {
+        let Some(t) = self.until else {
             return 0;
         };
         if Instant::now() >= t {
-            self.quake_until = None;
+            self.reinit();
             return 0;
         }
         t.duration_since(Instant::now()).as_millis() as u64
     }
-
-    pub fn tick(&mut self, delta: i32) {
-        for ev in self.events.values_mut() {
-            ev.tick(delta);
-        }
-        // Keep quake state fresh even if the script never calls CHECK.
-        let _ = self.quake_is_active();
-    }
 }
 
 #[derive(Debug, Default, Clone)]
-pub struct ScreenListState {
-    pub items: Vec<ScreenItemState>,
-
-    /// Learned list-level op code for GET_SIZE (chain: [FORM, selector, op]).
-    pub get_size_op: Option<i32>,
-    /// Learned list-level op code for RESIZE (chain: [FORM, selector, op]).
-    pub resize_op: Option<i32>,
+pub struct ScreenShakeState {
+    pub last_value: i64,
+    pub until: Option<Instant>,
 }
 
-impl ScreenListState {
-    pub fn ensure_size(&mut self, n: usize) {
-        if self.items.len() < n {
-            self.items
-                .extend((0..(n - self.items.len())).map(|_| ScreenItemState::default()));
-        } else if self.items.len() > n {
-            self.items.truncate(n);
-        }
+impl ScreenShakeState {
+    pub fn set_ms(&mut self, time_ms: i64) {
+        self.last_value = time_ms;
+        let ms = time_ms.max(0) as u64;
+        self.until = if ms == 0 {
+            None
+        } else {
+            Some(Instant::now() + Duration::from_millis(ms))
+        };
     }
 
-    pub fn tick(&mut self, delta: i32) {
-        for it in &mut self.items {
-            it.tick(delta);
+    pub fn tick(&mut self) {
+        if let Some(t) = self.until {
+            if Instant::now() >= t {
+                self.until = None;
+            }
         }
     }
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct ScreenFormState {
-    /// Selector kind cache (chain[1] -> kind).
-    pub selector_kind: HashMap<i32, ScreenSelectorKind>,
-
-    /// Selectors that have been observed to behave like QUAKE lists.
-    ///
-    /// We do not rely on numeric element-code tables during bring-up, so we
-    /// learn this role the first time we observe a quake START-like call.
-    pub quake_selectors: HashSet<i32>,
-
-    /// List states keyed by selector op code.
-    pub lists: HashMap<i32, ScreenListState>,
-
-    /// Root-level properties and events (direct SCREEN.X style access).
-    pub root_props: HashMap<i32, i64>,
-    pub root_events: HashMap<i32, IntEvent>,
-
-    pub root_confirmed_event_ops: Vec<i32>,
-    pub root_prop_to_event: HashMap<i32, i32>,
-
-    /// Last seen shake argument (debugging only).
-    pub last_shake: i64,
-    /// Learned per-item INIT op codes.
-    pub effect_init_ops: HashSet<i32>,
-    /// Active screen shake timer (for SCREEN.SHAKE).
-    pub shake_until: Option<Instant>,
+    pub effect_list: Vec<ScreenEffectState>,
+    pub quake_list: Vec<ScreenQuakeState>,
+    pub shake: ScreenShakeState,
 }
 
 impl ScreenFormState {
+    pub fn ensure_effect_len(&mut self, n: usize) {
+        if self.effect_list.len() < n {
+            self.effect_list
+                .extend((0..(n - self.effect_list.len())).map(|_| ScreenEffectState::default()));
+        } else if self.effect_list.len() > n {
+            self.effect_list.truncate(n);
+        }
+    }
+
+    pub fn ensure_quake_len(&mut self, n: usize) {
+        if self.quake_list.len() < n {
+            self.quake_list
+                .extend((0..(n - self.quake_list.len())).map(|_| ScreenQuakeState::default()));
+        } else if self.quake_list.len() > n {
+            self.quake_list.truncate(n);
+        }
+    }
+
     pub fn tick(&mut self, delta: i32) {
-        for ev in self.root_events.values_mut() {
-            ev.tick(delta);
+        for effect in &mut self.effect_list {
+            effect.tick(delta);
         }
-        for list in self.lists.values_mut() {
-            list.tick(delta);
+        for quake in &mut self.quake_list {
+            let _ = quake.is_active();
         }
-        if let Some(t) = self.shake_until {
-            if Instant::now() >= t {
-                self.shake_until = None;
-            }
-        }
+        self.shake.tick();
     }
 }
 
 // -----------------------------------------------------------------------------
-// Message backlog (GLOBAL.MSGBK) bring-up state
+// Message backlog (GLOBAL.MSGBK) state
 // -----------------------------------------------------------------------------
-
-#[derive(Debug, Clone)]
-pub enum MsgBackAtom {
-    Text(String),
-    Name(String),
-    Koe { koe_no: i64, chara_no: i64 },
-}
 
 #[derive(Debug, Default, Clone)]
 pub struct MsgBackEntry {
-    pub atoms: Vec<MsgBackAtom>,
+    pub pct_flag: bool,
+    pub msg_str: String,
+    pub original_name: String,
+    pub disp_name: String,
+    pub pct_pos_x: i32,
+    pub pct_pos_y: i32,
+    pub koe_no_list: Vec<i64>,
+    pub chr_no_list: Vec<i64>,
+    pub koe_play_no: i64,
+    pub debug_msg: String,
+    pub scn_no: i64,
+    pub line_no: i64,
+    pub save_id_check_flag: bool,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct MsgBackState {
     pub history: Vec<MsgBackEntry>,
-    pub cur: MsgBackEntry,
+    pub history_insert_pos: usize,
+    pub history_last_pos: usize,
+    pub new_msg_flag: bool,
+}
+
+impl Default for MsgBackState {
+    fn default() -> Self {
+        Self {
+            history: Vec::new(),
+            history_insert_pos: 0,
+            history_last_pos: 0,
+            new_msg_flag: true,
+        }
+    }
 }
 
 impl MsgBackState {
+    fn reset_entry(entry: &mut MsgBackEntry) {
+        *entry = MsgBackEntry {
+            scn_no: -1,
+            line_no: -1,
+            ..MsgBackEntry::default()
+        };
+    }
+
+    fn ready_msg(&mut self) -> &mut MsgBackEntry {
+        if self.new_msg_flag {
+            if self.history_insert_pos >= self.history.len() {
+                self.history.push(MsgBackEntry {
+                    scn_no: -1,
+                    line_no: -1,
+                    ..MsgBackEntry::default()
+                });
+            } else {
+                Self::reset_entry(&mut self.history[self.history_insert_pos]);
+            }
+            self.new_msg_flag = false;
+        }
+        &mut self.history[self.history_insert_pos]
+    }
+
     pub fn clear(&mut self) {
         self.history.clear();
-        self.cur.atoms.clear();
+        self.history_insert_pos = 0;
+        self.history_last_pos = 0;
+        self.new_msg_flag = true;
     }
 
     pub fn next(&mut self) {
-        if !self.cur.atoms.is_empty() {
-            self.history.push(std::mem::take(&mut self.cur));
+        if self.new_msg_flag {
+            return;
         }
-        self.cur = MsgBackEntry::default();
+        let Some(cur) = self.history.get(self.history_insert_pos) else {
+            self.new_msg_flag = true;
+            return;
+        };
+        if !cur.pct_flag && cur.msg_str.is_empty() {
+            return;
+        }
+        self.history_insert_pos += 1;
+        self.new_msg_flag = true;
+    }
+
+    pub fn add_koe(&mut self, koe_no: i64, chara_no: i64, scn_no: i64, line_no: i64) -> bool {
+        if koe_no < 0 {
+            return true;
+        }
+        let entry = self.ready_msg();
+        entry.koe_no_list.push(koe_no);
+        entry.chr_no_list.push(chara_no);
+        entry.scn_no = scn_no;
+        entry.line_no = line_no;
+        self.history_last_pos = self.history_insert_pos;
+        true
+    }
+
+    pub fn add_name(
+        &mut self,
+        original_name: &str,
+        disp_name: &str,
+        scn_no: i64,
+        line_no: i64,
+    ) -> bool {
+        if disp_name.is_empty() {
+            return true;
+        }
+        let entry = self.ready_msg();
+        entry.original_name.clear();
+        entry.original_name.push_str(original_name);
+        entry.disp_name.clear();
+        entry.disp_name.push_str(disp_name);
+        entry.scn_no = scn_no;
+        entry.line_no = line_no;
+        self.history_last_pos = self.history_insert_pos;
+        true
+    }
+
+    pub fn add_msg(&mut self, msg: &str, debug_msg: &str, scn_no: i64, line_no: i64) -> bool {
+        if msg.is_empty() {
+            return true;
+        }
+        let entry = self.ready_msg();
+        entry.msg_str.push_str(msg);
+        entry.debug_msg.clear();
+        entry.debug_msg.push_str(debug_msg);
+        entry.scn_no = scn_no;
+        entry.line_no = line_no;
+        self.history_last_pos = self.history_insert_pos;
+        true
+    }
+
+    pub fn add_pct(&mut self, file_name: &str, x: i32, y: i32) -> bool {
+        if file_name.is_empty() {
+            return false;
+        }
+        self.next();
+        let entry = self.ready_msg();
+        entry.pct_flag = true;
+        entry.pct_pos_x = x;
+        entry.pct_pos_y = y;
+        entry.msg_str.clear();
+        entry.msg_str.push_str(file_name);
+        self.history_last_pos = self.history_insert_pos;
+        self.next();
+        true
+    }
+
+    pub fn current_entry(&self) -> Option<&MsgBackEntry> {
+        self.history.get(self.history_insert_pos)
     }
 }
 
@@ -1990,18 +3845,10 @@ impl StageFormState {
         }
     }
 
-    pub fn has_group_op(&self, k: GroupOpKind) -> bool {
-        self.group_op_map.values().any(|&v| v == k)
-    }
-
-    pub fn has_mwnd_op(&self, k: MwndOpKind) -> bool {
-        self.mwnd_op_map.values().any(|&v| v == k)
-    }
-
     pub fn ensure_object_list(&mut self, stage_idx: i64, cnt: usize) {
         let entry = self.object_lists.entry(stage_idx).or_default();
         if entry.len() < cnt {
-            entry.extend((0..(cnt - entry.len())).map(|_| ObjectCompatState::default()));
+            entry.extend((0..(cnt - entry.len())).map(|_| ObjectState::default()));
         } else if entry.len() > cnt {
             entry.truncate(cnt);
         }
@@ -2026,14 +3873,7 @@ impl MaskListState {
         for _ in 0..mask_cnt {
             masks.push(MaskState::new());
         }
-        Self {
-            masks,
-            x_op: None,
-            y_op: None,
-            x_eve_op: None,
-            y_eve_op: None,
-            confirmed: false,
-        }
+        Self { masks }
     }
 
     pub fn ensure_size(&mut self, mask_cnt: usize) {
@@ -2051,7 +3891,7 @@ impl MaskListState {
         for m in &mut self.masks {
             m.x_event.tick(delta);
             m.y_event.tick(delta);
-            for ev in m.extra_events.values_mut() {
+            for ev in m.script_events.values_mut() {
                 ev.tick(delta);
             }
         }
@@ -2072,8 +3912,12 @@ impl GlobalState {
     }
 
     pub fn tick_frame(&mut self) {
+        self.render_frame = self.render_frame.wrapping_add(1);
         if self.wipe_done() {
             self.wipe = None;
+        }
+        if self.change_display_mode_proc_cnt > 0 {
+            self.change_display_mode_proc_cnt -= 1;
         }
 
         for ml in self.mask_lists.values_mut() {
@@ -2082,6 +3926,15 @@ impl GlobalState {
 
         for sc in self.screen_forms.values_mut() {
             sc.tick(1);
+        }
+
+        for ev in self.int_event_roots.values_mut() {
+            ev.tick(1);
+        }
+        for events in self.int_event_lists.values_mut() {
+            for ev in events {
+                ev.tick(1);
+            }
         }
 
         for st in self.stage_forms.values_mut() {

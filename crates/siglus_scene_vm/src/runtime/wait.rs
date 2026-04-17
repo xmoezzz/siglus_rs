@@ -4,18 +4,20 @@
 //! - a certain time passes, or
 //! - the user presses a key / clicks.
 //!
-//! For bring-up, we implement a minimal, cross-platform blocking model.
+//! Cross-platform blocking and wait model.
 
 use std::time::{Duration, Instant};
 
 use crate::audio::{BgmEngine, PcmEngine, SeEngine};
 
+use super::constants::RuntimeConstants;
 use super::globals::GlobalState;
 use super::Value;
 
 #[derive(Debug, Clone, Copy)]
 pub enum AudioWait {
     Bgm,
+    BgmFade,
     SeAny,
     PcmAny,
     PcmSlot(u8),
@@ -41,6 +43,15 @@ pub enum EventWait {
         list_op: i32,
         list_idx: usize,
     },
+    GenericIntEvent {
+        form_id: u32,
+        index: Option<usize>,
+    },
+    CounterThreshold {
+        form_id: u32,
+        index: usize,
+        target: i64,
+    },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -54,11 +65,13 @@ pub struct MovieWait {
 #[derive(Debug, Default, Clone)]
 pub struct VmWait {
     until: Option<Instant>,
+    until_frame: Option<u64>,
     waiting_for_key: bool,
     /// If set, a key press cancels the current time wait (TIMEWAIT_KEY behavior).
     skip_time_on_key: bool,
 
     audio: Option<AudioWait>,
+    audio_return_value: bool,
 
     event: Option<EventWait>,
     event_key_skip: bool,
@@ -81,8 +94,9 @@ impl VmWait {
         se: &mut SeEngine,
         pcm: &mut PcmEngine,
         globals: &mut GlobalState,
+        ids: &RuntimeConstants,
     ) -> bool {
-        let blocked = self.is_blocked(bgm, se, pcm, globals);
+        let blocked = self.is_blocked(bgm, se, pcm, globals, ids);
         if !blocked {
             if let Some(v) = self.pending_value.take() {
                 stack.push(v);
@@ -97,6 +111,7 @@ impl VmWait {
         se: &mut SeEngine,
         pcm: &mut PcmEngine,
         globals: &mut GlobalState,
+        ids: &RuntimeConstants,
     ) -> bool {
         // Auto-clear time waits when the deadline is reached.
         if let Some(t) = self.until {
@@ -106,16 +121,27 @@ impl VmWait {
             }
         }
 
+        if let Some(frame) = self.until_frame {
+            if globals.render_frame >= frame {
+                self.until_frame = None;
+            }
+        }
+
         // Auto-clear audio waits when the predicate is satisfied.
         if let Some(w) = self.audio {
             let done = match w {
                 AudioWait::Bgm => !bgm.is_playing(),
+                AudioWait::BgmFade => !bgm.is_fade_out_doing(),
                 AudioWait::SeAny => !se.is_playing_any(),
                 AudioWait::PcmAny => !pcm.is_playing_any(),
                 AudioWait::PcmSlot(s) => !pcm.is_playing_slot(s as usize),
             };
             if done {
                 self.audio = None;
+                if self.audio_return_value {
+                    self.pending_value = Some(Value::Int(0));
+                }
+                self.audio_return_value = false;
             }
         }
 
@@ -153,8 +179,7 @@ impl VmWait {
                                 true
                             } else {
                                 let obj = &list[*obj_idx];
-                                !obj.extra_events
-                                    .get(op)
+                                !obj.int_event_by_op(ids, *op)
                                     .map(|e| e.check_event())
                                     .unwrap_or(false)
                             }
@@ -177,8 +202,7 @@ impl VmWait {
                             } else {
                                 let obj = &list[*obj_idx];
                                 let active = obj
-                                    .rep_int_event_lists
-                                    .get(list_op)
+                                    .int_event_list_by_op(ids, *list_op)
                                     .and_then(|v| v.get(*list_idx))
                                     .map(|e| e.check_event())
                                     .unwrap_or(false);
@@ -187,6 +211,29 @@ impl VmWait {
                         }
                     },
                 },
+                EventWait::GenericIntEvent { form_id, index } => match index {
+                    Some(i) => globals
+                        .int_event_lists
+                        .get(form_id)
+                        .and_then(|v| v.get(*i))
+                        .map(|e| !e.check_event())
+                        .unwrap_or(true),
+                    None => globals
+                        .int_event_roots
+                        .get(form_id)
+                        .map(|e| !e.check_event())
+                        .unwrap_or(true),
+                },
+                EventWait::CounterThreshold {
+                    form_id,
+                    index,
+                    target,
+                } => globals
+                    .counter_lists
+                    .get(form_id)
+                    .and_then(|v| v.get(*index))
+                    .map(|c| c.get_count_with_frame(globals.render_frame as i64) - *target >= 0)
+                    .unwrap_or(true),
             };
             if done {
                 self.event = None;
@@ -229,6 +276,7 @@ impl VmWait {
 
         self.waiting_for_key
             || self.until.is_some()
+            || self.until_frame.is_some()
             || self.audio.is_some()
             || self.event.is_some()
             || self.movie.is_some()
@@ -240,6 +288,11 @@ impl VmWait {
             return;
         }
         self.until = Some(Instant::now() + Duration::from_millis(ms));
+        self.skip_time_on_key = false;
+    }
+
+    pub fn wait_next_frame(&mut self, current_frame: u64) {
+        self.until_frame = Some(current_frame.saturating_add(1));
         self.skip_time_on_key = false;
     }
 
@@ -257,7 +310,12 @@ impl VmWait {
     }
 
     pub fn wait_audio(&mut self, w: AudioWait, key: bool) {
+        self.wait_audio_with_return(w, key, false);
+    }
+
+    pub fn wait_audio_with_return(&mut self, w: AudioWait, key: bool, return_value_flag: bool) {
         self.audio = Some(w);
+        self.audio_return_value = return_value_flag;
         if key {
             self.waiting_for_key = true;
         }
@@ -343,6 +401,26 @@ impl VmWait {
         }
     }
 
+    pub fn wait_generic_int_event(&mut self, form_id: u32, index: Option<usize>, key_skip: bool) {
+        self.event = Some(EventWait::GenericIntEvent { form_id, index });
+        self.event_key_skip = key_skip;
+        if key_skip {
+            self.waiting_for_key = true;
+        }
+    }
+
+    pub fn wait_counter(&mut self, form_id: u32, index: usize, target: i64, key_skip: bool) {
+        self.event = Some(EventWait::CounterThreshold {
+            form_id,
+            index,
+            target,
+        });
+        self.event_key_skip = key_skip;
+        if key_skip {
+            self.waiting_for_key = true;
+        }
+    }
+
     pub fn wait_wipe(&mut self, key_skip: bool) {
         self.wipe = true;
         self.wipe_key_skip = key_skip;
@@ -357,7 +435,11 @@ impl VmWait {
     pub fn notify_key(&mut self) -> bool {
         let wipe_skipped = self.wipe && self.wipe_key_skip;
         self.waiting_for_key = false;
+        if self.audio.is_some() && self.audio_return_value {
+            self.pending_value = Some(Value::Int(1));
+        }
         self.audio = None;
+        self.audio_return_value = false;
         if self.event_key_skip {
             self.event = None;
             self.event_key_skip = false;
@@ -394,6 +476,7 @@ impl VmWait {
         self.waiting_for_key = false;
         self.skip_time_on_key = false;
         self.audio = None;
+        self.audio_return_value = false;
         self.event = None;
         self.event_key_skip = false;
         self.movie = None;

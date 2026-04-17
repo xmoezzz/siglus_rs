@@ -16,6 +16,28 @@ pub struct ScnHeader {
     pub label_cnt: i32,
     pub z_label_list_ofs: i32,
     pub z_label_cnt: i32,
+    pub cmd_label_list_ofs: i32,
+    pub cmd_label_cnt: i32,
+    pub scn_prop_list_ofs: i32,
+    pub scn_prop_cnt: i32,
+    pub scn_prop_name_index_list_ofs: i32,
+    pub scn_prop_name_index_cnt: i32,
+    pub scn_prop_name_list_ofs: i32,
+    pub scn_prop_name_cnt: i32,
+    pub scn_cmd_list_ofs: i32,
+    pub scn_cmd_cnt: i32,
+    pub scn_cmd_name_index_list_ofs: i32,
+    pub scn_cmd_name_index_cnt: i32,
+    pub scn_cmd_name_list_ofs: i32,
+    pub scn_cmd_name_cnt: i32,
+    pub call_prop_name_index_list_ofs: i32,
+    pub call_prop_name_index_cnt: i32,
+    pub call_prop_name_list_ofs: i32,
+    pub call_prop_name_cnt: i32,
+    pub namae_list_ofs: i32,
+    pub namae_cnt: i32,
+    pub read_flag_list_ofs: i32,
+    pub read_flag_cnt: i32,
 }
 
 impl ScnHeader {
@@ -43,6 +65,28 @@ impl ScnHeader {
         let label_cnt = rd();
         let z_label_list_ofs = rd();
         let z_label_cnt = rd();
+        let cmd_label_list_ofs = rd();
+        let cmd_label_cnt = rd();
+        let scn_prop_list_ofs = rd();
+        let scn_prop_cnt = rd();
+        let scn_prop_name_index_list_ofs = rd();
+        let scn_prop_name_index_cnt = rd();
+        let scn_prop_name_list_ofs = rd();
+        let scn_prop_name_cnt = rd();
+        let scn_cmd_list_ofs = rd();
+        let scn_cmd_cnt = rd();
+        let scn_cmd_name_index_list_ofs = rd();
+        let scn_cmd_name_index_cnt = rd();
+        let scn_cmd_name_list_ofs = rd();
+        let scn_cmd_name_cnt = rd();
+        let call_prop_name_index_list_ofs = rd();
+        let call_prop_name_index_cnt = rd();
+        let call_prop_name_list_ofs = rd();
+        let call_prop_name_cnt = rd();
+        let namae_list_ofs = rd();
+        let namae_cnt = rd();
+        let read_flag_list_ofs = rd();
+        let read_flag_cnt = rd();
 
         Ok(Self {
             header_size,
@@ -56,8 +100,70 @@ impl ScnHeader {
             label_cnt,
             z_label_list_ofs,
             z_label_cnt,
+            cmd_label_list_ofs,
+            cmd_label_cnt,
+            scn_prop_list_ofs,
+            scn_prop_cnt,
+            scn_prop_name_index_list_ofs,
+            scn_prop_name_index_cnt,
+            scn_prop_name_list_ofs,
+            scn_prop_name_cnt,
+            scn_cmd_list_ofs,
+            scn_cmd_cnt,
+            scn_cmd_name_index_list_ofs,
+            scn_cmd_name_index_cnt,
+            scn_cmd_name_list_ofs,
+            scn_cmd_name_cnt,
+            call_prop_name_index_list_ofs,
+            call_prop_name_index_cnt,
+            call_prop_name_list_ofs,
+            call_prop_name_cnt,
+            namae_list_ofs,
+            namae_cnt,
+            read_flag_list_ofs,
+            read_flag_cnt,
         })
     }
+}
+
+fn read_indexed_utf16_name_map(
+    chunk: &[u8],
+    index_list_ofs: usize,
+    count: usize,
+    list_ofs: usize,
+) -> Result<std::collections::HashMap<u32, String>> {
+    let mut out = std::collections::HashMap::new();
+    if index_list_ofs + count * 8 > chunk.len() || list_ofs > chunk.len() {
+        return Ok(out);
+    }
+    for i in 0..count {
+        let idx = CIndex::read(chunk, index_list_ofs + i * 8)?;
+        let o = idx.offset.max(0) as usize;
+        let n = idx.size.max(0) as usize;
+        let byte_off = list_ofs
+            .checked_add(o * 2)
+            .ok_or_else(|| anyhow!("scn: name offset overflow"))?;
+        let byte_end = byte_off
+            .checked_add(n * 2)
+            .ok_or_else(|| anyhow!("scn: name size overflow"))?;
+        if byte_end > chunk.len() {
+            continue;
+        }
+        let mut u16s = Vec::with_capacity(n);
+        for j in 0..n {
+            let p = byte_off + j * 2;
+            let w = u16::from_le_bytes([chunk[p], chunk[p + 1]]);
+            if w == 0 {
+                break;
+            }
+            u16s.push(w);
+        }
+        let s = String::from_utf16_lossy(&u16s);
+        if !s.is_empty() {
+            out.insert(i as u32, s);
+        }
+    }
+    Ok(out)
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +175,9 @@ pub struct SceneStream<'a> {
     pub str_list: &'a [u8],
     pub label_list: &'a [u8],
     pub z_label_list: &'a [u8],
+    pub scn_prop_name_map: std::collections::HashMap<u32, String>,
+    pub scn_cmd_name_map: std::collections::HashMap<u32, String>,
+    pub call_prop_name_map: std::collections::HashMap<u32, String>,
     pub pc: usize,
 }
 
@@ -121,6 +230,25 @@ impl<'a> SceneStream<'a> {
         }
         let z_label_list = &chunk[z_label_list_ofs..z_label_list_end];
 
+        let scn_prop_name_map = read_indexed_utf16_name_map(
+            chunk,
+            header.scn_prop_name_index_list_ofs.max(0) as usize,
+            header.scn_prop_name_cnt.max(0) as usize,
+            header.scn_prop_name_list_ofs.max(0) as usize,
+        )?;
+        let scn_cmd_name_map = read_indexed_utf16_name_map(
+            chunk,
+            header.scn_cmd_name_index_list_ofs.max(0) as usize,
+            header.scn_cmd_name_cnt.max(0) as usize,
+            header.scn_cmd_name_list_ofs.max(0) as usize,
+        )?;
+        let call_prop_name_map = read_indexed_utf16_name_map(
+            chunk,
+            header.call_prop_name_index_list_ofs.max(0) as usize,
+            header.call_prop_name_cnt.max(0) as usize,
+            header.call_prop_name_list_ofs.max(0) as usize,
+        )?;
+
         Ok(Self {
             chunk,
             header,
@@ -129,6 +257,9 @@ impl<'a> SceneStream<'a> {
             str_list,
             label_list,
             z_label_list,
+            scn_prop_name_map,
+            scn_cmd_name_map,
+            call_prop_name_map,
             pc: 0,
         })
     }

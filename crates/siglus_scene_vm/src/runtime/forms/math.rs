@@ -69,7 +69,7 @@ fn xorshift32(state: &mut u32) -> u32 {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    let parsed = prop_access::parse_element_chain(form_id, args);
+    let parsed = prop_access::parse_element_chain_ctx(ctx, form_id, args);
     let mut chain_pos: Option<usize> = None;
     let mut chain: Option<&[i32]> = None;
     if let Some((pos, ch)) = parsed {
@@ -80,12 +80,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     let (op, params, al_id) = if let Some(pos) = chain_pos {
         let ch = chain.unwrap();
         let op = ch.get(1).copied();
-        let al_id = if pos + 2 < args.len() {
-            args[pos + 1].as_i64()
-        } else {
-            None
-        };
-        (op, &args[..pos], al_id)
+        let al_id = crate::runtime::forms::prop_access::current_vm_meta(ctx).0;
+        (
+            op,
+            crate::runtime::forms::prop_access::script_args(args, pos),
+            al_id,
+        )
     } else {
         let op = args.get(0).and_then(|v| v.as_i64()).map(|v| v as i32);
         let params = if args.len() >= 2 { &args[1..] } else { &[] };
@@ -312,6 +312,5 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         return Ok(true);
     }
 
-    prop_access::dispatch_stateful_form(ctx, form_id, args);
-    Ok(true)
+    Ok(false)
 }

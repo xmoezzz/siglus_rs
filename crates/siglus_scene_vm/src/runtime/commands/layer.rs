@@ -4,7 +4,7 @@ use crate::layer::LayerManager;
 use crate::runtime::commands::util::strip_vm_meta;
 use crate::runtime::{Command, CommandContext, Value};
 
-/// Small bring-up layer commands.
+/// Layer commands.
 ///
 /// These exist to help validate the renderer and command plumbing.
 pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {

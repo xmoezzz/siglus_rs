@@ -88,7 +88,6 @@ pub fn decode_bgm_to_wav_bytes(
             if idx >= entry_cnt {
                 bail!("OVK entry out of range: idx={} entries={}", idx, entry_cnt);
             }
-            #[cfg(feature = "assets-vorbis")]
             {
                 let wav_bytes = pack
                     .decode_entry_vorbis_wav(idx)
@@ -99,16 +98,10 @@ pub fn decode_bgm_to_wav_bytes(
                     description: format!("OVK:{}[{}]", input.display(), idx),
                 })
             }
-            #[cfg(not(feature = "assets-vorbis"))]
-            {
-                let _ = pack; // silence unused warnings
-                bail!("OVK Vorbis decode requires feature `siglus_scene_vm/assets-vorbis`");
-            }
         }
         BgmContainer::Owp => {
             let owp = ovk::OwpFile::open(input)
                 .with_context(|| format!("open OWP: {}", input.display()))?;
-            #[cfg(feature = "assets-vorbis")]
             {
                 let wav_bytes = owp.decode_vorbis_wav().context("decode OWP -> WAV")?;
                 Ok(BgmDecoded {
@@ -117,30 +110,18 @@ pub fn decode_bgm_to_wav_bytes(
                     description: format!("OWP:{}", input.display()),
                 })
             }
-            #[cfg(not(feature = "assets-vorbis"))]
-            {
-                let _ = owp;
-                bail!("OWP Vorbis decode requires feature `siglus_scene_vm/assets-vorbis`");
-            }
         }
         BgmContainer::Ogg => {
-            #[cfg(feature = "assets-vorbis")]
-            {
-                let bytes =
-                    fs::read(input).with_context(|| format!("read OGG: {}", input.display()))?;
-                let wav_bytes =
-                    siglus_assets::vorbis::decode_ogg_vorbis_reader_to_wav(Cursor::new(bytes))
-                        .context("decode OGG/Vorbis -> WAV")?;
-                Ok(BgmDecoded {
-                    container: kind,
-                    wav_bytes,
-                    description: format!("OGG:{}", input.display()),
-                })
-            }
-            #[cfg(not(feature = "assets-vorbis"))]
-            {
-                bail!("OGG Vorbis decode requires feature `siglus_scene_vm/assets-vorbis`");
-            }
+            let bytes =
+                fs::read(input).with_context(|| format!("read OGG: {}", input.display()))?;
+            let wav_bytes =
+                siglus_assets::vorbis::decode_ogg_vorbis_reader_to_wav(Cursor::new(bytes))
+                    .context("decode OGG/Vorbis -> WAV")?;
+            Ok(BgmDecoded {
+                container: kind,
+                wav_bytes,
+                description: format!("OGG:{}", input.display()),
+            })
         }
         BgmContainer::Wav => {
             let wav_bytes =
@@ -179,7 +160,6 @@ pub fn decode_ovk_entry_by_no_to_wav_bytes(
             )
         })?;
 
-    #[cfg(feature = "assets-vorbis")]
     {
         let wav_bytes = pack
             .decode_entry_vorbis_wav(idx)
@@ -189,11 +169,6 @@ pub fn decode_ovk_entry_by_no_to_wav_bytes(
             wav_bytes,
             description: format!("OVK:{}#{}", input.display(), entry_no),
         })
-    }
-    #[cfg(not(feature = "assets-vorbis"))]
-    {
-        let _ = idx;
-        bail!("OVK Vorbis decode requires feature `siglus_scene_vm/assets-vorbis`");
     }
 }
 
