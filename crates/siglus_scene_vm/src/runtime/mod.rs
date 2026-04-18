@@ -126,6 +126,29 @@ pub struct VmCallMeta {
     pub ret_form: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct DebugActiveTextureEntry {
+    pub image_id: ImageId,
+    pub width: u32,
+    pub height: u32,
+    pub source_label: String,
+    pub submitted_this_frame: bool,
+    pub visible_refs: usize,
+    pub total_refs: usize,
+    pub ref_summary: String,
+}
+
+#[derive(Debug, Default, Clone)]
+struct DebugActiveTextureAccum {
+    width: u32,
+    height: u32,
+    source_label: String,
+    submitted_this_frame: bool,
+    visible_refs: usize,
+    total_refs: usize,
+    ref_labels: Vec<String>,
+}
+
 pub struct CommandContext {
     pub project_dir: PathBuf,
 
@@ -201,6 +224,8 @@ pub struct CommandContext {
     /// Current VM-originated form call metadata. Form handlers read this instead of
     /// relying on trailing wrapper arguments.
     pub vm_call: Option<VmCallMeta>,
+
+    frame_clock_last: Option<std::time::Instant>,
 }
 
 impl CommandContext {
@@ -359,6 +384,7 @@ impl CommandContext {
             current_scene_name: None,
             current_line_no: -1,
             vm_call: None,
+            frame_clock_last: None,
         }
     }
 
@@ -376,9 +402,17 @@ impl CommandContext {
     }
 
     pub fn reset_for_scene_restart(&mut self) {
+        self.audio = AudioHub::new();
+        self.bgm = BgmEngine::new(self.project_dir.clone());
+        self.pcm = PcmEngine::new(self.project_dir.clone());
+        self.se = SeEngine::new(self.project_dir.clone());
+        self.movie = MovieManager::new(self.project_dir.clone());
+        self.images = ImageManager::new(self.project_dir.clone());
+        self.solid_white = self.images.solid_rgba((255, 255, 255, 255));
         self.layers.clear_all();
         self.gfx = graphics::GfxRuntime::default();
         self.ui = ui::UiRuntime::default();
+        self.font_cache = FontCache::new();
         self.wait = wait::VmWait::default();
         self.stack.clear();
         self.globals = globals::GlobalState::default();
@@ -390,6 +424,7 @@ impl CommandContext {
         self.overlay_rt_image = None;
         self.input.clear_all();
         self.vm_call = None;
+        self.frame_clock_last = None;
     }
 
     /// Install or clear an external form handler.
@@ -1011,8 +1046,28 @@ impl CommandContext {
     }
 
     pub fn tick_frame(&mut self) {
+        let now = std::time::Instant::now();
+        let last = self.frame_clock_last.replace(now);
+        let elapsed_ms = last
+            .map(|t| now.saturating_duration_since(t).as_millis() as i32)
+            .unwrap_or(16);
+        let real_delta_ms = elapsed_ms.max(16);
+        let game_delta_ms = real_delta_ms;
+        let trace = std::env::var_os("SG_CTX_TICK_TRACE").is_some();
+        if trace {
+            eprintln!(
+                "[SG_CTX_TICK] start game_delta_ms={} real_delta_ms={}",
+                game_delta_ms, real_delta_ms
+            );
+        }
         self.sync_editbox_runtime();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after sync_editbox_runtime");
+        }
         self.sync_mwnd_window_ui();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after sync_mwnd_window_ui");
+        }
         self.ui.tick(
             &mut self.layers,
             &mut self.images,
@@ -1024,6 +1079,9 @@ impl CommandContext {
         );
         // Apply syscom flags that should skip visual transitions immediately.
         self.apply_syscom_skip_flags();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after apply_syscom_skip_flags");
+        }
         // Sync message length for auto-mode timing.
         self.globals.script.auto_mode_moji_cnt =
             self.ui.message_text().unwrap_or("").chars().count() as i64;
@@ -1038,12 +1096,33 @@ impl CommandContext {
             self.ui.force_message_bg_visible(false);
         }
         self.sync_syscom_menu_ui();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after sync_syscom_menu_ui");
+        }
         self.sync_mwnd_selection_ui();
-        self.globals.tick_frame();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after sync_mwnd_selection_ui");
+        }
+        self.globals.tick_frame(game_delta_ms, real_delta_ms);
+        if trace {
+            eprintln!("[SG_CTX_TICK] after globals.tick_frame");
+        }
         let _ = self.bgm.tick(&mut self.audio);
+        if trace {
+            eprintln!("[SG_CTX_TICK] after bgm.tick");
+        }
         self.sync_movie_objects();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after sync_movie_objects");
+        }
         self.apply_object_event_animations();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after apply_object_event_animations");
+        }
         self.apply_object_disp_override();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after apply_object_disp_override");
+        }
     }
 
     fn apply_syscom_skip_flags(&mut self) {
@@ -1791,10 +1870,182 @@ impl CommandContext {
         list
     }
 
+    pub fn debug_active_texture_entries(
+        &self,
+        submitted: &[RenderSprite],
+    ) -> Vec<DebugActiveTextureEntry> {
+        let mut submitted_keys: HashSet<(LayerId, SpriteId)> = HashSet::new();
+        let mut submitted_images: HashSet<ImageId> = HashSet::new();
+        for rs in submitted {
+            if let Some(id) = rs.sprite.image_id {
+                submitted_images.insert(id);
+            }
+            if let (Some(layer_id), Some(sprite_id)) = (rs.layer_id, rs.sprite_id) {
+                submitted_keys.insert((layer_id, sprite_id));
+            }
+        }
+
+        let mut acc: HashMap<ImageId, DebugActiveTextureAccum> = HashMap::new();
+        let mut form_ids: Vec<u32> = self.globals.stage_forms.keys().copied().collect();
+        form_ids.sort_unstable();
+        for form_id in form_ids {
+            let Some(st) = self.globals.stage_forms.get(&form_id) else {
+                continue;
+            };
+            let mut stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
+            stage_ids.sort_unstable();
+            for stage_idx in stage_ids {
+                let Some(list) = st.object_lists.get(&stage_idx) else {
+                    continue;
+                };
+                for (obj_idx, obj) in list.iter().enumerate() {
+                    collect_debug_active_textures_from_object(
+                        self,
+                        form_id,
+                        stage_idx,
+                        obj_idx,
+                        obj,
+                        &submitted_keys,
+                        &submitted_images,
+                        &mut acc,
+                    );
+                }
+            }
+        }
+
+        let mut out: Vec<DebugActiveTextureEntry> = acc
+            .into_iter()
+            .map(|(image_id, entry)| DebugActiveTextureEntry {
+                image_id,
+                width: entry.width,
+                height: entry.height,
+                source_label: entry.source_label,
+                submitted_this_frame: entry.submitted_this_frame,
+                visible_refs: entry.visible_refs,
+                total_refs: entry.total_refs,
+                ref_summary: if entry.ref_labels.is_empty() {
+                    String::new()
+                } else {
+                    entry.ref_labels.join(" | ")
+                },
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.submitted_this_frame
+                .cmp(&a.submitted_this_frame)
+                .then_with(|| b.visible_refs.cmp(&a.visible_refs))
+                .then_with(|| b.total_refs.cmp(&a.total_refs))
+                .then_with(|| a.image_id.0.cmp(&b.image_id.0))
+        });
+        out
+    }
+
     /// Capture the current frame (UI + scene) into a CPU RGBA buffer.
     pub fn capture_frame_rgba(&mut self) -> RgbaImage {
         let sprites = self.render_list_with_effects();
         soft_render::render_to_image(&self.images, &sprites, self.screen_w, self.screen_h)
+    }
+}
+
+fn collect_debug_active_textures_from_object(
+    ctx: &CommandContext,
+    stage_form_id: u32,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    submitted_keys: &HashSet<(LayerId, SpriteId)>,
+    submitted_images: &HashSet<ImageId>,
+    out: &mut HashMap<ImageId, DebugActiveTextureAccum>,
+) {
+    if !object_participates_in_tree(obj) {
+        return;
+    }
+
+    let info = effective_object_info(ctx, stage_idx, obj_idx, obj);
+    let bound = fetch_bound_render_sprites_any(ctx, stage_idx, info.runtime_slot, obj);
+    for rs in bound {
+        let Some(image_id) = rs.sprite.image_id else {
+            continue;
+        };
+        let submitted = submitted_images.contains(&image_id)
+            || rs
+                .layer_id
+                .zip(rs.sprite_id)
+                .map(|key| submitted_keys.contains(&key))
+                .unwrap_or(false);
+        let debug_img = ctx.images.debug_image_info(image_id);
+        let entry = out
+            .entry(image_id)
+            .or_insert_with(|| DebugActiveTextureAccum {
+                width: debug_img.as_ref().map(|d| d.width).unwrap_or(0),
+                height: debug_img.as_ref().map(|d| d.height).unwrap_or(0),
+                source_label: debug_img
+                    .as_ref()
+                    .and_then(|d| {
+                        d.source_path.as_ref().map(|p| {
+                            if let Some(frame_index) = d.frame_index {
+                                format!("{}#{}", p.display(), frame_index)
+                            } else {
+                                p.display().to_string()
+                            }
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        obj.file_name
+                            .clone()
+                            .unwrap_or_else(|| "<dynamic>".to_string())
+                    }),
+                submitted_this_frame: false,
+                visible_refs: 0,
+                total_refs: 0,
+                ref_labels: Vec::new(),
+            });
+        entry.submitted_this_frame |= submitted;
+        entry.total_refs += 1;
+        if info.disp {
+            entry.visible_refs += 1;
+        }
+        let file = obj.file_name.as_deref().unwrap_or("-");
+        let ref_label = format!(
+            "sf{} st{} slot{} {} disp={} backend={}",
+            stage_form_id,
+            stage_idx,
+            info.runtime_slot,
+            file,
+            if info.disp { 1 } else { 0 },
+            debug_object_backend_name(obj)
+        );
+        if !entry.ref_labels.iter().any(|s| s == &ref_label) {
+            if entry.ref_labels.len() < 3 {
+                entry.ref_labels.push(ref_label);
+            } else if entry.ref_labels.len() == 3 {
+                entry.ref_labels.push("...".to_string());
+            }
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+        collect_debug_active_textures_from_object(
+            ctx,
+            stage_form_id,
+            stage_idx,
+            child_idx,
+            child,
+            submitted_keys,
+            submitted_images,
+            out,
+        );
+    }
+}
+
+fn debug_object_backend_name(obj: &globals::ObjectState) -> &'static str {
+    match &obj.backend {
+        globals::ObjectBackend::None => "None",
+        globals::ObjectBackend::Gfx => "Gfx",
+        globals::ObjectBackend::Rect { .. } => "Rect",
+        globals::ObjectBackend::String { .. } => "String",
+        globals::ObjectBackend::Number { .. } => "Number",
+        globals::ObjectBackend::Movie { .. } => "Movie",
     }
 }
 
@@ -1989,6 +2240,7 @@ fn apply_object_event_animations_recursive(
                 None
             } else {
                 obj.int_event_by_op(ids, op_id)
+                    .filter(|ev| ev.check_event())
                     .map(|ev| ev.get_total_value() as i64)
             }
         };
@@ -1998,6 +2250,7 @@ fn apply_object_event_animations_recursive(
             } else {
                 obj.int_event_list_by_op(ids, op_id)
                     .and_then(|list| list.get(0))
+                    .filter(|ev| ev.check_event())
                     .map(|ev| ev.get_total_value() as i64)
             }
         };
@@ -2414,8 +2667,12 @@ fn sync_movie_object_recursive(
     obj_idx: i64,
     obj: &mut globals::ObjectState,
 ) {
+    let trace = std::env::var_os("SG_MOVIE_TRACE").is_some();
     if obj.used && obj.object_type == 9 {
         if let Some(file_name) = obj.file_name.clone() {
+            if trace {
+                eprintln!("[SG_MOVIE_TRACE] enter stage={} obj={} file={} playing={} pause={} backend={:?} children={}", stage_idx, obj_idx, file_name, obj.movie.playing, obj.movie.pause_flag, obj.backend, obj.runtime.child_objects.len());
+            }
             let file = file_name.as_str();
             if obj.movie.just_finished {
                 if let Some(id) = obj.movie.audio_id.take() {
@@ -2481,11 +2738,7 @@ fn sync_movie_object_recursive(
 
                 if let Some(layer) = layers.layer_mut(layer_id) {
                     if let Some(sprite) = layer.sprite_mut(sprite_id) {
-                        let disp = if ids.obj_disp != 0 {
-                            obj.get_int_prop(ids, ids.obj_disp)
-                        } else {
-                            1
-                        };
+                        let disp = obj.get_int_prop(ids, ids.obj_disp);
                         sprite.visible = disp != 0;
                         if ids.obj_x != 0 {
                             sprite.x = obj.lookup_int_prop(ids, ids.obj_x).unwrap_or(0) as i32;
@@ -2524,7 +2777,69 @@ fn sync_movie_object_recursive(
                     }
                 }
 
-                if obj.movie.playing && !obj.movie.pause_flag && obj.movie.audio_id.is_none() {
+                if obj.movie.pause_flag {
+                    if let globals::ObjectBackend::Movie {
+                        layer_id,
+                        sprite_id,
+                        image_id,
+                        width,
+                        height,
+                    } = &mut obj.backend
+                    {
+                        if image_id.is_none() {
+                            match movie_mgr.ensure_preview_frame(file) {
+                                Ok(frame) => {
+                                    let img_id = images.insert_image_arc(frame.clone());
+                                    *image_id = Some(img_id);
+                                    *width = frame.width;
+                                    *height = frame.height;
+                                    if let Some(layer) = layers.layer_mut(*layer_id) {
+                                        if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+                                            sprite.image_id = Some(img_id);
+                                        }
+                                    }
+                                    if trace {
+                                        eprintln!(
+                                            "[SG_MOVIE_TRACE] installed paused preview stage={} obj={} file={} size={}x{}",
+                                            stage_idx,
+                                            obj_idx,
+                                            file,
+                                            frame.width,
+                                            frame.height,
+                                        );
+                                    }
+                                }
+                                Err(err) => {
+                                    if trace {
+                                        eprintln!(
+                                            "[SG_MOVIE_TRACE] paused preview decode failed stage={} obj={} file={} err={:#}",
+                                            stage_idx,
+                                            obj_idx,
+                                            file,
+                                            err,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+                        sync_movie_object_recursive(
+                            ids,
+                            layers,
+                            movie_mgr,
+                            audio,
+                            gfx,
+                            images,
+                            stage_idx,
+                            object_runtime_slot(child_idx, child) as i64,
+                            child,
+                        );
+                    }
+                    return;
+                }
+
+                if obj.movie.playing && obj.movie.audio_id.is_none() {
                     let asset_audio = match movie_mgr.ensure_asset(file) {
                         Ok((a, _)) => a.audio.clone(),
                         Err(_) => None,
@@ -2536,9 +2851,18 @@ fn sync_movie_object_recursive(
                     }
                 }
 
+                if trace {
+                    eprintln!(
+                        "[SG_MOVIE_TRACE] ensure_asset stage={} obj={} file={}",
+                        stage_idx, obj_idx, file
+                    );
+                }
                 let asset = match movie_mgr.ensure_asset(file) {
                     Ok((a, _)) => a,
-                    Err(_) => {
+                    Err(err) => {
+                        if trace {
+                            eprintln!("[SG_MOVIE_TRACE] ensure_asset failed stage={} obj={} file={} err={:#}", stage_idx, obj_idx, file, err);
+                        }
                         for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
                             sync_movie_object_recursive(
                                 ids,
@@ -2555,6 +2879,16 @@ fn sync_movie_object_recursive(
                         return;
                     }
                 };
+                if trace {
+                    eprintln!(
+                        "[SG_MOVIE_TRACE] asset ready stage={} obj={} file={} frames={} fps={:?}",
+                        stage_idx,
+                        obj_idx,
+                        file,
+                        asset.frames.len(),
+                        asset.info.fps
+                    );
+                }
                 if !asset.frames.is_empty() {
                     let fps = asset.info.fps.unwrap_or(0.0);
                     if fps > 0.0 {
@@ -3075,14 +3409,42 @@ fn fetch_bound_render_sprites(
     runtime_slot: usize,
     obj: &globals::ObjectState,
 ) -> Vec<RenderSprite> {
-    fn push_one(ctx: &CommandContext, lid: LayerId, sid: SpriteId, out: &mut Vec<RenderSprite>) {
+    fetch_bound_render_sprites_impl(ctx, stage_idx, runtime_slot, obj, true)
+}
+
+fn fetch_bound_render_sprites_any(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    runtime_slot: usize,
+    obj: &globals::ObjectState,
+) -> Vec<RenderSprite> {
+    fetch_bound_render_sprites_impl(ctx, stage_idx, runtime_slot, obj, false)
+}
+
+fn fetch_bound_render_sprites_impl(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    runtime_slot: usize,
+    obj: &globals::ObjectState,
+    visible_only: bool,
+) -> Vec<RenderSprite> {
+    fn push_one(
+        ctx: &CommandContext,
+        lid: LayerId,
+        sid: SpriteId,
+        visible_only: bool,
+        out: &mut Vec<RenderSprite>,
+    ) {
         let Some(layer) = ctx.layers.layer(lid) else {
             return;
         };
         let Some(sprite) = layer.sprite(sid) else {
             return;
         };
-        if !sprite.visible || sprite.image_id.is_none() {
+        if visible_only && !sprite.visible {
+            return;
+        }
+        if sprite.image_id.is_none() {
             return;
         }
         out.push(RenderSprite {
@@ -3099,7 +3461,7 @@ fn fetch_bound_render_sprites(
                 .gfx
                 .object_sprite_binding(stage_idx, runtime_slot as i64)
             {
-                push_one(ctx, lid, sid, &mut out);
+                push_one(ctx, lid, sid, visible_only, &mut out);
             }
         }
         globals::ObjectBackend::Rect {
@@ -3117,14 +3479,14 @@ fn fetch_bound_render_sprites(
             sprite_id,
             ..
         } => {
-            push_one(ctx, *layer_id, *sprite_id, &mut out);
+            push_one(ctx, *layer_id, *sprite_id, visible_only, &mut out);
         }
         globals::ObjectBackend::Number {
             layer_id,
             sprite_ids,
         } => {
             for sid in sprite_ids {
-                push_one(ctx, *layer_id, *sid, &mut out);
+                push_one(ctx, *layer_id, *sid, visible_only, &mut out);
             }
         }
         globals::ObjectBackend::None => {}
@@ -3502,11 +3864,14 @@ fn append_object_tree_sprites(
                 out,
             );
             for rs in out[out_len_before..].iter_mut() {
-                apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &cur_parent_state);
+                if let Some(parent) = parent_state {
+                    apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &parent);
+                }
                 apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
             }
         } else {
             for mut rs in bound.drain(..) {
+                apply_object_render_info_to_sprite(&mut rs.sprite, &info);
                 rs.sprite.order = total_order
                     .clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024)
                     .saturating_mul(1024)
@@ -3518,7 +3883,9 @@ fn append_object_tree_sprites(
                 rs.sprite.tr = ((rs.sprite.tr as i64).saturating_mul(info.tr.clamp(0, 255)) / 255)
                     .clamp(0, 255) as u8;
                 configure_sprite_3d(&mut rs.sprite, &info, worlds, ctx.screen_w, ctx.screen_h);
-                apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &cur_parent_state);
+                if let Some(parent) = parent_state {
+                    apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &parent);
+                }
                 apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
                 apply_runtime_light_and_fog(ctx, &mut rs.sprite);
                 if rs.sprite.tr > 0 {
@@ -3549,6 +3916,13 @@ fn append_object_tree_sprites(
             *child_idx as i64,
         )
     });
+    let recurse_children = if matches!(obj.object_type, 3 | 4 | 5) {
+        // STRING / NUMBER / WEATHER keep traversing their child object list even though
+        // their own sprite emission is handled separately via sprite_list.
+        parent_visible
+    } else {
+        visible
+    };
     for (child_idx, child) in children {
         append_object_tree_sprites(
             ctx,
@@ -3556,7 +3930,7 @@ fn append_object_tree_sprites(
             stage_idx,
             child_idx,
             child,
-            visible,
+            recurse_children,
             total_order,
             total_layer,
             Some(cur_parent_state),
@@ -3668,6 +4042,43 @@ fn append_weather_sprites(
     }
 }
 
+fn apply_object_render_info_to_sprite(
+    sprite: &mut Sprite,
+    info: &ObjectRenderInfo,
+) {
+    sprite.visible = info.disp;
+    sprite.x = (info.x + info.x_rep)
+        .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    sprite.y = (info.y + info.y_rep)
+        .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    sprite.z = (info.z + info.z_rep) as f32;
+    sprite.pivot_x = (info.center_x + info.center_rep_x) as f32;
+    sprite.pivot_y = (info.center_y + info.center_rep_y) as f32;
+    sprite.pivot_z = (info.center_z + info.center_rep_z) as f32;
+    sprite.scale_x = info.scale_x as f32 / 1000.0;
+    sprite.scale_y = info.scale_y as f32 / 1000.0;
+    sprite.scale_z = info.scale_z as f32 / 1000.0;
+    sprite.rotate = info.rotate_z as f32 * std::f32::consts::PI / 1800.0;
+    sprite.rotate_x = info.rotate_x as f32 * std::f32::consts::PI / 1800.0;
+    sprite.rotate_y = info.rotate_y as f32 * std::f32::consts::PI / 1800.0;
+    sprite.alpha = info.alpha.clamp(0, 255) as u8;
+    sprite.tr = ((info.tr.clamp(0, 255) * info.tr_rep.clamp(0, 255)) / 255)
+        .clamp(0, 255) as u8;
+    sprite.mono = info.mono.clamp(0, 255) as u8;
+    sprite.reverse = info.reverse.clamp(0, 255) as u8;
+    sprite.bright = info.bright.clamp(0, 255) as u8;
+    sprite.dark = info.dark.clamp(0, 255) as u8;
+    sprite.color_rate = info.color_rate.clamp(0, 255) as u8;
+    sprite.color_add_r = info.color_add_r.clamp(0, 255) as u8;
+    sprite.color_add_g = info.color_add_g.clamp(0, 255) as u8;
+    sprite.color_add_b = info.color_add_b.clamp(0, 255) as u8;
+    sprite.color_r = info.color_r.clamp(0, 255) as u8;
+    sprite.color_g = info.color_g.clamp(0, 255) as u8;
+    sprite.color_b = info.color_b.clamp(0, 255) as u8;
+    sprite.blend = info.blend;
+    sprite.dst_clip = info.dst_clip;
+}
+
 fn object_participates_in_tree(obj: &globals::ObjectState) -> bool {
     if obj.used {
         return true;
@@ -3751,6 +4162,13 @@ fn build_siglus_object_render_list(
 
     let mut final_list = Vec::with_capacity(bg.len() + object_list.len() + rest.len());
     final_list.extend(bg);
+    object_list.sort_by_key(|rs| {
+        (
+            rs.sprite.order,
+            rs.layer_id.unwrap_or_default() as i32,
+            rs.sprite_id.unwrap_or_default() as i32,
+        )
+    });
     final_list.extend(object_list);
     final_list.extend(rest);
     (final_list, debug)
@@ -3770,14 +4188,16 @@ pub fn dispatch_form_code(ctx: &mut CommandContext, form_id: u32, args: &[Value]
 
     let code = opcode::OpCode::form(form_id);
     if trace_codes_enabled() {
-        let mut elem = String::new();
-        for arg in args {
-            if let Value::Element(chain) = arg {
-                elem = format!(" element={chain:?}");
-                break;
-            }
-        }
-        eprintln!("[TRACE code] form={} args={}{}", form_id, args.len(), elem);
+        let chain = ctx
+            .vm_call
+            .as_ref()
+            .map(|call| call.element.clone())
+            .unwrap_or_default();
+        eprintln!(
+            "[TRACE code] form={} chain={chain:?} argc={} args={args:?}",
+            form_id,
+            args.len()
+        );
     }
 
     opcode::dispatch_code(ctx, code, args)

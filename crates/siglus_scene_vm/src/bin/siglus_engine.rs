@@ -1,5 +1,9 @@
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
+
+use egui::{ColorImage, TextureHandle, TextureOptions};
+use egui_wgpu::{Renderer as EguiRenderer, ScreenDescriptor};
 
 use anyhow::{Context, Result};
 use clap::Parser;
@@ -10,11 +14,12 @@ use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, W
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Fullscreen;
-use winit::window::{Window, WindowAttributes};
+use winit::window::{Window, WindowAttributes, WindowId};
 
 use siglus_assets::gameexe::{decode_gameexe_dat_bytes, GameexeConfig, GameexeDecodeOptions};
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
+use siglus_scene_vm::image_manager::ImageId;
 use siglus_scene_vm::render::Renderer;
 use siglus_scene_vm::runtime::input::{VmKey, VmMouseButton};
 use siglus_scene_vm::runtime::CommandContext;
@@ -116,13 +121,51 @@ impl ProcFlow {
     }
 }
 
+struct HudGui {
+    ctx: egui::Context,
+    renderer: EguiRenderer,
+    start_time: Instant,
+    texture_cache: HashMap<ImageId, HudTextureCacheEntry>,
+}
+
+struct HudTextureCacheEntry {
+    version: u64,
+    handle: TextureHandle,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Debug, Clone)]
+struct HudGalleryTile {
+    stage_idx: i64,
+    stage_label: String,
+    obj_idx: usize,
+    file: String,
+    backend: String,
+    disp: bool,
+    tr: i64,
+    alpha: i64,
+    bind: String,
+    patno: i64,
+    runtime_image_id: Option<ImageId>,
+    image_id: Option<ImageId>,
+    width: u32,
+    height: u32,
+    source_label: String,
+    source_kind: String,
+}
+
 struct App {
     args: Args,
     initial_size: (u32, u32),
     boot: BootConfig,
     flow: ProcFlow,
     window: Option<&'static Window>,
+    window_id: Option<WindowId>,
     renderer: Option<Renderer>,
+    hud_window: Option<&'static Window>,
+    hud_window_id: Option<WindowId>,
+    hud_renderer: Option<Renderer>,
     vm: Option<SceneVm<'static>>,
 
     paused: bool,
@@ -138,6 +181,11 @@ struct App {
     redraw_count: u32,
     captured: bool,
     pending_exit: bool,
+
+    hud_show_active_textures: bool,
+    hud_scroll: usize,
+    hud_total_lines: usize,
+    hud_gui: Option<HudGui>,
 }
 
 fn map_mouse_button(b: MouseButton) -> Option<VmMouseButton> {
@@ -236,7 +284,11 @@ impl App {
             flow,
             args,
             window: None,
+            window_id: None,
             renderer: None,
+            hud_window: None,
+            hud_window_id: None,
+            hud_renderer: None,
             vm: None,
             last_window_mode: None,
             last_window_size: None,
@@ -247,7 +299,691 @@ impl App {
             redraw_count: 0,
             captured: false,
             pending_exit: false,
+            hud_show_active_textures: false,
+            hud_scroll: 0,
+            hud_total_lines: 0,
+            hud_gui: None,
         }
+    }
+
+    fn clamp_hud_scroll(&mut self, visible_rows: usize) {
+        let max_scroll = self.hud_total_lines.saturating_sub(visible_rows);
+        if self.hud_scroll > max_scroll {
+            self.hud_scroll = max_scroll;
+        }
+    }
+
+    fn adjust_hud_scroll(&mut self, delta: isize, visible_rows: usize) {
+        let max_scroll = self.hud_total_lines.saturating_sub(visible_rows) as isize;
+        let next = (self.hud_scroll as isize + delta).clamp(0, max_scroll.max(0));
+        self.hud_scroll = next as usize;
+    }
+
+    const HUD_STAGE_COUNT: i64 = 3;
+    const HUD_OBJECT_COUNT: usize = 1024;
+    const HUD_CARD_W_PX: u32 = 280;
+    const HUD_CARD_H_PX: u32 = 300;
+    const HUD_CARD_HEADER_PX: u32 = 96;
+
+    fn hud_visible_rows(screen_h: u32) -> usize {
+        ((screen_h.saturating_sub(112)) / Self::HUD_CARD_H_PX).max(1) as usize
+    }
+
+    fn hud_stage_name(stage_idx: i64) -> &'static str {
+        match stage_idx {
+            0 => "back",
+            1 => "front",
+            2 => "next",
+            _ => "stage",
+        }
+    }
+
+    fn shorten_for_hud(text: &str, max_chars: usize) -> String {
+        let mut out = String::new();
+        let mut count = 0usize;
+        for ch in text.chars() {
+            if count >= max_chars {
+                out.push_str("...");
+                break;
+            }
+            out.push(ch);
+            count += 1;
+        }
+        out
+    }
+
+    fn hud_file_name_from_source_path(path: &Path) -> String {
+        path.file_stem()
+            .or_else(|| path.file_name())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.display().to_string())
+    }
+
+    fn hud_populate_image_info(
+        vm: &SceneVm<'static>,
+        image_id: ImageId,
+        tile: &mut HudGalleryTile,
+    ) {
+        if let Some(info) = vm.ctx.images.debug_image_info(image_id) {
+            tile.width = info.width;
+            tile.height = info.height;
+            if let Some(path) = info.source_path {
+                if tile.file.is_empty() || tile.file == "-" || tile.file.starts_with("<obj ") {
+                    tile.file = Self::hud_file_name_from_source_path(&path);
+                }
+                tile.source_label = path.display().to_string();
+            }
+        }
+    }
+
+    fn collect_hud_tiles(vm: &mut SceneVm<'static>) -> Vec<HudGalleryTile> {
+        let mut rows = Vec::new();
+        let mut seen = HashSet::new();
+        Self::collect_hud_tile_metadata_from_stage_forms(&*vm, &mut rows, &mut seen);
+        Self::collect_hud_tile_metadata_from_runtime_probe(&*vm, &mut rows, &mut seen);
+        Self::resolve_hud_tile_images(vm, &mut rows);
+        rows.sort_by_key(|tile| (tile.stage_idx, tile.obj_idx));
+        rows
+    }
+
+    fn collect_hud_tile_metadata_from_stage_forms(
+        vm: &SceneVm<'static>,
+        rows: &mut Vec<HudGalleryTile>,
+        seen: &mut HashSet<(i64, usize)>,
+    ) {
+        let mut stage_form_keys = vm
+            .ctx
+            .globals
+            .stage_forms
+            .keys()
+            .copied()
+            .collect::<Vec<_>>();
+        stage_form_keys.sort_unstable();
+        for stage_form_id in stage_form_keys {
+            let Some(st) = vm.ctx.globals.stage_forms.get(&stage_form_id) else {
+                continue;
+            };
+            let mut stage_keys = st.object_lists.keys().copied().collect::<Vec<_>>();
+            stage_keys.sort_unstable();
+            for stage_idx in stage_keys {
+                let Some(objs) = st.object_lists.get(&stage_idx) else {
+                    continue;
+                };
+                for (obj_idx, obj) in objs.iter().enumerate() {
+                    if !obj.used {
+                        continue;
+                    }
+                    let key = (stage_idx, obj_idx);
+                    if !seen.insert(key) {
+                        continue;
+                    }
+
+                    let mut disp = obj.base.disp != 0;
+                    let mut tr = obj.base.tr;
+                    let mut alpha = obj.base.alpha;
+                    let mut runtime_image_id = None;
+                    let mut patno = 0i64;
+                    let mut width = 0u32;
+                    let mut height = 0u32;
+
+                    let bind = match &obj.backend {
+                        siglus_scene_vm::runtime::globals::ObjectBackend::Gfx => {
+                            if let Some(v) = vm.ctx.gfx.object_peek_disp(stage_idx, obj_idx as i64)
+                            {
+                                disp = v != 0;
+                            }
+                            if let Some(v) = vm.ctx.gfx.object_peek_alpha(stage_idx, obj_idx as i64)
+                            {
+                                alpha = v;
+                            }
+                            if let Some(v) = vm.ctx.gfx.object_peek_patno(stage_idx, obj_idx as i64)
+                            {
+                                patno = v;
+                            }
+                            match vm.ctx.gfx.object_sprite_binding(stage_idx, obj_idx as i64) {
+                                Some((lid, sid)) => {
+                                    if let Some(layer) = vm.ctx.layers.layer(lid) {
+                                        if let Some(sprite) = layer.sprite(sid) {
+                                            tr = sprite.tr as i64;
+                                            alpha = sprite.alpha as i64;
+                                            disp = sprite.visible;
+                                            runtime_image_id = sprite.image_id;
+                                        }
+                                    }
+                                    format!("L{}:S{}", lid, sid)
+                                }
+                                None => "-".to_string(),
+                            }
+                        }
+                        siglus_scene_vm::runtime::globals::ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        }
+                        | siglus_scene_vm::runtime::globals::ObjectBackend::String {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        }
+                        | siglus_scene_vm::runtime::globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } => {
+                            if let Some(layer) = vm.ctx.layers.layer(*layer_id) {
+                                if let Some(sprite) = layer.sprite(*sprite_id) {
+                                    disp = sprite.visible;
+                                    tr = sprite.tr as i64;
+                                    alpha = sprite.alpha as i64;
+                                    runtime_image_id = sprite.image_id;
+                                }
+                            }
+                            format!("L{}:S{}", layer_id, sprite_id)
+                        }
+                        siglus_scene_vm::runtime::globals::ObjectBackend::Number {
+                            layer_id,
+                            sprite_ids,
+                        } => {
+                            if let Some(&sid) = sprite_ids.first() {
+                                if let Some(layer) = vm.ctx.layers.layer(*layer_id) {
+                                    if let Some(sprite) = layer.sprite(sid) {
+                                        disp = sprite.visible;
+                                        tr = sprite.tr as i64;
+                                        alpha = sprite.alpha as i64;
+                                        runtime_image_id = sprite.image_id;
+                                    }
+                                }
+                                format!("L{}:S{}", layer_id, sid)
+                            } else {
+                                "-".to_string()
+                            }
+                        }
+                        siglus_scene_vm::runtime::globals::ObjectBackend::None => "-".to_string(),
+                    };
+
+                    let backend = match &obj.backend {
+                        siglus_scene_vm::runtime::globals::ObjectBackend::None => "None",
+                        siglus_scene_vm::runtime::globals::ObjectBackend::Gfx => "Gfx",
+                        siglus_scene_vm::runtime::globals::ObjectBackend::Rect { .. } => "Rect",
+                        siglus_scene_vm::runtime::globals::ObjectBackend::String { .. } => "String",
+                        siglus_scene_vm::runtime::globals::ObjectBackend::Number { .. } => "Number",
+                        siglus_scene_vm::runtime::globals::ObjectBackend::Movie { .. } => "Movie",
+                    }
+                    .to_string();
+
+                    let file = obj.file_name.clone().unwrap_or_else(|| "-".to_string());
+                    let mut tile = HudGalleryTile {
+                        stage_idx,
+                        stage_label: Self::hud_stage_name(stage_idx).to_string(),
+                        obj_idx,
+                        file: file.clone(),
+                        backend,
+                        disp,
+                        tr,
+                        alpha,
+                        bind,
+                        patno,
+                        runtime_image_id,
+                        image_id: runtime_image_id,
+                        width,
+                        height,
+                        source_label: file,
+                        source_kind: if runtime_image_id.is_some() {
+                            "runtime-bind".to_string()
+                        } else {
+                            format!("stage-form-{}", stage_form_id)
+                        },
+                    };
+                    if let Some(image_id) = tile.runtime_image_id {
+                        Self::hud_populate_image_info(vm, image_id, &mut tile);
+                    }
+                    rows.push(tile);
+                }
+            }
+        }
+    }
+
+    fn collect_hud_tile_metadata_from_runtime_probe(
+        vm: &SceneVm<'static>,
+        rows: &mut Vec<HudGalleryTile>,
+        seen: &mut HashSet<(i64, usize)>,
+    ) {
+        for stage_idx in 0..Self::HUD_STAGE_COUNT {
+            for obj_idx in 0..Self::HUD_OBJECT_COUNT {
+                let Some((layer_id, sprite_id)) =
+                    vm.ctx.gfx.object_sprite_binding(stage_idx, obj_idx as i64)
+                else {
+                    continue;
+                };
+                let Some(layer) = vm.ctx.layers.layer(layer_id) else {
+                    continue;
+                };
+                let Some(sprite) = layer.sprite(sprite_id) else {
+                    continue;
+                };
+
+                let key = (stage_idx, obj_idx);
+                let runtime_image_id = sprite.image_id;
+                let mut file = format!("<obj {}>", obj_idx);
+                let mut source_label = format!("runtime L{}:S{}", layer_id, sprite_id);
+                let mut width = 0u32;
+                let mut height = 0u32;
+                if let Some(image_id) = runtime_image_id {
+                    if let Some(info) = vm.ctx.images.debug_image_info(image_id) {
+                        width = info.width;
+                        height = info.height;
+                        if let Some(path) = info.source_path {
+                            file = Self::hud_file_name_from_source_path(&path);
+                            source_label = path.display().to_string();
+                        }
+                    }
+                }
+
+                if !seen.insert(key) {
+                    if let Some(tile) = rows
+                        .iter_mut()
+                        .find(|tile| tile.stage_idx == stage_idx && tile.obj_idx == obj_idx)
+                    {
+                        tile.bind = format!("L{}:S{}", layer_id, sprite_id);
+                        tile.disp = sprite.visible;
+                        tile.tr = sprite.tr as i64;
+                        tile.alpha = sprite.alpha as i64;
+                        tile.patno = vm
+                            .ctx
+                            .gfx
+                            .object_peek_patno(stage_idx, obj_idx as i64)
+                            .unwrap_or(tile.patno);
+                        tile.runtime_image_id = runtime_image_id.or(tile.runtime_image_id);
+                        if (tile.file.is_empty()
+                            || tile.file == "-"
+                            || tile.file.starts_with("<obj "))
+                            && !file.starts_with("<obj ")
+                        {
+                            tile.file = file.clone();
+                        }
+                        if tile.source_label == tile.file || tile.source_label == "-" {
+                            tile.source_label = source_label.clone();
+                        }
+                        if tile.width == 0 {
+                            tile.width = width;
+                        }
+                        if tile.height == 0 {
+                            tile.height = height;
+                        }
+                        if tile.runtime_image_id.is_some() {
+                            tile.image_id = tile.runtime_image_id;
+                            tile.source_kind = "runtime-bind".to_string();
+                        }
+                    }
+                    continue;
+                }
+
+                rows.push(HudGalleryTile {
+                    stage_idx,
+                    stage_label: Self::hud_stage_name(stage_idx).to_string(),
+                    obj_idx,
+                    file,
+                    backend: "Gfx".to_string(),
+                    disp: sprite.visible,
+                    tr: sprite.tr as i64,
+                    alpha: sprite.alpha as i64,
+                    bind: format!("L{}:S{}", layer_id, sprite_id),
+                    patno: vm
+                        .ctx
+                        .gfx
+                        .object_peek_patno(stage_idx, obj_idx as i64)
+                        .unwrap_or(0),
+                    runtime_image_id,
+                    image_id: runtime_image_id,
+                    width,
+                    height,
+                    source_label,
+                    source_kind: if runtime_image_id.is_some() {
+                        "runtime-bind".to_string()
+                    } else {
+                        "runtime-probe".to_string()
+                    },
+                });
+            }
+        }
+    }
+
+    fn resolve_hud_tile_images(vm: &mut SceneVm<'static>, rows: &mut [HudGalleryTile]) {
+        for tile in rows.iter_mut() {
+            Self::resolve_hud_tile_image(vm, tile);
+        }
+    }
+
+    fn resolve_hud_tile_image(vm: &mut SceneVm<'static>, tile: &mut HudGalleryTile) {
+        tile.image_id = tile.runtime_image_id;
+        if let Some(image_id) = tile.runtime_image_id {
+            Self::hud_populate_image_info(vm, image_id, tile);
+            tile.source_kind = "runtime-bind".to_string();
+        }
+
+        if tile.file.is_empty() || tile.file == "-" || tile.file.starts_with('<') {
+            return;
+        }
+
+        match vm.ctx.images.load_g00(&tile.file, 0) {
+            Ok(image_id) => {
+                tile.image_id = Some(image_id);
+                tile.source_kind = "preview-g00-0".to_string();
+                Self::hud_populate_image_info(vm, image_id, tile);
+            }
+            Err(g00_err) => match vm.ctx.images.load_bg_frame(&tile.file, 0) {
+                Ok(image_id) => {
+                    tile.image_id = Some(image_id);
+                    tile.source_kind = "preview-bg-0".to_string();
+                    Self::hud_populate_image_info(vm, image_id, tile);
+                }
+                Err(bg_err) => {
+                    if tile.image_id.is_none() {
+                        tile.source_kind = "missing".to_string();
+                        log::error!(
+                            "HUD preview load failed: stage={} obj={} backend={} file={} bind={} runtime_pat={} g00_err={:#} bg_err={:#}",
+                            tile.stage_idx,
+                            tile.obj_idx,
+                            tile.backend,
+                            tile.file,
+                            tile.bind,
+                            tile.patno,
+                            g00_err,
+                            bg_err,
+                        );
+                    }
+                }
+            },
+        }
+    }
+
+    fn sync_hud_texture(
+        gui: &mut HudGui,
+        vm: &SceneVm<'static>,
+        tile: &HudGalleryTile,
+    ) -> Option<egui::TextureId> {
+        let image_id = tile.image_id?;
+        let (img, version) = vm.ctx.images.get_entry(image_id)?;
+        let color = ColorImage::from_rgba_unmultiplied(
+            [img.width as usize, img.height as usize],
+            img.rgba.as_slice(),
+        );
+        if let Some(entry) = gui.texture_cache.get_mut(&image_id) {
+            if entry.version != version || entry.width != img.width || entry.height != img.height {
+                entry.handle.set(color, TextureOptions::LINEAR);
+                entry.version = version;
+                entry.width = img.width;
+                entry.height = img.height;
+            }
+            return Some(entry.handle.id());
+        }
+        let handle = gui.ctx.load_texture(
+            format!("siglus-hud-image-{}", image_id.0),
+            color,
+            TextureOptions::LINEAR,
+        );
+        let id = handle.id();
+        gui.texture_cache.insert(
+            image_id,
+            HudTextureCacheEntry {
+                version,
+                handle,
+                width: img.width,
+                height: img.height,
+            },
+        );
+        Some(id)
+    }
+
+    fn render_hud_egui(&mut self) -> Result<()> {
+        if !self.hud_show_active_textures {
+            return Ok(());
+        }
+        let (size, scale) = {
+            let Some(window) = self.hud_window.as_ref() else {
+                return Ok(());
+            };
+            (window.inner_size(), window.scale_factor() as f32)
+        };
+
+        let tiles = {
+            let Some(vm) = self.vm.as_mut() else {
+                return Ok(());
+            };
+            Self::collect_hud_tiles(vm)
+        };
+
+        let card_w_px = Self::HUD_CARD_W_PX;
+        let card_h_px = Self::HUD_CARD_H_PX;
+        let columns = ((size.width.saturating_sub(24)) / card_w_px).max(1) as usize;
+        let visible_rows = ((size.height.saturating_sub(84)) / card_h_px).max(1) as usize;
+        self.hud_total_lines = (tiles.len() + columns.saturating_sub(1)) / columns.max(1);
+        self.clamp_hud_scroll(visible_rows);
+
+        let scroll = self.hud_scroll;
+        let total_rows = self.hud_total_lines;
+        let start = scroll.saturating_mul(columns);
+        let end = (start + visible_rows.saturating_mul(columns)).min(tiles.len());
+        let card_w = card_w_px as f32 / scale;
+        let card_h = card_h_px as f32 / scale;
+        let header_h = Self::HUD_CARD_HEADER_PX as f32 / scale;
+        let thumb_w = card_w - 20.0;
+        let thumb_h = 160.0;
+
+        let ok_count = tiles.iter().filter(|tile| tile.image_id.is_some()).count();
+        let runtime_count = tiles
+            .iter()
+            .filter(|tile| tile.source_kind == "runtime-bind")
+            .count();
+        let preview_g00_count = tiles
+            .iter()
+            .filter(|tile| tile.source_kind == "preview-g00-0")
+            .count();
+        let preview_bg_count = tiles
+            .iter()
+            .filter(|tile| tile.source_kind == "preview-bg-0")
+            .count();
+        let missing_count = tiles.len().saturating_sub(ok_count);
+
+        let mut visible_texture_ids = vec![None; end.saturating_sub(start)];
+        let (ctx, raw_input) = {
+            let Some(vm) = self.vm.as_ref() else {
+                return Ok(());
+            };
+            let Some(gui) = self.hud_gui.as_mut() else {
+                return Ok(());
+            };
+            for (idx, tile) in tiles[start..end].iter().enumerate() {
+                visible_texture_ids[idx] = Self::sync_hud_texture(gui, vm, tile);
+            }
+            gui.ctx.set_pixels_per_point(scale);
+            let ctx = gui.ctx.clone();
+            let raw_input = egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(size.width as f32 / scale, size.height as f32 / scale),
+                )),
+                time: Some(gui.start_time.elapsed().as_secs_f64()),
+                ..Default::default()
+            };
+            (ctx, raw_input)
+        };
+
+        let output = ctx.run(raw_input, |ctx| {
+            egui::TopBottomPanel::top("hud_top").show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.heading("Siglus HUD");
+                    ui.separator();
+                    ui.label(format!(
+                        "items={} rows={}/{} cols={} ok={} runtime={} g00-0={} bg-0={} missing={} F2 hide, Wheel/PgUp/PgDn/Home/End scroll",
+                        tiles.len(),
+                        scroll,
+                        total_rows,
+                        columns,
+                        ok_count,
+                        runtime_count,
+                        preview_g00_count,
+                        preview_bg_count,
+                        missing_count,
+                    ));
+                });
+            });
+            egui::CentralPanel::default().show(ctx, |ui| {
+                if tiles.is_empty() {
+                    ui.label("no HUD tiles collected from runtime bindings or stage object lists");
+                    return;
+                }
+                for (row_idx, row_tiles) in tiles[start..end].chunks(columns).enumerate() {
+                    ui.horizontal_top(|ui| {
+                        for (col_idx, tile) in row_tiles.iter().enumerate() {
+                            let tex_id = visible_texture_ids
+                                .get(row_idx * columns + col_idx)
+                                .copied()
+                                .flatten();
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(card_w, card_h),
+                                egui::Layout::top_down(egui::Align::Min),
+                                |ui| {
+                                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                                        ui.set_min_size(egui::vec2(card_w - 8.0, card_h - 8.0));
+                                        ui.set_max_width(card_w - 8.0);
+                                        ui.label(egui::RichText::new(format!(
+                                            "{} obj[{}]  {}",
+                                            tile.stage_label,
+                                            tile.obj_idx,
+                                            Self::shorten_for_hud(&tile.file, 24),
+                                        )).strong().monospace());
+                                        ui.small(format!(
+                                            "backend={} bind={} disp={} pat={} alpha={} tr={}",
+                                            tile.backend,
+                                            tile.bind,
+                                            if tile.disp { 1 } else { 0 },
+                                            tile.patno,
+                                            tile.alpha,
+                                            tile.tr,
+                                        ));
+                                        ui.small(format!(
+                                            "source={} size={}x{}",
+                                            tile.source_kind,
+                                            tile.width,
+                                            tile.height,
+                                        ));
+
+                                        let (rect, _) = ui.allocate_exact_size(
+                                            egui::vec2(thumb_w, thumb_h),
+                                            egui::Sense::hover(),
+                                        );
+                                        ui.painter().rect_filled(rect, 4.0, egui::Color32::from_gray(24));
+                                        if let Some(tex_id) = tex_id {
+                                            let mut draw_w = thumb_w;
+                                            let mut draw_h = thumb_h;
+                                            if tile.width > 0 && tile.height > 0 {
+                                                let sx = thumb_w / tile.width as f32;
+                                                let sy = thumb_h / tile.height as f32;
+                                                let s = sx.min(sy).max(0.01);
+                                                draw_w = tile.width as f32 * s;
+                                                draw_h = tile.height as f32 * s;
+                                            }
+                                            let image_rect = egui::Rect::from_center_size(
+                                                rect.center(),
+                                                egui::vec2(draw_w, draw_h),
+                                            );
+                                            ui.put(image_rect, egui::Image::new((tex_id, egui::vec2(draw_w, draw_h))));
+                                        } else {
+                                            ui.painter().text(
+                                                rect.center(),
+                                                egui::Align2::CENTER_CENTER,
+                                                "no image",
+                                                egui::FontId::proportional(16.0),
+                                                egui::Color32::LIGHT_GRAY,
+                                            );
+                                        }
+
+                                        let src_text = if tile.source_label.is_empty() {
+                                            tile.file.clone()
+                                        } else {
+                                            tile.source_label.clone()
+                                        };
+                                        ui.small(Self::shorten_for_hud(&src_text, 52));
+                                        let remaining = (card_h - header_h - thumb_h).max(0.0);
+                                        if remaining > 0.0 {
+                                            ui.add_space(remaining.min(24.0));
+                                        }
+                                    });
+                                },
+                            );
+                        }
+                    });
+                }
+            });
+        });
+
+        let screen_desc = ScreenDescriptor {
+            size_in_pixels: [size.width, size.height],
+            pixels_per_point: scale,
+        };
+        let paint_jobs = ctx.tessellate(output.shapes, scale);
+        let (Some(renderer), Some(gui)) = (self.hud_renderer.as_mut(), self.hud_gui.as_mut())
+        else {
+            return Ok(());
+        };
+        for (id, delta) in &output.textures_delta.set {
+            gui.renderer
+                .update_texture(&renderer.device, &renderer.queue, *id, delta);
+        }
+
+        let frame = match renderer.surface.get_current_texture() {
+            Ok(frame) => frame,
+            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                renderer.resize(renderer.config.width, renderer.config.height);
+                return Ok(());
+            }
+            Err(wgpu::SurfaceError::OutOfMemory) => anyhow::bail!("hud surface out of memory"),
+            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = renderer
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("hud_egui_encoder"),
+            });
+        gui.renderer.update_buffers(
+            &renderer.device,
+            &renderer.queue,
+            &mut encoder,
+            &paint_jobs,
+            &screen_desc,
+        );
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("hud_egui_pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color {
+                            r: 0.08,
+                            g: 0.08,
+                            b: 0.10,
+                            a: 1.0,
+                        }),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            gui.renderer.render(&mut pass, &paint_jobs, &screen_desc);
+        }
+        renderer.queue.submit(Some(encoder.finish()));
+        frame.present();
+        for id in output.textures_delta.free {
+            gui.renderer.free_texture(&id);
+        }
+        Ok(())
     }
 
     fn resolve_project_dir(args: &Args) -> Option<PathBuf> {
@@ -523,44 +1259,69 @@ impl App {
     }
 
     fn redraw(&mut self) -> Result<()> {
-        let Some(renderer) = self.renderer.as_mut() else {
+        let Some(vm) = self.vm.as_mut() else {
+            return Ok(());
+        };
+
+        vm.tick_frame()?;
+        let list = vm.ctx.render_list_with_effects();
+
+        {
+            let Some(renderer) = self.renderer.as_mut() else {
+                return Ok(());
+            };
+            renderer.render_sprites(&vm.ctx.images, &list)?;
+        }
+
+        self.redraw_count = self.redraw_count.saturating_add(1);
+        self.maybe_capture_current_frame()?;
+        Ok(())
+    }
+
+    fn maybe_capture_current_frame(&mut self) -> Result<()> {
+        if self.captured {
+            return Ok(());
+        }
+        let Some(path) = self.args.capture_png.as_ref() else {
             return Ok(());
         };
         let Some(vm) = self.vm.as_mut() else {
             return Ok(());
         };
 
-        vm.ctx.tick_frame();
-        let list = vm.ctx.render_list_with_effects();
-        renderer.render_sprites(&vm.ctx.images, &list)?;
-        self.redraw_count = self.redraw_count.saturating_add(1);
-        if !self.captured {
-            if let Some(path) = self.args.capture_png.as_ref() {
-                if self.redraw_count >= self.args.capture_after_frames {
-                    let img = vm.ctx.capture_frame_rgba();
-                    let nonzero_alpha = img.rgba.chunks_exact(4).filter(|px| px[3] != 0).count();
-                    eprintln!(
-                        "[INFO] capture stats: redraws={} sprites={} unknown_forms={} unknown_elements={} nonzero_alpha={}",
-                        self.redraw_count,
-                        list.len(),
-                        vm.unknown_forms.len(),
-                        vm.ctx.unknown.element_chains.len(),
-                        nonzero_alpha,
-                    );
-                    Self::write_rgba_png(path, &img.rgba, img.width, img.height)?;
-                    if self.args.exit_after_capture {
-                        let report_path = PathBuf::from("siglus_unknown_report.txt");
-                        let _ = vm.ctx.unknown.write_report(&report_path);
-                    }
-                    eprintln!("[INFO] capture written to {}", path.display());
-                    self.captured = true;
-                    if self.args.exit_after_capture {
-                        self.pending_exit = true;
-                    }
-                }
+        let render_frames = vm.ctx.globals.render_frame;
+        let capture_gate = self.args.capture_after_frames as u64;
+        if self.redraw_count as u64 >= capture_gate || render_frames >= capture_gate {
+            let img = vm.ctx.capture_frame_rgba();
+            let render_list = vm.ctx.render_list_with_effects();
+            let nonzero_alpha = img.rgba.chunks_exact(4).filter(|px| px[3] != 0).count();
+            let cur_scene = vm.current_scene_name().unwrap_or("<none>");
+            eprintln!(
+                "[INFO] capture stats: scene={} redraws={} render_frames={} sprites={} unknown_forms={} unknown_elements={} nonzero_alpha={}",
+                cur_scene,
+                self.redraw_count,
+                render_frames,
+                render_list.len(),
+                vm.unknown_forms.len(),
+                vm.ctx.unknown.element_chains.len(),
+                nonzero_alpha,
+            );
+            Self::write_rgba_png(path, &img.rgba, img.width, img.height)?;
+            if self.args.exit_after_capture {
+                let report_path = PathBuf::from("siglus_unknown_report.txt");
+                let _ = vm.ctx.unknown.write_report(&report_path);
+            }
+            eprintln!("[INFO] capture written to {}", path.display());
+            self.captured = true;
+            if self.args.exit_after_capture {
+                self.pending_exit = true;
             }
         }
         Ok(())
+    }
+
+    fn redraw_hud_window(&mut self) -> Result<()> {
+        self.render_hud_egui()
     }
 
     fn syscom_int(ctx: &CommandContext, key: i32, default: i64) -> i64 {
@@ -650,27 +1411,67 @@ impl ApplicationHandler for App {
             )
             .expect("create window");
         let window: &'static Window = Box::leak(Box::new(window));
+        let hud_window = elwt
+            .create_window(
+                WindowAttributes::default()
+                    .with_inner_size(LogicalSize::new(1280.0, 900.0))
+                    .with_title("Siglus HUD")
+                    .with_visible(false),
+            )
+            .expect("create hud window");
+        let hud_window: &'static Window = Box::leak(Box::new(hud_window));
 
         let renderer = pollster::block_on(Renderer::new(window)).expect("renderer init");
+        let hud_renderer =
+            pollster::block_on(Renderer::new(hud_window)).expect("hud renderer init");
+        let hud_gui = HudGui {
+            ctx: egui::Context::default(),
+            renderer: EguiRenderer::new(&hud_renderer.device, hud_renderer.config.format, None, 1),
+            start_time: Instant::now(),
+            texture_cache: HashMap::new(),
+        };
         let vm = self.init_vm().expect("vm init");
 
+        self.window_id = Some(window.id());
         self.window = Some(window);
         self.renderer = Some(renderer);
+        self.hud_window_id = Some(hud_window.id());
+        self.hud_window = Some(hud_window);
+        self.hud_renderer = Some(hud_renderer);
+        self.hud_gui = Some(hud_gui);
         self.vm = Some(vm);
 
         if let Some(w) = self.window.as_ref() {
             w.request_redraw();
+        }
+        if self.hud_show_active_textures {
+            if let Some(w) = self.hud_window.as_ref() {
+                w.request_redraw();
+            }
         }
     }
 
     fn window_event(
         &mut self,
         elwt: &ActiveEventLoop,
-        _id: winit::window::WindowId,
+        id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        let is_main = self.window_id == Some(id);
+        let is_hud = self.hud_window_id == Some(id);
+        if !is_main && !is_hud {
+            return;
+        }
         match event {
             WindowEvent::CloseRequested => {
+                if is_hud {
+                    self.hud_show_active_textures = false;
+                    self.hud_scroll = 0;
+                    if let Some(w) = self.hud_window.as_ref() {
+                        w.set_visible(false);
+                    }
+                    return;
+                }
                 if let Some(vm) = self.vm.as_ref() {
                     let report_path = PathBuf::from("siglus_unknown_report.txt");
                     if let Err(e) = vm.ctx.unknown.write_report(&report_path) {
@@ -685,11 +1486,20 @@ impl ApplicationHandler for App {
                 elwt.exit();
             }
             WindowEvent::Resized(size) => {
-                if let Some(renderer) = self.renderer.as_mut() {
-                    renderer.resize(size.width, size.height);
-                }
-                if let Some(w) = self.window.as_ref() {
-                    w.request_redraw();
+                if is_hud {
+                    if let Some(renderer) = self.hud_renderer.as_mut() {
+                        renderer.resize(size.width, size.height);
+                    }
+                    if let Some(w) = self.hud_window.as_ref() {
+                        w.request_redraw();
+                    }
+                } else {
+                    if let Some(renderer) = self.renderer.as_mut() {
+                        renderer.resize(size.width, size.height);
+                    }
+                    if let Some(w) = self.window.as_ref() {
+                        w.request_redraw();
+                    }
                 }
             }
             WindowEvent::KeyboardInput {
@@ -702,13 +1512,70 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => {
+                let hud_rows = self
+                    .hud_window
+                    .as_ref()
+                    .map(|w| Self::hud_visible_rows(w.inner_size().height))
+                    .unwrap_or(24);
+                let hud_handled = match code {
+                    KeyCode::F2 => {
+                        self.hud_show_active_textures = !self.hud_show_active_textures;
+                        if !self.hud_show_active_textures {
+                            self.hud_scroll = 0;
+                        }
+                        if let Some(w) = self.hud_window.as_ref() {
+                            w.set_visible(self.hud_show_active_textures);
+                            if self.hud_show_active_textures {
+                                w.request_redraw();
+                            }
+                        }
+                        true
+                    }
+                    KeyCode::PageDown if self.hud_show_active_textures => {
+                        self.adjust_hud_scroll(10, hud_rows);
+                        true
+                    }
+                    KeyCode::PageUp if self.hud_show_active_textures => {
+                        self.adjust_hud_scroll(-10, hud_rows);
+                        true
+                    }
+                    KeyCode::Home if self.hud_show_active_textures => {
+                        self.hud_scroll = 0;
+                        true
+                    }
+                    KeyCode::End if self.hud_show_active_textures => {
+                        self.hud_scroll = self.hud_total_lines;
+                        self.clamp_hud_scroll(hud_rows);
+                        true
+                    }
+                    KeyCode::ArrowDown if self.hud_show_active_textures => {
+                        self.adjust_hud_scroll(1, hud_rows);
+                        true
+                    }
+                    KeyCode::ArrowUp if self.hud_show_active_textures => {
+                        self.adjust_hud_scroll(-1, hud_rows);
+                        true
+                    }
+                    _ => false,
+                };
+                if hud_handled {
+                    if self.hud_show_active_textures {
+                        if let Some(w) = self.hud_window.as_ref() {
+                            w.request_redraw();
+                        }
+                    }
+                    return;
+                }
+
+                if !is_main {
+                    return;
+                }
+
                 if let Some(vm) = self.vm.as_mut() {
                     if let Some(k) = map_keycode(code) {
                         vm.ctx.on_key_down(k);
-                    } else {
-                        if vm.ctx.wait.notify_key() {
-                            vm.ctx.globals.finish_wipe();
-                        }
+                    } else if vm.ctx.wait.notify_key() {
+                        vm.ctx.globals.finish_wipe();
                     }
                     if let Some(t) = text.as_ref() {
                         if t.chars().any(|c| !c.is_control()) {
@@ -749,6 +1616,25 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => {
+                if code == KeyCode::F2 {
+                    return;
+                }
+                if self.hud_show_active_textures
+                    && matches!(
+                        code,
+                        KeyCode::PageDown
+                            | KeyCode::PageUp
+                            | KeyCode::Home
+                            | KeyCode::End
+                            | KeyCode::ArrowDown
+                            | KeyCode::ArrowUp
+                    )
+                {
+                    return;
+                }
+                if !is_main {
+                    return;
+                }
                 if let Some(vm) = self.vm.as_mut() {
                     if let Some(k) = map_keycode(code) {
                         vm.ctx.on_key_up(k);
@@ -756,6 +1642,9 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::Ime(Ime::Commit(text)) => {
+                if !is_main {
+                    return;
+                }
                 if let Some(vm) = self.vm.as_mut() {
                     vm.ctx.on_text_input(&text);
                 }
@@ -764,11 +1653,19 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                if let Err(e) = self.redraw() {
+                let res = if is_hud {
+                    self.redraw_hud_window()
+                } else {
+                    self.redraw()
+                };
+                if let Err(e) = res {
                     eprintln!("render error: {e:?}");
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                if !is_main {
+                    return;
+                }
                 if let Some(vm) = self.vm.as_mut() {
                     let x = position.x.round() as i32;
                     let y = position.y.round() as i32;
@@ -783,15 +1680,37 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                let dy = match delta {
+                    MouseScrollDelta::LineDelta(_lx, ly) => (ly * 120.0) as i32,
+                    MouseScrollDelta::PixelDelta(p) => p.y.round() as i32,
+                };
+                if is_hud && self.hud_show_active_textures {
+                    let hud_rows = self
+                        .hud_renderer
+                        .as_ref()
+                        .map(|r| Self::hud_visible_rows(r.config.height))
+                        .unwrap_or(24);
+                    if dy < 0 {
+                        self.adjust_hud_scroll(3, hud_rows);
+                    } else if dy > 0 {
+                        self.adjust_hud_scroll(-3, hud_rows);
+                    }
+                    if let Some(w) = self.hud_window.as_ref() {
+                        w.request_redraw();
+                    }
+                    return;
+                }
+                if !is_main {
+                    return;
+                }
                 if let Some(vm) = self.vm.as_mut() {
-                    let dy = match delta {
-                        MouseScrollDelta::LineDelta(_lx, ly) => (ly * 120.0) as i32,
-                        MouseScrollDelta::PixelDelta(p) => p.y.round() as i32,
-                    };
                     vm.ctx.on_mouse_wheel(dy);
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                if !is_main {
+                    return;
+                }
                 if let Some(vm) = self.vm.as_mut() {
                     if let Some(b) = map_mouse_button(button) {
                         match state {
@@ -817,18 +1736,61 @@ impl ApplicationHandler for App {
         if let Err(e) = self.pump_vm() {
             eprintln!("vm error: {e:?}");
         }
+        if let Err(e) = self.maybe_capture_current_frame() {
+            eprintln!("capture error: {e:?}");
+        }
         self.apply_syscom_window_config();
         if let Some(w) = self.window.as_ref() {
             w.request_redraw();
+        }
+        if self.hud_show_active_textures {
+            if let Some(w) = self.hud_window.as_ref() {
+                w.request_redraw();
+            }
         }
     }
 }
 
 fn main() -> Result<()> {
-    let _ = env_logger::try_init();
+    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error"))
+        .try_init();
     let args = Args::parse();
+    if args.capture_png.is_some() && args.exit_after_capture {
+        return run_headless_capture(args);
+    }
     let el = EventLoop::new()?;
     let mut app = App::new(args);
     el.run_app(&mut app)?;
+    Ok(())
+}
+
+fn run_headless_capture(args: Args) -> Result<()> {
+    let mut app = App::new(args);
+    let vm = app.init_vm()?;
+    app.vm = Some(vm);
+
+    let capture_target = app.args.capture_after_frames.max(1);
+    let max_frames = capture_target.saturating_add(600);
+    for _ in 0..max_frames {
+        app.pump_vm()?;
+        if let Some(vm) = app.vm.as_mut() {
+            if vm.is_blocked() {
+                vm.ctx.wait.notify_key();
+            }
+            vm.tick_frame()?;
+        }
+        app.redraw_count = app.redraw_count.saturating_add(1);
+        app.maybe_capture_current_frame()?;
+        if app.pending_exit || app.captured {
+            break;
+        }
+    }
+
+    anyhow::ensure!(
+        app.captured,
+        "headless capture did not reach frame {} within {} frames",
+        capture_target,
+        max_frames
+    );
     Ok(())
 }

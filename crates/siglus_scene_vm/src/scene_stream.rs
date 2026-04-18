@@ -300,6 +300,29 @@ impl<'a> SceneStream<'a> {
         self.set_prg_cntr(z_offset.max(0) as usize)
     }
 
+    pub fn scn_cmd_offset(&self, cmd_no: usize) -> Result<usize> {
+        let cnt = self.header.scn_cmd_cnt.max(0) as usize;
+        if cmd_no >= cnt {
+            bail!("scn: scn_cmd_no out of range");
+        }
+        let ofs = self.header.scn_cmd_list_ofs.max(0) as usize;
+        let byte_ofs = ofs
+            .checked_add(cmd_no * 4)
+            .ok_or_else(|| anyhow!("scn: scn_cmd_list overflow"))?;
+        let byte_end = byte_ofs
+            .checked_add(4)
+            .ok_or_else(|| anyhow!("scn: scn_cmd entry overflow"))?;
+        if byte_end > self.chunk.len() {
+            bail!("scn: scn_cmd_list out of bounds");
+        }
+        let cmd_offset = i32::from_le_bytes(self.chunk[byte_ofs..byte_end].try_into().unwrap());
+        let prg = cmd_offset.max(0) as usize;
+        if prg > self.scn.len() {
+            bail!("scn: scn_cmd offset out of bounds");
+        }
+        Ok(prg)
+    }
+
     pub fn pop_u8(&mut self) -> Result<u8> {
         if self.pc + 1 > self.scn.len() {
             bail!("scn: pop_u8 past end");

@@ -50,6 +50,16 @@ struct ImageEntry {
     version: u64,
 }
 
+#[derive(Debug, Clone)]
+pub struct DebugImageInfo {
+    pub id: ImageId,
+    pub width: u32,
+    pub height: u32,
+    pub version: u64,
+    pub source_path: Option<PathBuf>,
+    pub frame_index: Option<usize>,
+}
+
 impl ImageManager {
     pub fn new(project_dir: PathBuf) -> Self {
         Self {
@@ -195,5 +205,26 @@ impl ImageManager {
         entry.img = img;
         entry.version = entry.version.wrapping_add(1);
         Ok(())
+    }
+
+    pub fn debug_image_info(&self, id: ImageId) -> Option<DebugImageInfo> {
+        let entry = self.images.get(id.index())?;
+        let mut source_path = None;
+        let mut frame_index = None;
+        for (key, key_id) in &self.key_to_id {
+            if *key_id == id {
+                source_path = Some(key.path.clone());
+                frame_index = Some(key.frame_index);
+                break;
+            }
+        }
+        Some(DebugImageInfo {
+            id,
+            width: entry.img.width,
+            height: entry.img.height,
+            version: entry.version,
+            source_path,
+            frame_index,
+        })
     }
 }

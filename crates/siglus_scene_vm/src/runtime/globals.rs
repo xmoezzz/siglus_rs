@@ -489,6 +489,11 @@ pub struct GlobalState {
     /// Display-mode transition counter used by editbox frame visibility.
     pub change_display_mode_proc_cnt: i32,
 
+    /// Global frame-action roots keyed by the owning form id.
+    pub frame_actions: HashMap<u32, ObjectFrameActionState>,
+    /// Global frame-action channel lists keyed by the owning form id.
+    pub frame_action_lists: HashMap<u32, Vec<ObjectFrameActionState>>,
+
     /// Stage UI subsystem state keyed by the stage form ID.
     pub stage_forms: HashMap<u32, StageFormState>,
     /// Currently focused stage group selection (form_id, stage_idx, group_idx).
@@ -556,6 +561,8 @@ impl Default for GlobalState {
             focused_editbox: None,
             change_display_mode_proc_cnt: 0,
 
+            frame_actions: HashMap::new(),
+            frame_action_lists: HashMap::new(),
             stage_forms: HashMap::new(),
             focused_stage_group: None,
             focused_stage_mwnd: None,
@@ -1590,18 +1597,17 @@ impl ObjectMovieState {
         self.seeked = false;
     }
 
-    pub fn tick(&mut self) {
+    pub fn tick(&mut self, past_game_time: i32, past_real_time: i32) {
         self.just_finished = false;
         self.just_looped = false;
         if !self.playing || self.pause_flag {
-            self.last_tick = Some(std::time::Instant::now());
             return;
         }
-        let now = std::time::Instant::now();
-        let last = self.last_tick.unwrap_or(now);
-        let dt = now.saturating_duration_since(last);
-        self.last_tick = Some(now);
-        let add = dt.as_millis() as u64;
+        let add = if self.real_time_flag {
+            past_real_time.max(0) as u64
+        } else {
+            past_game_time.max(0) as u64
+        };
         if add == 0 {
             return;
         }
@@ -1837,9 +1843,9 @@ impl Default for ObjectPropEvents {
             center_rep_x: IntEvent::new(0),
             center_rep_y: IntEvent::new(0),
             center_rep_z: IntEvent::new(0),
-            scale_x: IntEvent::new(0),
-            scale_y: IntEvent::new(0),
-            scale_z: IntEvent::new(0),
+            scale_x: IntEvent::new(1000),
+            scale_y: IntEvent::new(1000),
+            scale_z: IntEvent::new(1000),
             rotate_x: IntEvent::new(0),
             rotate_y: IntEvent::new(0),
             rotate_z: IntEvent::new(0),
@@ -1851,7 +1857,7 @@ impl Default for ObjectPropEvents {
             src_clip_top: IntEvent::new(0),
             src_clip_right: IntEvent::new(0),
             src_clip_bottom: IntEvent::new(0),
-            tr: IntEvent::new(0),
+            tr: IntEvent::new(255),
             mono: IntEvent::new(0),
             reverse: IntEvent::new(0),
             bright: IntEvent::new(0),
@@ -2273,6 +2279,21 @@ pub struct ObjectState {
 }
 
 impl ObjectState {
+    fn sync_event_backed_prop_value(
+        &mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+        value: i64,
+    ) {
+        let Some(ev) = self.int_event_by_op_mut(ids, op) else {
+            return;
+        };
+        ev.set_value(value as i32);
+        if !ev.check_event() {
+            ev.cur_value = value as i32;
+        }
+    }
+
     /// Reset type-specific parameters (mirrors C_elm_object::init_type(true)).
     ///
     /// Important: this does NOT clear button/groups/events (those are part of init_param/reinit in the original implementation).
@@ -2528,6 +2549,7 @@ impl ObjectState {
             ($id:expr, $field:ident) => {
                 if $id != 0 && op == $id {
                     self.base.$field = value;
+                    self.sync_event_backed_prop_value(ids, op, value);
                     return true;
                 }
             };
@@ -3035,14 +3057,15 @@ impl ObjectState {
         .any(|id| id != 0 && op == id)
     }
 
-    pub fn tick(&mut self, delta: i32) {
+    pub fn tick(&mut self, past_game_time: i32, past_real_time: i32) {
+        let delta = past_game_time.max(0);
         self.runtime.prop_events.tick(delta);
         self.runtime.prop_event_lists.tick(delta);
         for child in &mut self.runtime.child_objects {
-            child.tick(delta);
+            child.tick(past_game_time, past_real_time);
         }
-        self.movie.tick();
-        self.gan.update_time(delta, delta);
+        self.movie.tick(past_game_time, past_real_time);
+        self.gan.update_time(past_game_time, past_real_time);
         if matches!(self.object_type, 6 | 7) {
             self.mesh_animation_state.advance_controller_frames(delta);
         }
@@ -3911,7 +3934,7 @@ impl GlobalState {
         self.wipe.as_ref().map(|w| w.is_done()).unwrap_or(true)
     }
 
-    pub fn tick_frame(&mut self) {
+    pub fn tick_frame(&mut self, past_game_time: i32, past_real_time: i32) {
         self.render_frame = self.render_frame.wrapping_add(1);
         if self.wipe_done() {
             self.wipe = None;
@@ -3921,31 +3944,33 @@ impl GlobalState {
         }
 
         for ml in self.mask_lists.values_mut() {
-            ml.tick_frame(1);
+            ml.tick_frame(past_game_time.max(0));
         }
 
         for sc in self.screen_forms.values_mut() {
-            sc.tick(1);
+            sc.tick(past_game_time.max(0));
         }
 
         for ev in self.int_event_roots.values_mut() {
-            ev.tick(1);
+            ev.update_time(past_game_time, past_real_time);
+            ev.frame();
         }
         for events in self.int_event_lists.values_mut() {
             for ev in events {
-                ev.tick(1);
+                ev.update_time(past_game_time, past_real_time);
+                ev.frame();
             }
         }
 
         for st in self.stage_forms.values_mut() {
             for objs in st.object_lists.values_mut() {
                 for obj in objs {
-                    obj.tick(1);
+                    obj.tick(past_game_time, past_real_time);
                 }
             }
             for worlds in st.world_lists.values_mut() {
                 for w in worlds {
-                    w.update_time(1, 1);
+                    w.update_time(past_game_time, past_real_time);
                     w.frame();
                 }
             }

@@ -13,10 +13,13 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let Some(chain) = current_chain(ctx) else {
         return Ok(false);
     };
-    if chain.len() < 2 || chain[0] != ctx.ids.form_global_mouse as i32 {
+    if chain.len() < 2 {
         return Ok(false);
     }
 
+    // testcase startup still uses compact global alias 46 for mouse commands.
+    // We only need the sub-op here because the caller has already routed the
+    // command into the mouse form family.
     let op = chain[1] as i64;
     match op {
         o if o == ctx.ids.mouse_op_clear as i64 => {

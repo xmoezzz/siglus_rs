@@ -105,6 +105,9 @@ pub fn dispatch_global_form(
 
     // Same-version testcase still uses compact startup aliases that bypass the
     // canonical global-form ids. Keep them routed to their original handlers.
+    if form_id == 24 {
+        return keylist::dispatch(ctx, args);
+    }
     if form_id == 40 {
         return counter::dispatch(ctx, form_id, args);
     }
@@ -117,6 +120,9 @@ pub fn dispatch_global_form(
         if script::dispatch(ctx, form_id, args)? {
             return Ok(true);
         }
+    }
+    if form_id == 46 {
+        return mouse::dispatch(ctx, args);
     }
     if form_id == 86 {
         if input::dispatch(ctx, form_id, args)? {

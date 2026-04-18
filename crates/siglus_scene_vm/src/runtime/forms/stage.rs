@@ -837,11 +837,7 @@ fn update_number_backend(ctx: &mut CommandContext, obj: &mut ObjectState) {
         return;
     };
 
-    let disp = if ctx.ids.obj_disp != 0 {
-        obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_disp).unwrap_or(0) != 0
-    } else {
-        true
-    };
+    let disp = obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_disp).unwrap_or(0) != 0;
     let base_x = if ctx.ids.obj_x != 0 {
         obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_x).unwrap_or(0) as i32
     } else {
@@ -1006,11 +1002,7 @@ fn update_string_backend(
     let text = obj.string_value.clone().unwrap_or_default();
     let (font_px, max_w, max_h) = string_layout(obj);
 
-    let disp = if ctx.ids.obj_disp != 0 {
-        obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_disp).unwrap_or(0) != 0
-    } else {
-        true
-    };
+    let disp = obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_disp).unwrap_or(0) != 0;
     let x = if ctx.ids.obj_x != 0 {
         obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_x).unwrap_or(0) as i32
     } else {
@@ -1155,6 +1147,19 @@ fn dispatch_object_op(
         return true;
     }
     let obj_u = obj_idx as usize;
+    if let Some(raw) = std::env::var_os("SG_TRACE_OBJECT_SLOT") {
+        let raw = raw.to_string_lossy();
+        let targets = raw
+            .split(',')
+            .filter_map(|s| s.trim().parse::<usize>().ok())
+            .collect::<Vec<_>>();
+        if targets.iter().any(|&n| n == obj_u) {
+            eprintln!(
+                "[SG_TRACE_OBJECT] stage={} obj={} op={} tail={:?} al_id={:?} args={:?} rhs={:?}",
+                stage_idx, obj_u, op, tail, al_id, script_args, rhs
+            );
+        }
+    }
     ctx.globals.current_stage_object = Some((stage_idx, obj_u));
 
     if !ensure_object_for_access(st, stage_idx, obj_u) {
@@ -1199,6 +1204,7 @@ fn dispatch_object_op(
     let obj = &mut obj_write_back.obj;
 
     fn frame_action_set_from_args(
+        ctx: &CommandContext,
         fa: &mut ObjectFrameActionState,
         script_args: &[Value],
         real_time_flag: bool,
@@ -1209,10 +1215,15 @@ fn dispatch_object_op(
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        fa.scn_name.clear();
+        fa.scn_name = ctx.current_scene_name.clone().unwrap_or_default();
         fa.real_time_flag = real_time_flag;
         fa.end_flag = false;
         fa.counter.reset();
+        if real_time_flag {
+            fa.counter.start_real();
+        } else {
+            fa.counter.start();
+        }
         fa.args = script_args
             .iter()
             .skip(2)
@@ -1252,7 +1263,7 @@ fn dispatch_object_op(
                 true
             }
             1 => {
-                frame_action_set_from_args(fa, script_args, false);
+                frame_action_set_from_args(ctx, fa, script_args, false);
                 push_ok(ctx, ret_form);
                 true
             }
@@ -1263,7 +1274,7 @@ fn dispatch_object_op(
                 true
             }
             3 => {
-                frame_action_set_from_args(fa, script_args, true);
+                frame_action_set_from_args(ctx, fa, script_args, true);
                 push_ok(ctx, ret_form);
                 true
             }
@@ -1373,7 +1384,7 @@ fn dispatch_object_op(
 
     if op == 93 {
         obj.used = true;
-        if ctx.ids.obj_disp != 0 && !obj.has_int_prop(ctx.ids.obj_disp) {
+        if !obj.has_int_prop(ctx.ids.obj_disp) {
             obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
         }
         if tail.len() >= 3 && tail[0] == -1 {
@@ -1843,11 +1854,13 @@ fn dispatch_object_op(
         }
         obj.used = true;
         obj.backend = ObjectBackend::Gfx;
+        obj.object_type = 2;
+        obj.number_value = 0;
+        obj.string_param = Default::default();
+        obj.number_param = Default::default();
         obj.file_name = Some(file.to_string());
         obj.string_value = None;
-        if ctx.ids.obj_disp != 0 {
-            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp { 1 } else { 0 });
-        }
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp { 1 } else { 0 });
         if ctx.ids.obj_x != 0 {
             obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
         }
@@ -2528,14 +2541,12 @@ fn dispatch_object_op(
 
         // Optional parameters (al_id-based fallthrough): (disp, x, y)
         let aid = al_id.unwrap_or(0);
-        if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 {
-                pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
-            } else {
-                0
-            };
-            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        }
+        let disp_i = if aid >= 1 {
+            pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+        } else {
+            0
+        };
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
@@ -2669,14 +2680,12 @@ fn dispatch_object_op(
         obj.init_param_like();
         // Optional (disp, x, y) via al_id.
         let aid = al_id.unwrap_or(0);
-        if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 {
-                pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
-            } else {
-                0
-            };
-            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        }
+        let disp_i = if aid >= 1 {
+            pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+        } else {
+            0
+        };
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
@@ -2714,14 +2723,12 @@ fn dispatch_object_op(
         obj.init_param_like();
         // Optional (disp, x, y) via al_id.
         let aid = al_id.unwrap_or(0);
-        if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 {
-                pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
-            } else {
-                0
-            };
-            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        }
+        let disp_i = if aid >= 1 {
+            pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+        } else {
+            0
+        };
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
@@ -2757,14 +2764,12 @@ fn dispatch_object_op(
         obj.init_param_like();
         // Optional parameters: (disp, x, y) via al_id with different indexing.
         let aid = al_id.unwrap_or(0);
-        if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 {
-                pos.get(0).and_then(|v| v.as_i64()).unwrap_or(0)
-            } else {
-                0
-            };
-            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        }
+        let disp_i = if aid >= 1 {
+            pos.get(0).and_then(|v| v.as_i64()).unwrap_or(0)
+        } else {
+            0
+        };
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
@@ -2850,14 +2855,12 @@ fn dispatch_object_op(
 
             // Optional (disp, x, y) via al_id.
             let aid = al_id.unwrap_or(0);
-            if ctx.ids.obj_disp != 0 {
-                let disp_i = if aid >= 1 {
-                    pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
-                } else {
-                    0
-                };
-                obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-            }
+            let disp_i = if aid >= 1 {
+                pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+            } else {
+                0
+            };
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
             if aid >= 2 {
                 if ctx.ids.obj_x != 0 {
                     obj.set_int_prop(
@@ -2930,14 +2933,12 @@ fn dispatch_object_op(
 
         // Optional (disp, x, y) via al_id.
         let aid = al_id.unwrap_or(0);
-        if ctx.ids.obj_disp != 0 {
-            let disp_i = if aid >= 1 {
-                pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0)
-            } else {
-                0
-            };
-            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        }
+        let disp_i = if aid >= 1 {
+            pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0)
+        } else {
+            0
+        };
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
         if aid >= 2 {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
@@ -4381,9 +4382,7 @@ fn dispatch_object_op(
                 height: h,
             };
             obj.object_type = 1;
-            if ctx.ids.obj_disp != 0 {
-                obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp { 1 } else { 0 });
-            }
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp { 1 } else { 0 });
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x as i64);
             }
@@ -4493,9 +4492,7 @@ fn dispatch_object_op(
             obj.number_param = Default::default();
             obj.file_name = Some(file.to_string());
             obj.string_value = None;
-            if ctx.ids.obj_disp != 0 {
-                obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp { 1 } else { 0 });
-            }
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp { 1 } else { 0 });
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
             }

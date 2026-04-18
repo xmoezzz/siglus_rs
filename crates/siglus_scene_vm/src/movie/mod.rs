@@ -46,6 +46,7 @@ pub struct MovieManager {
     current_append_dir: String,
     current: Option<MovieInfo>,
     cache: HashMap<PathBuf, MovieAsset>,
+    preview_cache: HashMap<PathBuf, Arc<RgbaImage>>,
     playbacks: HashMap<u64, MoviePlayback>,
     next_playback_id: u64,
 }
@@ -57,6 +58,7 @@ impl MovieManager {
             current_append_dir: String::new(),
             current: None,
             cache: HashMap::new(),
+            preview_cache: HashMap::new(),
             playbacks: HashMap::new(),
             next_playback_id: 1,
         }
@@ -157,6 +159,24 @@ impl MovieManager {
         Ok((asset, !existed))
     }
 
+    pub fn ensure_preview_frame(&mut self, file_name: &str) -> Result<Arc<RgbaImage>> {
+        let path = resolve_mov_path(&self.project_dir, &self.current_append_dir, file_name)?;
+        if let Some(frame) = self.preview_cache.get(&path) {
+            return Ok(frame.clone());
+        }
+        let ext = path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let frame = if ext == "omv" {
+            decode_omv_preview_frame(&path)?
+        } else {
+            decode_mpeg2_preview_frame(&path)?
+        };
+        self.preview_cache.insert(path, frame.clone());
+        Ok(frame)
+    }
     pub fn start_audio(
         &mut self,
         audio: &mut AudioHub,
@@ -233,6 +253,67 @@ pub struct MovieAudio {
 struct MoviePlayback {
     handle: StaticSoundHandle,
     duration_ms: Option<u64>,
+}
+
+fn decode_mpeg2_preview_frame(path: &Path) -> Result<Arc<RgbaImage>> {
+    let bytes = fs::read(path).with_context(|| format!("read movie file: {}", path.display()))?;
+    let mut pipeline = na_mpeg2_decoder::MpegVideoPipeline::new();
+    let mut first = None;
+    pipeline
+        .push_with(&bytes, None, |f| {
+            if first.is_none() {
+                let w = f.width as u32;
+                let h = f.height as u32;
+                let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
+                na_mpeg2_decoder::frame_to_rgba_bt601_limited(&f, &mut rgba);
+                first = Some(Arc::new(RgbaImage {
+                    width: w,
+                    height: h,
+                    rgba,
+                }));
+            }
+        })
+        .context("mpeg2 preview decode")?;
+    if first.is_none() {
+        pipeline.flush_with(|f| {
+            if first.is_none() {
+                let w = f.width as u32;
+                let h = f.height as u32;
+                let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
+                na_mpeg2_decoder::frame_to_rgba_bt601_limited(&f, &mut rgba);
+                first = Some(Arc::new(RgbaImage {
+                    width: w,
+                    height: h,
+                    rgba,
+                }));
+            }
+        })?;
+    }
+    first.ok_or_else(|| anyhow!("mpeg2 preview frame missing: {}", path.display()))
+}
+
+fn decode_omv_preview_frame(path: &Path) -> Result<Arc<RgbaImage>> {
+    let omv = siglus_assets::omv::OmvFile::open(path).ok();
+    let ogg_data = siglus_assets::omv::OmvFile::read_embedded_ogg(path)
+        .or_else(|_| extract_ogg_by_scan(path))
+        .with_context(|| format!("read embedded ogg: {}", path.display()))?;
+    let (vinfo, packed) = siglus_omv_decoder::decode_first_video_frame_from_memory(ogg_data)
+        .with_context(|| format!("decode first omv frame: {}", path.display()))?;
+    let display_h = omv
+        .as_ref()
+        .map(|m| m.header.display_height as i32)
+        .unwrap_or(vinfo.height);
+    let width = omv
+        .as_ref()
+        .map(|m| m.header.display_width.max(1))
+        .unwrap_or(vinfo.width.max(1) as u32);
+    let height = display_h.max(1) as u32;
+    let rgba = convert_omv_frame(&packed, vinfo.width, vinfo.height, vinfo.fmt, display_h);
+    Ok(Arc::new(RgbaImage {
+        width,
+        height,
+        rgba,
+    }))
 }
 
 fn decode_mpeg2_asset(path: &Path) -> Result<MovieAsset> {

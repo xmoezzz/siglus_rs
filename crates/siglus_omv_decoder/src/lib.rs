@@ -47,6 +47,18 @@ pub struct TheoraFile {
     audio_cursor: usize,
 }
 
+pub fn decode_first_video_frame_from_memory(data: Vec<u8>) -> Result<(VideoInfo, Vec<u8>)> {
+    let streams = read_ogg_streams(data).context("parse ogg packets")?;
+    let video_serial = find_stream_by_magic(&streams, b"theora", 0x80)
+        .ok_or_else(|| anyhow!("no video stream in ogg"))?;
+    decode_theora_first_frame(
+        streams
+            .get(&video_serial)
+            .ok_or_else(|| anyhow!("selected Theora stream missing"))?,
+    )
+    .context("decode first theora frame")
+}
+
 impl TheoraFile {
     pub fn open_from_memory(data: Vec<u8>) -> Result<Self> {
         let streams = read_ogg_streams(data).context("parse ogg packets")?;
@@ -178,6 +190,67 @@ fn find_stream_by_magic(
             None
         }
     })
+}
+
+fn decode_theora_first_frame(stream: &LogicalStream) -> Result<(VideoInfo, Vec<u8>)> {
+    let mut parser = HeaderParser::new();
+    let mut decoder = None;
+    let mut first_frame = None;
+
+    for pkt in &stream.packets {
+        let op = OggPacket {
+            packet: pkt.data.clone(),
+            b_o_s: pkt.b_o_s,
+            e_o_s: pkt.e_o_s,
+            granulepos: pkt.granulepos,
+            packetno: pkt.packetno,
+        };
+
+        if decoder.is_none() {
+            let _ = parser.push(&op)?;
+            if parser.is_ready() {
+                decoder = Some(parser.decoder()?);
+            }
+            continue;
+        }
+
+        let dec = decoder.as_mut().expect("decoder allocated after headers");
+        theora_rs::th_decode_packetin(dec, &op)?;
+        if dec.has_decoded_frame() {
+            let ycbcr = theora_rs::th_decode_ycbcr_out(dec)?;
+            first_frame = Some(pack_theorafile_frame(&parser.info, &ycbcr)?);
+            break;
+        }
+    }
+
+    if !parser.is_ready() {
+        bail!("stream ended before all Theora headers were parsed");
+    }
+
+    let info = &parser.info;
+    let width = info.pic_width.max(1) as i32;
+    let height = info.pic_height.max(1) as i32;
+    let fps = if info.fps_denominator != 0 {
+        info.fps_numerator as f64 / info.fps_denominator as f64
+    } else {
+        0.0
+    };
+    let fmt = match info.pixel_fmt {
+        PixelFmt::Pf420 | PixelFmt::Reserved => TH_PF_420,
+        PixelFmt::Pf422 => TH_PF_422,
+        PixelFmt::Pf444 => TH_PF_444,
+    };
+
+    let frame = first_frame.ok_or_else(|| anyhow!("no decoded Theora frame in stream"))?;
+    Ok((
+        VideoInfo {
+            width,
+            height,
+            fps,
+            fmt,
+        },
+        frame,
+    ))
 }
 
 fn decode_theora_stream(stream: &LogicalStream) -> Result<(VideoInfo, Vec<Vec<u8>>)> {

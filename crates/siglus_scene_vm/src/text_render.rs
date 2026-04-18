@@ -61,10 +61,39 @@ impl FontCache {
         max_w: u32,
         max_h: u32,
     ) -> Option<ImageId> {
+        self.render_text_into(images, None, text, font_px, max_w, max_h)
+    }
+
+    pub fn render_text_into(
+        &self,
+        images: &mut ImageManager,
+        target: Option<ImageId>,
+        text: &str,
+        font_px: f32,
+        max_w: u32,
+        max_h: u32,
+    ) -> Option<ImageId> {
+        let img = self.render_text_rgba(text, font_px, max_w, max_h)?;
+        match target {
+            Some(id) => {
+                images.replace_image(id, img).ok()?;
+                Some(id)
+            }
+            None => Some(images.insert_image(img)),
+        }
+    }
+
+    pub fn render_text_rgba(
+        &self,
+        text: &str,
+        font_px: f32,
+        max_w: u32,
+        max_h: u32,
+    ) -> Option<RgbaImage> {
         let Some(font) = self.font.as_ref() else {
-            return render_text_image_basic(images, text, font_px as u32, max_w, max_h);
+            return render_text_image_basic_rgba(text, font_px as u32, max_w, max_h);
         };
-        render_text_fontdue(images, font, text, font_px, max_w, max_h)
+        render_text_fontdue_rgba(font, text, font_px, max_w, max_h)
     }
 }
 
@@ -75,6 +104,16 @@ pub fn render_text_image_basic(
     max_w: u32,
     max_h: u32,
 ) -> Option<ImageId> {
+    let img = render_text_image_basic_rgba(text, font_px, max_w, max_h)?;
+    Some(images.insert_image(img))
+}
+
+pub fn render_text_image_basic_rgba(
+    text: &str,
+    font_px: u32,
+    max_w: u32,
+    max_h: u32,
+) -> Option<RgbaImage> {
     if text.is_empty() || max_w == 0 || max_h == 0 {
         return None;
     }
@@ -112,12 +151,11 @@ pub fn render_text_image_basic(
         x = x.saturating_add(advance);
     }
 
-    let img = RgbaImage {
+    Some(RgbaImage {
         width: max_w,
         height: max_h,
         rgba,
-    };
-    Some(images.insert_image(img))
+    })
 }
 
 fn render_text_fontdue(
@@ -128,6 +166,17 @@ fn render_text_fontdue(
     max_w: u32,
     max_h: u32,
 ) -> Option<ImageId> {
+    let img = render_text_fontdue_rgba(font, text, font_px, max_w, max_h)?;
+    Some(images.insert_image(img))
+}
+
+fn render_text_fontdue_rgba(
+    font: &Font,
+    text: &str,
+    font_px: f32,
+    max_w: u32,
+    max_h: u32,
+) -> Option<RgbaImage> {
     if text.is_empty() || max_w == 0 || max_h == 0 {
         return None;
     }
@@ -141,7 +190,7 @@ fn render_text_fontdue(
         .unwrap_or(font_px * 1.3);
 
     let mut word = String::new();
-    let mut flush_word = |word: &str, x: &mut f32, y: &mut f32, rgba: &mut [u8]| {
+    let flush_word = |word: &str, x: &mut f32, y: &mut f32, rgba: &mut [u8]| {
         if word.is_empty() {
             return;
         }
@@ -214,12 +263,11 @@ fn render_text_fontdue(
     }
     flush_word(&word, &mut x, &mut y, &mut rgba);
 
-    let img = RgbaImage {
+    Some(RgbaImage {
         width: max_w,
         height: max_h,
         rgba,
-    };
-    Some(images.insert_image(img))
+    })
 }
 
 fn draw_glyph_5x7(rgba: &mut [u8], w: u32, h: u32, x: u32, y: u32, ch: char, scale: u32) {
@@ -253,141 +301,64 @@ fn draw_glyph_5x7(rgba: &mut [u8], w: u32, h: u32, x: u32, y: u32, ch: char, sca
 }
 
 fn glyph_5x7(ch: char) -> [u8; 7] {
-    let c = if ch.is_ascii_lowercase() {
-        ch.to_ascii_uppercase()
-    } else {
-        ch
-    };
-    match c {
-        'A' => [
-            0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
-        ],
-        'B' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110,
-        ],
-        'C' => [
-            0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110,
-        ],
-        'D' => [
-            0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110,
-        ],
-        'E' => [
-            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111,
-        ],
-        'F' => [
-            0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000,
-        ],
-        'G' => [
-            0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110,
-        ],
-        'H' => [
-            0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001,
-        ],
-        'I' => [
-            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b11111,
-        ],
-        'J' => [
-            0b11111, 0b00010, 0b00010, 0b00010, 0b00010, 0b10010, 0b01100,
-        ],
-        'K' => [
-            0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001,
-        ],
-        'L' => [
-            0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111,
-        ],
-        'M' => [
-            0b10001, 0b11011, 0b10101, 0b10001, 0b10001, 0b10001, 0b10001,
-        ],
-        'N' => [
-            0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001,
-        ],
-        'O' => [
-            0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
-        ],
-        'P' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000,
-        ],
-        'Q' => [
-            0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101,
-        ],
-        'R' => [
-            0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001,
-        ],
-        'S' => [
-            0b01110, 0b10001, 0b10000, 0b01110, 0b00001, 0b10001, 0b01110,
-        ],
-        'T' => [
-            0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100,
-        ],
-        'U' => [
-            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110,
-        ],
-        'V' => [
-            0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100,
-        ],
-        'W' => [
-            0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b11011, 0b10001,
-        ],
-        'X' => [
-            0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001,
-        ],
-        'Y' => [
-            0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100,
-        ],
-        'Z' => [
-            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111,
-        ],
-        '0' => [
-            0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110,
-        ],
-        '1' => [
-            0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110,
-        ],
-        '2' => [
-            0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111,
-        ],
-        '3' => [
-            0b01110, 0b10001, 0b00001, 0b00110, 0b00001, 0b10001, 0b01110,
-        ],
-        '4' => [
-            0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010,
-        ],
-        '5' => [
-            0b11111, 0b10000, 0b11110, 0b00001, 0b00001, 0b10001, 0b01110,
-        ],
-        '6' => [
-            0b00110, 0b01000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110,
-        ],
-        '7' => [
-            0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000,
-        ],
-        '8' => [
-            0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110,
-        ],
-        '9' => [
-            0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00010, 0b01100,
-        ],
-        ' ' => [0, 0, 0, 0, 0, 0, 0],
-        '.' => [0, 0, 0, 0, 0, 0b01100, 0b01100],
-        ',' => [0, 0, 0, 0, 0, 0b01100, 0b01000],
-        '!' => [0b00100, 0b00100, 0b00100, 0b00100, 0, 0b00100, 0],
-        '?' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0, 0b00100],
-        ':' => [0, 0b01100, 0b01100, 0, 0b01100, 0b01100, 0],
-        ';' => [0, 0b01100, 0b01100, 0, 0b01100, 0b01000, 0],
-        '-' => [0, 0, 0, 0b11111, 0, 0, 0],
-        '_' => [0, 0, 0, 0, 0, 0, 0b11111],
-        '/' => [0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0, 0],
-        '\\' => [0b10000, 0b01000, 0b00100, 0b00010, 0b00001, 0, 0],
-        '\'' => [0b00100, 0b00100, 0, 0, 0, 0, 0],
-        '"' => [0b01010, 0b01010, 0, 0, 0, 0, 0],
-        '[' => [
-            0b01110, 0b01000, 0b01000, 0b01000, 0b01000, 0b01000, 0b01110,
-        ],
-        ']' => [
-            0b01110, 0b00010, 0b00010, 0b00010, 0b00010, 0b00010, 0b01110,
-        ],
-        _ => [
-            0b11111, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11111,
-        ],
+    match ch.to_ascii_uppercase() {
+        'A' => [0x0E, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+        'B' => [0x1E, 0x11, 0x11, 0x1E, 0x11, 0x11, 0x1E],
+        'C' => [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E],
+        'D' => [0x1E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x1E],
+        'E' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x1F],
+        'F' => [0x1F, 0x10, 0x10, 0x1E, 0x10, 0x10, 0x10],
+        'G' => [0x0E, 0x11, 0x10, 0x17, 0x11, 0x11, 0x0E],
+        'H' => [0x11, 0x11, 0x11, 0x1F, 0x11, 0x11, 0x11],
+        'I' => [0x0E, 0x04, 0x04, 0x04, 0x04, 0x04, 0x0E],
+        'J' => [0x01, 0x01, 0x01, 0x01, 0x11, 0x11, 0x0E],
+        'K' => [0x11, 0x12, 0x14, 0x18, 0x14, 0x12, 0x11],
+        'L' => [0x10, 0x10, 0x10, 0x10, 0x10, 0x10, 0x1F],
+        'M' => [0x11, 0x1B, 0x15, 0x15, 0x11, 0x11, 0x11],
+        'N' => [0x11, 0x19, 0x15, 0x13, 0x11, 0x11, 0x11],
+        'O' => [0x0E, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
+        'P' => [0x1E, 0x11, 0x11, 0x1E, 0x10, 0x10, 0x10],
+        'Q' => [0x0E, 0x11, 0x11, 0x11, 0x15, 0x12, 0x0D],
+        'R' => [0x1E, 0x11, 0x11, 0x1E, 0x14, 0x12, 0x11],
+        'S' => [0x0F, 0x10, 0x10, 0x0E, 0x01, 0x01, 0x1E],
+        'T' => [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
+        'U' => [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E],
+        'V' => [0x11, 0x11, 0x11, 0x11, 0x11, 0x0A, 0x04],
+        'W' => [0x11, 0x11, 0x11, 0x15, 0x15, 0x15, 0x0A],
+        'X' => [0x11, 0x11, 0x0A, 0x04, 0x0A, 0x11, 0x11],
+        'Y' => [0x11, 0x11, 0x0A, 0x04, 0x04, 0x04, 0x04],
+        'Z' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x10, 0x1F],
+        '0' => [0x0E, 0x11, 0x13, 0x15, 0x19, 0x11, 0x0E],
+        '1' => [0x04, 0x0C, 0x04, 0x04, 0x04, 0x04, 0x0E],
+        '2' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x08, 0x1F],
+        '3' => [0x1E, 0x01, 0x01, 0x06, 0x01, 0x01, 0x1E],
+        '4' => [0x02, 0x06, 0x0A, 0x12, 0x1F, 0x02, 0x02],
+        '5' => [0x1F, 0x10, 0x10, 0x1E, 0x01, 0x01, 0x1E],
+        '6' => [0x0E, 0x10, 0x10, 0x1E, 0x11, 0x11, 0x0E],
+        '7' => [0x1F, 0x01, 0x02, 0x04, 0x08, 0x08, 0x08],
+        '8' => [0x0E, 0x11, 0x11, 0x0E, 0x11, 0x11, 0x0E],
+        '9' => [0x0E, 0x11, 0x11, 0x0F, 0x01, 0x01, 0x0E],
+        ':' => [0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00],
+        '.' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0x06],
+        ',' => [0x00, 0x00, 0x00, 0x00, 0x06, 0x06, 0x04],
+        '-' => [0x00, 0x00, 0x00, 0x1F, 0x00, 0x00, 0x00],
+        '_' => [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1F],
+        '/' => [0x01, 0x02, 0x04, 0x08, 0x10, 0x00, 0x00],
+        '\\' => [0x10, 0x08, 0x04, 0x02, 0x01, 0x00, 0x00],
+        '[' => [0x0E, 0x08, 0x08, 0x08, 0x08, 0x08, 0x0E],
+        ']' => [0x0E, 0x02, 0x02, 0x02, 0x02, 0x02, 0x0E],
+        '(' => [0x02, 0x04, 0x08, 0x08, 0x08, 0x04, 0x02],
+        ')' => [0x08, 0x04, 0x02, 0x02, 0x02, 0x04, 0x08],
+        '#' => [0x0A, 0x0A, 0x1F, 0x0A, 0x1F, 0x0A, 0x0A],
+        '+' => [0x00, 0x04, 0x04, 0x1F, 0x04, 0x04, 0x00],
+        '=' => [0x00, 0x1F, 0x00, 0x1F, 0x00, 0x00, 0x00],
+        '*' => [0x00, 0x11, 0x0A, 0x1F, 0x0A, 0x11, 0x00],
+        '?' => [0x0E, 0x11, 0x01, 0x02, 0x04, 0x00, 0x04],
+        '!' => [0x04, 0x04, 0x04, 0x04, 0x04, 0x00, 0x04],
+        '>' => [0x10, 0x08, 0x04, 0x02, 0x04, 0x08, 0x10],
+        '<' => [0x01, 0x02, 0x04, 0x08, 0x04, 0x02, 0x01],
+        '|' => [0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
+        ' ' => [0x00; 7],
+        _ => [0x1F, 0x11, 0x15, 0x15, 0x15, 0x11, 0x1F],
     }
 }

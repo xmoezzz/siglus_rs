@@ -171,6 +171,18 @@ pub struct SceneVm<'a> {
     call_cmd_names: std::collections::HashMap<u32, String>,
 }
 
+#[derive(Debug, Clone)]
+struct FrameActionWork {
+    stage_idx: i64,
+    obj_idx: usize,
+    ch_idx: Option<usize>,
+    global_form_id: Option<u32>,
+    cmd_name: String,
+    args: Vec<i64>,
+    count: i64,
+    end_time: i64,
+}
+
 impl<'a> SceneVm<'a> {
     fn trace_unknown_form(&mut self, form_code: i32, site: &str) {
         *self.unknown_forms.entry(form_code).or_insert(0) += 1;
@@ -259,6 +271,294 @@ impl<'a> SceneVm<'a> {
 
     pub fn current_scene_name(&self) -> Option<&str> {
         self.current_scene_name.as_deref()
+    }
+
+    fn run_current_scene_user_cmd_inline(
+        &mut self,
+        cmd_name: &str,
+        int_args: &[i64],
+    ) -> Result<bool> {
+        let Some(scene_no) = self.current_scene_no else {
+            return Ok(false);
+        };
+        let cmd_no = match self.user_cmd_names.iter().find_map(|(no, name)| {
+            if name.eq_ignore_ascii_case(cmd_name) {
+                Some(*no as usize)
+            } else {
+                None
+            }
+        }) {
+            Some(v) => v,
+            None => return Ok(false),
+        };
+        let offset = self.stream.scn_cmd_offset(cmd_no)?;
+        let return_pc = self.stream.get_prg_cntr();
+        let base_depth = self.call_stack.len();
+        if let Some(caller) = self.call_stack.last_mut() {
+            caller.return_pc = return_pc;
+            caller.ret_form = self.cfg.fm_void;
+        }
+        self.call_stack.push(CallFrame {
+            return_pc: 0,
+            ret_form: self.cfg.fm_void,
+            user_props: Vec::new(),
+            int_args: int_args.iter().map(|v| *v as i32).collect(),
+            str_args: Vec::new(),
+        });
+        self.stream.set_prg_cntr(offset)?;
+        self.current_scene_no = Some(scene_no);
+        let mut budget: u64 = 20000;
+        while budget > 0 {
+            let running = self.step()?;
+            if self.halted || !running {
+                break;
+            }
+            if self.is_blocked() {
+                break;
+            }
+            if self.call_stack.len() == base_depth && self.stream.get_prg_cntr() == return_pc {
+                break;
+            }
+            budget -= 1;
+        }
+        Ok(true)
+    }
+
+    fn collect_object_frame_action_work_recursive(
+        obj: &crate::runtime::globals::ObjectState,
+        stage_idx: i64,
+        obj_idx: usize,
+        out: &mut Vec<FrameActionWork>,
+    ) {
+        let fa = &obj.frame_action;
+        if !fa.cmd_name.is_empty() {
+            out.push(FrameActionWork {
+                stage_idx,
+                obj_idx,
+                ch_idx: None,
+                global_form_id: None,
+                cmd_name: fa.cmd_name.clone(),
+                args: fa.args.clone(),
+                count: fa.counter.get_count(),
+                end_time: fa.end_time,
+            });
+        }
+        for (ch_idx, ch) in obj.frame_action_ch.iter().enumerate() {
+            if !ch.cmd_name.is_empty() {
+                out.push(FrameActionWork {
+                    stage_idx,
+                    obj_idx,
+                    ch_idx: Some(ch_idx),
+                    global_form_id: None,
+                    cmd_name: ch.cmd_name.clone(),
+                    args: ch.args.clone(),
+                    count: ch.counter.get_count(),
+                    end_time: ch.end_time,
+                });
+            }
+        }
+        for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+            if child.used {
+                Self::collect_object_frame_action_work_recursive(child, stage_idx, child_idx, out);
+            }
+        }
+    }
+
+    pub fn tick_frame(&mut self) -> Result<()> {
+        let trace = std::env::var_os("SG_TICK_TRACE").is_some();
+        if trace {
+            eprintln!(
+                "[SG_TICK_TRACE] tick_frame start blocked={} halted={} scene={:?}",
+                self.is_blocked(),
+                self.halted,
+                self.current_scene_name()
+            );
+        }
+        self.ctx.tick_frame();
+        if trace {
+            eprintln!(
+                "[SG_TICK_TRACE] after ctx.tick_frame blocked={} halted={}",
+                self.is_blocked(),
+                self.halted
+            );
+        }
+        if self.ctx.globals.script.frame_action_time_stop_flag {
+            if trace {
+                eprintln!("[SG_TICK_TRACE] frame_action_time_stop_flag set");
+            }
+            return Ok(());
+        }
+        let mut work: Vec<FrameActionWork> = Vec::new();
+        for (form_id, fa) in &self.ctx.globals.frame_actions {
+            if !fa.cmd_name.is_empty() {
+                work.push(FrameActionWork {
+                    stage_idx: -1,
+                    obj_idx: usize::MAX,
+                    ch_idx: None,
+                    global_form_id: Some(*form_id),
+                    cmd_name: fa.cmd_name.clone(),
+                    args: fa.args.clone(),
+                    count: fa.counter.get_count(),
+                    end_time: fa.end_time,
+                });
+            }
+        }
+        for (form_id, list) in &self.ctx.globals.frame_action_lists {
+            for (idx, fa) in list.iter().enumerate() {
+                if !fa.cmd_name.is_empty() {
+                    work.push(FrameActionWork {
+                        stage_idx: -1,
+                        obj_idx: usize::MAX,
+                        ch_idx: Some(idx),
+                        global_form_id: Some(*form_id),
+                        cmd_name: fa.cmd_name.clone(),
+                        args: fa.args.clone(),
+                        count: fa.counter.get_count(),
+                        end_time: fa.end_time,
+                    });
+                }
+            }
+        }
+        for st in self.ctx.globals.stage_forms.values() {
+            for (stage_idx, objs) in &st.object_lists {
+                for (obj_idx, obj) in objs.iter().enumerate() {
+                    Self::collect_object_frame_action_work_recursive(
+                        obj, *stage_idx, obj_idx, &mut work,
+                    );
+                }
+            }
+        }
+        if trace {
+            eprintln!("[SG_TICK_TRACE] frame_action work items={}", work.len());
+        }
+        for item in work {
+            if trace {
+                eprintln!(
+                    "[SG_TICK_TRACE] invoke stage={} obj={} ch={:?} global={:?} cmd={} count={} end_time={} args={:?}",
+                    item.stage_idx,
+                    item.obj_idx,
+                    item.ch_idx,
+                    item.global_form_id,
+                    item.cmd_name,
+                    item.count,
+                    item.end_time,
+                    item.args
+                );
+            }
+            let mut call_args = Vec::with_capacity(item.args.len() + 1);
+            call_args.push(item.count);
+            call_args.extend(item.args.iter().copied());
+            let prev_target = self.ctx.globals.current_stage_object;
+            if item.stage_idx >= 0 && item.obj_idx != usize::MAX {
+                self.ctx.globals.current_stage_object = Some((item.stage_idx, item.obj_idx));
+            } else {
+                self.ctx.globals.current_stage_object = None;
+            }
+            let _ = self.run_current_scene_user_cmd_inline(&item.cmd_name, &call_args)?;
+            self.ctx.globals.current_stage_object = prev_target;
+            if item.end_time < 0 {
+                continue;
+            }
+
+            if item.stage_idx < 0 {
+                let fa_opt = if let Some(form_id) = item.global_form_id {
+                    if let Some(i) = item.ch_idx {
+                        self.ctx
+                            .globals
+                            .frame_action_lists
+                            .get_mut(&form_id)
+                            .and_then(|list| list.get_mut(i))
+                    } else {
+                        self.ctx.globals.frame_actions.get_mut(&form_id)
+                    }
+                } else {
+                    None
+                };
+                if let Some(fa) = fa_opt {
+                    if fa.counter.get_count() >= item.end_time {
+                        fa.end_flag = true;
+                        fa.counter.set_count(item.end_time);
+                        let end_cmd = fa.cmd_name.clone();
+                        let end_args = fa.args.clone();
+                        fa.cmd_name.clear();
+                        fa.scn_name.clear();
+                        fa.args.clear();
+                        fa.counter.reset();
+                        let mut inline_args = Vec::with_capacity(end_args.len() + 1);
+                        inline_args.push(item.end_time);
+                        inline_args.extend(end_args.iter().copied());
+                        let _ = self.run_current_scene_user_cmd_inline(&end_cmd, &inline_args)?;
+                    }
+                }
+                continue;
+            }
+
+            let done = if let Some(st) = self
+                .ctx
+                .globals
+                .stage_forms
+                .values_mut()
+                .find(|st| st.object_lists.contains_key(&item.stage_idx))
+            {
+                if let Some(objs) = st.object_lists.get_mut(&item.stage_idx) {
+                    if let Some(obj) = objs.get_mut(item.obj_idx) {
+                        let fa = match item.ch_idx {
+                            Some(i) => obj.frame_action_ch.get_mut(i),
+                            None => Some(&mut obj.frame_action),
+                        };
+                        if let Some(fa) = fa {
+                            fa.counter.get_count() >= item.end_time
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if done {
+                if let Some(st) = self
+                    .ctx
+                    .globals
+                    .stage_forms
+                    .values_mut()
+                    .find(|st| st.object_lists.contains_key(&item.stage_idx))
+                {
+                    if let Some(objs) = st.object_lists.get_mut(&item.stage_idx) {
+                        if let Some(obj) = objs.get_mut(item.obj_idx) {
+                            let fa = match item.ch_idx {
+                                Some(i) => obj.frame_action_ch.get_mut(i),
+                                None => Some(&mut obj.frame_action),
+                            };
+                            if let Some(fa) = fa {
+                                fa.end_flag = true;
+                                fa.counter.set_count(item.end_time);
+                                let end_cmd = fa.cmd_name.clone();
+                                let end_args = fa.args.clone();
+                                fa.cmd_name.clear();
+                                fa.scn_name.clear();
+                                fa.args.clear();
+                                fa.counter.reset();
+                                let mut inline_args = Vec::with_capacity(end_args.len() + 1);
+                                inline_args.push(item.end_time);
+                                inline_args.extend(end_args.iter().copied());
+                                let prev_target = self.ctx.globals.current_stage_object;
+                                self.ctx.globals.current_stage_object =
+                                    Some((item.stage_idx, item.obj_idx));
+                                let _ =
+                                    self.run_current_scene_user_cmd_inline(&end_cmd, &inline_args)?;
+                                self.ctx.globals.current_stage_object = prev_target;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn restart_scene_name(&mut self, scene_name: &str, z_no: i32) -> Result<()> {

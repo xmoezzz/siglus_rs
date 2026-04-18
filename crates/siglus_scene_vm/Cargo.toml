@@ -24,6 +24,8 @@ siglus_assets = { path = "../siglus_assets" }
 wgpu.workspace = true
 winit.workspace = true
 pollster.workspace = true
+egui = "0.28.1"
+egui-wgpu = "0.28.1"
 
 
 [[bin]]

@@ -501,23 +501,40 @@ impl BgmEngine {
     }
 
     fn resolve_bgm_script(&self, regist_name: &str) -> Result<(BgmScriptEntry, PathBuf)> {
-        let entry = self
-            .lookup_gameexe_bgm_entry(regist_name)
-            .ok_or_else(|| anyhow!("BGM regist name not found in script table: {regist_name}"))?;
+        if let Some(entry) = self.lookup_gameexe_bgm_entry(regist_name) {
+            let (path, _ty) = crate::resource::find_audio_path_with_append_dir(
+                &self.project_dir,
+                &self.current_append_dir,
+                "bgm",
+                &entry.file_name,
+            )
+            .map_err(|_| {
+                anyhow!(
+                    "BGM file not found for regist name {}: {}",
+                    regist_name,
+                    entry.file_name
+                )
+            })?;
+            return Ok((entry, path));
+        }
+
+        let direct_name = regist_name.trim();
         let (path, _ty) = crate::resource::find_audio_path_with_append_dir(
             &self.project_dir,
             &self.current_append_dir,
             "bgm",
-            &entry.file_name,
+            direct_name,
         )
-        .map_err(|_| {
-            anyhow!(
-                "BGM file not found for regist name {}: {}",
-                regist_name,
-                entry.file_name
-            )
-        })?;
-        Ok((entry, path))
+        .map_err(|_| anyhow!("BGM regist name not found in script table: {regist_name}"))?;
+        Ok((
+            BgmScriptEntry {
+                file_name: direct_name.to_string(),
+                start_sample: 0,
+                end_sample: -1,
+                repeat_sample: 0,
+            },
+            path,
+        ))
     }
 
     fn prepare_slot(
@@ -586,6 +603,20 @@ impl BgmEngine {
         }
         if effective_start >= slot.end_sample {
             return Err(anyhow!("invalid BGM range after restart clamp"));
+        }
+
+        if !audio.is_enabled() {
+            slot.handle = None;
+            slot.current_segment_start_sample = effective_start;
+            slot.current_segment_samples = slot.end_sample.saturating_sub(effective_start);
+            slot.start_time = Some(Instant::now());
+            slot.paused_at = if start_paused { slot.start_time } else { None };
+            slot.paused_total = Duration::from_millis(0);
+            slot.pending = None;
+            slot.fade_outing = false;
+            slot.start_sample = effective_start;
+            slot.ready_only = start_paused;
+            return Ok(());
         }
 
         let Some(playback_wav) = wav_slice_samples(source, 0, Some(slot.end_sample)) else {

@@ -13,12 +13,14 @@ pub fn dispatch(ctx: &mut CommandContext, _args: &[Value]) -> Result<bool> {
     let Some(chain) = current_chain(ctx) else {
         return Ok(false);
     };
-    if chain.len() < 2 || chain[0] != ctx.ids.form_global_keylist as i32 {
+    if chain.len() < 2 {
         return Ok(false);
     }
     let op = chain[1] as i64;
     match op {
-        o if o == ctx.ids.elm_array as i64 => {
+        // testcase startup still uses compact keylist alias 24 with -1 as the
+        // array/index marker instead of the canonical ELM_ARRAY id.
+        o if o == ctx.ids.elm_array as i64 || o == -1 => {
             if chain.len() < 4 {
                 return Ok(false);
             }

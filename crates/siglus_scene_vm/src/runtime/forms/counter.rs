@@ -284,13 +284,14 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .wait_counter(form_id, idx, arg_int(params, 0), true);
         }
         CounterOp::CheckValue => {
-            let ok = ctx
+            let cur = ctx
                 .globals
                 .counter_lists
                 .get(&form_id)
                 .and_then(|v| v.get(idx))
-                .map(|c| c.get_count_with_frame(current_frame) - arg_int(params, 0) >= 0)
-                .unwrap_or(true);
+                .map(|c| c.get_count_with_frame(current_frame))
+                .unwrap_or(arg_int(params, 0));
+            let ok = cur - arg_int(params, 0) >= 0;
             ctx.push(Value::Int(if ok { 1 } else { 0 }));
         }
         CounterOp::CheckActive => {

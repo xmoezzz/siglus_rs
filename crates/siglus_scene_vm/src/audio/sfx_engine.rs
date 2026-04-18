@@ -267,12 +267,16 @@ impl SfxEngine {
         // Stop previous sound on this slot.
         let _ = self.stop_slot(slot, None);
 
-        let data =
-            StaticSoundData::from_cursor(Cursor::new(wav)).context("kira: decode WAV bytes")?;
-        let handle = audio.play_static(self.track_kind, data)?;
         let s = &mut self.slots[slot];
-        s.handle = Some(handle);
         s.last_name = Some(display_name.to_string());
+        if audio.is_enabled() {
+            let data =
+                StaticSoundData::from_cursor(Cursor::new(wav)).context("kira: decode WAV bytes")?;
+            let handle = audio.play_static(self.track_kind, data)?;
+            s.handle = Some(handle);
+        } else {
+            s.handle = None;
+        }
 
         if loop_flag {
             s.until = None;
