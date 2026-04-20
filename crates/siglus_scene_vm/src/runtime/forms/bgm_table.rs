@@ -4,13 +4,13 @@ use crate::runtime::{CommandContext, Value};
 
 use super::codes::bgm_table_op;
 
-fn store_or_push_bgm_table_prop(ctx: &mut CommandContext, op: i64, args: &[Value]) {
+fn store_or_push_bgm_table_prop(ctx: &mut CommandContext, op: i32, args: &[Value]) {
     let form_key = if ctx.ids.form_global_bgm_table != 0 {
         ctx.ids.form_global_bgm_table
     } else {
         super::codes::FORM_GLOBAL_BGM_TABLE
     };
-    let prop = op as i32;
+    let prop = op;
     if let Some(v) = args.get(1).cloned() {
         match v {
             Value::Str(s) => {
@@ -81,7 +81,7 @@ fn normalize_name(name: &str) -> String {
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let args = trim_args(args);
-    let Some(op) = args.get(0).and_then(|v| v.as_i64()) else {
+    let Some(op) = args.get(0).and_then(|v| v.as_i64()).map(|v| v as i32) else {
         ctx.push(Value::Int(0));
         return Ok(true);
     };

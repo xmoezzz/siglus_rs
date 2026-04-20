@@ -464,32 +464,39 @@ fn parse_g02_block(buf: &[u8]) -> Result<G02BlockInfo> {
 }
 
 fn parse_g02_part_info_prefix(buf: &[u8]) -> Result<G02PartInfo> {
-    // We only rely on the fixed prefix fields used by the extractor.
-    // Offset mapping follows the struct layout in the provided the original implementation code.
+    // Original C++ G00_CUT_HEADER_STRUCT layout:
+    //   u16 type, u16 count,
+    //   i32 x, i32 y, i32 disp_xl, i32 disp_yl,
+    //   i32 xc, i32 yc,
+    //   i32 cut_xl, i32 cut_yl,
+    //   i32 keep[20]
+    // C_g00_cut::set_data() uses cut_xl/cut_yl as the actual cut image size.
+    // Chip x/y are already coordinates in that full cut image; they are not
+    // relative to the display rectangle x/y.
     if buf.len() < 0x24 {
         bail!("g02_part_info prefix too small");
     }
     let part_type = read_u16le(buf, 0)?;
     let block_count = read_u16le(buf, 2)?;
-    let hs_orig_x = read_u32le(buf, 4)?;
-    let hs_orig_y = read_u32le(buf, 8)?;
-    let width = read_u32le(buf, 0x0C)?;
-    let height = read_u32le(buf, 0x10)?;
-    let screen_show_x = read_u32le(buf, 0x14)?;
-    let screen_show_y = read_u32le(buf, 0x18)?;
-    let full_part_width = read_u32le(buf, 0x1C)?;
-    let full_part_height = read_u32le(buf, 0x20)?;
+    let disp_x = read_u32le(buf, 4)?;
+    let disp_y = read_u32le(buf, 8)?;
+    let disp_width = read_u32le(buf, 0x0C)?;
+    let disp_height = read_u32le(buf, 0x10)?;
+    let center_x = read_u32le(buf, 0x14)?;
+    let center_y = read_u32le(buf, 0x18)?;
+    let cut_width = read_u32le(buf, 0x1C)?;
+    let cut_height = read_u32le(buf, 0x20)?;
     Ok(G02PartInfo {
         part_type,
         block_count,
-        hs_orig_x,
-        hs_orig_y,
-        width,
-        height,
-        screen_show_x,
-        screen_show_y,
-        full_part_width,
-        full_part_height,
+        hs_orig_x: disp_x,
+        hs_orig_y: disp_y,
+        width: cut_width,
+        height: cut_height,
+        screen_show_x: center_x,
+        screen_show_y: center_y,
+        full_part_width: disp_width,
+        full_part_height: disp_height,
     })
 }
 
@@ -560,15 +567,11 @@ fn extract_g02_part(part_bytes: &[u8]) -> Result<RgbaImage> {
         let src = &part_bytes[off..off + px_len];
         off += px_len;
 
-        let dst_x = (block.orig_x as i64) - (part.hs_orig_x as i64);
-        let dst_y = (block.orig_y as i64) - (part.hs_orig_y as i64);
-        if dst_x < 0 || dst_y < 0 {
-            // Strict: the extractor assumes these are within.
-            bail!("g02 block position before hotspot origin");
-        }
-
-        let dst_x = dst_x as usize;
-        let dst_y = dst_y as usize;
+        // Original C++ copies each chip directly to chip_header->x/y inside the
+        // full cut image. Display rectangle x/y and center are metadata, not an
+        // origin to subtract from chip coordinates.
+        let dst_x = block.orig_x as usize;
+        let dst_y = block.orig_y as usize;
 
         // Copy row by row (same as extractor's part_extract_buf).
         for row in 0..bh {
@@ -582,8 +585,8 @@ fn extract_g02_part(part_bytes: &[u8]) -> Result<RgbaImage> {
         }
     }
 
-    // Match extractor behavior: flip vertically.
-    fix_vertical_flip_bgra(part.width, part.height, &mut dib)?;
+    // Original C_g00_chip::get_data copies chip rows in stored order.
+    // Do not flip here; WGPU and D3D both use top-left image coordinates for 2D sprites.
 
     // Convert to RGBA.
     let rgba = bgra_to_rgba_inplace(dib);

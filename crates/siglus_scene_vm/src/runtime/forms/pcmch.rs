@@ -8,7 +8,7 @@ use crate::runtime::{CommandContext, Value};
 
 use super::codes;
 
-fn store_or_push_pcmch_prop(ctx: &mut CommandContext, ch: usize, op: i64, args: &[Value]) {
+fn store_or_push_pcmch_prop(ctx: &mut CommandContext, ch: usize, op: i32, args: &[Value]) {
     let form_key = if ctx.ids.form_global_pcmch != 0 {
         ctx.ids.form_global_pcmch
     } else {
@@ -81,7 +81,7 @@ fn parse_channel_from_chain(
     form_id: u32,
     ctx: &CommandContext,
     chain: &[i32],
-) -> Option<(usize, i64)> {
+) -> Option<(usize, i32)> {
     if chain.len() < 4 {
         return None;
     }
@@ -100,7 +100,7 @@ fn parse_channel_from_chain(
     if ch < 0 {
         return None;
     }
-    let op = *chain.last()? as i64;
+    let op = *chain.last()?;
     Some((ch as usize, op))
 }
 
@@ -281,7 +281,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 fn dispatch_inner(
     ctx: &mut CommandContext,
     ch: usize,
-    op: i64,
+    op: i32,
     args: &[Value],
     ret_form: Option<i64>,
 ) -> Result<bool> {
@@ -314,46 +314,9 @@ fn dispatch_inner(
             Ok(true)
         }
 
-        codes::se_op::PLAY_BY_SE_NO => {
-            let se_no = match arg_int(args, 0) {
-                Some(v) => v,
-                None => {
-                    store_or_push_pcmch_prop(ctx, ch, op, args);
-                    return Ok(true);
-                }
-            };
-            for cand in resolve_numeric_candidates(se_no) {
-                if let Some(path) =
-                    resolve_subdir_path(&ctx.project_dir, &ctx.globals.append_dir, "se", &cand)
-                {
-                    play_path_on_pcm_slot(ctx, ch, &format!("se:{cand}"), &path, false)?;
-                    return Ok(true);
-                }
-            }
-
-            store_or_push_pcmch_prop(ctx, ch, op, args);
-            Ok(true)
-        }
-        codes::se_op::PLAY_BY_KOE_NO => {
-            let koe_no = match arg_int(args, 0) {
-                Some(v) => v,
-                None => {
-                    store_or_push_pcmch_prop(ctx, ch, op, args);
-                    return Ok(true);
-                }
-            };
-            let ok = {
-                let (pcm, audio) = (&mut ctx.pcm, &mut ctx.audio);
-                pcm.play_koe_no_in_slot(audio, ch, koe_no, false).is_ok()
-            };
-            if ok {
-                return Ok(true);
-            }
-
-            store_or_push_pcmch_prop(ctx, ch, op, args);
-            Ok(true)
-        }
-
+        // Siglus PCMCH has no standalone PLAY_BY_SE_NO / PLAY_BY_KOE_NO opcodes.
+        // SE/KOE numeric sources are selected through PCMCH PLAY/READY named args
+        // (`se_no` / `koe_no`) in the compiler ELEMENT table.
         codes::pcmch_op::STOP => {
             let fade = arg_int(args, 0);
             ctx.pcm.stop_slot(ch, fade)?;

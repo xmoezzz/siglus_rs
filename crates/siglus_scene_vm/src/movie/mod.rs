@@ -234,6 +234,40 @@ fn decode_frames_if_enabled(_path: &Path) -> Result<Option<usize>> {
     Ok(None)
 }
 
+fn omv_frame_duration_ms(header: Option<&siglus_assets::omv::OmvHeader>, fps: Option<f32>) -> Option<f64> {
+    if let Some(h) = header {
+        if h.frame_time_us != 0 {
+            return Some((h.frame_time_us as f64) / 1000.0);
+        }
+    }
+    let f = fps?;
+    if f > 0.0 {
+        Some(1000.0 / (f as f64))
+    } else {
+        None
+    }
+}
+
+fn omv_plane_layout(width: i32, video_height: i32, theora_type: u32, fmt: i32) -> (usize, usize, usize, usize, usize) {
+    let w = width.max(1) as usize;
+    let vh = video_height.max(1) as usize;
+    match theora_type {
+        siglus_assets::omv::OMV_THEORA_TYPE_RGB | siglus_assets::omv::OMV_THEORA_TYPE_RGBA => {
+            // OMV RGB/RGBA is not YCbCr even though it is carried by a Theora 4:4:4 stream.
+            // Original tona3 copies three full-size planes as B, G, R.  RGBA stores alpha
+            // in hidden rows below the visible picture area, split across those same planes.
+            let plane_len = w.saturating_mul(vh);
+            (w, vh, plane_len, plane_len, plane_len)
+        }
+        _ => {
+            let y_len = w.saturating_mul(vh);
+            let (uv_w, uv_h) = yuv_plane_size(width, video_height, fmt);
+            let uv_len = uv_w.saturating_mul(uv_h);
+            (uv_w, uv_h, y_len, uv_len, uv_len)
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MovieAsset {
     pub info: MovieInfo,
@@ -308,7 +342,16 @@ fn decode_omv_preview_frame(path: &Path) -> Result<Arc<RgbaImage>> {
         .map(|m| m.header.display_width.max(1))
         .unwrap_or(vinfo.width.max(1) as u32);
     let height = display_h.max(1) as u32;
-    let rgba = convert_omv_frame(&packed, vinfo.width, vinfo.height, vinfo.fmt, display_h);
+    let rgba = convert_omv_frame(
+        &packed,
+        vinfo.width,
+        vinfo.height,
+        vinfo.fmt,
+        display_h,
+        omv.as_ref()
+            .map(|m| m.header.theora_type)
+            .unwrap_or(siglus_assets::omv::OMV_THEORA_TYPE_YUV),
+    );
     Ok(Arc::new(RgbaImage {
         width,
         height,
@@ -412,16 +455,25 @@ fn decode_omv_asset(path: &Path) -> Result<MovieAsset> {
         decode_omv_audio(&mut audio_tf)?
     };
 
-    let (uv_w, uv_h) = yuv_plane_size(vinfo.width, vinfo.height, vinfo.fmt);
-    let buf_size = (vinfo.width as usize)
-        .saturating_mul(vinfo.height as usize)
-        .saturating_add(uv_w.saturating_mul(uv_h))
-        .saturating_add(uv_w.saturating_mul(uv_h));
+    let theora_type = omv
+        .as_ref()
+        .map(|m| m.header.theora_type)
+        .unwrap_or(siglus_assets::omv::OMV_THEORA_TYPE_YUV);
+    let (_uv_w, _uv_h, y_len, u_len, v_len) =
+        omv_plane_layout(vinfo.width, vinfo.height, theora_type, vinfo.fmt);
+    let buf_size = y_len.saturating_add(u_len).saturating_add(v_len);
     let mut buf = vec![0u8; buf_size];
 
     let mut frames: Vec<Arc<RgbaImage>> = Vec::new();
     while video_tf.read_video_frame(&mut buf)? {
-        let rgba = convert_omv_frame(&buf, vinfo.width, vinfo.height, vinfo.fmt, display_h);
+        let rgba = convert_omv_frame(
+            &buf,
+            vinfo.width,
+            vinfo.height,
+            vinfo.fmt,
+            display_h,
+            theora_type,
+        );
         frames.push(Arc::new(RgbaImage {
             width,
             height,
@@ -429,13 +481,19 @@ fn decode_omv_asset(path: &Path) -> Result<MovieAsset> {
         }));
     }
 
+    let frame_ms = omv_frame_duration_ms(omv.as_ref().map(|m| &m.header), fps);
+    let decoded_duration_ms = frame_ms.map(|ms| ((frames.len() as f64) * ms).round().max(1.0) as u64);
+
     let info = MovieInfo {
         path: path.to_path_buf(),
         width: Some(width),
         height: Some(height),
         fps,
         decoded_frames: Some(frames.len()),
-        audio_duration_ms: audio.as_ref().and_then(|a| a.duration_ms),
+        audio_duration_ms: audio
+            .as_ref()
+            .and_then(|a| a.duration_ms)
+            .or(decoded_duration_ms),
     };
 
     Ok(MovieAsset {
@@ -550,74 +608,119 @@ fn convert_omv_frame(
     video_height: i32,
     fmt: i32,
     display_height: i32,
+    theora_type: u32,
 ) -> Vec<u8> {
     let w = width.max(1) as usize;
     let vh = video_height.max(1) as usize;
     let dh = display_height.max(1) as usize;
 
-    let y_plane_len = w.saturating_mul(vh);
-    // OMV alpha movies store the alpha channel in the lower half of the luma
-    // plane while keeping chroma sized for the visible display height.
-    let chroma_height = if vh > dh {
-        display_height
-    } else {
-        video_height
-    };
-    let (uv_w, uv_h) = yuv_plane_size(width, chroma_height, fmt);
-    let uv_len = uv_w.saturating_mul(uv_h);
-    let u_off = y_plane_len;
-    let v_off = y_plane_len.saturating_add(uv_len);
+    let (uv_w, _uv_h, y_plane_len, u_plane_len, _v_plane_len) =
+        omv_plane_layout(width, video_height, theora_type, fmt);
+    let y_off = 0usize;
+    let u_off = y_off.saturating_add(y_plane_len);
+    let v_off = u_off.saturating_add(u_plane_len);
 
     let mut rgba = vec![0u8; w.saturating_mul(dh).saturating_mul(4)];
-    let alpha_offset = if vh > dh { Some(dh) } else { None };
 
-    for y in 0..dh {
-        let y_row = y * w;
-        let uv_y = match fmt {
-            siglus_omv_decoder::TH_PF_420 => (y / 2),
-            _ => y,
-        };
-        for x in 0..w {
-            let y_idx = y_row + x;
-            let yv = data.get(y_idx).copied().unwrap_or(0) as f32;
-
-            let uv_x = match fmt {
-                siglus_omv_decoder::TH_PF_420 | siglus_omv_decoder::TH_PF_422 => x / 2,
-                _ => x,
-            };
-            let u_idx = u_off
-                .saturating_add(uv_y.saturating_mul(uv_w))
-                .saturating_add(uv_x);
-            let v_idx = v_off
-                .saturating_add(uv_y.saturating_mul(uv_w))
-                .saturating_add(uv_x);
-            let u = data.get(u_idx).copied().unwrap_or(128) as f32 - 128.0;
-            let v = data.get(v_idx).copied().unwrap_or(128) as f32 - 128.0;
-
-            let r = clamp_f(yv + 1.402 * v);
-            let g = clamp_f(yv - 0.344136 * u - 0.714136 * v);
-            let b = clamp_f(yv + 1.772 * u);
-
-            let a = if let Some(off) = alpha_offset {
-                let ay = off.saturating_add(y);
-                if ay < vh {
-                    data.get(ay * w + x).copied().unwrap_or(0xFF)
-                } else {
-                    0xFF
+    match theora_type {
+        siglus_assets::omv::OMV_THEORA_TYPE_RGB => {
+            for y in 0..dh {
+                for x in 0..w {
+                    let b = get_plane_sample(data, y_off, w, x, y, 0);
+                    let g = get_plane_sample(data, u_off, uv_w, x, y, 0);
+                    let r = get_plane_sample(data, v_off, uv_w, x, y, 0);
+                    let out = (y * w + x) * 4;
+                    rgba[out] = r;
+                    rgba[out + 1] = g;
+                    rgba[out + 2] = b;
+                    rgba[out + 3] = 0xff;
                 }
-            } else {
-                0xFF
-            };
+            }
+        }
+        siglus_assets::omv::OMV_THEORA_TYPE_RGBA => {
+            let alpha_h = (dh + 2) / 3;
+            let alpha_h_2 = alpha_h * 2;
+            for y in 0..dh {
+                let (a_off, local_y, a_width) = if y < alpha_h {
+                    (y_off, y, w)
+                } else if y < alpha_h_2 {
+                    (u_off, y - alpha_h, uv_w)
+                } else {
+                    (v_off, y - alpha_h_2, uv_w)
+                };
+                let alpha_y = dh.saturating_add(local_y);
+                for x in 0..w {
+                    let b = get_plane_sample(data, y_off, w, x, y, 0);
+                    let g = get_plane_sample(data, u_off, uv_w, x, y, 0);
+                    let r = get_plane_sample(data, v_off, uv_w, x, y, 0);
+                    let a = get_plane_sample(data, a_off, a_width, x, alpha_y, 0xff);
+                    let out = (y * w + x) * 4;
+                    rgba[out] = r;
+                    rgba[out + 1] = g;
+                    rgba[out + 2] = b;
+                    rgba[out + 3] = a;
+                }
+            }
+        }
+        _ => {
+            for y in 0..dh {
+                let y_row = y * w;
+                let uv_y = match fmt {
+                    siglus_omv_decoder::TH_PF_420 => y / 2,
+                    _ => y,
+                };
+                for x in 0..w {
+                    let y_idx = y_row + x;
+                    let yv = data.get(y_idx).copied().unwrap_or(0) as f32;
 
-            let out = (y * w + x) * 4;
-            rgba[out] = r;
-            rgba[out + 1] = g;
-            rgba[out + 2] = b;
-            rgba[out + 3] = a;
+                    let uv_x = match fmt {
+                        siglus_omv_decoder::TH_PF_420 | siglus_omv_decoder::TH_PF_422 => x / 2,
+                        _ => x,
+                    };
+                    let u_idx = u_off
+                        .saturating_add(uv_y.saturating_mul(uv_w))
+                        .saturating_add(uv_x);
+                    let v_idx = v_off
+                        .saturating_add(uv_y.saturating_mul(uv_w))
+                        .saturating_add(uv_x);
+                    let u = data.get(u_idx).copied().unwrap_or(128) as f32 - 128.0;
+                    let v = data.get(v_idx).copied().unwrap_or(128) as f32 - 128.0;
+
+                    let r = clamp_f(yv + 1.40200 * v);
+                    let g = clamp_f(yv - 0.34414 * u - 0.71414 * v);
+                    let b = clamp_f(yv + 1.77200 * u);
+
+                    let out = (y * w + x) * 4;
+                    rgba[out] = r;
+                    rgba[out + 1] = g;
+                    rgba[out + 2] = b;
+                    rgba[out + 3] = 0xff;
+                }
+            }
         }
     }
 
     rgba
+}
+
+fn get_plane_sample(
+    data: &[u8],
+    plane_off: usize,
+    plane_width: usize,
+    x: usize,
+    y: usize,
+    default: u8,
+) -> u8 {
+    if plane_width == 0 {
+        return default;
+    }
+    data.get(
+        plane_off
+            .saturating_add(y.saturating_mul(plane_width))
+            .saturating_add(x),
+    )
+    .copied()
+    .unwrap_or(default)
 }
 
 fn clamp_f(v: f32) -> u8 {

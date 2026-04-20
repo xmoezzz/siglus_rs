@@ -474,173 +474,54 @@ impl CommandContext {
         let mx = self.input.mouse_x;
         let my = self.input.mouse_y;
 
-        // We only support stage-scoped object buttons (STAGE form).
         let form_id = self.ids.form_global_stage;
         let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
             return;
         };
 
+        let images = &mut self.images;
+        let layers = &self.layers;
+        let gfx = &self.gfx;
         let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
 
-        // Clear per-object hit flags.
-        for (_stage_idx, objs) in object_lists.iter_mut() {
-            for o in objs.iter_mut() {
-                if o.button.enabled {
-                    o.button.hit = false;
-                }
+        for objs in object_lists.values_mut() {
+            for obj in objs.iter_mut() {
+                clear_button_hit_recursive(obj);
             }
         }
 
-        // For each group, find the topmost hit object.
         for (stage_idx, groups) in group_lists.iter_mut() {
             for (group_idx, g) in groups.iter_mut().enumerate() {
-                let mut best: Option<(i64, i64, usize)> = None; // (button_no, draw_order, obj_idx)
-
                 let Some(objs) = object_lists.get_mut(stage_idx) else {
                     g.hit_button_no = -1;
                     continue;
                 };
 
-                for (obj_i, obj) in objs.iter_mut().enumerate() {
-                    if !obj.used || !obj.button.enabled || obj.button.is_disabled() {
-                        continue;
-                    }
-
-                    let Some(target_group) = obj.button.group_idx() else {
-                        continue;
-                    };
-                    if target_group != group_idx {
-                        continue;
-                    }
-
-                    // Visibility gate.
-                    let visible = match obj.backend {
-                        globals::ObjectBackend::Rect {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } => self
-                            .layers
-                            .layer(layer_id)
-                            .and_then(|l| l.sprite(sprite_id))
-                            .map(|spr| spr.visible)
-                            .unwrap_or(false),
-                        globals::ObjectBackend::Gfx => {
-                            self.gfx
-                                .object_peek_disp(*stage_idx, obj_i as i64)
-                                .unwrap_or(0)
-                                != 0
+                let mut best: Option<ButtonHitCandidate> = None;
+                for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                    if let Some(hit) = hit_test_object_button_recursive(
+                        images,
+                        layers,
+                        gfx,
+                        *stage_idx,
+                        group_idx,
+                        mx,
+                        my,
+                        obj_idx,
+                        obj,
+                    ) {
+                        match best {
+                            None => best = Some(hit),
+                            Some(prev) if hit.draw_order > prev.draw_order => best = Some(hit),
+                            _ => {}
                         }
-                        _ => false,
-                    };
-                    if !visible {
-                        continue;
-                    }
-
-                    // Bounding box + optional alpha test.
-                    let mut hit = false;
-                    match obj.backend {
-                        globals::ObjectBackend::Rect {
-                            layer_id,
-                            sprite_id,
-                            width,
-                            height,
-                        } => {
-                            if let Some(spr) = self
-                                .layers
-                                .layer(layer_id)
-                                .and_then(|l| l.sprite(sprite_id))
-                            {
-                                hit =
-                                    Self::hit_test_sprite_rect(spr.x, spr.y, width, height, mx, my);
-                                if hit && obj.button.alpha_test {
-                                    if let Some(img_id) = spr.image_id {
-                                        if let Some(img) =
-                                            self.images.get(img_id).map(|a| a.as_ref())
-                                        {
-                                            hit =
-                                                Self::alpha_test_image(img, mx - spr.x, my - spr.y);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        globals::ObjectBackend::Gfx => {
-                            let (x, y) = self
-                                .gfx
-                                .object_peek_pos(*stage_idx, obj_i as i64)
-                                .unwrap_or((0, 0));
-                            let patno = self
-                                .gfx
-                                .object_peek_patno(*stage_idx, obj_i as i64)
-                                .unwrap_or(0);
-                            if let Some(file_name) = obj.file_name.clone() {
-                                let file = file_name.as_str();
-                                if let Some(img_id) =
-                                    Self::load_any_image_for_hit(&mut self.images, file, patno)
-                                {
-                                    if let Some(img) = self.images.get(img_id).map(|a| a.as_ref()) {
-                                        hit = Self::hit_test_sprite_rect(
-                                            x as i32, y as i32, img.width, img.height, mx, my,
-                                        );
-                                        if hit && obj.button.alpha_test {
-                                            hit = Self::alpha_test_image(
-                                                img,
-                                                mx - x as i32,
-                                                my - y as i32,
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-
-                    if !hit {
-                        continue;
-                    }
-
-                    // Draw order (conservative): use sprite order if present, else layer/order.
-                    let draw_order = match obj.backend {
-                        globals::ObjectBackend::Rect {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } => self
-                            .layers
-                            .layer(layer_id)
-                            .and_then(|l| l.sprite(sprite_id))
-                            .map(|spr| spr.order as i64)
-                            .unwrap_or(0),
-                        globals::ObjectBackend::Gfx => {
-                            let layer_no = self
-                                .gfx
-                                .object_peek_layer(*stage_idx, obj_i as i64)
-                                .unwrap_or(0);
-                            let order = self
-                                .gfx
-                                .object_peek_order(*stage_idx, obj_i as i64)
-                                .unwrap_or(0);
-                            layer_no.saturating_mul(1000).saturating_add(order)
-                        }
-                        _ => 0,
-                    };
-
-                    let btn_no = obj.button.button_no;
-                    match best {
-                        None => best = Some((btn_no, draw_order, obj_i)),
-                        Some((_b, bo, _oi)) if draw_order > bo => {
-                            best = Some((btn_no, draw_order, obj_i))
-                        }
-                        _ => {}
                     }
                 }
 
-                if let Some((btn_no, _ord, obj_i)) = best {
-                    g.hit_button_no = btn_no;
-                    if obj_i < objs.len() {
-                        objs[obj_i].button.hit = true;
+                if let Some(hit) = best {
+                    g.hit_button_no = hit.button_no;
+                    for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                        set_button_hit_by_runtime_slot_recursive(obj_idx, obj, hit.runtime_slot);
                     }
                 } else {
                     g.hit_button_no = -1;
@@ -680,15 +561,10 @@ impl CommandContext {
                             self.globals.focused_stage_group = None;
                         }
 
-                        // Mark pushed on the owning object.
+                        // Mark pushed on every owning object, including nested CHILD objects.
                         if let Some(objs) = object_lists.get_mut(stage_idx) {
                             for obj in objs.iter_mut() {
-                                if obj.button.enabled
-                                    && obj.button.group_idx() == Some(group_idx)
-                                    && obj.button.button_no == hit
-                                {
-                                    obj.button.pushed = true;
-                                }
+                                set_button_pushed_recursive(obj, group_idx, hit);
                             }
                         }
                     }
@@ -723,11 +599,9 @@ impl CommandContext {
                     g.pushed_button_no = -1;
                 }
             }
-            for (_stage_idx, objs) in object_lists.iter_mut() {
-                for o in objs.iter_mut() {
-                    if o.button.enabled && !o.button.push_keep {
-                        o.button.pushed = false;
-                    }
+            for objs in object_lists.values_mut() {
+                for obj in objs.iter_mut() {
+                    clear_button_pushed_recursive(obj);
                 }
             }
         }
@@ -783,40 +657,7 @@ impl CommandContext {
 
         self.advance_message_wait(true);
         let wipe_skipped = self.wait.notify_key();
-        while let Some(info) = self.wait.take_movie_skip() {
-            let (globals, movie_mgr, layers) =
-                (&mut self.globals, &mut self.movie, &mut self.layers);
-            if let Some(st) = globals.stage_forms.get_mut(&info.stage_form_id) {
-                if let Some(list) = st.object_lists.get_mut(&info.stage_idx) {
-                    if info.obj_idx < list.len() {
-                        // key skip triggers C_elm_object::init_type(true).
-                        let (audio_id, backend) = {
-                            let obj = &mut list[info.obj_idx];
-                            let audio_id = obj.movie.audio_id.take();
-                            let backend = obj.backend.clone();
-                            obj.init_type_like();
-                            (audio_id, backend)
-                        };
-                        if let Some(id) = audio_id {
-                            movie_mgr.stop_audio(id);
-                        }
-                        if let globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } = backend
-                        {
-                            if let Some(layer) = layers.layer_mut(layer_id) {
-                                if let Some(sprite) = layer.sprite_mut(sprite_id) {
-                                    sprite.visible = false;
-                                    sprite.image_id = None;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        self.finish_skipped_movie_waits();
         if wipe_skipped {
             self.globals.finish_wipe();
         }
@@ -861,40 +702,7 @@ impl CommandContext {
         }
         self.advance_message_wait(true);
         let wipe_skipped = self.wait.notify_key();
-        while let Some(info) = self.wait.take_movie_skip() {
-            let (globals, movie_mgr, layers) =
-                (&mut self.globals, &mut self.movie, &mut self.layers);
-            if let Some(st) = globals.stage_forms.get_mut(&info.stage_form_id) {
-                if let Some(list) = st.object_lists.get_mut(&info.stage_idx) {
-                    if info.obj_idx < list.len() {
-                        // key skip triggers C_elm_object::init_type(true).
-                        let (audio_id, backend) = {
-                            let obj = &mut list[info.obj_idx];
-                            let audio_id = obj.movie.audio_id.take();
-                            let backend = obj.backend.clone();
-                            obj.init_type_like();
-                            (audio_id, backend)
-                        };
-                        if let Some(id) = audio_id {
-                            movie_mgr.stop_audio(id);
-                        }
-                        if let globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } = backend
-                        {
-                            if let Some(layer) = layers.layer_mut(layer_id) {
-                                if let Some(sprite) = layer.sprite_mut(sprite_id) {
-                                    sprite.visible = false;
-                                    sprite.image_id = None;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        self.finish_skipped_movie_waits();
         if wipe_skipped {
             self.globals.finish_wipe();
         }
@@ -932,42 +740,47 @@ impl CommandContext {
         self.input.on_mouse_wheel(delta_y);
         self.advance_message_wait(self.should_wheel_advance_message());
         let wipe_skipped = self.wait.notify_key();
+        self.finish_skipped_movie_waits();
+        if wipe_skipped {
+            self.globals.finish_wipe();
+        }
+    }
+
+
+    fn finish_skipped_movie_waits(&mut self) {
         while let Some(info) = self.wait.take_movie_skip() {
-            let (globals, movie_mgr, layers) =
-                (&mut self.globals, &mut self.movie, &mut self.layers);
-            if let Some(st) = globals.stage_forms.get_mut(&info.stage_form_id) {
-                if let Some(list) = st.object_lists.get_mut(&info.stage_idx) {
-                    if info.obj_idx < list.len() {
-                        // key skip triggers C_elm_object::init_type(true).
-                        let (audio_id, backend) = {
-                            let obj = &mut list[info.obj_idx];
-                            let audio_id = obj.movie.audio_id.take();
-                            let backend = obj.backend.clone();
-                            obj.init_type_like();
-                            (audio_id, backend)
-                        };
-                        if let Some(id) = audio_id {
-                            movie_mgr.stop_audio(id);
-                        }
-                        if let globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } = backend
-                        {
-                            if let Some(layer) = layers.layer_mut(layer_id) {
-                                if let Some(sprite) = layer.sprite_mut(sprite_id) {
-                                    sprite.visible = false;
-                                    sprite.image_id = None;
-                                }
-                            }
-                        }
+            let Some(st) = self.globals.stage_forms.get_mut(&info.stage_form_id) else {
+                continue;
+            };
+            let Some(list) = st.object_lists.get_mut(&info.stage_idx) else {
+                continue;
+            };
+            let Some(obj) = find_object_by_runtime_slot_mut(list, info.runtime_slot) else {
+                continue;
+            };
+
+            // Key skip triggers C_elm_object::init_type(true) on the actual object that owns
+            // the movie, including nested CHILD objects addressed by runtime slot.
+            let audio_id = obj.movie.audio_id.take();
+            let backend = obj.backend.clone();
+            obj.init_type_like();
+
+            if let Some(id) = audio_id {
+                self.movie.stop_audio(id);
+            }
+            if let globals::ObjectBackend::Movie {
+                layer_id,
+                sprite_id,
+                ..
+            } = backend
+            {
+                if let Some(layer) = self.layers.layer_mut(layer_id) {
+                    if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                        sprite.visible = false;
+                        sprite.image_id = None;
                     }
                 }
             }
-        }
-        if wipe_skipped {
-            self.globals.finish_wipe();
         }
     }
 
@@ -1847,7 +1660,7 @@ impl CommandContext {
             eprintln!("[SG_DEBUG] submitted_render_list len={}", list.len());
             for (i, rs) in list.iter().enumerate() {
                 eprintln!(
-                    "[SG_DEBUG]   render[{}] layer={:?} sprite={:?} img={:?} pos=({}, {}) order={} alpha={} tr={} fit={:?} size={:?} dst_clip={:?} src_clip={:?} scale=({:.3}, {:.3}) rot={:.3}",
+                    "[SG_DEBUG]   render[{}] layer={:?} sprite={:?} img={:?} pos=({}, {}) order={} alpha={} tr={} alpha_blend={} blend={:?} fit={:?} size={:?} dst_clip={:?} src_clip={:?} scale=({:.3}, {:.3}) rot={:.3}",
                     i,
                     rs.layer_id,
                     rs.sprite_id,
@@ -1857,6 +1670,8 @@ impl CommandContext {
                     rs.sprite.order,
                     rs.sprite.alpha,
                     rs.sprite.tr,
+                    rs.sprite.alpha_blend,
+                    rs.sprite.blend,
                     rs.sprite.fit,
                     rs.sprite.size_mode,
                     rs.sprite.dst_clip,
@@ -2103,6 +1918,7 @@ struct ObjectRenderInfo {
     fog_use: bool,
     light_no: i64,
     blend: crate::layer::SpriteBlend,
+    child_sort_type: i64,
     dst_clip: Option<ClipRect>,
     billboard: bool,
     file_name: Option<String>,
@@ -2148,6 +1964,233 @@ struct ParentRenderState {
 
 fn object_runtime_slot(obj_idx: usize, obj: &globals::ObjectState) -> usize {
     obj.runtime_slot_or(obj_idx)
+}
+
+
+#[derive(Debug, Clone, Copy)]
+struct ButtonHitCandidate {
+    button_no: i64,
+    draw_order: i64,
+    runtime_slot: usize,
+}
+
+fn clear_button_hit_recursive(obj: &mut globals::ObjectState) {
+    if obj.button.enabled {
+        obj.button.hit = false;
+    }
+    for child in &mut obj.runtime.child_objects {
+        clear_button_hit_recursive(child);
+    }
+}
+
+fn set_button_hit_by_runtime_slot_recursive(
+    obj_idx: usize,
+    obj: &mut globals::ObjectState,
+    runtime_slot: usize,
+) -> bool {
+    if object_runtime_slot(obj_idx, obj) == runtime_slot {
+        obj.button.hit = true;
+        return true;
+    }
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        if set_button_hit_by_runtime_slot_recursive(child_idx, child, runtime_slot) {
+            return true;
+        }
+    }
+    false
+}
+
+fn set_button_pushed_recursive(obj: &mut globals::ObjectState, group_idx: usize, button_no: i64) {
+    if obj.button.enabled
+        && obj.button.group_idx() == Some(group_idx)
+        && obj.button.button_no == button_no
+    {
+        obj.button.pushed = true;
+    }
+    for child in &mut obj.runtime.child_objects {
+        set_button_pushed_recursive(child, group_idx, button_no);
+    }
+}
+
+fn clear_button_pushed_recursive(obj: &mut globals::ObjectState) {
+    if obj.button.enabled && !obj.button.push_keep {
+        obj.button.pushed = false;
+    }
+    for child in &mut obj.runtime.child_objects {
+        clear_button_pushed_recursive(child);
+    }
+}
+
+fn hit_test_object_button_recursive(
+    images: &mut ImageManager,
+    layers: &LayerManager,
+    gfx: &graphics::GfxRuntime,
+    stage_idx: i64,
+    group_idx: usize,
+    mx: i32,
+    my: i32,
+    obj_idx: usize,
+    obj: &mut globals::ObjectState,
+) -> Option<ButtonHitCandidate> {
+    let runtime_slot = object_runtime_slot(obj_idx, obj);
+    let mut best = None;
+
+    if obj.used && obj.button.enabled && !obj.button.is_disabled() {
+        if obj.button.group_idx() == Some(group_idx) {
+            let visible = match &obj.backend {
+                globals::ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => layers
+                    .layer(*layer_id)
+                    .and_then(|l| l.sprite(*sprite_id))
+                    .map(|spr| spr.visible)
+                    .unwrap_or(false),
+                globals::ObjectBackend::Gfx => gfx
+                    .object_peek_disp(stage_idx, runtime_slot as i64)
+                    .unwrap_or(0)
+                    != 0,
+                _ => false,
+            };
+
+            if visible {
+                let mut hit = false;
+                match &obj.backend {
+                    globals::ObjectBackend::Rect {
+                        layer_id,
+                        sprite_id,
+                        width,
+                        height,
+                    } => {
+                        if let Some(spr) = layers.layer(*layer_id).and_then(|l| l.sprite(*sprite_id))
+                        {
+                            hit = CommandContext::hit_test_sprite_rect(
+                                spr.x, spr.y, *width, *height, mx, my,
+                            );
+                            if hit && obj.button.alpha_test {
+                                if let Some(img_id) = spr.image_id {
+                                    if let Some(img) = images.get(img_id).map(|a| a.as_ref()) {
+                                        hit = CommandContext::alpha_test_image(
+                                            img,
+                                            mx - spr.x,
+                                            my - spr.y,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    globals::ObjectBackend::Gfx => {
+                        let (x, y) = gfx
+                            .object_peek_pos(stage_idx, runtime_slot as i64)
+                            .unwrap_or((0, 0));
+                        let patno = gfx
+                            .object_peek_patno(stage_idx, runtime_slot as i64)
+                            .unwrap_or(0);
+                        if let Some(file_name) = obj.file_name.as_ref() {
+                            if let Some(img_id) = CommandContext::load_any_image_for_hit(
+                                images,
+                                file_name.as_str(),
+                                patno,
+                            ) {
+                                if let Some(img) = images.get(img_id).map(|a| a.as_ref()) {
+                                    hit = CommandContext::hit_test_sprite_rect(
+                                        x as i32,
+                                        y as i32,
+                                        img.width,
+                                        img.height,
+                                        mx,
+                                        my,
+                                    );
+                                    if hit && obj.button.alpha_test {
+                                        hit = CommandContext::alpha_test_image(
+                                            img,
+                                            mx - x as i32,
+                                            my - y as i32,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+
+                if hit {
+                    let draw_order = match &obj.backend {
+                        globals::ObjectBackend::Rect {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } => layers
+                            .layer(*layer_id)
+                            .and_then(|l| l.sprite(*sprite_id))
+                            .map(|spr| spr.order as i64)
+                            .unwrap_or(0),
+                        globals::ObjectBackend::Gfx => {
+                            let layer_no = gfx
+                                .object_peek_layer(stage_idx, runtime_slot as i64)
+                                .unwrap_or(0);
+                            let order = gfx
+                                .object_peek_order(stage_idx, runtime_slot as i64)
+                                .unwrap_or(0);
+                            layer_no.saturating_mul(1000).saturating_add(order)
+                        }
+                        _ => 0,
+                    };
+                    best = Some(ButtonHitCandidate {
+                        button_no: obj.button.button_no,
+                        draw_order,
+                        runtime_slot,
+                    });
+                }
+            }
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        if let Some(hit) = hit_test_object_button_recursive(
+            images,
+            layers,
+            gfx,
+            stage_idx,
+            group_idx,
+            mx,
+            my,
+            child_idx,
+            child,
+        ) {
+            match best {
+                None => best = Some(hit),
+                Some(prev) if hit.draw_order > prev.draw_order => best = Some(hit),
+                _ => {}
+            }
+        }
+    }
+
+    best
+}
+
+fn find_object_by_runtime_slot_mut(
+    mut objects: &mut [globals::ObjectState],
+    runtime_slot: usize,
+) -> Option<&mut globals::ObjectState> {
+    let mut idx = 0usize;
+    while let Some((obj, tail)) = objects.split_first_mut() {
+        if obj.runtime_slot_or(idx) == runtime_slot {
+            return Some(obj);
+        }
+        if let Some(found) = find_object_by_runtime_slot_mut(
+            &mut obj.runtime.child_objects,
+            runtime_slot,
+        ) {
+            return Some(found);
+        }
+        objects = tail;
+        idx += 1;
+    }
+    None
 }
 
 fn compose_parent_render_state(
@@ -2680,20 +2723,28 @@ fn sync_movie_object_recursive(
                 }
                 obj.movie.just_finished = false;
                 if obj.movie.auto_free_flag {
-                    if let globals::ObjectBackend::Movie {
-                        layer_id,
-                        sprite_id,
-                        ..
-                    } = obj.backend
-                    {
-                        if let Some(layer) = layers.layer_mut(layer_id) {
-                            if let Some(sprite) = layer.sprite_mut(sprite_id) {
-                                sprite.visible = false;
-                                sprite.image_id = None;
+                    // Original OMV objects are freed after the player has actually
+                    // reached EOS.  Keep the object alive if no decoded frame was ever
+                    // installed; otherwise metadata/timing mismatches can erase a movie
+                    // object immediately after CREATE_MOVIE.
+                    if obj.movie.last_frame_idx.is_some() {
+                        if let globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            ..
+                        } = obj.backend
+                        {
+                            if let Some(layer) = layers.layer_mut(layer_id) {
+                                if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                                    sprite.visible = false;
+                                    sprite.image_id = None;
+                                }
                             }
                         }
+                        obj.init_type_like();
+                    } else {
+                        obj.movie.playing = true;
                     }
-                    obj.init_type_like();
                 }
             } else if !obj.movie.playing {
                 if let Some(id) = obj.movie.audio_id.take() {
@@ -2891,49 +2942,50 @@ fn sync_movie_object_recursive(
                 }
                 if !asset.frames.is_empty() {
                     let fps = asset.info.fps.unwrap_or(0.0);
-                    if fps > 0.0 {
-                        let mut frame_idx =
-                            ((obj.movie.timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize;
-                        if obj.movie.loop_flag {
-                            frame_idx %= asset.frames.len();
-                        } else if frame_idx >= asset.frames.len() {
-                            frame_idx = asset.frames.len() - 1;
-                        }
-                        if obj.movie.last_frame_idx != Some(frame_idx) {
-                            obj.movie.last_frame_idx = Some(frame_idx);
-                            let frame = asset.frames[frame_idx].clone();
-                            if let globals::ObjectBackend::Movie {
-                                layer_id,
-                                sprite_id,
-                                image_id,
-                                width,
-                                height,
-                            } = &mut obj.backend
-                            {
-                                let img_id = match image_id {
-                                    Some(id) => {
-                                        let _ = images.replace_image_arc(*id, frame.clone());
-                                        *id
-                                    }
-                                    None => {
-                                        let id = images.insert_image_arc(frame.clone());
-                                        if let Some(layer) = layers.layer_mut(*layer_id) {
-                                            if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                                sprite.image_id = Some(id);
-                                            }
-                                        }
-                                        *image_id = Some(id);
-                                        id
-                                    }
-                                };
-                                if let Some(layer) = layers.layer_mut(*layer_id) {
-                                    if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                        sprite.image_id = Some(img_id);
-                                    }
+                    let mut frame_idx = if fps > 0.0 {
+                        ((obj.movie.timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize
+                    } else {
+                        0
+                    };
+                    if obj.movie.loop_flag {
+                        frame_idx %= asset.frames.len();
+                    } else if frame_idx >= asset.frames.len() {
+                        frame_idx = asset.frames.len() - 1;
+                    }
+                    if obj.movie.last_frame_idx != Some(frame_idx) {
+                        obj.movie.last_frame_idx = Some(frame_idx);
+                        let frame = asset.frames[frame_idx].clone();
+                        if let globals::ObjectBackend::Movie {
+                            layer_id,
+                            sprite_id,
+                            image_id,
+                            width,
+                            height,
+                        } = &mut obj.backend
+                        {
+                            let img_id = match image_id {
+                                Some(id) => {
+                                    let _ = images.replace_image_arc(*id, frame.clone());
+                                    *id
                                 }
-                                *width = frame.width;
-                                *height = frame.height;
+                                None => {
+                                    let id = images.insert_image_arc(frame.clone());
+                                    if let Some(layer) = layers.layer_mut(*layer_id) {
+                                        if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+                                            sprite.image_id = Some(id);
+                                        }
+                                    }
+                                    *image_id = Some(id);
+                                    id
+                                }
+                            };
+                            if let Some(layer) = layers.layer_mut(*layer_id) {
+                                if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+                                    sprite.image_id = Some(img_id);
+                                }
                             }
+                            *width = frame.width;
+                            *height = frame.height;
                         }
                     }
                 }
@@ -3253,45 +3305,51 @@ fn build_parent_render_state(
 
 fn apply_parent_render_state_to_sprite(
     sprite: &mut Sprite,
-    info: &ObjectRenderInfo,
+    _info: &ObjectRenderInfo,
     state: &ParentRenderState,
 ) {
-    let dx = (state.pos_x + state.center_rep_x) - (info.x as f32);
-    let dy = (state.pos_y + state.center_rep_y) - (info.y as f32);
-    let dz = (state.pos_z + state.center_rep_z) - (info.z as f32);
-    sprite.x = sprite.x.saturating_add(dx.round() as i32);
-    sprite.y = sprite.y.saturating_add(dy.round() as i32);
-    sprite.z += dz;
+    let local_x = sprite.x as f32;
+    let local_y = sprite.y as f32;
+    let local_z = sprite.z;
+
+    let mut rel_x = local_x - state.center_rep_x;
+    let mut rel_y = local_y - state.center_rep_y;
+    rel_x *= state.scale_x;
+    rel_y *= state.scale_y;
+    let (sin_z, cos_z) = state.rotate_z.sin_cos();
+    let rot_x = rel_x * cos_z - rel_y * sin_z;
+    let rot_y = rel_x * sin_z + rel_y * cos_z;
+
+    sprite.x = (state.pos_x + state.center_rep_x + rot_x).round() as i32;
+    sprite.y = (state.pos_y + state.center_rep_y + rot_y).round() as i32;
+    sprite.z = state.pos_z + state.center_rep_z + local_z * state.scale_z;
     sprite.pivot_x += state.center_rep_x;
     sprite.pivot_y += state.center_rep_y;
     sprite.pivot_z += state.center_rep_z;
 
-    let base_scale_x = (info.scale_x as f32 / 1000.0).abs().max(1e-6);
-    let base_scale_y = (info.scale_y as f32 / 1000.0).abs().max(1e-6);
-    let base_scale_z = (info.scale_z as f32 / 1000.0).abs().max(1e-6);
-    sprite.scale_x *= state.scale_x / base_scale_x;
-    sprite.scale_y *= state.scale_y / base_scale_y;
-    sprite.scale_z *= state.scale_z / base_scale_z;
+    sprite.scale_x *= state.scale_x;
+    sprite.scale_y *= state.scale_y;
+    sprite.scale_z *= state.scale_z;
+    sprite.rotate_x += state.rotate_x;
+    sprite.rotate_y += state.rotate_y;
+    sprite.rotate += state.rotate_z;
 
-    let base_rx = info.rotate_x as f32 * std::f32::consts::PI / 1800.0;
-    let base_ry = info.rotate_y as f32 * std::f32::consts::PI / 1800.0;
-    let base_rz = info.rotate_z as f32 * std::f32::consts::PI / 1800.0;
-    sprite.rotate_x += state.rotate_x - base_rx;
-    sprite.rotate_y += state.rotate_y - base_ry;
-    sprite.rotate += state.rotate_z - base_rz;
-
-    sprite.tr = state.tr.clamp(0, 255) as u8;
-    sprite.mono = state.mono.clamp(0, 255) as u8;
-    sprite.reverse = state.reverse.clamp(0, 255) as u8;
-    sprite.bright = state.bright.clamp(0, 255) as u8;
-    sprite.dark = state.dark.clamp(0, 255) as u8;
-    sprite.color_rate = state.color_rate.clamp(0, 255) as u8;
-    sprite.color_r = state.color_r.clamp(0, 255) as u8;
-    sprite.color_g = state.color_g.clamp(0, 255) as u8;
-    sprite.color_b = state.color_b.clamp(0, 255) as u8;
-    sprite.color_add_r = state.color_add_r.clamp(0, 255) as u8;
-    sprite.color_add_g = state.color_add_g.clamp(0, 255) as u8;
-    sprite.color_add_b = state.color_add_b.clamp(0, 255) as u8;
+    sprite.tr = ((sprite.tr as i32 * state.tr.clamp(0, 255)) / 255).clamp(0, 255) as u8;
+    sprite.mono = combine_lerp(sprite.mono, state.mono);
+    sprite.reverse = combine_lerp(sprite.reverse, state.reverse);
+    sprite.bright = combine_lerp(sprite.bright, state.bright);
+    sprite.dark = combine_lerp(sprite.dark, state.dark);
+    if (sprite.color_rate as i32) + state.color_rate > 0 {
+        let parent_rate = (state.color_rate * 255 * 255)
+            / (255 * 255 - (255 - sprite.color_rate as i32) * (255 - state.color_rate)).max(1);
+        sprite.color_r = blend_color(sprite.color_r, state.color_r, parent_rate);
+        sprite.color_g = blend_color(sprite.color_g, state.color_g, parent_rate);
+        sprite.color_b = blend_color(sprite.color_b, state.color_b, parent_rate);
+        sprite.color_rate = combine_lerp(sprite.color_rate, state.color_rate);
+    }
+    sprite.color_add_r = sprite.color_add_r.saturating_add(state.color_add_r.clamp(0, 255) as u8);
+    sprite.color_add_g = sprite.color_add_g.saturating_add(state.color_add_g.clamp(0, 255) as u8);
+    sprite.color_add_b = sprite.color_add_b.saturating_add(state.color_add_b.clamp(0, 255) as u8);
     sprite.blend = state.blend;
     sprite.dst_clip = state.dst_clip;
     if sprite.mask_image_id.is_none() {
@@ -3409,7 +3467,11 @@ fn fetch_bound_render_sprites(
     runtime_slot: usize,
     obj: &globals::ObjectState,
 ) -> Vec<RenderSprite> {
-    fetch_bound_render_sprites_impl(ctx, stage_idx, runtime_slot, obj, true)
+    // Object tree visibility is driven by C_elm_object::disp and parent visibility.
+    // The backing layer sprite visible bit is only a cached render backend state and
+    // can be stale for object-owned sprites. Fetch the sprite payload unconditionally;
+    // append_object_tree_sprites() applies the original object visibility gate.
+    fetch_bound_render_sprites_impl(ctx, stage_idx, runtime_slot, obj, false)
 }
 
 fn fetch_bound_render_sprites_any(
@@ -3605,6 +3667,7 @@ fn effective_object_info(
         fog_use: extra(ids.obj_fog_use, 0) != 0,
         light_no: extra(ids.obj_light_no, -1),
         blend: crate::layer::SpriteBlend::from_i64(extra(ids.obj_blend, 0)),
+        child_sort_type: obj.base.child_sort_type,
         dst_clip,
         billboard: obj.object_type == 7,
         file_name: obj.file_name.clone(),
@@ -3822,7 +3885,7 @@ fn append_object_tree_sprites(
         globals::ObjectBackend::None => None,
     };
     debug_lines.push(format!(
-        "[SG_DEBUG]     obj[{obj_idx}] slot={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) order={} layer={} alpha={} tr={} z={} bind={:?}",
+        "[SG_DEBUG]     obj[{obj_idx}] slot={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) order={} layer={} alpha={} tr={} z={} child_sort={} bind={:?}",
         info.runtime_slot,
         obj.used,
         obj.object_type,
@@ -3836,6 +3899,7 @@ fn append_object_tree_sprites(
         info.alpha,
         info.tr,
         info.z,
+        info.child_sort_type,
         bind_dbg,
     ));
 
@@ -3877,11 +3941,6 @@ fn append_object_tree_sprites(
                     .saturating_mul(1024)
                     .saturating_add(total_layer.clamp(-1023, 1023))
                     as i32;
-                rs.sprite.alpha =
-                    ((rs.sprite.alpha as i64).saturating_mul(info.alpha.clamp(0, 255)) / 255)
-                        .clamp(0, 255) as u8;
-                rs.sprite.tr = ((rs.sprite.tr as i64).saturating_mul(info.tr.clamp(0, 255)) / 255)
-                    .clamp(0, 255) as u8;
                 configure_sprite_3d(&mut rs.sprite, &info, worlds, ctx.screen_w, ctx.screen_h);
                 if let Some(parent) = parent_state {
                     apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &parent);
@@ -3908,14 +3967,61 @@ fn append_object_tree_sprites(
             children.push((child_idx, child));
         }
     }
-    children.sort_by_key(|(child_idx, child)| {
-        let ci = effective_object_info(ctx, stage_idx, *child_idx, child);
-        (
-            parent_order.saturating_add(ci.order),
-            parent_layer.saturating_add(ci.layer),
-            *child_idx as i64,
-        )
-    });
+    match info.child_sort_type {
+        0 => {
+            children.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                (l.order, l.layer).cmp(&(r.order, r.layer))
+            });
+        }
+        2 => {
+            children.sort_by(|(_, lhs), (_, rhs)| lhs.file_name.cmp(&rhs.file_name));
+        }
+        3 => {
+            children.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                l.x.cmp(&r.x)
+            });
+        }
+        4 => {
+            children.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                r.x.cmp(&l.x)
+            });
+        }
+        5 => {
+            children.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                l.y.cmp(&r.y)
+            });
+        }
+        6 => {
+            children.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                r.y.cmp(&l.y)
+            });
+        }
+        7 => {
+            children.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                l.z.cmp(&r.z)
+            });
+        }
+        8 => {
+            children.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                r.z.cmp(&l.z)
+            });
+        }
+        _ => {}
+    }
     let recurse_children = if matches!(obj.object_type, 3 | 4 | 5) {
         // STRING / NUMBER / WEATHER keep traversing their child object list even though
         // their own sprite emission is handled separately via sprite_list.
@@ -4017,10 +4123,6 @@ fn append_weather_sprites(
             .clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024)
             .saturating_mul(1024)
             .saturating_add(total_layer.clamp(-1023, 1023)) as i32;
-        rs.sprite.alpha = ((rs.sprite.alpha as i64).saturating_mul(info.alpha.clamp(0, 255)) / 255)
-            .clamp(0, 255) as u8;
-        rs.sprite.tr =
-            ((rs.sprite.tr as i64).saturating_mul(info.tr.clamp(0, 255)) / 255).clamp(0, 255) as u8;
         if wp.active_time > 0 {
             let life = (frame + phase * wp.active_time as f32).rem_euclid(wp.active_time as f32)
                 / wp.active_time as f32;
@@ -4127,9 +4229,10 @@ fn build_siglus_object_render_list(
                 .enumerate()
                 .filter(|(_, o)| object_participates_in_tree(o))
                 .collect();
-            top.sort_by_key(|(obj_idx, obj)| {
-                let info = effective_object_info(ctx, stage_idx, *obj_idx, obj);
-                (info.order, info.layer, *obj_idx as i64)
+            top.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                (l.order, l.layer).cmp(&(r.order, r.layer))
             });
             for (obj_idx, obj) in top {
                 append_object_tree_sprites(
@@ -4162,13 +4265,6 @@ fn build_siglus_object_render_list(
 
     let mut final_list = Vec::with_capacity(bg.len() + object_list.len() + rest.len());
     final_list.extend(bg);
-    object_list.sort_by_key(|rs| {
-        (
-            rs.sprite.order,
-            rs.layer_id.unwrap_or_default() as i32,
-            rs.sprite_id.unwrap_or_default() as i32,
-        )
-    });
     final_list.extend(object_list);
     final_list.extend(rest);
     (final_list, debug)
@@ -4253,84 +4349,12 @@ pub fn dispatch(ctx: &mut CommandContext, cmd: &Command) -> Result<()> {
 }
 
 fn apply_button_visuals(ctx: &CommandContext, sprites: &mut [RenderSprite]) {
-    use globals::ObjectBackend;
-    const TNM_BTN_STATE_NORMAL: i64 = 0;
-    const TNM_BTN_STATE_HIT: i64 = 1;
-    const TNM_BTN_STATE_PUSH: i64 = 2;
-    const TNM_BTN_STATE_SELECT: i64 = 3;
-    const TNM_BTN_STATE_DISABLE: i64 = 4;
-
     let mut map: HashMap<(LayerId, SpriteId), i64> = HashMap::new();
 
     for st in ctx.globals.stage_forms.values() {
         for (stage_idx, objs) in &st.object_lists {
             for (obj_idx, obj) in objs.iter().enumerate() {
-                if !obj.button.enabled && obj.button.state != TNM_BTN_STATE_DISABLE {
-                    continue;
-                }
-                let mut state = obj.button.state;
-
-                if obj.button.is_disabled() {
-                    state = TNM_BTN_STATE_DISABLE;
-                } else if state != TNM_BTN_STATE_SELECT && state != TNM_BTN_STATE_DISABLE {
-                    if let Some(gidx) = obj.button.group_idx() {
-                        if let Some(groups) = st.group_lists.get(stage_idx) {
-                            if let Some(gl) = groups.get(gidx) {
-                                if gl.decided_button_no == obj.button.button_no {
-                                    state = TNM_BTN_STATE_PUSH;
-                                } else if gl.pushed_button_no == obj.button.button_no {
-                                    state = TNM_BTN_STATE_PUSH;
-                                } else if gl.hit_button_no == obj.button.button_no {
-                                    state = TNM_BTN_STATE_HIT;
-                                }
-                            }
-                        }
-                    } else if obj.button.pushed {
-                        state = TNM_BTN_STATE_PUSH;
-                    } else if obj.button.hit {
-                        state = TNM_BTN_STATE_HIT;
-                    }
-                }
-
-                match &obj.backend {
-                    ObjectBackend::Gfx => {
-                        if let Some((lid, sid)) =
-                            ctx.gfx.object_sprite_binding(*stage_idx, obj_idx as i64)
-                        {
-                            map.insert((lid, sid), state);
-                        }
-                    }
-                    ObjectBackend::Rect {
-                        layer_id,
-                        sprite_id,
-                        ..
-                    } => {
-                        map.insert((*layer_id, *sprite_id), state);
-                    }
-                    ObjectBackend::String {
-                        layer_id,
-                        sprite_id,
-                        ..
-                    } => {
-                        map.insert((*layer_id, *sprite_id), state);
-                    }
-                    ObjectBackend::Movie {
-                        layer_id,
-                        sprite_id,
-                        ..
-                    } => {
-                        map.insert((*layer_id, *sprite_id), state);
-                    }
-                    ObjectBackend::Number {
-                        layer_id,
-                        sprite_ids,
-                    } => {
-                        for sid in sprite_ids {
-                            map.insert((*layer_id, *sid), state);
-                        }
-                    }
-                    ObjectBackend::None => {}
-                }
+                collect_button_visuals_recursive(ctx, st, *stage_idx, obj_idx, obj, &mut map);
             }
         }
     }
@@ -4347,6 +4371,92 @@ fn apply_button_visuals(ctx: &CommandContext, sprites: &mut [RenderSprite]) {
             continue;
         };
         apply_button_state_visual(&mut rs.sprite, state);
+    }
+}
+
+fn collect_button_visuals_recursive(
+    ctx: &CommandContext,
+    st: &globals::StageFormState,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    map: &mut HashMap<(LayerId, SpriteId), i64>,
+) {
+    use globals::ObjectBackend;
+    const TNM_BTN_STATE_HIT: i64 = 1;
+    const TNM_BTN_STATE_PUSH: i64 = 2;
+    const TNM_BTN_STATE_SELECT: i64 = 3;
+    const TNM_BTN_STATE_DISABLE: i64 = 4;
+
+    if obj.button.enabled || obj.button.state == TNM_BTN_STATE_DISABLE {
+        let mut state = obj.button.state;
+
+        if obj.button.is_disabled() {
+            state = TNM_BTN_STATE_DISABLE;
+        } else if state != TNM_BTN_STATE_SELECT && state != TNM_BTN_STATE_DISABLE {
+            if let Some(gidx) = obj.button.group_idx() {
+                if let Some(groups) = st.group_lists.get(&stage_idx) {
+                    if let Some(gl) = groups.get(gidx) {
+                        if gl.decided_button_no == obj.button.button_no {
+                            state = TNM_BTN_STATE_PUSH;
+                        } else if gl.pushed_button_no == obj.button.button_no {
+                            state = TNM_BTN_STATE_PUSH;
+                        } else if gl.hit_button_no == obj.button.button_no {
+                            state = TNM_BTN_STATE_HIT;
+                        }
+                    }
+                }
+            } else if obj.button.pushed {
+                state = TNM_BTN_STATE_PUSH;
+            } else if obj.button.hit {
+                state = TNM_BTN_STATE_HIT;
+            }
+        }
+
+        let runtime_slot = object_runtime_slot(obj_idx, obj);
+        match &obj.backend {
+            ObjectBackend::Gfx => {
+                if let Some((lid, sid)) =
+                    ctx.gfx.object_sprite_binding(stage_idx, runtime_slot as i64)
+                {
+                    map.insert((lid, sid), state);
+                }
+            }
+            ObjectBackend::Rect {
+                layer_id,
+                sprite_id,
+                ..
+            } => {
+                map.insert((*layer_id, *sprite_id), state);
+            }
+            ObjectBackend::String {
+                layer_id,
+                sprite_id,
+                ..
+            } => {
+                map.insert((*layer_id, *sprite_id), state);
+            }
+            ObjectBackend::Movie {
+                layer_id,
+                sprite_id,
+                ..
+            } => {
+                map.insert((*layer_id, *sprite_id), state);
+            }
+            ObjectBackend::Number {
+                layer_id,
+                sprite_ids,
+            } => {
+                for sid in sprite_ids {
+                    map.insert((*layer_id, *sid), state);
+                }
+            }
+            ObjectBackend::None => {}
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+        collect_button_visuals_recursive(ctx, st, stage_idx, child_idx, child, map);
     }
 }
 

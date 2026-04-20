@@ -133,6 +133,7 @@ struct HudTextureCacheEntry {
     handle: TextureHandle,
     width: u32,
     height: u32,
+    debug_hash: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -386,6 +387,21 @@ impl App {
         rows
     }
 
+    fn hud_object_participates_in_tree(
+        obj: &siglus_scene_vm::runtime::globals::ObjectState,
+    ) -> bool {
+        if obj.used {
+            return true;
+        }
+        if !obj.runtime.child_objects.is_empty() {
+            return true;
+        }
+        !matches!(
+            obj.backend,
+            siglus_scene_vm::runtime::globals::ObjectBackend::None
+        )
+    }
+
     fn collect_hud_tile_metadata_from_stage_forms(
         vm: &SceneVm<'static>,
         rows: &mut Vec<HudGalleryTile>,
@@ -410,136 +426,180 @@ impl App {
                     continue;
                 };
                 for (obj_idx, obj) in objs.iter().enumerate() {
-                    if !obj.used {
-                        continue;
-                    }
-                    let key = (stage_idx, obj_idx);
-                    if !seen.insert(key) {
-                        continue;
-                    }
+                    Self::collect_hud_tile_metadata_from_object_tree(
+                        vm,
+                        rows,
+                        seen,
+                        stage_form_id,
+                        stage_idx,
+                        obj_idx,
+                        obj,
+                    );
+                }
+            }
+        }
+    }
 
-                    let mut disp = obj.base.disp != 0;
-                    let mut tr = obj.base.tr;
-                    let mut alpha = obj.base.alpha;
-                    let mut runtime_image_id = None;
-                    let mut patno = 0i64;
-                    let mut width = 0u32;
-                    let mut height = 0u32;
+    fn collect_hud_tile_metadata_from_object_tree(
+        vm: &SceneVm<'static>,
+        rows: &mut Vec<HudGalleryTile>,
+        seen: &mut HashSet<(i64, usize)>,
+        stage_form_id: u32,
+        stage_idx: i64,
+        obj_idx: usize,
+        obj: &siglus_scene_vm::runtime::globals::ObjectState,
+    ) {
+        if !Self::hud_object_participates_in_tree(obj) {
+            return;
+        }
 
-                    let bind = match &obj.backend {
-                        siglus_scene_vm::runtime::globals::ObjectBackend::Gfx => {
-                            if let Some(v) = vm.ctx.gfx.object_peek_disp(stage_idx, obj_idx as i64)
-                            {
-                                disp = v != 0;
-                            }
-                            if let Some(v) = vm.ctx.gfx.object_peek_alpha(stage_idx, obj_idx as i64)
-                            {
-                                alpha = v;
-                            }
-                            if let Some(v) = vm.ctx.gfx.object_peek_patno(stage_idx, obj_idx as i64)
-                            {
-                                patno = v;
-                            }
-                            match vm.ctx.gfx.object_sprite_binding(stage_idx, obj_idx as i64) {
-                                Some((lid, sid)) => {
-                                    if let Some(layer) = vm.ctx.layers.layer(lid) {
-                                        if let Some(sprite) = layer.sprite(sid) {
-                                            tr = sprite.tr as i64;
-                                            alpha = sprite.alpha as i64;
-                                            disp = sprite.visible;
-                                            runtime_image_id = sprite.image_id;
-                                        }
-                                    }
-                                    format!("L{}:S{}", lid, sid)
-                                }
-                                None => "-".to_string(),
-                            }
-                        }
-                        siglus_scene_vm::runtime::globals::ObjectBackend::Rect {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        }
-                        | siglus_scene_vm::runtime::globals::ObjectBackend::String {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        }
-                        | siglus_scene_vm::runtime::globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } => {
-                            if let Some(layer) = vm.ctx.layers.layer(*layer_id) {
-                                if let Some(sprite) = layer.sprite(*sprite_id) {
-                                    disp = sprite.visible;
+        let runtime_slot = obj.runtime_slot_or(obj_idx);
+        let key = (stage_idx, runtime_slot);
+        if seen.insert(key) {
+            let mut disp = obj.base.disp != 0;
+            let mut tr = obj.base.tr;
+            let mut alpha = obj.base.alpha;
+            let mut runtime_image_id = None;
+            let mut patno = obj.base.patno;
+            let mut width = 0u32;
+            let mut height = 0u32;
+
+            let bind = match &obj.backend {
+                siglus_scene_vm::runtime::globals::ObjectBackend::Gfx => {
+                    if let Some(v) = vm
+                        .ctx
+                        .gfx
+                        .object_peek_disp(stage_idx, runtime_slot as i64)
+                    {
+                        disp = v != 0;
+                    }
+                    if let Some(v) = vm
+                        .ctx
+                        .gfx
+                        .object_peek_alpha(stage_idx, runtime_slot as i64)
+                    {
+                        alpha = v;
+                    }
+                    if let Some(v) = vm
+                        .ctx
+                        .gfx
+                        .object_peek_patno(stage_idx, runtime_slot as i64)
+                    {
+                        patno = v;
+                    }
+                    match vm
+                        .ctx
+                        .gfx
+                        .object_sprite_binding(stage_idx, runtime_slot as i64)
+                    {
+                        Some((lid, sid)) => {
+                            if let Some(layer) = vm.ctx.layers.layer(lid) {
+                                if let Some(sprite) = layer.sprite(sid) {
+                                    // HUD must show the actual bound image. Visibility belongs to the object tree,
+                                    // not to a stale layer flag, so keep `disp` from object/gfx state here.
                                     tr = sprite.tr as i64;
                                     alpha = sprite.alpha as i64;
                                     runtime_image_id = sprite.image_id;
                                 }
                             }
-                            format!("L{}:S{}", layer_id, sprite_id)
+                            format!("L{}:S{}", lid, sid)
                         }
-                        siglus_scene_vm::runtime::globals::ObjectBackend::Number {
-                            layer_id,
-                            sprite_ids,
-                        } => {
-                            if let Some(&sid) = sprite_ids.first() {
-                                if let Some(layer) = vm.ctx.layers.layer(*layer_id) {
-                                    if let Some(sprite) = layer.sprite(sid) {
-                                        disp = sprite.visible;
-                                        tr = sprite.tr as i64;
-                                        alpha = sprite.alpha as i64;
-                                        runtime_image_id = sprite.image_id;
-                                    }
-                                }
-                                format!("L{}:S{}", layer_id, sid)
-                            } else {
-                                "-".to_string()
+                        None => "-".to_string(),
+                    }
+                }
+                siglus_scene_vm::runtime::globals::ObjectBackend::Rect {
+                    layer_id,
+                    sprite_id,
+                    ..
+                }
+                | siglus_scene_vm::runtime::globals::ObjectBackend::String {
+                    layer_id,
+                    sprite_id,
+                    ..
+                }
+                | siglus_scene_vm::runtime::globals::ObjectBackend::Movie {
+                    layer_id,
+                    sprite_id,
+                    ..
+                } => {
+                    if let Some(layer) = vm.ctx.layers.layer(*layer_id) {
+                        if let Some(sprite) = layer.sprite(*sprite_id) {
+                            tr = sprite.tr as i64;
+                            alpha = sprite.alpha as i64;
+                            runtime_image_id = sprite.image_id;
+                        }
+                    }
+                    format!("L{}:S{}", layer_id, sprite_id)
+                }
+                siglus_scene_vm::runtime::globals::ObjectBackend::Number {
+                    layer_id,
+                    sprite_ids,
+                } => {
+                    if let Some(&sid) = sprite_ids.first() {
+                        if let Some(layer) = vm.ctx.layers.layer(*layer_id) {
+                            if let Some(sprite) = layer.sprite(sid) {
+                                tr = sprite.tr as i64;
+                                alpha = sprite.alpha as i64;
+                                runtime_image_id = sprite.image_id;
                             }
                         }
-                        siglus_scene_vm::runtime::globals::ObjectBackend::None => "-".to_string(),
-                    };
-
-                    let backend = match &obj.backend {
-                        siglus_scene_vm::runtime::globals::ObjectBackend::None => "None",
-                        siglus_scene_vm::runtime::globals::ObjectBackend::Gfx => "Gfx",
-                        siglus_scene_vm::runtime::globals::ObjectBackend::Rect { .. } => "Rect",
-                        siglus_scene_vm::runtime::globals::ObjectBackend::String { .. } => "String",
-                        siglus_scene_vm::runtime::globals::ObjectBackend::Number { .. } => "Number",
-                        siglus_scene_vm::runtime::globals::ObjectBackend::Movie { .. } => "Movie",
+                        format!("L{}:S{}", layer_id, sid)
+                    } else {
+                        "-".to_string()
                     }
-                    .to_string();
-
-                    let file = obj.file_name.clone().unwrap_or_else(|| "-".to_string());
-                    let mut tile = HudGalleryTile {
-                        stage_idx,
-                        stage_label: Self::hud_stage_name(stage_idx).to_string(),
-                        obj_idx,
-                        file: file.clone(),
-                        backend,
-                        disp,
-                        tr,
-                        alpha,
-                        bind,
-                        patno,
-                        runtime_image_id,
-                        image_id: runtime_image_id,
-                        width,
-                        height,
-                        source_label: file,
-                        source_kind: if runtime_image_id.is_some() {
-                            "runtime-bind".to_string()
-                        } else {
-                            format!("stage-form-{}", stage_form_id)
-                        },
-                    };
-                    if let Some(image_id) = tile.runtime_image_id {
-                        Self::hud_populate_image_info(vm, image_id, &mut tile);
-                    }
-                    rows.push(tile);
                 }
+                siglus_scene_vm::runtime::globals::ObjectBackend::None => "-".to_string(),
+            };
+
+            let backend = match &obj.backend {
+                siglus_scene_vm::runtime::globals::ObjectBackend::None => "None",
+                siglus_scene_vm::runtime::globals::ObjectBackend::Gfx => "Gfx",
+                siglus_scene_vm::runtime::globals::ObjectBackend::Rect { .. } => "Rect",
+                siglus_scene_vm::runtime::globals::ObjectBackend::String { .. } => "String",
+                siglus_scene_vm::runtime::globals::ObjectBackend::Number { .. } => "Number",
+                siglus_scene_vm::runtime::globals::ObjectBackend::Movie { .. } => "Movie",
             }
+            .to_string();
+
+            let file = obj.file_name.clone().unwrap_or_else(|| "-".to_string());
+            let mut tile = HudGalleryTile {
+                stage_idx,
+                stage_label: Self::hud_stage_name(stage_idx).to_string(),
+                obj_idx: runtime_slot,
+                file: file.clone(),
+                backend,
+                disp,
+                tr,
+                alpha,
+                bind,
+                patno,
+                runtime_image_id,
+                image_id: runtime_image_id,
+                width,
+                height,
+                source_label: file,
+                source_kind: if runtime_image_id.is_some() {
+                    "runtime-bind".to_string()
+                } else {
+                    format!("stage-form-{}", stage_form_id)
+                },
+            };
+            if let Some(image_id) = tile.runtime_image_id {
+                Self::hud_populate_image_info(vm, image_id, &mut tile);
+            }
+            rows.push(tile);
+        }
+
+        for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+            Self::collect_hud_tile_metadata_from_object_tree(
+                vm,
+                rows,
+                seen,
+                stage_form_id,
+                stage_idx,
+                child_idx,
+                child,
+            );
         }
     }
 
@@ -657,8 +717,11 @@ impl App {
     fn resolve_hud_tile_image(vm: &mut SceneVm<'static>, tile: &mut HudGalleryTile) {
         tile.image_id = tile.runtime_image_id;
         if let Some(image_id) = tile.runtime_image_id {
+            // For runtime-bound objects, the HUD must show the exact image submitted by the engine.
+            // Do not replace it with file/patno 0 preview data.
             Self::hud_populate_image_info(vm, image_id, tile);
             tile.source_kind = "runtime-bind".to_string();
+            return;
         }
 
         if tile.file.is_empty() || tile.file == "-" || tile.file.starts_with('<') {
@@ -697,6 +760,47 @@ impl App {
         }
     }
 
+    fn hud_debug_rgb_preview(rgba: &[u8], width: u32, height: u32) -> (ColorImage, u64) {
+        let pixel_count = width as usize * height as usize;
+        let mut out = Vec::with_capacity(pixel_count.saturating_mul(4));
+        let mut hash = 0xcbf29ce484222325u64;
+        for (i, px) in rgba.chunks_exact(4).take(pixel_count).enumerate() {
+            // HUD preview must expose decoded image contents, not normal game alpha semantics.
+            // Force raw RGB opaque so fully transparent or incorrectly-alpha-decoded images are still visible.
+            let r = px[0];
+            let g = px[1];
+            let b = px[2];
+            let a = px[3];
+            hash ^= ((r as u64) << 24)
+                ^ ((g as u64) << 16)
+                ^ ((b as u64) << 8)
+                ^ (a as u64)
+                ^ (i as u64);
+            hash = hash.wrapping_mul(0x100000001b3);
+            out.extend_from_slice(&[r, g, b, 255]);
+        }
+        (
+            ColorImage::from_rgba_unmultiplied([width as usize, height as usize], out.as_slice()),
+            hash,
+        )
+    }
+
+    fn hud_alpha_summary(vm: &SceneVm<'static>, image_id: ImageId) -> Option<(u8, u8, usize)> {
+        let (img, _) = vm.ctx.images.get_entry(image_id)?;
+        let mut min_a = u8::MAX;
+        let mut max_a = 0u8;
+        let mut nonzero = 0usize;
+        for px in img.rgba.chunks_exact(4) {
+            let a = px[3];
+            min_a = min_a.min(a);
+            max_a = max_a.max(a);
+            if a != 0 {
+                nonzero += 1;
+            }
+        }
+        Some((min_a, max_a, nonzero))
+    }
+
     fn sync_hud_texture(
         gui: &mut HudGui,
         vm: &SceneVm<'static>,
@@ -704,21 +808,23 @@ impl App {
     ) -> Option<egui::TextureId> {
         let image_id = tile.image_id?;
         let (img, version) = vm.ctx.images.get_entry(image_id)?;
-        let color = ColorImage::from_rgba_unmultiplied(
-            [img.width as usize, img.height as usize],
-            img.rgba.as_slice(),
-        );
+        let (color, debug_hash) = Self::hud_debug_rgb_preview(img.rgba.as_slice(), img.width, img.height);
         if let Some(entry) = gui.texture_cache.get_mut(&image_id) {
-            if entry.version != version || entry.width != img.width || entry.height != img.height {
+            if entry.version != version
+                || entry.width != img.width
+                || entry.height != img.height
+                || entry.debug_hash != debug_hash
+            {
                 entry.handle.set(color, TextureOptions::LINEAR);
                 entry.version = version;
                 entry.width = img.width;
                 entry.height = img.height;
+                entry.debug_hash = debug_hash;
             }
             return Some(entry.handle.id());
         }
         let handle = gui.ctx.load_texture(
-            format!("siglus-hud-image-{}", image_id.0),
+            format!("siglus-hud-debug-rgb-image-{}", image_id.0),
             color,
             TextureOptions::LINEAR,
         );
@@ -730,6 +836,7 @@ impl App {
                 handle,
                 width: img.width,
                 height: img.height,
+                debug_hash,
             },
         );
         Some(id)
@@ -862,12 +969,25 @@ impl App {
                                             tile.alpha,
                                             tile.tr,
                                         ));
+                                        let alpha_text = tile
+                                            .image_id
+                                            .and_then(|image_id| {
+                                                self.vm
+                                                    .as_ref()
+                                                    .and_then(|vm| Self::hud_alpha_summary(vm, image_id))
+                                            })
+                                            .map(|(min_a, max_a, nonzero)| {
+                                                format!(" alpha={}..{} nz={}", min_a, max_a, nonzero)
+                                            })
+                                            .unwrap_or_default();
                                         ui.small(format!(
-                                            "source={} size={}x{}",
+                                            "source={} size={}x{}{}",
                                             tile.source_kind,
                                             tile.width,
                                             tile.height,
+                                            alpha_text,
                                         ));
+                                        ui.small("preview=raw RGB forced opaque");
 
                                         let (rect, _) = ui.allocate_exact_size(
                                             egui::vec2(thumb_w, thumb_h),
@@ -1488,14 +1608,14 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if is_hud {
                     if let Some(renderer) = self.hud_renderer.as_mut() {
-                        renderer.resize(size.width, size.height);
+                        renderer.resize_with_scale(size.width, size.height, self.hud_window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0));
                     }
                     if let Some(w) = self.hud_window.as_ref() {
                         w.request_redraw();
                     }
                 } else {
                     if let Some(renderer) = self.renderer.as_mut() {
-                        renderer.resize(size.width, size.height);
+                        renderer.resize_with_scale(size.width, size.height, self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0));
                     }
                     if let Some(w) = self.window.as_ref() {
                         w.request_redraw();

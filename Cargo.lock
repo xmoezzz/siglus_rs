@@ -2661,6 +2661,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "siglus_gameexe_ini"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "siglus_assets",
+]
+
+[[package]]
 name = "siglus_omv_decoder"
 version = "0.1.0"
 dependencies = [
@@ -2693,6 +2701,14 @@ dependencies = [
  "ureq",
  "wgpu 0.20.1",
  "winit 0.30.12",
+]
+
+[[package]]
+name = "siglus_ss_decompiler"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "siglus_assets",
 ]
 
 [[package]]

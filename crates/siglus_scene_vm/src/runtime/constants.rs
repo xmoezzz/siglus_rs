@@ -90,90 +90,91 @@ pub mod elm {
 }
 
 pub mod fm {
-    pub const ALLEVENT: i32 = 17;
-    pub const BGM: i32 = 1400;
-    pub const BGMLIST: i32 = 1401;
-    pub const BTNSELITEM: i32 = 1340;
-    pub const BTNSELITEMLIST: i32 = 1341;
-    pub const CALL: i32 = 1020;
-    pub const CALLLIST: i32 = 1021;
-    pub const CGTABLE: i32 = 1120;
-    pub const COUNTER: i32 = 1200;
-    pub const COUNTERLIST: i32 = 1201;
-    pub const DATABASE: i32 = 1130;
-    pub const DATABASELIST: i32 = 1131;
-    pub const EDITBOX: i32 = 1370;
-    pub const EDITBOXLIST: i32 = 1371;
-    pub const EFFECT: i32 = 1380;
-    pub const EFFECTLIST: i32 = 1381;
-    pub const EXCALL: i32 = 1700;
-    pub const FILE: i32 = 1110;
-    pub const FRAMEACTION: i32 = 1210;
-    pub const FRAMEACTIONLIST: i32 = 1211;
-    pub const G00BUF: i32 = 1140;
-    pub const G00BUFLIST: i32 = 1141;
-    pub const GLOBAL: i32 = 1000;
-    pub const GLOBALLIST: i32 = 1001;
-    pub const GROUP: i32 = 1330;
-    pub const GROUPLIST: i32 = 1331;
-    pub const INPUT: i32 = 1520;
-    pub const INT: i32 = 10;
-    // Accepted as legacy name or alias of FM_INT; assigned 10 by alias convention.
-    pub const INTEGER: i32 = 10;
-    pub const INTEVENT: i32 = 15;
-    pub const INTEVENTLIST: i32 = 16;
-    pub const INTLIST: i32 = 11;
-    pub const INTLISTLIST: i32 = 12;
-    pub const INTLISTREF: i32 = 14;
-    pub const INTREF: i32 = 13;
-    pub const KEY: i32 = 1510;
-    pub const KEYLIST: i32 = 1511;
-    pub const KOE: i32 = 1410;
-    pub const KOELIST: i32 = 1411;
-    pub const LABEL: i32 = 30;
-    pub const LIST: i32 = -1;
-    pub const MASK: i32 = 1150;
-    pub const MASKLIST: i32 = 1151;
-    pub const MATH: i32 = 1100;
-    pub const MOUSE: i32 = 1500;
-    pub const MOV: i32 = 1440;
-    pub const MWND: i32 = 1320;
-    pub const MWNDBTN: i32 = 1602;
-    pub const MWNDLIST: i32 = 1321;
-    pub const OBJECT: i32 = 1310;
-    pub const OBJECTEVENT: i32 = 1312;
-    pub const OBJECTEVENTLIST: i32 = 1313;
-    pub const OBJECTLIST: i32 = 1311;
-    pub const PCM: i32 = 1420;
-    pub const PCMCH: i32 = 1421;
-    pub const PCMCHLIST: i32 = 1422;
-    pub const PCMEVENT: i32 = 1450;
-    pub const PCMEVENTLIST: i32 = 1451;
-    pub const QUAKE: i32 = 1360;
-    pub const QUAKELIST: i32 = 1361;
-    pub const SCENE: i32 = 1010;
-    pub const SCENELIST: i32 = 1011;
-    pub const SCREEN: i32 = 1350;
-    pub const SCRIPT: i32 = 1610;
-    pub const SE: i32 = 1430;
-    pub const STAGE: i32 = 1300;
-    pub const STAGELIST: i32 = 1301;
-    pub const STR: i32 = 20;
-    // Accepted as legacy name or alias of FM_STR; assigned 20 by alias convention.
-    pub const STRING: i32 = 20;
-    pub const STRLIST: i32 = 21;
-    pub const STRLISTLIST: i32 = 22;
-    pub const STRLISTREF: i32 = 24;
-    pub const STRREF: i32 = 23;
-    pub const SYSCOM: i32 = 1600;
-    pub const SYSCOMMENU: i32 = 1601;
-    pub const SYSTEM: i32 = 1620;
-    pub const VOID: i32 = 0;
-    pub const VOIDLIST: i32 = 1;
-    pub const WORLD: i32 = 1290;
-    pub const WORLDLIST: i32 = 1291;
-    pub const __ARGS: i32 = -2;
-    pub const __ARGSREF: i32 = -3;
+    pub const __ARGSREF: i32 = crate::runtime::forms::codes::FM___ARGSREF;
+    pub const __ARGS: i32 = crate::runtime::forms::codes::FM___ARGS;
+    pub const LIST: i32 = crate::runtime::forms::codes::FM_LIST;
+    pub const GLOBAL: i32 = crate::runtime::forms::codes::FM_GLOBAL;
+    pub const GLOBALLIST: i32 = crate::runtime::forms::codes::FM_GLOBALLIST;
+    pub const SCENE: i32 = crate::runtime::forms::codes::FM_SCENE;
+    pub const SCENELIST: i32 = crate::runtime::forms::codes::FM_SCENELIST;
+    pub const CALL: i32 = crate::runtime::forms::codes::FM_CALL;
+    pub const CALLLIST: i32 = crate::runtime::forms::codes::FM_CALLLIST;
+    pub const VOID: i32 = crate::runtime::forms::codes::FM_VOID;
+    pub const VOIDLIST: i32 = crate::runtime::forms::codes::FM_VOIDLIST;
+    pub const INT: i32 = crate::runtime::forms::codes::FM_INT;
+    pub const INTLIST: i32 = crate::runtime::forms::codes::FM_INTLIST;
+    pub const INTLISTLIST: i32 = crate::runtime::forms::codes::FM_INTLISTLIST;
+    pub const INTREF: i32 = crate::runtime::forms::codes::FM_INTREF;
+    pub const INTLISTREF: i32 = crate::runtime::forms::codes::FM_INTLISTREF;
+    pub const INTEVENT: i32 = crate::runtime::forms::codes::FM_INTEVENT;
+    pub const INTEVENTLIST: i32 = crate::runtime::forms::codes::FM_INTEVENTLIST;
+    pub const ALLEVENT: i32 = crate::runtime::forms::codes::FM_ALLEVENT;
+    pub const STR: i32 = crate::runtime::forms::codes::FM_STR;
+    pub const STRLIST: i32 = crate::runtime::forms::codes::FM_STRLIST;
+    pub const STRLISTLIST: i32 = crate::runtime::forms::codes::FM_STRLISTLIST;
+    pub const STRREF: i32 = crate::runtime::forms::codes::FM_STRREF;
+    pub const STRLISTREF: i32 = crate::runtime::forms::codes::FM_STRLISTREF;
+    pub const LABEL: i32 = crate::runtime::forms::codes::FM_LABEL;
+    pub const MATH: i32 = crate::runtime::forms::codes::FM_MATH;
+    pub const FILE: i32 = crate::runtime::forms::codes::FM_FILE;
+    pub const CGTABLE: i32 = crate::runtime::forms::codes::FM_CGTABLE;
+    pub const BGMTABLE: i32 = crate::runtime::forms::codes::FM_BGMTABLE;
+    pub const DATABASE: i32 = crate::runtime::forms::codes::FM_DATABASE;
+    pub const DATABASELIST: i32 = crate::runtime::forms::codes::FM_DATABASELIST;
+    pub const G00BUF: i32 = crate::runtime::forms::codes::FM_G00BUF;
+    pub const G00BUFLIST: i32 = crate::runtime::forms::codes::FM_G00BUFLIST;
+    pub const MASK: i32 = crate::runtime::forms::codes::FM_MASK;
+    pub const MASKLIST: i32 = crate::runtime::forms::codes::FM_MASKLIST;
+    pub const COUNTER: i32 = crate::runtime::forms::codes::FM_COUNTER;
+    pub const COUNTERLIST: i32 = crate::runtime::forms::codes::FM_COUNTERLIST;
+    pub const FRAMEACTION: i32 = crate::runtime::forms::codes::FM_FRAMEACTION;
+    pub const FRAMEACTIONLIST: i32 = crate::runtime::forms::codes::FM_FRAMEACTIONLIST;
+    pub const WORLD: i32 = crate::runtime::forms::codes::FM_WORLD;
+    pub const WORLDLIST: i32 = crate::runtime::forms::codes::FM_WORLDLIST;
+    pub const STAGE: i32 = crate::runtime::forms::codes::FM_STAGE;
+    pub const STAGELIST: i32 = crate::runtime::forms::codes::FM_STAGELIST;
+    pub const OBJECT: i32 = crate::runtime::forms::codes::FM_OBJECT;
+    pub const OBJECTLIST: i32 = crate::runtime::forms::codes::FM_OBJECTLIST;
+    pub const OBJECTEVENT: i32 = crate::runtime::forms::codes::FM_OBJECTEVENT;
+    pub const OBJECTEVENTLIST: i32 = crate::runtime::forms::codes::FM_OBJECTEVENTLIST;
+    pub const MWND: i32 = crate::runtime::forms::codes::FM_MWND;
+    pub const MWNDLIST: i32 = crate::runtime::forms::codes::FM_MWNDLIST;
+    pub const GROUP: i32 = crate::runtime::forms::codes::FM_GROUP;
+    pub const GROUPLIST: i32 = crate::runtime::forms::codes::FM_GROUPLIST;
+    pub const BTNSELITEM: i32 = crate::runtime::forms::codes::FM_BTNSELITEM;
+    pub const BTNSELITEMLIST: i32 = crate::runtime::forms::codes::FM_BTNSELITEMLIST;
+    pub const SCREEN: i32 = crate::runtime::forms::codes::FM_SCREEN;
+    pub const QUAKE: i32 = crate::runtime::forms::codes::FM_QUAKE;
+    pub const QUAKELIST: i32 = crate::runtime::forms::codes::FM_QUAKELIST;
+    pub const EDITBOX: i32 = crate::runtime::forms::codes::FM_EDITBOX;
+    pub const EDITBOXLIST: i32 = crate::runtime::forms::codes::FM_EDITBOXLIST;
+    pub const EFFECT: i32 = crate::runtime::forms::codes::FM_EFFECT;
+    pub const EFFECTLIST: i32 = crate::runtime::forms::codes::FM_EFFECTLIST;
+    pub const MSGBK: i32 = crate::runtime::forms::codes::FM_MSGBK;
+    pub const BGM: i32 = crate::runtime::forms::codes::FM_BGM;
+    pub const BGMLIST: i32 = crate::runtime::forms::codes::FM_BGMLIST;
+    pub const KOE: i32 = crate::runtime::forms::codes::FM_KOE;
+    pub const KOELIST: i32 = crate::runtime::forms::codes::FM_KOELIST;
+    pub const PCM: i32 = crate::runtime::forms::codes::FM_PCM;
+    pub const PCMCH: i32 = crate::runtime::forms::codes::FM_PCMCH;
+    pub const PCMCHLIST: i32 = crate::runtime::forms::codes::FM_PCMCHLIST;
+    pub const SE: i32 = crate::runtime::forms::codes::FM_SE;
+    pub const MOV: i32 = crate::runtime::forms::codes::FM_MOV;
+    pub const PCMEVENT: i32 = crate::runtime::forms::codes::FM_PCMEVENT;
+    pub const PCMEVENTLIST: i32 = crate::runtime::forms::codes::FM_PCMEVENTLIST;
+    pub const MOUSE: i32 = crate::runtime::forms::codes::FM_MOUSE;
+    pub const KEY: i32 = crate::runtime::forms::codes::FM_KEY;
+    pub const KEYLIST: i32 = crate::runtime::forms::codes::FM_KEYLIST;
+    pub const INPUT: i32 = crate::runtime::forms::codes::FM_INPUT;
+    pub const SYSCOM: i32 = crate::runtime::forms::codes::FM_SYSCOM;
+    pub const SYSCOMMENU: i32 = crate::runtime::forms::codes::FM_SYSCOMMENU;
+    pub const MWNDBTN: i32 = crate::runtime::forms::codes::FM_MWNDBTN;
+    pub const SCRIPT: i32 = crate::runtime::forms::codes::FM_SCRIPT;
+    pub const SYSTEM: i32 = crate::runtime::forms::codes::FM_SYSTEM;
+    pub const EXCALL: i32 = crate::runtime::forms::codes::FM_EXCALL;
+    pub const STEAM: i32 = crate::runtime::forms::codes::FM_STEAM;
+    pub const INTEGER: i32 = INT;
+    pub const STRING: i32 = STR;
 }
 
 pub mod global_form {
@@ -194,2333 +195,1429 @@ pub mod global_form {
     pub const TIMEWAIT_KEY: u32 = codes::FORM_GLOBAL_TIMEWAIT_KEY;
     pub const COUNTER: u32 = codes::FORM_GLOBAL_COUNTER;
     pub const FRAME_ACTION: u32 = codes::FORM_GLOBAL_FRAME_ACTION;
-    pub const STAGE_DEFAULT: u32 = 73;
-    pub const STAGE_ALIAS_37: u32 = 37;
-    pub const STAGE_ALIAS_38: u32 = 38;
-    pub const STAGE_ALT: u32 = codes::FORM_GLOBAL_STAGE;
+    pub const FRAME_ACTION_CH: u32 = codes::FORM_GLOBAL_FRAME_ACTION_CH;
+    pub const STAGE: u32 = codes::FORM_GLOBAL_STAGE;
+    pub const INPUT: u32 = codes::FORM_GLOBAL_INPUT;
+    pub const MOUSE: u32 = codes::FORM_GLOBAL_MOUSE;
+    pub const MATH: u32 = codes::FORM_GLOBAL_MATH;
+    pub const CGTABLE: u32 = codes::FORM_GLOBAL_CGTABLE;
+    pub const DATABASE: u32 = codes::FORM_GLOBAL_DATABASE;
+    pub const G00BUF: u32 = codes::FORM_GLOBAL_G00BUF;
+    pub const MASK: u32 = codes::FORM_GLOBAL_MASK;
+    pub const EDITBOX: u32 = codes::FORM_GLOBAL_EDITBOX;
+    pub const FILE: u32 = codes::FORM_GLOBAL_FILE;
+    pub const STEAM: u32 = codes::FORM_GLOBAL_STEAM;
+    pub const SYSCOM: u32 = codes::FORM_GLOBAL_SYSCOM;
+    pub const SCRIPT: u32 = codes::FORM_GLOBAL_SCRIPT;
+    pub const SYSTEM: u32 = codes::FORM_GLOBAL_SYSTEM;
+    pub const BACK: u32 = codes::FORM_GLOBAL_BACK;
+    pub const FRONT: u32 = codes::FORM_GLOBAL_FRONT;
+    pub const NEXT: u32 = codes::FORM_GLOBAL_NEXT;
+    pub const STAGE_DEFAULT: u32 = STAGE;
+    pub const STAGE_ALIAS_37: u32 = BACK;
+    pub const STAGE_ALIAS_38: u32 = FRONT;
+    pub const STAGE_ALT: u32 = STAGE;
     pub const INT_LIST_FORMS: &[u32] = codes::GLOBAL_INT_LIST_FORMS;
     pub const STR_LIST_FORMS: &[u32] = codes::GLOBAL_STR_LIST_FORMS;
 }
 
+
+#[inline]
+pub const fn matches_form_id(form_id: u32, runtime_form_id: u32, canonical_form_id: u32) -> bool {
+    form_id == canonical_form_id || (runtime_form_id != 0 && form_id == runtime_form_id)
+}
+
+#[inline]
+pub const fn is_stage_global_form(form_id: u32, runtime_stage_form_id: u32) -> bool {
+    matches_form_id(form_id, runtime_stage_form_id, global_form::STAGE)
+        || form_id == global_form::BACK
+        || form_id == global_form::FRONT
+        || form_id == global_form::NEXT
+}
+
 pub mod elm_value {
-    //
-    // -5, confirmed
-    pub const UP: i32 = -5;
-    // -3, high_confidence_inferred
-    pub const __TRANS: i32 = -3;
-    // -2, high_confidence_inferred
-    pub const __SET: i32 = -2;
-    // -1, confirmed
-    pub const ARRAY: i32 = -1;
-
-    // BGM
-    // 0x00, confirmed
-    pub const BGM_PLAY: i32 = 0;
-    // 0x01, confirmed
-    pub const BGM_PLAY_ONESHOT: i32 = 1;
-    // 0x02, confirmed
-    pub const BGM_PLAY_WAIT: i32 = 2;
-    // 0x03, confirmed
-    pub const BGM_WAIT: i32 = 3;
-    // 0x04, confirmed
-    pub const BGM_STOP: i32 = 4;
-    // 0x05, confirmed
-    pub const BGM_WAIT_FADE: i32 = 5;
-    // 0x06, confirmed
-    pub const BGM_SET_VOLUME: i32 = 6;
-    // 0x07, confirmed
-    pub const BGM_SET_VOLUME_MAX: i32 = 7;
-    // 0x08, confirmed
-    pub const BGM_SET_VOLUME_MIN: i32 = 8;
-    // 0x09, confirmed
-    pub const BGM_GET_VOLUME: i32 = 9;
-    // 0x0A, confirmed
-    pub const BGM_PAUSE: i32 = 10;
-    // 0x0B, confirmed
-    pub const BGM_RESUME: i32 = 11;
-    // 0x0C, confirmed
-    pub const BGM_RESUME_WAIT: i32 = 12;
-    // 0x0D, confirmed
-    pub const BGM_CHECK: i32 = 13;
-    // 0x0E, confirmed
-    pub const BGM_WAIT_KEY: i32 = 14;
-    // 0x0F, confirmed
-    pub const BGM_WAIT_FADE_KEY: i32 = 15;
-    // 0x10, confirmed
-    pub const BGM_READY: i32 = 16;
-    // 0x11, confirmed
-    pub const BGM_READY_ONESHOT: i32 = 17;
-    // 0x12, confirmed
-    pub const BGM_GET_PLAY_POS: i32 = 18;
-    // 0x13, confirmed
-    pub const BGM_GET_REGIST_NAME: i32 = 19;
-
-    // BGMTABLE
-    // 0x0, confirmed
-    pub const BGMTABLE_GET_BGM_CNT: i32 = 0;
-    // 0x1, confirmed
-    pub const BGMTABLE_GET_LISTEN_BY_NAME: i32 = 1;
-    // 0x2, confirmed
-    pub const BGMTABLE_SET_LISTEN_BY_NAME: i32 = 2;
-    // 0x4, confirmed
-    pub const BGMTABLE_SET_ALL_FLAG: i32 = 4;
-
-    // BTNSELITEM
-    // 0x00, confirmed
-    pub const BTNSELITEM_OBJECT: i32 = 0;
-
-    // CALL
-    // 0x0, confirmed
-    pub const CALL_L: i32 = 0;
-    // 0x1, confirmed
-    pub const CALL_K: i32 = 1;
-
-    // CGTABLE
-    // 0x0, confirmed
-    pub const CGTABLE_FLAG: i32 = 0;
-    // 0x1, confirmed
-    pub const CGTABLE_GET_FLAG_NO_BY_NAME: i32 = 1;
-    // 0x2, confirmed
-    pub const CGTABLE_GET_LOOK_BY_NAME: i32 = 2;
-    // 0x3, confirmed
-    pub const CGTABLE_SET_LOOK_BY_NAME: i32 = 3;
-    // 0x4, confirmed
-    pub const CGTABLE_GET_CG_CNT: i32 = 4;
-    // 0x5, confirmed
-    pub const CGTABLE_GET_LOOK_CNT: i32 = 5;
-    // 0x6, confirmed
-    pub const CGTABLE_GET_LOOK_PERCENT: i32 = 6;
-    // 0x7, confirmed
-    pub const CGTABLE_SET_DISABLE: i32 = 7;
-    // 0x8, confirmed
-    pub const CGTABLE_SET_ENABLE: i32 = 8;
-    // 0x9, confirmed
-    pub const CGTABLE_SET_ALL_FLAG: i32 = 9;
-    // 0xA, confirmed
-    pub const CGTABLE_GET_NAME_BY_FLAG_NO: i32 = 10;
-
-    // COUNTER
-    // 0x0, confirmed
-    pub const COUNTER_SET: i32 = 0;
-    // 0x1, confirmed
-    pub const COUNTER_GET: i32 = 1;
-    // 0x2, confirmed
-    pub const COUNTER_RESET: i32 = 2;
-    // 0x3, confirmed
-    pub const COUNTER_START: i32 = 3;
-    // 0x4, confirmed
-    pub const COUNTER_STOP: i32 = 4;
-    // 0x5, confirmed
-    pub const COUNTER_RESUME: i32 = 5;
-    // 0x6, confirmed
-    pub const COUNTER_WAIT: i32 = 6;
-    // 0x7, confirmed
-    pub const COUNTER_CHECK_VALUE: i32 = 7;
-    // 0x8, confirmed
-    pub const COUNTER_WAIT_KEY: i32 = 8;
-    // 0x9, confirmed
-    pub const COUNTER_START_REAL: i32 = 9;
-    // 0xa, confirmed
-    pub const COUNTER_START_FRAME: i32 = 10;
-    // 0xb, confirmed
-    pub const COUNTER_START_FRAME_REAL: i32 = 11;
-    // 0xc, confirmed
-    pub const COUNTER_START_FRAME_LOOP: i32 = 12;
-    // 0xd, confirmed
-    pub const COUNTER_START_FRAME_LOOP_REAL: i32 = 13;
-    // 0xe, confirmed
-    pub const COUNTER_CHECK_ACTIVE: i32 = 14;
-
-    // COUNTERLIST
-    // 0x1, confirmed
-    pub const COUNTERLIST_GET_SIZE: i32 = 1;
-
-    // DATABASE
-    // 0x0, confirmed
-    pub const DATABASE_GET_NUM: i32 = 0;
-    // 0x1, confirmed
-    pub const DATABASE_GET_STR: i32 = 1;
-    // 0x3, confirmed
-    pub const DATABASE_CHECK_ITEM: i32 = 3;
-    // 0x4, confirmed
-    pub const DATABASE_CHECK_COLUMN: i32 = 4;
-    // 0x5, confirmed
-    pub const DATABASE_FIND_NUM: i32 = 5;
-    // 0x6, confirmed
-    pub const DATABASE_FIND_STR: i32 = 6;
-    // 0x7, confirmed
-    pub const DATABASE_FIND_STR_REAL: i32 = 7;
-
-    // DATABASELIST
-    // 0x1, confirmed
-    pub const DATABASELIST_GET_SIZE: i32 = 1;
-
-    // EDITBOX
-    // 0x0, confirmed
-    pub const EDITBOX_CREATE: i32 = 0;
-    // 0x1, confirmed
-    pub const EDITBOX_DESTROY: i32 = 1;
-    // 0x2, confirmed
-    pub const EDITBOX_SET_TEXT: i32 = 2;
-    // 0x3, confirmed
-    pub const EDITBOX_GET_TEXT: i32 = 3;
-    // 0x4, confirmed
-    pub const EDITBOX_CHECK_DECIDED: i32 = 4;
-    // 0x5, confirmed
-    pub const EDITBOX_CHECK_CANCELED: i32 = 5;
-    // 0x6, confirmed
-    pub const EDITBOX_SET_FOCUS: i32 = 6;
-    // 0x7, confirmed
-    pub const EDITBOX_CLEAR_INPUT: i32 = 7;
-
-    // EDITBOXLIST
-    // 0x1, confirmed
-    pub const EDITBOXLIST_CLEAR_INPUT: i32 = 1;
-
-    // EFFECT
-    // 0x00, confirmed
-    pub const EFFECT_X: i32 = 0;
-    // 0x01, confirmed
-    pub const EFFECT_Y: i32 = 1;
-    // 0x02, confirmed
-    pub const EFFECT_Z: i32 = 2;
-    // 0x03, confirmed
-    pub const EFFECT_MONO: i32 = 3;
-    // 0x04, confirmed
-    pub const EFFECT_REVERSE: i32 = 4;
-    // 0x05, confirmed
-    pub const EFFECT_BRIGHT: i32 = 5;
-    // 0x06, confirmed
-    pub const EFFECT_DARK: i32 = 6;
-    // 0x07, confirmed
-    pub const EFFECT_COLOR_R: i32 = 7;
-    // 0x08, confirmed
-    pub const EFFECT_COLOR_G: i32 = 8;
-    // 0x09, confirmed
-    pub const EFFECT_COLOR_B: i32 = 9;
-    // 0x0A, confirmed
-    pub const EFFECT_COLOR_RATE: i32 = 10;
-    // 0x0B, confirmed
-    pub const EFFECT_COLOR_ADD_R: i32 = 11;
-    // 0x0C, confirmed
-    pub const EFFECT_COLOR_ADD_G: i32 = 12;
-    // 0x0D, confirmed
-    pub const EFFECT_COLOR_ADD_B: i32 = 13;
-    // 0x0E, confirmed
-    pub const EFFECT_X_EVE: i32 = 14;
-    // 0x0F, confirmed
-    pub const EFFECT_Y_EVE: i32 = 15;
-    // 0x10, confirmed
-    pub const EFFECT_Z_EVE: i32 = 16;
-    // 0x11, confirmed
-    pub const EFFECT_MONO_EVE: i32 = 17;
-    // 0x12, confirmed
-    pub const EFFECT_REVERSE_EVE: i32 = 18;
-    // 0x13, confirmed
-    pub const EFFECT_BRIGHT_EVE: i32 = 19;
-    // 0x14, confirmed
-    pub const EFFECT_DARK_EVE: i32 = 20;
-    // 0x15, confirmed
-    pub const EFFECT_COLOR_R_EVE: i32 = 21;
-    // 0x16, confirmed
-    pub const EFFECT_COLOR_G_EVE: i32 = 22;
-    // 0x17, confirmed
-    pub const EFFECT_COLOR_B_EVE: i32 = 23;
-    // 0x18, confirmed
-    pub const EFFECT_COLOR_RATE_EVE: i32 = 24;
-    // 0x19, confirmed
-    pub const EFFECT_COLOR_ADD_R_EVE: i32 = 25;
-    // 0x1A, confirmed
-    pub const EFFECT_COLOR_ADD_G_EVE: i32 = 26;
-    // 0x1B, confirmed
-    pub const EFFECT_COLOR_ADD_B_EVE: i32 = 27;
-    // 0x1C, confirmed
-    pub const EFFECT_BEGIN_ORDER: i32 = 28;
-    // 0x1D, confirmed
-    pub const EFFECT_END_ORDER: i32 = 29;
-    // 0x1E, confirmed
-    pub const EFFECT_INIT: i32 = 30;
-    // 0x1F, confirmed
-    pub const EFFECT_WIPE_COPY: i32 = 31;
-    // 0x20, confirmed
-    pub const EFFECT_WIPE_ERASE: i32 = 32;
-    // 0x21, confirmed
-    pub const EFFECT_BEGIN_LAYER: i32 = 33;
-    // 0x22, confirmed
-    pub const EFFECT_END_LAYER: i32 = 34;
-
-    // EFFECTLIST
-    // 0x1, confirmed
-    pub const EFFECTLIST_RESIZE: i32 = 1;
-    // 0x2, confirmed
-    pub const EFFECTLIST_GET_SIZE: i32 = 2;
-
-    // EXCALL
-    // 0x0, confirmed
-    pub const EXCALL_STAGE: i32 = 0;
-    // 0x01, confirmed
-    pub const EXCALL_BACK: i32 = 1;
-    // 0x02, confirmed
-    pub const EXCALL_FRONT: i32 = 2;
-    // 0x03, confirmed
-    pub const EXCALL_NEXT: i32 = 3;
-    // 0x4, confirmed
-    pub const EXCALL_ALLOC: i32 = 4;
-    // 0x5, confirmed
-    pub const EXCALL_FREE: i32 = 5;
-    // 0x6, confirmed
-    pub const EXCALL_COUNTER: i32 = 6;
-    // 0x7, confirmed
-    pub const EXCALL_F: i32 = 7;
-    // 0x8, confirmed
-    pub const EXCALL_CHECK_ALLOC: i32 = 8;
-    // 0x9, confirmed
-    pub const EXCALL_FRAME_ACTION: i32 = 9;
-    // 0xA, confirmed
-    pub const EXCALL_FRAME_ACTION_CH: i32 = 10;
-    // 0xC, confirmed
-    pub const EXCALL_IS_EXCALL: i32 = 12;
-    // 0xD, confirmed
-    pub const EXCALL_SCRIPT: i32 = 13;
-
-    // FILE
-    // 0x01, confirmed
-    pub const FILE_PRELOAD_OMV: i32 = 1;
-
-    // FRAMEACTION
-    // 0x0, confirmed
-    pub const FRAMEACTION_COUNTER: i32 = 0;
-    // 0x1, confirmed
-    pub const FRAMEACTION_START: i32 = 1;
-    // 0x2, confirmed
-    pub const FRAMEACTION_END: i32 = 2;
-    // 0x3, confirmed
-    pub const FRAMEACTION_START_REAL: i32 = 3;
-    // 0x4, confirmed
-    pub const FRAMEACTION_IS_END_ACTION: i32 = 4;
-
-    // FRAMEACTIONLIST
-    // 0x1, confirmed
-    pub const FRAMEACTIONLIST_RESIZE: i32 = 1;
-    // 0x2, confirmed
-    pub const FRAMEACTIONLIST_GET_SIZE: i32 = 2;
-
-    // G00BUF
-    // 0x0, confirmed
-    pub const G00BUF_LOAD: i32 = 0;
-    // 0x1, confirmed
-    pub const G00BUF_FREE: i32 = 1;
-
-    // G00BUFLIST
-    // 0x0, confirmed
-    pub const G00BUFLIST_FREE_ALL: i32 = 0;
-    // 0x2, confirmed
-    pub const G00BUFLIST_GET_SIZE: i32 = 2;
-
-    // GROUP
-    // 0x00, confirmed
-    pub const GROUP_SEL: i32 = 0;
-    // 0x01, confirmed
-    pub const GROUP_SEL_CANCEL: i32 = 1;
-    // 0x02, confirmed
-    pub const GROUP_INIT: i32 = 2;
-    // 0x03, confirmed
-    pub const GROUP_START: i32 = 3;
-    // 0x04, confirmed
-    pub const GROUP_START_CANCEL: i32 = 4;
-    // 0x05, confirmed
-    pub const GROUP_END: i32 = 5;
-    // 0x06, confirmed
-    pub const GROUP_GET_HIT_NO: i32 = 6;
-    // 0x07, confirmed
-    pub const GROUP_GET_PUSHED_NO: i32 = 7;
-    // 0x08, confirmed
-    pub const GROUP_GET_DECIDED_NO: i32 = 8;
-    // 0x0A, confirmed
-    pub const GROUP_GET_RESULT: i32 = 10;
-    // 0x0D, confirmed
-    pub const GROUP_GET_RESULT_BUTTON_NO: i32 = 13;
-    // 0x0E, confirmed
-    pub const GROUP_ORDER: i32 = 14;
-    // 0x0F, confirmed
-    pub const GROUP_LAYER: i32 = 15;
-    // 0x10, confirmed
-    pub const GROUP_CANCEL_PRIORITY: i32 = 16;
-
-    // GROUPLIST
-    // 0x01, confirmed
-    pub const GROUPLIST_ALLOC: i32 = 1;
-    // 0x02, confirmed
-    pub const GROUPLIST_FREE: i32 = 2;
-
-    // INPUT
-    // 0x00, high_confidence_inferred
-    pub const INPUT_DECIDE: i32 = 0;
-    // 0x01, high_confidence_inferred
-    pub const INPUT_CANCEL: i32 = 1;
-    // 0x2, confirmed
-    pub const INPUT_CLEAR: i32 = 2;
-    // 0x3, confirmed
-    pub const INPUT_NEXT: i32 = 3;
-
-    // INTEVENT
-    // 0x0, confirmed
-    pub const INTEVENT_SET: i32 = 0;
-    // 0x1, confirmed
-    pub const INTEVENT_LOOP: i32 = 1;
-    // 0x2, confirmed
-    pub const INTEVENT_TURN: i32 = 2;
-    // 0x3, confirmed
-    pub const INTEVENT_END: i32 = 3;
-    // 0x4, confirmed
-    pub const INTEVENT_WAIT: i32 = 4;
-    // 0x5, confirmed
-    pub const INTEVENT_CHECK: i32 = 5;
-    // 0x7, confirmed
-    pub const INTEVENT_SET_REAL: i32 = 7;
-    // 0x8, confirmed
-    pub const INTEVENT_LOOP_REAL: i32 = 8;
-    // 0x9, confirmed
-    pub const INTEVENT_TURN_REAL: i32 = 9;
-    // 0xa, confirmed
-    pub const INTEVENT_WAIT_KEY: i32 = 10;
-
-    // INTEVENTLIST
-    // 0x1, confirmed
-    pub const INTEVENTLIST_RESIZE: i32 = 1;
-
-    // INTLIST
-    // 0x01, confirmed
-    pub const INTLIST_SETS: i32 = 1;
-    // 0x02, confirmed
-    pub const INTLIST_RESIZE: i32 = 2;
-    // 0x03, high_confidence_inferred
-    pub const INTLIST_BIT: i32 = 3;
-    // 0x04, high_confidence_inferred
-    pub const INTLIST_BIT2: i32 = 4;
-    // 0x05, high_confidence_inferred
-    pub const INTLIST_BIT4: i32 = 5;
-    // 0x06, high_confidence_inferred
-    pub const INTLIST_BIT8: i32 = 6;
-    // 0x07, high_confidence_inferred
-    pub const INTLIST_BIT16: i32 = 7;
-    // 0x08, confirmed
-    pub const INTLIST_CLEAR: i32 = 8;
-    // 0x09, confirmed
-    pub const INTLIST_GET_SIZE: i32 = 9;
-    // 0x0A, confirmed
-    pub const INTLIST_INIT: i32 = 10;
-
-    // KEY
-    // 0x0, confirmed
-    pub const KEY_GET_FLICK_ANGLE: i32 = 0;
-    // 0x1, confirmed
-    pub const KEY_ON_DOWN: i32 = 1;
-    // 0x4, confirmed
-    pub const KEY_ON_UP: i32 = 4;
-    // 0x5, confirmed
-    pub const KEY_ON_DOWN_UP: i32 = 5;
-    // 0x6, confirmed
-    pub const KEY_IS_DOWN: i32 = 6;
-    // 0x7, confirmed
-    pub const KEY_IS_UP: i32 = 7;
-    // 0xA, confirmed
-    pub const KEY_ON_FLICK: i32 = 10;
-    // 0xE, confirmed
-    pub const KEY_GET_FLICK_PIXEL: i32 = 14;
-    // 0xF, confirmed
-    pub const KEY_GET_FLICK_MM: i32 = 15;
-
-    // KEYLIST
-    // 0x0, confirmed
-    pub const KEYLIST_WAIT: i32 = 0;
-    // 0x1, confirmed
-    pub const KEYLIST_WAIT_FORCE: i32 = 1;
-    // 0x3, confirmed
-    pub const KEYLIST_CLEAR: i32 = 3;
-    // 0x5, confirmed
-    pub const KEYLIST_NEXT: i32 = 5;
-
-    // MASK
-    // 0x0, confirmed
-    pub const MASK_CREATE: i32 = 0;
-    // 0x1, confirmed
-    pub const MASK_INIT: i32 = 1;
-    // 0x2, confirmed
-    pub const MASK_X_EVE: i32 = 2;
-    // 0x3, confirmed
-    pub const MASK_Y_EVE: i32 = 3;
-    // 0x4, confirmed
-    pub const MASK_X: i32 = 4;
-    // 0x5, confirmed
-    pub const MASK_Y: i32 = 5;
-
-    // MASKLIST
-    // 0x1, confirmed
-    pub const MASKLIST_GET_SIZE: i32 = 1;
-
-    // MATH
-    // 0x0, confirmed
-    pub const MATH_RAND: i32 = 0;
-    // 0x1, confirmed
-    pub const MATH_TOSTR: i32 = 1;
-    // 0x2, confirmed
-    pub const MATH_TIMETABLE: i32 = 2;
-    // 0x3, confirmed
-    pub const MATH_MAX: i32 = 3;
-    // 0x4, confirmed
-    pub const MATH_MIN: i32 = 4;
-    // 0x5, confirmed
-    pub const MATH_ABS: i32 = 5;
-    // 0x6, confirmed
-    pub const MATH_SIN: i32 = 6;
-    // 0x7, confirmed
-    pub const MATH_COS: i32 = 7;
-    // 0x8, confirmed
-    pub const MATH_TAN: i32 = 8;
-    // 0x9, confirmed
-    pub const MATH_LINEAR: i32 = 9;
-    // 0xA, confirmed
-    pub const MATH_LIMIT: i32 = 10;
-    // 0xB, confirmed
-    pub const MATH_TOSTR_ZERO: i32 = 11;
-    // 0xC, confirmed
-    pub const MATH_TOSTR_ZEN: i32 = 12;
-    // 0xD, confirmed
-    pub const MATH_TOSTR_ZEN_ZERO: i32 = 13;
-    // 0xE, confirmed
-    pub const MATH_SQRT: i32 = 14;
-    // 0xF, confirmed
-    pub const MATH_DISTANCE: i32 = 15;
-    // 0x10, confirmed
-    pub const MATH_ARCSIN: i32 = 16;
-    // 0x11, confirmed
-    pub const MATH_ARCCOS: i32 = 17;
-    // 0x12, confirmed
-    pub const MATH_ARCTAN: i32 = 18;
-    // 0x13, confirmed
-    pub const MATH_LOG: i32 = 19;
-    // 0x14, confirmed
-    pub const MATH_LOG2: i32 = 20;
-    // 0x15, confirmed
-    pub const MATH_LOG10: i32 = 21;
-    // 0x16, confirmed
-    pub const MATH_ANGLE: i32 = 22;
-    // 0x17, confirmed
-    pub const MATH_TOSTR_BY_CODE: i32 = 23;
-
-    // MOUSE
-    // 0x00, high_confidence_inferred
-    pub const MOUSE_POS_X: i32 = 0;
-    // 0x01, high_confidence_inferred
-    pub const MOUSE_POS_Y: i32 = 1;
-    // 0x02, high_confidence_inferred
-    pub const MOUSE_GET_POS_X: i32 = 2;
-    // 0x03, high_confidence_inferred
-    pub const MOUSE_GET_POS_Y: i32 = 3;
-    // 0x4, confirmed
-    pub const MOUSE_CLEAR: i32 = 4;
-    // 0x5, confirmed
-    pub const MOUSE_WHEEL: i32 = 5;
-    // 0x06, high_confidence_inferred
-    pub const MOUSE_LEFT: i32 = 6;
-    // 0x07, high_confidence_inferred
-    pub const MOUSE_RIGHT: i32 = 7;
-    // 0x8, confirmed
-    pub const MOUSE_NEXT: i32 = 8;
-    // 0x9, confirmed
-    pub const MOUSE_GET_POS: i32 = 9;
-    // 0xA, confirmed
-    pub const MOUSE_SET_POS: i32 = 10;
-
-    // MOV
-    // 0x00, confirmed
-    pub const MOV_PLAY: i32 = 0;
-    // 0x01, confirmed
-    pub const MOV_STOP: i32 = 1;
-    // 0x02, confirmed
-    pub const MOV_PLAY_WAIT: i32 = 2;
-    // 0x03, confirmed
-    pub const MOV_PLAY_WAIT_KEY: i32 = 3;
-
-    // MSGBK
-    // 0x1, confirmed
-    pub const MSGBK_INSERT_MSG: i32 = 1;
-    // 0x2, confirmed
-    pub const MSGBK_GO_NEXT_MSG: i32 = 2;
-    // 0x3, confirmed
-    pub const MSGBK_ADD_MSG: i32 = 3;
-    // 0x4, confirmed
-    pub const MSGBK_ADD_KOE: i32 = 4;
-    // 0x5, confirmed
-    pub const MSGBK_ADD_NAMAE: i32 = 5;
-
-    // MWND
-    // 0x00, confirmed
-    pub const MWND_SET_WAKU: i32 = 0;
-    // 0x01, convention
-    pub const MWND_OPEN: i32 = 1;
-    // 0x02, convention
-    pub const MWND_CLOSE: i32 = 2;
-    // 0x03, confirmed
-    pub const MWND_CLEAR: i32 = 3;
-    // 0x04, confirmed
-    pub const MWND_PRINT: i32 = 4;
-    // 0x05, confirmed
-    pub const MWND_SEL: i32 = 5;
-    // 0x06, confirmed
-    pub const MWND_NL: i32 = 6;
-    // 0x07, confirmed
-    pub const MWND_SIZE: i32 = 7;
-    // 0x08, confirmed
-    pub const MWND_COLOR: i32 = 8;
-    // 0x09, confirmed
-    pub const MWND_KOE: i32 = 9;
-    // 0x0A, confirmed
-    pub const MWND_LAYER: i32 = 10;
-    // 0x0B, confirmed
-    pub const MWND_WORLD: i32 = 11;
-    // 0x0C, confirmed
-    pub const MWND_RUBY: i32 = 12;
-    // 0x0D, convention
-    pub const MWND_CLOSE_WAIT: i32 = 13;
-    // 0x0E, confirmed
-    pub const MWND_CLOSE_NOWAIT: i32 = 14;
-    // 0x0F, convention
-    pub const MWND_OPEN_WAIT: i32 = 15;
-    // 0x10, confirmed
-    pub const MWND_OPEN_NOWAIT: i32 = 16;
-    // 0x11, confirmed
-    pub const MWND_NLI: i32 = 17;
-    // 0x12, confirmed
-    pub const MWND_WAIT_MSG: i32 = 18;
-    // 0x13, confirmed
-    pub const MWND_PP: i32 = 19;
-    // 0x14, confirmed
-    pub const MWND_R: i32 = 20;
-    // 0x15, confirmed
-    pub const MWND_SET_FACE: i32 = 21;
-    // 0x16, confirmed
-    pub const MWND_CLEAR_FACE: i32 = 22;
-    // 0x1A, confirmed
-    pub const MWND_KOE_PLAY_WAIT: i32 = 26;
-    // 0x1B, confirmed
-    pub const MWND_KOE_PLAY_WAIT_KEY: i32 = 27;
-    // 0x1C, confirmed
-    pub const MWND_CLEAR_INDENT: i32 = 28;
-    // 0x1D, confirmed
-    pub const MWND_NEXT_MSG: i32 = 29;
-    // 0x1E, confirmed
-    pub const MWND_OBJECT: i32 = 30;
-    // 0x1F, confirmed
-    pub const MWND_MULTI_MSG: i32 = 31;
-    // 0x20, confirmed
-    pub const MWND_BUTTON: i32 = 32;
-    // 0x21, confirmed
-    pub const MWND_GET_DEFAULT_OPEN_ANIME_TIME: i32 = 33;
-    // 0x22, confirmed
-    pub const MWND_SET_OPEN_ANIME_TIME: i32 = 34;
-    // 0x23, confirmed
-    pub const MWND_SET_CLOSE_ANIME_TIME: i32 = 35;
-    // 0x24, confirmed
-    pub const MWND_GET_DEFAULT_OPEN_ANIME_TYPE: i32 = 36;
-    // 0x25, confirmed
-    pub const MWND_SET_OPEN_ANIME_TYPE: i32 = 37;
-    // 0x26, confirmed
-    pub const MWND_GET_CLOSE_ANIME_TYPE: i32 = 38;
-    // 0x27, confirmed
-    pub const MWND_GET_DEFAULT_CLOSE_ANIME_TYPE: i32 = 39;
-    // 0x28, confirmed
-    pub const MWND_GET_DEFAULT_CLOSE_ANIME_TIME: i32 = 40;
-    // 0x29, confirmed
-    pub const MWND_INIT_OPEN_ANIME_TYPE: i32 = 41;
-    // 0x2A, confirmed
-    pub const MWND_INIT_OPEN_ANIME_TIME: i32 = 42;
-    // 0x2B, confirmed
-    pub const MWND_INIT_CLOSE_ANIME_TYPE: i32 = 43;
-    // 0x2C, confirmed
-    pub const MWND_INIT_CLOSE_ANIME_TIME: i32 = 44;
-    // 0x2D, confirmed
-    pub const MWND_SET_CLOSE_ANIME_TYPE: i32 = 45;
-    // 0x2E, confirmed
-    pub const MWND_GET_CLOSE_ANIME_TIME: i32 = 46;
-    // 0x2F, confirmed
-    pub const MWND_GET_OPEN_ANIME_TIME: i32 = 47;
-    // 0x30, confirmed
-    pub const MWND_GET_OPEN_ANIME_TYPE: i32 = 48;
-    // 0x31, confirmed
-    pub const MWND_MSG_BLOCK: i32 = 49;
-    // 0x32, confirmed
-    pub const MWND_SELMSG: i32 = 50;
-    // 0x33, confirmed
-    pub const MWND_SEL_CANCEL: i32 = 51;
-    // 0x34, confirmed
-    pub const MWND_SELMSG_CANCEL: i32 = 52;
-    // 0x35, confirmed
-    pub const MWND_FACE: i32 = 53;
-    // 0x36, confirmed
-    pub const MWND_PAGE: i32 = 54;
-    // 0x37, confirmed
-    pub const MWND____NOVEL_CLEAR: i32 = 55;
-    // 0x38, confirmed
-    pub const MWND_INDENT: i32 = 56;
-    // 0x39, confirmed
-    pub const MWND____OVER_FLOW_PRINT: i32 = 57;
-    // 0x3A, confirmed
-    pub const MWND_START_SLIDE_MSG: i32 = 58;
-    // 0x3B, confirmed
-    pub const MWND_MSG_PP_BLOCK: i32 = 59;
-    // 0x3C, confirmed
-    pub const MWND_END_SLIDE_MSG: i32 = 60;
-    // 0x3D, confirmed
-    pub const MWND____SLIDE_MSG: i32 = 61;
-    // 0x3F, confirmed
-    pub const MWND____OVER_FLOW_NAMAE: i32 = 63;
-    // 0x40, confirmed
-    pub const MWND_END_CLOSE: i32 = 64;
-    // 0x41, confirmed
-    pub const MWND_CHECK_OPEN: i32 = 65;
-    // 0x42, confirmed
-    pub const MWND_INIT_WINDOW_POS: i32 = 66;
-    // 0x43, confirmed
-    pub const MWND_INIT_WINDOW_SIZE: i32 = 67;
-    // 0x44, confirmed
-    pub const MWND_SET_WINDOW_POS: i32 = 68;
-    // 0x45, confirmed
-    pub const MWND_SET_WINDOW_SIZE: i32 = 69;
-    // 0x46, confirmed
-    pub const MWND_GET_WINDOW_POS_X: i32 = 70;
-    // 0x47, confirmed
-    pub const MWND_GET_WINDOW_POS_Y: i32 = 71;
-    // 0x48, confirmed
-    pub const MWND_GET_WINDOW_SIZE_X: i32 = 72;
-    // 0x49, confirmed
-    pub const MWND_GET_WINDOW_SIZE_Y: i32 = 73;
-    // 0x4A, confirmed
-    pub const MWND_INIT_WINDOW_MOJI_CNT: i32 = 74;
-    // 0x4B, confirmed
-    pub const MWND_SET_WINDOW_MOJI_CNT: i32 = 75;
-    // 0x4C, confirmed
-    pub const MWND_GET_WINDOW_MOJI_CNT_X: i32 = 76;
-    // 0x4D, confirmed
-    pub const MWND_GET_WINDOW_MOJI_CNT_Y: i32 = 77;
-    // 0x4E, confirmed
-    pub const MWND_SET_WAKU_FILE: i32 = 78;
-    // 0x4F, confirmed
-    pub const MWND_INIT_WAKU_FILE: i32 = 79;
-    // 0x50, confirmed
-    pub const MWND_GET_WAKU_FILE: i32 = 80;
-    // 0x51, confirmed
-    pub const MWND_SET_FILTER_FILE: i32 = 81;
-    // 0x52, confirmed
-    pub const MWND_INIT_FILTER_FILE: i32 = 82;
-    // 0x53, confirmed
-    pub const MWND_GET_FILTER_FILE: i32 = 83;
-    // 0x54, confirmed
-    pub const MWND_REP_POS: i32 = 84;
-    // 0x55, confirmed
-    pub const MWND_SET_NAMAE: i32 = 85;
-    // 0x56, confirmed
-    pub const MWND_MSGBTN: i32 = 86;
-
-    // MWNDLIST
-    // 0x01, confirmed
-    pub const MWNDLIST_CLOSE: i32 = 1;
-    // 0x02, confirmed
-    pub const MWNDLIST_CLOSE_WAIT: i32 = 2;
-    // 0x03, confirmed
-    pub const MWNDLIST_CLOSE_NOWAIT: i32 = 3;
-
-    // OBJECT
-    // 0x00, confirmed
-    pub const OBJECT_DISP: i32 = 0;
-    // 0x01, confirmed
-    pub const OBJECT_PATNO: i32 = 1;
-    // 0x02, confirmed
-    pub const OBJECT_LAYER: i32 = 2;
-    // 0x03, confirmed
-    pub const OBJECT_X: i32 = 3;
-    // 0x04, confirmed
-    pub const OBJECT_Y: i32 = 4;
-    // 0x05, confirmed
-    pub const OBJECT_Z: i32 = 5;
-    // 0x06, confirmed
-    pub const OBJECT_CENTER_X: i32 = 6;
-    // 0x07, confirmed
-    pub const OBJECT_CENTER_Y: i32 = 7;
-    // 0x08, confirmed
-    pub const OBJECT_CENTER_Z: i32 = 8;
-    // 0x09, confirmed
-    pub const OBJECT_CENTER_REP_X: i32 = 9;
-    // 0x0A, confirmed
-    pub const OBJECT_CENTER_REP_Y: i32 = 10;
-    // 0x0B, confirmed
-    pub const OBJECT_CENTER_REP_Z: i32 = 11;
-    // 0x0C, confirmed
-    pub const OBJECT_SCALE_X: i32 = 12;
-    // 0x0D, confirmed
-    pub const OBJECT_SCALE_Y: i32 = 13;
-    // 0x0E, confirmed
-    pub const OBJECT_SCALE_Z: i32 = 14;
-    // 0x0F, confirmed
-    pub const OBJECT_ROTATE_X: i32 = 15;
-    // 0x10, confirmed
-    pub const OBJECT_ROTATE_Y: i32 = 16;
-    // 0x11, confirmed
-    pub const OBJECT_ROTATE_Z: i32 = 17;
-    // 0x12, confirmed
-    pub const OBJECT_CLIP_USE: i32 = 18;
-    // 0x13, confirmed
-    pub const OBJECT_CLIP_LEFT: i32 = 19;
-    // 0x14, confirmed
-    pub const OBJECT_CLIP_TOP: i32 = 20;
-    // 0x15, confirmed
-    pub const OBJECT_CLIP_RIGHT: i32 = 21;
-    // 0x16, confirmed
-    pub const OBJECT_CLIP_BOTTOM: i32 = 22;
-    // 0x17, confirmed
-    pub const OBJECT_COLOR_RATE: i32 = 23;
-    // 0x18, confirmed
-    pub const OBJECT_GET_SIZE_X: i32 = 24;
-    // 0x19, confirmed
-    pub const OBJECT_GET_SIZE_Y: i32 = 25;
-    // 0x1A, confirmed
-    pub const OBJECT_SET_BUTTON_CALL: i32 = 26;
-    // 0x1B, confirmed
-    pub const OBJECT_TR: i32 = 27;
-    // 0x1C, confirmed
-    pub const OBJECT_MONO: i32 = 28;
-    // 0x1D, confirmed
-    pub const OBJECT_REVERSE: i32 = 29;
-    // 0x1E, confirmed
-    pub const OBJECT_BRIGHT: i32 = 30;
-    // 0x1F, confirmed
-    pub const OBJECT_DARK: i32 = 31;
-    // 0x20, confirmed
-    pub const OBJECT_COLOR_R: i32 = 32;
-    // 0x21, confirmed
-    pub const OBJECT_COLOR_G: i32 = 33;
-    // 0x22, confirmed
-    pub const OBJECT_COLOR_B: i32 = 34;
-    // 0x23, confirmed
-    pub const OBJECT_INIT: i32 = 35;
-    // 0x24, confirmed
-    pub const OBJECT_FREE: i32 = 36;
-    // 0x25, confirmed
-    pub const OBJECT_INIT_PARAM: i32 = 37;
-    // 0x26, confirmed
-    pub const OBJECT_CREATE: i32 = 38;
-    // 0x27, confirmed
-    pub const OBJECT_CREATE_STRING: i32 = 39;
-    // 0x28, confirmed
-    pub const OBJECT_CREATE_RECT: i32 = 40;
-    // 0x29, confirmed
-    pub const OBJECT_CREATE_COPY_FROM: i32 = 41;
-    // 0x2A, confirmed
-    pub const OBJECT_SET_BUTTON: i32 = 42;
-    // 0x2B, confirmed
-    pub const OBJECT_CREATE_MESH: i32 = 43;
-    // 0x2C, confirmed
-    pub const OBJECT_WORLD: i32 = 44;
-    // 0x2D, confirmed
-    pub const OBJECT_CREATE_BILLBOARD: i32 = 45;
-    // 0x2E, confirmed
-    pub const OBJECT_BLEND: i32 = 46;
-    // 0x2F, confirmed
-    pub const OBJECT_GET_SIZE_Z: i32 = 47;
-    // 0x30, confirmed
-    pub const OBJECT_SET_POS: i32 = 48;
-    // 0x31, confirmed
-    pub const OBJECT_SET_SCALE: i32 = 49;
-    // 0x32, confirmed
-    pub const OBJECT_SET_ROTATE: i32 = 50;
-    // 0x33, confirmed
-    pub const OBJECT_PATNO_EVE: i32 = 51;
-    // 0x34, confirmed
-    pub const OBJECT_FRAME_ACTION: i32 = 52;
-    // 0x35, confirmed
-    pub const OBJECT_CHANGE_FILE: i32 = 53;
-    // 0x36, confirmed
-    pub const OBJECT_X_REP: i32 = 54;
-    // 0x37, confirmed
-    pub const OBJECT_ORDER: i32 = 55;
-    // 0x38, confirmed
-    pub const OBJECT_WIPE_COPY: i32 = 56;
-    // 0x39, confirmed
-    pub const OBJECT_COLOR_ADD_R: i32 = 57;
-    // 0x3A, confirmed
-    pub const OBJECT_COLOR_ADD_G: i32 = 58;
-    // 0x3B, confirmed
-    pub const OBJECT_COLOR_ADD_B: i32 = 59;
-    // 0x3C, confirmed
-    pub const OBJECT_CLEAR_BUTTON_CALL: i32 = 60;
-    // 0x3D, confirmed
-    pub const OBJECT_CLEAR_BUTTON: i32 = 61;
-    // 0x3E, confirmed
-    pub const OBJECT_GET_FILE_NAME: i32 = 62;
-    // 0x3F, confirmed
-    pub const OBJECT_Y_REP: i32 = 63;
-    // 0x40, confirmed
-    pub const OBJECT_X_EVE: i32 = 64;
-    // 0x41, confirmed
-    pub const OBJECT_Y_EVE: i32 = 65;
-    // 0x42, confirmed
-    pub const OBJECT_Z_EVE: i32 = 66;
-    // 0x43, confirmed
-    pub const OBJECT_CENTER_X_EVE: i32 = 67;
-    // 0x44, confirmed
-    pub const OBJECT_CENTER_Y_EVE: i32 = 68;
-    // 0x45, confirmed
-    pub const OBJECT_CENTER_Z_EVE: i32 = 69;
-    // 0x46, confirmed
-    pub const OBJECT_CENTER_REP_X_EVE: i32 = 70;
-    // 0x47, confirmed
-    pub const OBJECT_CENTER_REP_Y_EVE: i32 = 71;
-    // 0x48, confirmed
-    pub const OBJECT_CENTER_REP_Z_EVE: i32 = 72;
-    // 0x49, confirmed
-    pub const OBJECT_SCALE_X_EVE: i32 = 73;
-    // 0x4A, confirmed
-    pub const OBJECT_SCALE_Y_EVE: i32 = 74;
-    // 0x4B, confirmed
-    pub const OBJECT_SCALE_Z_EVE: i32 = 75;
-    // 0x4C, confirmed
-    pub const OBJECT_ROTATE_X_EVE: i32 = 76;
-    // 0x4D, confirmed
-    pub const OBJECT_ROTATE_Y_EVE: i32 = 77;
-    // 0x4E, confirmed
-    pub const OBJECT_ROTATE_Z_EVE: i32 = 78;
-    // 0x4F, confirmed
-    pub const OBJECT_CLIP_LEFT_EVE: i32 = 79;
-    // 0x50, confirmed
-    pub const OBJECT_CLIP_TOP_EVE: i32 = 80;
-    // 0x51, confirmed
-    pub const OBJECT_CLIP_RIGHT_EVE: i32 = 81;
-    // 0x52, confirmed
-    pub const OBJECT_CLIP_BOTTOM_EVE: i32 = 82;
-    // 0x53, confirmed
-    pub const OBJECT_SRC_CLIP_LEFT_EVE: i32 = 83;
-    // 0x54, confirmed
-    pub const OBJECT_SRC_CLIP_TOP_EVE: i32 = 84;
-    // 0x55, confirmed
-    pub const OBJECT_SRC_CLIP_RIGHT_EVE: i32 = 85;
-    // 0x56, confirmed
-    pub const OBJECT_SRC_CLIP_BOTTOM_EVE: i32 = 86;
-    // 0x57, confirmed
-    pub const OBJECT_TR_EVE: i32 = 87;
-    // 0x58, confirmed
-    pub const OBJECT_MONO_EVE: i32 = 88;
-    // 0x59, confirmed
-    pub const OBJECT_REVERSE_EVE: i32 = 89;
-    // 0x5A, confirmed
-    pub const OBJECT_BRIGHT_EVE: i32 = 90;
-    // 0x5B, confirmed
-    pub const OBJECT_ALL_EVE: i32 = 91;
-    // 0x5C, confirmed
-    pub const OBJECT_WIPE_ERASE: i32 = 92;
-    // 0x5D, confirmed
-    pub const OBJECT_CHILD: i32 = 93;
-    // 0x5F, confirmed
-    pub const OBJECT_SET_BUTTON_STATE_NORMAL: i32 = 95;
-    // 0x60, confirmed
-    pub const OBJECT_SET_BUTTON_STATE_SELECT: i32 = 96;
-    // 0x61, confirmed
-    pub const OBJECT_SET_BUTTON_STATE_DISABLE: i32 = 97;
-    // 0x62, confirmed
-    pub const OBJECT_SET_BUTTON_PUSHKEEP: i32 = 98;
-    // 0x63, confirmed
-    pub const OBJECT_SET_STRING: i32 = 99;
-    // 0x64, confirmed
-    pub const OBJECT_GET_PIXEL_COLOR_A: i32 = 100;
-    // 0x65, confirmed
-    pub const OBJECT_GET_PIXEL_COLOR_R: i32 = 101;
-    // 0x66, confirmed
-    pub const OBJECT_GET_PIXEL_COLOR_G: i32 = 102;
-    // 0x67, confirmed
-    pub const OBJECT_GET_PIXEL_COLOR_B: i32 = 103;
-    // 0x68, confirmed
-    pub const OBJECT_SET_STRING_PARAM: i32 = 104;
-    // 0x69, confirmed
-    pub const OBJECT_DARK_EVE: i32 = 105;
-    // 0x6A, confirmed
-    pub const OBJECT_COLOR_R_EVE: i32 = 106;
-    // 0x6B, confirmed
-    pub const OBJECT_COLOR_G_EVE: i32 = 107;
-    // 0x6C, confirmed
-    pub const OBJECT_COLOR_B_EVE: i32 = 108;
-    // 0x6D, confirmed
-    pub const OBJECT_TONECURVE_NO: i32 = 109;
-    // 0x6E, confirmed
-    pub const OBJECT_Z_REP: i32 = 110;
-    // 0x6F, confirmed
-    pub const OBJECT_F: i32 = 111;
-    // 0x70, confirmed
-    pub const OBJECT_X_REP_EVE: i32 = 112;
-    // 0x71, confirmed
-    pub const OBJECT_Y_REP_EVE: i32 = 113;
-    // 0x72, confirmed
-    pub const OBJECT_Z_REP_EVE: i32 = 114;
-    // 0x73, confirmed
-    pub const OBJECT_FRAME_ACTION_CH: i32 = 115;
-    // 0x74, confirmed
-    pub const OBJECT_CREATE_SAVE_THUMB: i32 = 116;
-    // 0x75, confirmed
-    pub const OBJECT_GET_ELEMENT_NAME: i32 = 117;
-    // 0x76, confirmed
-    pub const OBJECT_GET_BUTTON_STATE: i32 = 118;
-    // 0x77, confirmed
-    pub const OBJECT_GET_BUTTON_PUSHKEEP: i32 = 119;
-    // 0x78, confirmed
-    pub const OBJECT_CREATE_MOVIE: i32 = 120;
-    // 0x79, confirmed
-    pub const OBJECT_CREATE_MOVIE_LOOP: i32 = 121;
-    // 0x7A, confirmed
-    pub const OBJECT_CREATE_MOVIE_WAIT: i32 = 122;
-    // 0x7B, confirmed
-    pub const OBJECT_GET_BUTTON_HIT_STATE: i32 = 123;
-    // 0x7C, confirmed
-    pub const OBJECT_GET_BUTTON_REAL_STATE: i32 = 124;
-    // 0x7D, confirmed
-    pub const OBJECT_PAUSE_MOVIE: i32 = 125;
-    // 0x7E, confirmed
-    pub const OBJECT_RESUME_MOVIE: i32 = 126;
-    // 0x7F, confirmed
-    pub const OBJECT_CHECK_MOVIE: i32 = 127;
-    // 0x80, confirmed
-    pub const OBJECT_WAIT_MOVIE: i32 = 128;
-    // 0x81, confirmed
-    pub const OBJECT_CREATE_WEATHER: i32 = 129;
-    // 0x82, confirmed
-    pub const OBJECT_SET_WEATHER_PARAM_TYPE_A: i32 = 130;
-    // 0x83, confirmed
-    pub const OBJECT_SET_WEATHER_PARAM_TYPE_B: i32 = 131;
-    // 0x84, confirmed
-    pub const OBJECT_CREATE_NUMBER: i32 = 132;
-    // 0x85, confirmed
-    pub const OBJECT_SET_NUMBER: i32 = 133;
-    // 0x86, confirmed
-    pub const OBJECT_SET_NUMBER_PARAM: i32 = 134;
-    // 0x87, confirmed
-    pub const OBJECT_GET_STRING: i32 = 135;
-    // 0x88, confirmed
-    pub const OBJECT_GET_NUMBER: i32 = 136;
-    // 0x89, confirmed
-    pub const OBJECT_SEEK_MOVIE: i32 = 137;
-    // 0x8A, confirmed
-    pub const OBJECT_GET_MOVIE_SEEK_TIME: i32 = 138;
-    // 0x8B, confirmed
-    pub const OBJECT_CLICK_DISABLE: i32 = 139;
-    // 0x8C, confirmed
-    pub const OBJECT_TR_REP_EVE: i32 = 140;
-    // 0x8D, confirmed
-    pub const OBJECT_TR_REP: i32 = 141;
-    // 0x8E, confirmed
-    pub const OBJECT_WAIT_MOVIE_KEY: i32 = 142;
-    // 0x8F, confirmed
-    pub const OBJECT_CREATE_MOVIE_WAIT_KEY: i32 = 143;
-    // 0x90, confirmed
-    pub const OBJECT_FOG_USE: i32 = 144;
-    // 0x91, confirmed
-    pub const OBJECT_MASK_NO: i32 = 145;
-    // 0x92, confirmed
-    pub const OBJECT_CULLING: i32 = 146;
-    // 0x93, confirmed
-    pub const OBJECT_ALPHA_TEST: i32 = 147;
-    // 0x94, confirmed
-    pub const OBJECT_ALPHA_BLEND: i32 = 148;
-    // 0x95, confirmed
-    pub const OBJECT_SRC_CLIP_USE: i32 = 149;
-    // 0x96, confirmed
-    pub const OBJECT_SRC_CLIP_LEFT: i32 = 150;
-    // 0x97, confirmed
-    pub const OBJECT_SRC_CLIP_TOP: i32 = 151;
-    // 0x98, confirmed
-    pub const OBJECT_SRC_CLIP_RIGHT: i32 = 152;
-    // 0x99, confirmed
-    pub const OBJECT_SRC_CLIP_BOTTOM: i32 = 153;
-    // 0x9A, confirmed
-    pub const OBJECT_COLOR_RATE_EVE: i32 = 154;
-    // 0x9B, confirmed
-    pub const OBJECT_COLOR_ADD_R_EVE: i32 = 155;
-    // 0x9C, confirmed
-    pub const OBJECT_COLOR_ADD_G_EVE: i32 = 156;
-    // 0x9D, confirmed
-    pub const OBJECT_COLOR_ADD_B_EVE: i32 = 157;
-    // 0x9E, confirmed
-    pub const OBJECT_SET_CENTER: i32 = 158;
-    // 0x9F, confirmed
-    pub const OBJECT_SET_CENTER_REP: i32 = 159;
-    // 0xA0, confirmed
-    pub const OBJECT_SET_CLIP: i32 = 160;
-    // 0xA1, confirmed
-    pub const OBJECT_SET_SRC_CLIP: i32 = 161;
-    // 0xA2, confirmed
-    pub const OBJECT_ADD_HINTS: i32 = 162;
-    // 0xA3, confirmed
-    pub const OBJECT_CLEAR_HINTS: i32 = 163;
-    // 0xA4, confirmed
-    pub const OBJECT_SET_BUTTON_GROUP: i32 = 164;
-    // 0xA5, confirmed
-    pub const OBJECT_CREATE_CAPTURE: i32 = 165;
-    // 0xA6, confirmed
-    pub const OBJECT_SET_CHILD_SORT_TYPE_DEFAULT: i32 = 166;
-    // 0xA7, confirmed
-    pub const OBJECT_SET_CHILD_SORT_TYPE_TEST: i32 = 167;
-    // 0xA8, confirmed
-    pub const OBJECT_LIGHT_NO: i32 = 168;
-    // 0xA9, confirmed
-    pub const OBJECT_GET_PAT_CNT: i32 = 169;
-    // 0xAA, confirmed
-    pub const OBJECT_CREATE_CAPTURE_THUMB: i32 = 170;
-    // 0xAB, confirmed
-    pub const OBJECT_END_MOVIE_LOOP: i32 = 171;
-    // 0xAC, confirmed
-    pub const OBJECT_SET_MOVIE_AUTO_FREE: i32 = 172;
-    // 0xAE, confirmed
-    pub const OBJECT_EXIST_TYPE: i32 = 174;
-    // 0xAF, confirmed
-    pub const OBJECT_SET_BUTTON_ALPHA_TEST: i32 = 175;
-    // 0xB0, confirmed
-    pub const OBJECT_GET_BUTTON_ALPHA_TEST: i32 = 176;
-    // 0xB1, confirmed
-    pub const OBJECT_CREATE_EMOTE: i32 = 177;
-    // 0xB2, confirmed
-    pub const OBJECT_EMOTE_PLAY_TIMELINE: i32 = 178;
-    // 0xB3, confirmed
-    pub const OBJECT_EMOTE_STOP_TIMELINE: i32 = 179;
-    // 0xB5, confirmed
-    pub const OBJECT_EMOTE_CHECK_PLAYING: i32 = 181;
-    // 0xB6, confirmed
-    pub const OBJECT_EMOTE_WAIT_PLAYING: i32 = 182;
-    // 0xB7, confirmed
-    pub const OBJECT_EMOTE_WAIT_PLAYING_KEY: i32 = 183;
-    // 0xB8, confirmed
-    pub const OBJECT_EMOTE_SKIP: i32 = 184;
-    // 0xB9, confirmed
-    pub const OBJECT_EMOTE_PASS: i32 = 185;
-    // 0xBA, confirmed
-    pub const OBJECT_EMOTE_KOE_CHARA_NO: i32 = 186;
-    // 0xBB, confirmed
-    pub const OBJECT_EMOTE_MOUTH_VOLUME: i32 = 187;
-    // 0x01000000, confirmed
-    pub const OBJECT_LOAD_GAN: i32 = 16777216;
-    // 0x01000001, confirmed
-    pub const OBJECT_START_GAN: i32 = 16777217;
-
-    // OBJECTLIST
-    // 0x03, confirmed
-    pub const OBJECTLIST_GET_SIZE: i32 = 3;
-    // 0x04, confirmed
-    pub const OBJECTLIST_RESIZE: i32 = 4;
-
-    // PCM
-    // 0x00, confirmed
-    pub const PCM_PLAY: i32 = 0;
-    // 0x01, confirmed
-    pub const PCM_STOP: i32 = 1;
-
-    // PCMCH
-    // 0x00, confirmed
-    pub const PCMCH_PLAY: i32 = 0;
-    // 0x01, confirmed
-    pub const PCMCH_PLAY_WAIT: i32 = 1;
-    // 0x02, confirmed
-    pub const PCMCH_PLAY_LOOP: i32 = 2;
-    // 0x03, confirmed
-    pub const PCMCH_WAIT: i32 = 3;
-    // 0x04, confirmed
-    pub const PCMCH_CHECK: i32 = 4;
-    // 0x05, confirmed
-    pub const PCMCH_STOP: i32 = 5;
-    // 0x06, confirmed
-    pub const PCMCH_WAIT_KEY: i32 = 6;
-    // 0x07, confirmed
-    pub const PCMCH_WAIT_FADE_KEY: i32 = 7;
-    // 0x08, confirmed
-    pub const PCMCH_WAIT_FADE: i32 = 8;
-    // 0x09, confirmed
-    pub const PCMCH_RESUME: i32 = 9;
-    // 0x0A, confirmed
-    pub const PCMCH_PAUSE: i32 = 10;
-    // 0x0B, confirmed
-    pub const PCMCH_READY: i32 = 11;
-    // 0x0C, confirmed
-    pub const PCMCH_GET_VOLUME: i32 = 12;
-    // 0x0D, confirmed
-    pub const PCMCH_SET_VOLUME: i32 = 13;
-    // 0x0E, confirmed
-    pub const PCMCH_SET_VOLUME_MAX: i32 = 14;
-    // 0x0F, confirmed
-    pub const PCMCH_SET_VOLUME_MIN: i32 = 15;
-    // 0x10, confirmed
-    pub const PCMCH_READY_LOOP: i32 = 16;
-    // 0x11, confirmed
-    pub const PCMCH_RESUME_WAIT: i32 = 17;
-
-    // PCMEVENT
-    // 0x00, confirmed
-    pub const PCMEVENT_START_ONESHOT: i32 = 0;
-    // 0x01, confirmed
-    pub const PCMEVENT_START_LOOP: i32 = 1;
-    // 0x02, confirmed
-    pub const PCMEVENT_START_RANDOM: i32 = 2;
-    // 0x03, confirmed
-    pub const PCMEVENT_STOP: i32 = 3;
-    // 0x04, confirmed
-    pub const PCMEVENT_WAIT: i32 = 4;
-    // 0x05, confirmed
-    pub const PCMEVENT_CHECK: i32 = 5;
-    // 0x06, confirmed
-    pub const PCMEVENT_WAIT_KEY: i32 = 6;
-
-    // QUAKE
-    // 0x1, confirmed
-    pub const QUAKE_START_WAIT: i32 = 1;
-    // 0x2, confirmed
-    pub const QUAKE_START_WAIT_KEY: i32 = 2;
-    // 0x5, confirmed
-    pub const QUAKE_START_ALL_WAIT: i32 = 5;
-    // 0x6, confirmed
-    pub const QUAKE_START_ALL_WAIT_KEY: i32 = 6;
-    // 0x8, confirmed
-    pub const QUAKE_END: i32 = 8;
-    // 0x9, confirmed
-    pub const QUAKE_CHECK: i32 = 9;
-    // 0xA, confirmed
-    pub const QUAKE_WAIT: i32 = 10;
-    // 0xB, confirmed
-    pub const QUAKE_WAIT_KEY: i32 = 11;
-
-    // SCREEN
-    // 0x0, confirmed
-    pub const SCREEN_MONO: i32 = 0;
-    // 0x2, confirmed
-    pub const SCREEN_REVERSE: i32 = 2;
-    // 0x3, confirmed
-    pub const SCREEN_BRIGHT: i32 = 3;
-    // 0x4, confirmed
-    pub const SCREEN_DARK: i32 = 4;
-    // 0x5, confirmed
-    pub const SCREEN_COLOR_R: i32 = 5;
-    // 0x6, confirmed
-    pub const SCREEN_COLOR_G: i32 = 6;
-    // 0x7, confirmed
-    pub const SCREEN_COLOR_B: i32 = 7;
-    // 0x8, confirmed
-    pub const SCREEN_COLOR_RATE: i32 = 8;
-    // 0x9, confirmed
-    pub const SCREEN_SHAKE: i32 = 9;
-    // 0xA, confirmed
-    pub const SCREEN_X: i32 = 10;
-    // 0x0B, confirmed
-    pub const SCREEN_X_EVE: i32 = 11;
-    // 0x0C, confirmed
-    pub const SCREEN_Y_EVE: i32 = 12;
-    // 0x0D, confirmed
-    pub const SCREEN_Z_EVE: i32 = 13;
-    // 0x0E, confirmed
-    pub const SCREEN_MONO_EVE: i32 = 14;
-    // 0x0F, confirmed
-    pub const SCREEN_REVERSE_EVE: i32 = 15;
-    // 0x10, confirmed
-    pub const SCREEN_BRIGHT_EVE: i32 = 16;
-    // 0x11, confirmed
-    pub const SCREEN_DARK_EVE: i32 = 17;
-    // 0x12, confirmed
-    pub const SCREEN_COLOR_R_EVE: i32 = 18;
-    // 0x13, confirmed
-    pub const SCREEN_COLOR_ADD_R: i32 = 19;
-    // 0x14, confirmed
-    pub const SCREEN_COLOR_ADD_G: i32 = 20;
-    // 0x15, confirmed
-    pub const SCREEN_COLOR_ADD_B: i32 = 21;
-    // 0x16, confirmed
-    pub const SCREEN_COLOR_G_EVE: i32 = 22;
-    // 0x17, confirmed
-    pub const SCREEN_COLOR_B_EVE: i32 = 23;
-    // 0x18, confirmed
-    pub const SCREEN_COLOR_RATE_EVE: i32 = 24;
-    // 0x19, confirmed
-    pub const SCREEN_QUAKE: i32 = 25;
-    // 0x1A, confirmed
-    pub const SCREEN_Y: i32 = 26;
-    // 0x1B, confirmed
-    pub const SCREEN_Z: i32 = 27;
-    // 0x1C, confirmed
-    pub const SCREEN_COLOR_ADD_R_EVE: i32 = 28;
-    // 0x1D, confirmed
-    pub const SCREEN_COLOR_ADD_G_EVE: i32 = 29;
-    // 0x1E, confirmed
-    pub const SCREEN_COLOR_ADD_B_EVE: i32 = 30;
-    // 0x1F, confirmed
-    pub const SCREEN_EFFECT: i32 = 31;
-
-    // SCRIPT
-    // 0x00, confirmed
-    pub const SCRIPT_START_AUTO_MODE: i32 = 0;
-    // 0x01, confirmed
-    pub const SCRIPT_END_AUTO_MODE: i32 = 1;
-    // 0x02, confirmed
-    pub const SCRIPT_SET_SKIP_DISABLE: i32 = 2;
-    // 0x03, confirmed
-    pub const SCRIPT_SET_MWND_ANIME_OFF_FLAG: i32 = 3;
-    // 0x04, confirmed
-    pub const SCRIPT_SET_MWND_ANIME_ON_FLAG: i32 = 4;
-    // 0x05, confirmed
-    pub const SCRIPT_SET_SKIP_ENABLE: i32 = 5;
-    // 0x06, confirmed
-    pub const SCRIPT_SET_CTRL_SKIP_DISABLE: i32 = 6;
-    // 0x07, confirmed
-    pub const SCRIPT_SET_CTRL_SKIP_ENABLE: i32 = 7;
-    // 0x08, confirmed
-    pub const SCRIPT_SET_MWND_DISP_OFF_FLAG: i32 = 8;
-    // 0x09, confirmed
-    pub const SCRIPT_GET_MWND_ANIME_OFF_FLAG: i32 = 9;
-    // 0x0A, confirmed
-    pub const SCRIPT_SET_VSYNC_WAIT_OFF_FLAG: i32 = 10;
-    // 0x0B, confirmed
-    pub const SCRIPT_SET_QUAKE_STOP_FLAG: i32 = 11;
-    // 0x0C, confirmed
-    pub const SCRIPT_SET_MSG_BACK_DISABLE: i32 = 12;
-    // 0x0D, confirmed
-    pub const SCRIPT_SET_MSG_BACK_ENABLE: i32 = 13;
-    // 0x0E, confirmed
-    pub const SCRIPT_SET_MOUSE_DISP_OFF: i32 = 14;
-    // 0x0F, confirmed
-    pub const SCRIPT_SET_MOUSE_DISP_ON: i32 = 15;
-    // 0x10, confirmed
-    pub const SCRIPT_GET_MWND_ANIME_ON_FLAG: i32 = 16;
-    // 0x11, confirmed
-    pub const SCRIPT_GET_MWND_DISP_OFF_FLAG: i32 = 17;
-    // 0x12, confirmed
-    pub const SCRIPT_CHECK_SKIP: i32 = 18;
-    // 0x13, confirmed
-    pub const SCRIPT_SET_MOUSE_MOVE_BY_KEY_DISABLE: i32 = 19;
-    // 0x14, confirmed
-    pub const SCRIPT_SET_MOUSE_MOVE_BY_KEY_ENABLE: i32 = 20;
-    // 0x15, confirmed
-    pub const SCRIPT_SET_MSG_ASYNC_MODE_ON: i32 = 21;
-    // 0x16, confirmed
-    pub const SCRIPT_SET_MSG_ASYNC_MODE_OFF: i32 = 22;
-    // 0x17, confirmed
-    pub const SCRIPT_GET_QUAKE_STOP_FLAG: i32 = 23;
-    // 0x18, confirmed
-    pub const SCRIPT_GET_VSYNC_WAIT_OFF_FLAG: i32 = 24;
-    // 0x19, confirmed
-    pub const SCRIPT_SET_MESSAGE_SPEED: i32 = 25;
-    // 0x1A, confirmed
-    pub const SCRIPT_GET_MESSAGE_SPEED: i32 = 26;
-    // 0x1B, confirmed
-    pub const SCRIPT_SET_MESSAGE_SPEED_DEFAULT: i32 = 27;
-    // 0x1C, confirmed
-    pub const SCRIPT_SET_MESSAGE_NOWAIT_FLAG: i32 = 28;
-    // 0x1D, confirmed
-    pub const SCRIPT_GET_MESSAGE_NOWAIT_FLAG: i32 = 29;
-    // 0x1E, confirmed
-    pub const SCRIPT_SET_STOP_SKIP_BY_KEY_DISABLE: i32 = 30;
-    // 0x1F, confirmed
-    pub const SCRIPT_SET_STOP_SKIP_BY_KEY_ENABLE: i32 = 31;
-    // 0x20, confirmed
-    pub const SCRIPT_SET_SHORTCUT_DISABLE: i32 = 32;
-    // 0x21, confirmed
-    pub const SCRIPT_SET_SHORTCUT_ENABLE: i32 = 33;
-    // 0x22, confirmed
-    pub const SCRIPT_SET_MSG_BACK_OFF: i32 = 34;
-    // 0x23, confirmed
-    pub const SCRIPT_SET_MSG_BACK_ON: i32 = 35;
-    // 0x24, confirmed
-    pub const SCRIPT_START_BGMFADE: i32 = 36;
-    // 0x25, confirmed
-    pub const SCRIPT_END_BGMFADE: i32 = 37;
-    // 0x26, confirmed
-    pub const SCRIPT_SET_AUTO_SAVEPOINT_OFF: i32 = 38;
-    // 0x27, confirmed
-    pub const SCRIPT_SET_AUTO_SAVEPOINT_ON: i32 = 39;
-    // 0x28, confirmed
-    pub const SCRIPT_SET_KEY_DISABLE: i32 = 40;
-    // 0x29, confirmed
-    pub const SCRIPT_SET_KEY_ENABLE: i32 = 41;
-    // 0x2A, confirmed
-    pub const SCRIPT_SET_KOE_DONT_STOP_ON_FLAG: i32 = 42;
-    // 0x2B, confirmed
-    pub const SCRIPT_GET_KOE_DONT_STOP_ON_FLAG: i32 = 43;
-    // 0x2C, confirmed
-    pub const SCRIPT_SET_KOE_DONT_STOP_OFF_FLAG: i32 = 44;
-    // 0x2D, confirmed
-    pub const SCRIPT_GET_KOE_DONT_STOP_OFF_FLAG: i32 = 45;
-    // 0x2E, confirmed
-    pub const SCRIPT_SET_HIDE_MWND_DISABLE: i32 = 46;
-    // 0x2F, confirmed
-    pub const SCRIPT_SET_HIDE_MWND_ENABLE: i32 = 47;
-    // 0x30, confirmed
-    pub const SCRIPT_SET_SKIP_TRIGGER: i32 = 48;
-    // 0x31, confirmed
-    pub const SCRIPT_IGNORE_R_ON: i32 = 49;
-    // 0x32, confirmed
-    pub const SCRIPT_IGNORE_R_OFF: i32 = 50;
-    // 0x33, confirmed
-    pub const SCRIPT_SET_MSG_ASYNC_MODE_ON_ONCE: i32 = 51;
-    // 0x34, confirmed
-    pub const SCRIPT_SET_CURSOR_NO: i32 = 52;
-    // 0x35, confirmed
-    pub const SCRIPT_GET_CURSOR_NO: i32 = 53;
-    // 0x36, confirmed
-    pub const SCRIPT_SET_END_MSG_BY_KEY_DISABLE: i32 = 54;
-    // 0x37, confirmed
-    pub const SCRIPT_SET_END_MSG_BY_KEY_ENABLE: i32 = 55;
-    // 0x38, confirmed
-    pub const SCRIPT_SET_MSG_BACK_DISP_OFF: i32 = 56;
-    // 0x39, confirmed
-    pub const SCRIPT_SET_MSG_BACK_DISP_ON: i32 = 57;
-    // 0x3C, confirmed
-    pub const SCRIPT_SET_AUTO_MODE_MOJI_WAIT: i32 = 60;
-    // 0x3D, confirmed
-    pub const SCRIPT_SET_AUTO_MODE_MIN_WAIT: i32 = 61;
-    // 0x3E, confirmed
-    pub const SCRIPT_SET_AUTO_MODE_MOJI_WAIT_DEFAULT: i32 = 62;
-    // 0x3F, confirmed
-    pub const SCRIPT_SET_AUTO_MODE_MIN_WAIT_DEFAULT: i32 = 63;
-    // 0x40, confirmed
-    pub const SCRIPT_GET_AUTO_MODE_MOJI_WAIT: i32 = 64;
-    // 0x41, confirmed
-    pub const SCRIPT_GET_AUTO_MODE_MIN_WAIT: i32 = 65;
-    // 0x42, confirmed
-    pub const SCRIPT_SET_TIME_STOP_FLAG: i32 = 66;
-    // 0x43, confirmed
-    pub const SCRIPT_GET_TIME_STOP_FLAG: i32 = 67;
-    // 0x44, confirmed
-    pub const SCRIPT_SET_COUNTER_TIME_STOP_FLAG: i32 = 68;
-    // 0x45, confirmed
-    pub const SCRIPT_SET_FRAME_ACTION_TIME_STOP_FLAG: i32 = 69;
-    // 0x46, confirmed
-    pub const SCRIPT_SET_STAGE_TIME_STOP_FLAG: i32 = 70;
-    // 0x47, confirmed
-    pub const SCRIPT_GET_STAGE_TIME_STOP_FLAG: i32 = 71;
-    // 0x48, confirmed
-    pub const SCRIPT_GET_FRAME_ACTION_TIME_STOP_FLAG: i32 = 72;
-    // 0x49, confirmed
-    pub const SCRIPT_GET_COUNTER_TIME_STOP_FLAG: i32 = 73;
-    // 0x4A, confirmed
-    pub const SCRIPT_SET_SKIP_UNREAD_MESSAGE_FLAG: i32 = 74;
-    // 0x4B, confirmed
-    pub const SCRIPT_GET_SKIP_UNREAD_MESSAGE_FLAG: i32 = 75;
-    // 0x4C, confirmed
-    pub const SCRIPT_SET_AUTO_MODE_MOJI_CNT: i32 = 76;
-    // 0x4D, confirmed
-    pub const SCRIPT_SET_MOUSE_CURSOR_HIDE_ONOFF: i32 = 77;
-    // 0x4E, confirmed
-    pub const SCRIPT_GET_MOUSE_CURSOR_HIDE_ONOFF: i32 = 78;
-    // 0x4F, confirmed
-    pub const SCRIPT_SET_MOUSE_CURSOR_HIDE_TIME: i32 = 79;
-    // 0x50, confirmed
-    pub const SCRIPT_SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT: i32 = 80;
-    // 0x51, confirmed
-    pub const SCRIPT_GET_MOUSE_CURSOR_HIDE_TIME: i32 = 81;
-    // 0x52, confirmed
-    pub const SCRIPT_SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT: i32 = 82;
-    // 0x53, confirmed
-    pub const SCRIPT_GET_SKIP_DISABLE_FLAG: i32 = 83;
-    // 0x54, confirmed
-    pub const SCRIPT_GET_CTRL_SKIP_DISABLE_FLAG: i32 = 84;
-    // 0x55, confirmed
-    pub const SCRIPT_SET_SKIP_DISABLE_FLAG: i32 = 85;
-    // 0x56, confirmed
-    pub const SCRIPT_SET_CTRL_SKIP_DISABLE_FLAG: i32 = 86;
-    // 0x57, confirmed
-    pub const SCRIPT_SET_FONT_NAME: i32 = 87;
-    // 0x58, confirmed
-    pub const SCRIPT_SET_FONT_NAME_DEFAULT: i32 = 88;
-    // 0x59, confirmed
-    pub const SCRIPT_GET_FONT_NAME: i32 = 89;
-    // 0x5A, confirmed
-    pub const SCRIPT_SET_FONT_BOLD: i32 = 90;
-    // 0x5B, confirmed
-    pub const SCRIPT_SET_FONT_BOLD_DEFAULT: i32 = 91;
-    // 0x5C, confirmed
-    pub const SCRIPT_GET_FONT_BOLD: i32 = 92;
-    // 0x5D, confirmed
-    pub const SCRIPT_SET_FONT_SHADOW: i32 = 93;
-    // 0x5E, confirmed
-    pub const SCRIPT_SET_FONT_SHADOW_DEFAULT: i32 = 94;
-    // 0x5F, confirmed
-    pub const SCRIPT_GET_FONT_SHADOW: i32 = 95;
-    // 0x60, confirmed
-    pub const SCRIPT_SET_EMOTE_MOUTH_STOP_FLAG: i32 = 96;
-    // 0x61, confirmed
-    pub const SCRIPT_GET_EMOTE_MOUTH_STOP_FLAG: i32 = 97;
-
-    // SE
-    // 0x00, confirmed
-    pub const SE_PLAY: i32 = 0;
-    // 0x01, confirmed
-    pub const SE_SET_VOLUME: i32 = 1;
-    // 0x02, confirmed
-    pub const SE_SET_VOLUME_MAX: i32 = 2;
-    // 0x03, confirmed
-    pub const SE_SET_VOLUME_MIN: i32 = 3;
-    // 0x04, confirmed
-    pub const SE_CHECK: i32 = 4;
-    // 0x05, confirmed
-    pub const SE_PLAY_BY_FILE_NAME: i32 = 5;
-    // 0x06, confirmed
-    pub const SE_PLAY_BY_KOE_NO: i32 = 6;
-    // 0x07, confirmed
-    pub const SE_STOP: i32 = 7;
-    // 0x08, confirmed
-    pub const SE_WAIT: i32 = 8;
-    // 0x09, confirmed
-    pub const SE_PLAY_BY_SE_NO: i32 = 9;
-    // 0x0A, confirmed
-    pub const SE_WAIT_KEY: i32 = 10;
-    // 0x0B, confirmed
-    pub const SE_GET_VOLUME: i32 = 11;
-
-    // STAGE
-    // 0x00, confirmed
-    pub const STAGE_CREATE_OBJECT: i32 = 0;
-    // 0x01, confirmed
-    pub const STAGE_CREATE_MWND: i32 = 1;
-    // 0x02, confirmed
-    pub const STAGE_OBJECT: i32 = 2;
-    // 0x03, confirmed
-    pub const STAGE_MWND: i32 = 3;
-    // 0x04, confirmed
-    pub const STAGE_EFFECT: i32 = 4;
-    // 0x05, confirmed
-    pub const STAGE_BTNSELITEM: i32 = 5;
-    // 0x06, confirmed
-    pub const STAGE_OBJBTNGROUP: i32 = 6;
-    // 0x07, confirmed
-    pub const STAGE_QUAKE: i32 = 7;
-    // 0x08, confirmed
-    pub const STAGE_WORLD: i32 = 8;
-
-    // STR
-    // 0x0, confirmed
-    pub const STR_UPPER: i32 = 0;
-    // 0x1, confirmed
-    pub const STR_LOWER: i32 = 1;
-    // 0x2, confirmed
-    pub const STR_LEFT: i32 = 2;
-    // 0x3, confirmed
-    pub const STR_MID: i32 = 3;
-    // 0x4, confirmed
-    pub const STR_RIGHT: i32 = 4;
-    // 0x5, confirmed
-    pub const STR_LEN: i32 = 5;
-    // 0x6, confirmed
-    pub const STR_CNT: i32 = 6;
-    // 0x7, confirmed
-    pub const STR_LEFT_LEN: i32 = 7;
-    // 0x8, confirmed
-    pub const STR_MID_LEN: i32 = 8;
-    // 0x9, confirmed
-    pub const STR_RIGHT_LEN: i32 = 9;
-    // 0xa, confirmed
-    pub const STR_SEARCH: i32 = 10;
-    // 0xb, confirmed
-    pub const STR_SEARCH_LAST: i32 = 11;
-    // 0xc, confirmed
-    pub const STR_TONUM: i32 = 12;
-    // 0xd, confirmed
-    pub const STR_GET_CODE: i32 = 13;
-
-    // STRLIST
-    // 0x2, confirmed
-    pub const STRLIST_RESIZE: i32 = 2;
-    // 0x3, confirmed
-    pub const STRLIST_INIT: i32 = 3;
-    // 0x4, confirmed
-    pub const STRLIST_GET_SIZE: i32 = 4;
-
-    // SYSCOM
-    // 0x000, confirmed
-    pub const SYSCOM_CALL_SYSCOM_MENU: i32 = 0;
-    // 0x003, confirmed
-    pub const SYSCOM_CALL_CONFIG_MENU: i32 = 3;
-    // 0x004, confirmed
-    pub const SYSCOM_SET_WINDOW_MODE: i32 = 4;
-    // 0x005, confirmed
-    pub const SYSCOM_INIT_SYSCOM_FLAG: i32 = 5;
-    // 0x006, confirmed
-    pub const SYSCOM_SET_SYSCOM_MENU_ENABLE: i32 = 6;
-    // 0x007, confirmed
-    pub const SYSCOM_SET_SYSCOM_MENU_DISABLE: i32 = 7;
-    // 0x008, confirmed
-    pub const SYSCOM_SET_NO_MWND_ANIME_ONOFF: i32 = 8;
-    // 0x009, confirmed
-    pub const SYSCOM_GET_WINDOW_MODE: i32 = 9;
-    // 0x00A, confirmed
-    pub const SYSCOM_GET_SAVELOAD_ALERT_ONOFF: i32 = 10;
-    // 0x00B, confirmed
-    pub const SYSCOM_SET_MWND_BTN_ENABLE: i32 = 11;
-    // 0x00C, confirmed
-    pub const SYSCOM_SET_MWND_BTN_DISABLE: i32 = 12;
-    // 0x00D, confirmed
-    pub const SYSCOM_SET_WINDOW_MODE_SIZE: i32 = 13;
-    // 0x00E, confirmed
-    pub const SYSCOM_SET_GLOBAL_EXTRA_SWITCH_ONOFF: i32 = 14;
-    // 0x00F, confirmed
-    pub const SYSCOM_SET_GLOBAL_EXTRA_SWITCH_ONOFF_DEFAULT: i32 = 15;
-    // 0x010, confirmed
-    pub const SYSCOM_GET_WINDOW_MODE_SIZE: i32 = 16;
-    // 0x011, confirmed
-    pub const SYSCOM_GET_GLOBAL_EXTRA_SWITCH_ONOFF: i32 = 17;
-    // 0x012, confirmed
-    pub const SYSCOM_QUICK_SAVE: i32 = 18;
-    // 0x014, confirmed
-    pub const SYSCOM_QUICK_LOAD: i32 = 20;
-    // 0x015, confirmed
-    pub const SYSCOM_SET_BGM_VOLUME: i32 = 21;
-    // 0x017, confirmed
-    pub const SYSCOM_SET_LOCAL_EXTRA_MODE_VALUE: i32 = 23;
-    // 0x018, confirmed
-    pub const SYSCOM_SET_BGM_VOLUME_DEFAULT: i32 = 24;
-    // 0x019, confirmed
-    pub const SYSCOM_GET_BGM_VOLUME: i32 = 25;
-    // 0x01A, confirmed
-    pub const SYSCOM_SET_KOE_VOLUME: i32 = 26;
-    // 0x01B, confirmed
-    pub const SYSCOM_SET_KOE_VOLUME_DEFAULT: i32 = 27;
-    // 0x01C, confirmed
-    pub const SYSCOM_GET_KOE_VOLUME: i32 = 28;
-    // 0x01D, confirmed
-    pub const SYSCOM_SET_PCM_VOLUME: i32 = 29;
-    // 0x01E, confirmed
-    pub const SYSCOM_SET_PCM_VOLUME_DEFAULT: i32 = 30;
-    // 0x01F, confirmed
-    pub const SYSCOM_GET_PCM_VOLUME: i32 = 31;
-    // 0x020, confirmed
-    pub const SYSCOM_SET_SE_VOLUME: i32 = 32;
-    // 0x021, confirmed
-    pub const SYSCOM_SET_SE_VOLUME_DEFAULT: i32 = 33;
-    // 0x022, confirmed
-    pub const SYSCOM_GET_SE_VOLUME: i32 = 34;
-    // 0x023, confirmed
-    pub const SYSCOM_SET_BGM_ONOFF: i32 = 35;
-    // 0x024, confirmed
-    pub const SYSCOM_SET_KOE_ONOFF: i32 = 36;
-    // 0x025, confirmed
-    pub const SYSCOM_SET_PCM_ONOFF: i32 = 37;
-    // 0x026, confirmed
-    pub const SYSCOM_SET_SE_ONOFF: i32 = 38;
-    // 0x027, confirmed
-    pub const SYSCOM_SET_ALL_VOLUME: i32 = 39;
-    // 0x028, confirmed
-    pub const SYSCOM_SET_ALL_VOLUME_DEFAULT: i32 = 40;
-    // 0x029, confirmed
-    pub const SYSCOM_GET_ALL_VOLUME: i32 = 41;
-    // 0x02A, confirmed
-    pub const SYSCOM_GET_BGM_ONOFF: i32 = 42;
-    // 0x02B, confirmed
-    pub const SYSCOM_GET_KOE_ONOFF: i32 = 43;
-    // 0x02C, confirmed
-    pub const SYSCOM_GET_PCM_ONOFF: i32 = 44;
-    // 0x02D, confirmed
-    pub const SYSCOM_GET_SE_ONOFF: i32 = 45;
-    // 0x02E, confirmed
-    pub const SYSCOM_SET_MESSAGE_SPEED: i32 = 46;
-    // 0x02F, confirmed
-    pub const SYSCOM_SET_MESSAGE_SPEED_DEFAULT: i32 = 47;
-    // 0x030, confirmed
-    pub const SYSCOM_GET_MESSAGE_SPEED: i32 = 48;
-    // 0x031, confirmed
-    pub const SYSCOM_SET_MESSAGE_NOWAIT: i32 = 49;
-    // 0x032, confirmed
-    pub const SYSCOM_GET_MESSAGE_NOWAIT: i32 = 50;
-    // 0x033, confirmed
-    pub const SYSCOM_SET_AUTO_MODE_MOJI_WAIT: i32 = 51;
-    // 0x034, confirmed
-    pub const SYSCOM_SET_AUTO_MODE_MOJI_WAIT_DEFAULT: i32 = 52;
-    // 0x035, confirmed
-    pub const SYSCOM_GET_AUTO_MODE_MOJI_WAIT: i32 = 53;
-    // 0x036, confirmed
-    pub const SYSCOM_SET_AUTO_MODE_MIN_WAIT: i32 = 54;
-    // 0x037, confirmed
-    pub const SYSCOM_SET_AUTO_MODE_MIN_WAIT_DEFAULT: i32 = 55;
-    // 0x038, confirmed
-    pub const SYSCOM_GET_AUTO_MODE_MIN_WAIT: i32 = 56;
-    // 0x039, confirmed
-    pub const SYSCOM_GET_LOCAL_EXTRA_MODE_VALUE: i32 = 57;
-    // 0x03A, confirmed
-    pub const SYSCOM_SET_LOCAL_EXTRA_MODE_ENABLE_FLAG: i32 = 58;
-    // 0x03B, confirmed
-    pub const SYSCOM_GET_LOCAL_EXTRA_MODE_ENABLE_FLAG: i32 = 59;
-    // 0x03C, confirmed
-    pub const SYSCOM_SET_ALL_ONOFF: i32 = 60;
-    // 0x03D, confirmed
-    pub const SYSCOM_GET_ALL_ONOFF: i32 = 61;
-    // 0x03E, confirmed
-    pub const SYSCOM_SET_LOCAL_EXTRA_MODE_EXIST_FLAG: i32 = 62;
-    // 0x03F, confirmed
-    pub const SYSCOM_GET_LOCAL_EXTRA_MODE_EXIST_FLAG: i32 = 63;
-    // 0x040, confirmed
-    pub const SYSCOM_CHECK_LOCAL_EXTRA_MODE_ENABLE: i32 = 64;
-    // 0x042, confirmed
-    pub const SYSCOM_CHANGE_QUICK_SAVE: i32 = 66;
-    // 0x043, confirmed
-    pub const SYSCOM_SAVE: i32 = 67;
-    // 0x044, confirmed
-    pub const SYSCOM_GET_SAVE_CNT: i32 = 68;
-    // 0x045, confirmed
-    pub const SYSCOM_GET_SAVE_EXIST: i32 = 69;
-    // 0x046, confirmed
-    pub const SYSCOM_GET_SAVE_YEAR: i32 = 70;
-    // 0x047, confirmed
-    pub const SYSCOM_GET_SAVE_MONTH: i32 = 71;
-    // 0x048, confirmed
-    pub const SYSCOM_GET_SAVE_DAY: i32 = 72;
-    // 0x049, confirmed
-    pub const SYSCOM_GET_SAVE_WEEKDAY: i32 = 73;
-    // 0x04A, confirmed
-    pub const SYSCOM_GET_SAVE_HOUR: i32 = 74;
-    // 0x04B, confirmed
-    pub const SYSCOM_GET_SAVE_MINUTE: i32 = 75;
-    // 0x04C, confirmed
-    pub const SYSCOM_GET_SAVE_SECOND: i32 = 76;
-    // 0x04D, confirmed
-    pub const SYSCOM_GET_SAVE_MILLISECOND: i32 = 77;
-    // 0x04E, confirmed
-    pub const SYSCOM_GET_SAVE_TITLE: i32 = 78;
-    // 0x04F, confirmed
-    pub const SYSCOM_GET_SAVE_NEW_NO: i32 = 79;
-    // 0x050, confirmed
-    pub const SYSCOM_SET_SAVELOAD_ALERT_ONOFF: i32 = 80;
-    // 0x051, confirmed
-    pub const SYSCOM_GET_NO_MWND_ANIME_ONOFF: i32 = 81;
-    // 0x052, confirmed
-    pub const SYSCOM_SET_FILTER_COLOR_R: i32 = 82;
-    // 0x053, confirmed
-    pub const SYSCOM_SET_FILTER_COLOR_R_DEFAULT: i32 = 83;
-    // 0x054, confirmed
-    pub const SYSCOM_GET_FILTER_COLOR_R: i32 = 84;
-    // 0x055, confirmed
-    pub const SYSCOM_SET_FILTER_COLOR_G: i32 = 85;
-    // 0x056, confirmed
-    pub const SYSCOM_SET_FILTER_COLOR_B: i32 = 86;
-    // 0x057, confirmed
-    pub const SYSCOM_SET_FILTER_COLOR_A: i32 = 87;
-    // 0x058, confirmed
-    pub const SYSCOM_SET_FILTER_COLOR_G_DEFAULT: i32 = 88;
-    // 0x059, confirmed
-    pub const SYSCOM_SET_FILTER_COLOR_B_DEFAULT: i32 = 89;
-    // 0x05A, confirmed
-    pub const SYSCOM_SET_FILTER_COLOR_A_DEFAULT: i32 = 90;
-    // 0x05B, confirmed
-    pub const SYSCOM_GET_FILTER_COLOR_G: i32 = 91;
-    // 0x05C, confirmed
-    pub const SYSCOM_GET_FILTER_COLOR_B: i32 = 92;
-    // 0x05D, confirmed
-    pub const SYSCOM_GET_FILTER_COLOR_A: i32 = 93;
-    // 0x05E, confirmed
-    pub const SYSCOM_SET_BGMFADE_VOLUME: i32 = 94;
-    // 0x05F, confirmed
-    pub const SYSCOM_SET_BGMFADE_VOLUME_DEFAULT: i32 = 95;
-    // 0x060, confirmed
-    pub const SYSCOM_GET_BGMFADE_VOLUME: i32 = 96;
-    // 0x061, confirmed
-    pub const SYSCOM_SET_BGMFADE_ONOFF: i32 = 97;
-    // 0x062, confirmed
-    pub const SYSCOM_GET_BGMFADE_ONOFF: i32 = 98;
-    // 0x063, confirmed
-    pub const SYSCOM_SET_WINDOW_MODE_DEFAULT: i32 = 99;
-    // 0x064, confirmed
-    pub const SYSCOM_SET_WINDOW_MODE_SIZE_DEFAULT: i32 = 100;
-    // 0x065, confirmed
-    pub const SYSCOM_SET_ALL_ONOFF_DEFAULT: i32 = 101;
-    // 0x066, confirmed
-    pub const SYSCOM_SET_BGM_ONOFF_DEFAULT: i32 = 102;
-    // 0x067, confirmed
-    pub const SYSCOM_SET_KOE_ONOFF_DEFAULT: i32 = 103;
-    // 0x068, confirmed
-    pub const SYSCOM_SET_PCM_ONOFF_DEFAULT: i32 = 104;
-    // 0x069, confirmed
-    pub const SYSCOM_SET_SE_ONOFF_DEFAULT: i32 = 105;
-    // 0x06A, confirmed
-    pub const SYSCOM_SET_BGMFADE_ONOFF_DEFAULT: i32 = 106;
-    // 0x06B, confirmed
-    pub const SYSCOM_SET_MESSAGE_NOWAIT_DEFAULT: i32 = 107;
-    // 0x06C, confirmed
-    pub const SYSCOM_SET_SAVELOAD_ALERT_ONOFF_DEFAULT: i32 = 108;
-    // 0x06D, confirmed
-    pub const SYSCOM_SET_NO_MWND_ANIME_ONOFF_DEFAULT: i32 = 109;
-    // 0x06E, confirmed
-    pub const SYSCOM_SET_SLEEP_ONOFF: i32 = 110;
-    // 0x06F, confirmed
-    pub const SYSCOM_SET_SLEEP_ONOFF_DEFAULT: i32 = 111;
-    // 0x070, confirmed
-    pub const SYSCOM_GET_SLEEP_ONOFF: i32 = 112;
-    // 0x071, confirmed
-    pub const SYSCOM_SET_NO_WIPE_ANIME_ONOFF: i32 = 113;
-    // 0x072, confirmed
-    pub const SYSCOM_SET_NO_WIPE_ANIME_ONOFF_DEFAULT: i32 = 114;
-    // 0x073, confirmed
-    pub const SYSCOM_GET_NO_WIPE_ANIME_ONOFF: i32 = 115;
-    // 0x074, confirmed
-    pub const SYSCOM_SET_SKIP_WIPE_ANIME_ONOFF: i32 = 116;
-    // 0x075, confirmed
-    pub const SYSCOM_SET_SKIP_WIPE_ANIME_ONOFF_DEFAULT: i32 = 117;
-    // 0x076, confirmed
-    pub const SYSCOM_GET_SKIP_WIPE_ANIME_ONOFF: i32 = 118;
-    // 0x077, confirmed
-    pub const SYSCOM_SET_WHEEL_NEXT_MESSAGE_ONOFF: i32 = 119;
-    // 0x078, confirmed
-    pub const SYSCOM_SET_WHEEL_NEXT_MESSAGE_ONOFF_DEFAULT: i32 = 120;
-    // 0x079, confirmed
-    pub const SYSCOM_GET_WHEEL_NEXT_MESSAGE_ONOFF: i32 = 121;
-    // 0x07A, confirmed
-    pub const SYSCOM_SET_KOE_DONT_STOP_ONOFF: i32 = 122;
-    // 0x07B, confirmed
-    pub const SYSCOM_SET_KOE_DONT_STOP_ONOFF_DEFAULT: i32 = 123;
-    // 0x07C, confirmed
-    pub const SYSCOM_GET_KOE_DONT_STOP_ONOFF: i32 = 124;
-    // 0x07D, confirmed
-    pub const SYSCOM_SET_SKIP_UNREAD_MESSAGE_ONOFF: i32 = 125;
-    // 0x07E, confirmed
-    pub const SYSCOM_SET_SKIP_UNREAD_MESSAGE_ONOFF_DEFAULT: i32 = 126;
-    // 0x07F, confirmed
-    pub const SYSCOM_GET_SKIP_UNREAD_MESSAGE_ONOFF: i32 = 127;
-    // 0x081, confirmed
-    pub const SYSCOM_GET_SAVE_MESSAGE: i32 = 129;
-    // 0x082, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_MESSAGE: i32 = 130;
-    // 0x083, confirmed
-    pub const SYSCOM_GET_SAVE_COMMENT: i32 = 131;
-    // 0x084, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_COMMENT: i32 = 132;
-    // 0x085, confirmed
-    pub const SYSCOM_SET_MWND_BTN_TOUCH_ENABLE: i32 = 133;
-    // 0x086, confirmed
-    pub const SYSCOM_SET_MWND_BTN_TOUCH_DISABLE: i32 = 134;
-    // 0x087, confirmed
-    pub const SYSCOM_CALL_CONFIG_MESSAGE_SPEED_MENU: i32 = 135;
-    // 0x088, confirmed
-    pub const SYSCOM_CALL_CONFIG_FILTER_COLOR_MENU: i32 = 136;
-    // 0x089, confirmed
-    pub const SYSCOM_CALL_CONFIG_BGMFADE_MENU: i32 = 137;
-    // 0x08A, confirmed
-    pub const SYSCOM_CALL_CONFIG_WINDOW_MODE_MENU: i32 = 138;
-    // 0x08B, confirmed
-    pub const SYSCOM_CALL_CONFIG_VOLUME_MENU: i32 = 139;
-    // 0x08C, confirmed
-    pub const SYSCOM_CALL_CONFIG_AUTO_MODE_MENU: i32 = 140;
-    // 0x08D, confirmed
-    pub const SYSCOM_CALL_CONFIG_SYSTEM_MENU: i32 = 141;
-    // 0x08E, confirmed
-    pub const SYSCOM_CALL_CONFIG_FONT_MENU: i32 = 142;
-    // 0x08F, confirmed
-    pub const SYSCOM_SET_CHARAKOE_ONOFF: i32 = 143;
-    // 0x090, confirmed
-    pub const SYSCOM_SET_CHARAKOE_ONOFF_DEFAULT: i32 = 144;
-    // 0x091, confirmed
-    pub const SYSCOM_GET_CHARAKOE_ONOFF: i32 = 145;
-    // 0x092, confirmed
-    pub const SYSCOM_CALL_CONFIG_CHARAKOE_MENU: i32 = 146;
-    // 0x093, confirmed
-    pub const SYSCOM_CALL_CONFIG_KOEMODE_MENU: i32 = 147;
-    // 0x094, confirmed
-    pub const SYSCOM_SET_KOEMODE: i32 = 148;
-    // 0x095, confirmed
-    pub const SYSCOM_SET_KOEMODE_DEFAULT: i32 = 149;
-    // 0x096, confirmed
-    pub const SYSCOM_GET_KOEMODE: i32 = 150;
-    // 0x097, confirmed
-    pub const SYSCOM_CALL_CONFIG_JITAN_MENU: i32 = 151;
-    // 0x098, confirmed
-    pub const SYSCOM_SET_JITAN_SPEED: i32 = 152;
-    // 0x099, confirmed
-    pub const SYSCOM_SET_JITAN_NORMAL_ONOFF: i32 = 153;
-    // 0x09A, confirmed
-    pub const SYSCOM_SET_JITAN_NORMAL_ONOFF_DEFAULT: i32 = 154;
-    // 0x09B, confirmed
-    pub const SYSCOM_GET_JITAN_NORMAL_ONOFF: i32 = 155;
-    // 0x09C, confirmed
-    pub const SYSCOM_SET_JITAN_AUTO_MODE_ONOFF: i32 = 156;
-    // 0x09D, confirmed
-    pub const SYSCOM_SET_JITAN_AUTO_MODE_ONOFF_DEFAULT: i32 = 157;
-    // 0x09E, confirmed
-    pub const SYSCOM_GET_JITAN_AUTO_MODE_ONOFF: i32 = 158;
-    // 0x09F, confirmed
-    pub const SYSCOM_SET_JITAN_KOE_REPLAY_ONOFF: i32 = 159;
-    // 0x0A0, confirmed
-    pub const SYSCOM_SET_JITAN_KOE_REPLAY_ONOFF_DEFAULT: i32 = 160;
-    // 0x0A1, confirmed
-    pub const SYSCOM_GET_JITAN_KOE_REPLAY_ONOFF: i32 = 161;
-    // 0x0A2, confirmed
-    pub const SYSCOM_SET_JITAN_SPEED_DEFAULT: i32 = 162;
-    // 0x0A3, confirmed
-    pub const SYSCOM_GET_JITAN_SPEED: i32 = 163;
-    // 0x0A4, confirmed
-    pub const SYSCOM_SET_GLOBAL_EXTRA_MODE_VALUE: i32 = 164;
-    // 0x0A5, confirmed
-    pub const SYSCOM_SET_GLOBAL_EXTRA_MODE_VALUE_DEFAULT: i32 = 165;
-    // 0x0A6, confirmed
-    pub const SYSCOM_GET_GLOBAL_EXTRA_MODE_VALUE: i32 = 166;
-    // 0x0A7, confirmed
-    pub const SYSCOM_CALL_CONFIG_MOVIE_MENU: i32 = 167;
-    // 0x0A8, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_CNT: i32 = 168;
-    // 0x0A9, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_EXIST: i32 = 169;
-    // 0x0AA, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_NEW_NO: i32 = 170;
-    // 0x0AB, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_YEAR: i32 = 171;
-    // 0x0AC, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_MONTH: i32 = 172;
-    // 0x0AD, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_DAY: i32 = 173;
-    // 0x0AE, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_WEEKDAY: i32 = 174;
-    // 0x0AF, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_HOUR: i32 = 175;
-    // 0x0B0, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_MINUTE: i32 = 176;
-    // 0x0B1, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_SECOND: i32 = 177;
-    // 0x0B2, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_MILLISECOND: i32 = 178;
-    // 0x0B3, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_TITLE: i32 = 179;
-    // 0x0B4, confirmed
-    pub const SYSCOM_SET_SAVE_COMMENT: i32 = 180;
-    // 0x0B5, confirmed
-    pub const SYSCOM_SET_QUICK_SAVE_COMMENT: i32 = 181;
-    // 0x0B6, confirmed
-    pub const SYSCOM_SET_SAVE_VALUE: i32 = 182;
-    // 0x0B7, confirmed
-    pub const SYSCOM_GET_SAVE_VALUE: i32 = 183;
-    // 0x0B8, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_VALUE: i32 = 184;
-    // 0x0B9, confirmed
-    pub const SYSCOM_SET_QUICK_SAVE_VALUE: i32 = 185;
-    // 0x0BA, confirmed
-    pub const SYSCOM_SET_CHARAKOE_VOLUME: i32 = 186;
-    // 0x0BB, confirmed
-    pub const SYSCOM_SET_CHARAKOE_VOLUME_DEFAULT: i32 = 187;
-    // 0x0BC, confirmed
-    pub const SYSCOM_GET_CHARAKOE_VOLUME: i32 = 188;
-    // 0x0BD, confirmed
-    pub const SYSCOM_SET_OBJECT_DISP_ONOFF: i32 = 189;
-    // 0x0BE, confirmed
-    pub const SYSCOM_SET_OBJECT_DISP_ONOFF_DEFAULT: i32 = 190;
-    // 0x0BF, confirmed
-    pub const SYSCOM_GET_OBJECT_DISP_ONOFF: i32 = 191;
-    // 0x0C0, confirmed
-    pub const SYSCOM_OPEN_MSG_BACK: i32 = 192;
-    // 0x0C1, confirmed
-    pub const SYSCOM_CLOSE_MSG_BACK: i32 = 193;
-    // 0x0C2, confirmed
-    pub const SYSCOM_SET_MSG_BACK_ENABLE_FLAG: i32 = 194;
-    // 0x0C3, confirmed
-    pub const SYSCOM_GET_MSG_BACK_ENABLE_FLAG: i32 = 195;
-    // 0x0C4, confirmed
-    pub const SYSCOM_SET_MSG_BACK_EXIST_FLAG: i32 = 196;
-    // 0x0C5, confirmed
-    pub const SYSCOM_GET_MSG_BACK_EXIST_FLAG: i32 = 197;
-    // 0x0C6, confirmed
-    pub const SYSCOM_CHECK_MSG_BACK_ENABLE: i32 = 198;
-    // 0x0C7, confirmed
-    pub const SYSCOM_GET_TOTAL_PLAY_TIME: i32 = 199;
-    // 0x0C8, confirmed
-    pub const SYSCOM_SET_READ_SKIP_ONOFF_FLAG: i32 = 200;
-    // 0x0C9, confirmed
-    pub const SYSCOM_GET_READ_SKIP_ONOFF_FLAG: i32 = 201;
-    // 0x0CA, confirmed
-    pub const SYSCOM_SET_READ_SKIP_ENABLE_FLAG: i32 = 202;
-    // 0x0CB, confirmed
-    pub const SYSCOM_GET_READ_SKIP_ENABLE_FLAG: i32 = 203;
-    // 0x0CC, confirmed
-    pub const SYSCOM_SET_READ_SKIP_EXIST_FLAG: i32 = 204;
-    // 0x0CD, confirmed
-    pub const SYSCOM_GET_READ_SKIP_EXIST_FLAG: i32 = 205;
-    // 0x0CE, confirmed
-    pub const SYSCOM_CHECK_READ_SKIP_ENABLE: i32 = 206;
-    // 0x0CF, confirmed
-    pub const SYSCOM_SET_AUTO_SKIP_ONOFF_FLAG: i32 = 207;
-    // 0x0D0, confirmed
-    pub const SYSCOM_GET_AUTO_SKIP_ONOFF_FLAG: i32 = 208;
-    // 0x0D1, confirmed
-    pub const SYSCOM_SET_AUTO_SKIP_ENABLE_FLAG: i32 = 209;
-    // 0x0D2, confirmed
-    pub const SYSCOM_GET_AUTO_SKIP_ENABLE_FLAG: i32 = 210;
-    // 0x0D3, confirmed
-    pub const SYSCOM_SET_AUTO_SKIP_EXIST_FLAG: i32 = 211;
-    // 0x0D4, confirmed
-    pub const SYSCOM_GET_AUTO_SKIP_EXIST_FLAG: i32 = 212;
-    // 0x0D5, confirmed
-    pub const SYSCOM_CHECK_AUTO_SKIP_ENABLE: i32 = 213;
-    // 0x0D6, confirmed
-    pub const SYSCOM_SET_AUTO_MODE_ONOFF_FLAG: i32 = 214;
-    // 0x0D7, confirmed
-    pub const SYSCOM_GET_AUTO_MODE_ONOFF_FLAG: i32 = 215;
-    // 0x0D8, confirmed
-    pub const SYSCOM_SET_AUTO_MODE_ENABLE_FLAG: i32 = 216;
-    // 0x0D9, confirmed
-    pub const SYSCOM_GET_AUTO_MODE_ENABLE_FLAG: i32 = 217;
-    // 0x0DA, confirmed
-    pub const SYSCOM_SET_AUTO_MODE_EXIST_FLAG: i32 = 218;
-    // 0x0DB, confirmed
-    pub const SYSCOM_GET_AUTO_MODE_EXIST_FLAG: i32 = 219;
-    // 0x0DC, confirmed
-    pub const SYSCOM_CHECK_AUTO_MODE_ENABLE: i32 = 220;
-    // 0x0DD, confirmed
-    pub const SYSCOM_SET_HIDE_MWND_ONOFF_FLAG: i32 = 221;
-    // 0x0DE, confirmed
-    pub const SYSCOM_GET_HIDE_MWND_ONOFF_FLAG: i32 = 222;
-    // 0x0DF, confirmed
-    pub const SYSCOM_SET_HIDE_MWND_ENABLE_FLAG: i32 = 223;
-    // 0x0E0, confirmed
-    pub const SYSCOM_GET_HIDE_MWND_ENABLE_FLAG: i32 = 224;
-    // 0x0E1, confirmed
-    pub const SYSCOM_SET_HIDE_MWND_EXIST_FLAG: i32 = 225;
-    // 0x0E2, confirmed
-    pub const SYSCOM_GET_HIDE_MWND_EXIST_FLAG: i32 = 226;
-    // 0x0E3, confirmed
-    pub const SYSCOM_CHECK_HIDE_MWND_ENABLE: i32 = 227;
-    // 0x0E5, confirmed
-    pub const SYSCOM_SET_TOTAL_PLAY_TIME: i32 = 229;
-    // 0x0E6, confirmed
-    pub const SYSCOM_SET_RETURN_TO_SEL_ENABLE_FLAG: i32 = 230;
-    // 0x0E7, confirmed
-    pub const SYSCOM_GET_RETURN_TO_SEL_ENABLE_FLAG: i32 = 231;
-    // 0x0E8, confirmed
-    pub const SYSCOM_SET_RETURN_TO_SEL_EXIST_FLAG: i32 = 232;
-    // 0x0E9, confirmed
-    pub const SYSCOM_GET_RETURN_TO_SEL_EXIST_FLAG: i32 = 233;
-    // 0x0EA, confirmed
-    pub const SYSCOM_CHECK_RETURN_TO_SEL_ENABLE: i32 = 234;
-    // 0x0EB, confirmed
-    pub const SYSCOM_RETURN_TO_SEL: i32 = 235;
-    // 0x0EC, confirmed
-    pub const SYSCOM_CALL_EX: i32 = 236;
-    // 0x0ED, confirmed
-    pub const SYSCOM_SET_RETURN_TO_MENU_ENABLE_FLAG: i32 = 237;
-    // 0x0EE, confirmed
-    pub const SYSCOM_GET_RETURN_TO_MENU_ENABLE_FLAG: i32 = 238;
-    // 0x0EF, confirmed
-    pub const SYSCOM_SET_RETURN_TO_MENU_EXIST_FLAG: i32 = 239;
-    // 0x0F0, confirmed
-    pub const SYSCOM_GET_RETURN_TO_MENU_EXIST_FLAG: i32 = 240;
-    // 0x0F1, confirmed
-    pub const SYSCOM_CHECK_RETURN_TO_MENU_ENABLE: i32 = 241;
-    // 0x0F2, confirmed
-    pub const SYSCOM_END_GAME: i32 = 242;
-    // 0x0F3, confirmed
-    pub const SYSCOM_GET_PLAY_SILENT_SOUND_ONOFF: i32 = 243;
-    // 0x0F4, confirmed
-    pub const SYSCOM_SET_END_GAME_ENABLE_FLAG: i32 = 244;
-    // 0x0F5, confirmed
-    pub const SYSCOM_GET_END_GAME_ENABLE_FLAG: i32 = 245;
-    // 0x0F6, confirmed
-    pub const SYSCOM_SET_END_GAME_EXIST_FLAG: i32 = 246;
-    // 0x0F7, confirmed
-    pub const SYSCOM_GET_END_GAME_EXIST_FLAG: i32 = 247;
-    // 0x0F8, confirmed
-    pub const SYSCOM_CHECK_END_GAME_ENABLE: i32 = 248;
-    // 0x0FA, confirmed
-    pub const SYSCOM_SET_PLAY_SILENT_SOUND_ONOFF: i32 = 250;
-    // 0x0FB, confirmed
-    pub const SYSCOM_SET_SAVE_ENABLE_FLAG: i32 = 251;
-    // 0x0FC, confirmed
-    pub const SYSCOM_GET_SAVE_ENABLE_FLAG: i32 = 252;
-    // 0x0FD, confirmed
-    pub const SYSCOM_SET_SAVE_EXIST_FLAG: i32 = 253;
-    // 0x0FE, confirmed
-    pub const SYSCOM_GET_SAVE_EXIST_FLAG: i32 = 254;
-    // 0x0FF, confirmed
-    pub const SYSCOM_CHECK_SAVE_ENABLE: i32 = 255;
-    // 0x100, confirmed
-    pub const SYSCOM_CALL_SAVE_MENU: i32 = 256;
-    // 0x101, confirmed
-    pub const SYSCOM_SET_PLAY_SILENT_SOUND_ONOFF_DEFAULT: i32 = 257;
-    // 0x102, confirmed
-    pub const SYSCOM_SET_LOAD_ENABLE_FLAG: i32 = 258;
-    // 0x103, confirmed
-    pub const SYSCOM_GET_LOAD_ENABLE_FLAG: i32 = 259;
-    // 0x104, confirmed
-    pub const SYSCOM_SET_LOAD_EXIST_FLAG: i32 = 260;
-    // 0x105, confirmed
-    pub const SYSCOM_GET_LOAD_EXIST_FLAG: i32 = 261;
-    // 0x106, confirmed
-    pub const SYSCOM_CHECK_LOAD_ENABLE: i32 = 262;
-    // 0x107, confirmed
-    pub const SYSCOM_SET_MOV_VOLUME: i32 = 263;
-    // 0x108, confirmed
-    pub const SYSCOM_SET_MOV_VOLUME_DEFAULT: i32 = 264;
-    // 0x109, confirmed
-    pub const SYSCOM_GET_MOV_VOLUME: i32 = 265;
-    // 0x10A, confirmed
-    pub const SYSCOM_SET_MOV_ONOFF: i32 = 266;
-    // 0x10B, confirmed
-    pub const SYSCOM_SET_MOV_ONOFF_DEFAULT: i32 = 267;
-    // 0x10C, confirmed
-    pub const SYSCOM_GET_MOV_ONOFF: i32 = 268;
-    // 0x10D, confirmed
-    pub const SYSCOM_CALL_LOAD_MENU: i32 = 269;
-    // 0x10E, confirmed
-    pub const SYSCOM_GET_END_SAVE_EXIST: i32 = 270;
-    // 0x10F, confirmed
-    pub const SYSCOM_END_SAVE: i32 = 271;
-    // 0x110, confirmed
-    pub const SYSCOM_INNER_SAVE: i32 = 272;
-    // 0x111, confirmed
-    pub const SYSCOM_INNER_LOAD: i32 = 273;
-    // 0x112, confirmed
-    pub const SYSCOM_COPY_INNER_SAVE: i32 = 274;
-    // 0x113, confirmed
-    pub const SYSCOM_CHECK_INNER_SAVE: i32 = 275;
-    // 0x114, confirmed
-    pub const SYSCOM_CLEAR_INNER_SAVE: i32 = 276;
-    // 0x115, confirmed
-    pub const SYSCOM_SET_SOUND_VOLUME: i32 = 277;
-    // 0x116, confirmed
-    pub const SYSCOM_SET_SOUND_VOLUME_DEFAULT: i32 = 278;
-    // 0x117, confirmed
-    pub const SYSCOM_GET_SOUND_VOLUME: i32 = 279;
-    // 0x118, confirmed
-    pub const SYSCOM_SET_SOUND_ONOFF: i32 = 280;
-    // 0x119, confirmed
-    pub const SYSCOM_SET_SOUND_ONOFF_DEFAULT: i32 = 281;
-    // 0x11A, confirmed
-    pub const SYSCOM_GET_SOUND_ONOFF: i32 = 282;
-    // 0x11B, confirmed
-    pub const SYSCOM_SET_FONT_NAME: i32 = 283;
-    // 0x11C, confirmed
-    pub const SYSCOM_GET_FONT_NAME: i32 = 284;
-    // 0x11D, confirmed
-    pub const SYSCOM_IS_FONT_EXIST: i32 = 285;
-    // 0x11E, confirmed
-    pub const SYSCOM_CREATE_CAPTURE_BUFFER: i32 = 286;
-    // 0x11F, confirmed
-    pub const SYSCOM_DESTROY_CAPTURE_BUFFER: i32 = 287;
-    // 0x120, confirmed
-    pub const SYSCOM_REPLAY_KOE: i32 = 288;
-    // 0x121, confirmed
-    pub const SYSCOM_GET_REPLAY_KOE_KOE_NO: i32 = 289;
-    // 0x122, confirmed
-    pub const SYSCOM_CAPTURE_AND_SAVE_BUFFER_TO_PNG: i32 = 290;
-    // 0x123, confirmed
-    pub const SYSCOM_GET_REPLAY_KOE_CHARA_NO: i32 = 291;
-    // 0x124, confirmed
-    pub const SYSCOM_CHECK_REPLAY_KOE: i32 = 292;
-    // 0x125, confirmed
-    pub const SYSCOM_CLEAR_REPLAY_KOE: i32 = 293;
-    // 0x126, confirmed
-    pub const SYSCOM_GET_CURRENT_SAVE_SCENE_TITLE: i32 = 294;
-    // 0x127, confirmed
-    pub const SYSCOM_GET_CURRENT_SAVE_MESSAGE: i32 = 295;
-    // 0x12C, confirmed
-    pub const SYSCOM_SET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG: i32 = 300;
-    // 0x12D, confirmed
-    pub const SYSCOM_GET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG: i32 = 301;
-    // 0x12E, confirmed
-    pub const SYSCOM_SET_LOCAL_EXTRA_SWITCH_ENABLE_FLAG: i32 = 302;
-    // 0x12F, confirmed
-    pub const SYSCOM_GET_LOCAL_EXTRA_SWITCH_ENABLE_FLAG: i32 = 303;
-    // 0x130, confirmed
-    pub const SYSCOM_SET_LOCAL_EXTRA_SWITCH_EXIST_FLAG: i32 = 304;
-    // 0x131, confirmed
-    pub const SYSCOM_GET_LOCAL_EXTRA_SWITCH_EXIST_FLAG: i32 = 305;
-    // 0x132, confirmed
-    pub const SYSCOM_CHECK_LOCAL_EXTRA_SWITCH_ENABLE: i32 = 306;
-    // 0x135, confirmed
-    pub const SYSCOM_CHECK_WINDOW_MODE_SIZE_ENABLE: i32 = 309;
-    // 0x137, confirmed
-    pub const SYSCOM_SET_FONT_BOLD: i32 = 311;
-    // 0x137, confirmed
-    pub const SYSCOM_SET_MOUSE_CURSOR_HIDE_ONOFF: i32 = 311;
-    // 0x138, confirmed
-    pub const SYSCOM_SET_FONT_BOLD_DEFAULT: i32 = 312;
-    // 0x138, confirmed
-    pub const SYSCOM_SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT: i32 = 312;
-    // 0x139, confirmed
-    pub const SYSCOM_GET_FONT_BOLD: i32 = 313;
-    // 0x139, confirmed
-    pub const SYSCOM_GET_MOUSE_CURSOR_HIDE_ONOFF: i32 = 313;
-    // 0x13A, confirmed
-    pub const SYSCOM_SAVE_CAPTURE_BUFFER_TO_FILE: i32 = 314;
-    // 0x13B, confirmed
-    pub const SYSCOM_LOAD_FLAG_FROM_CAPTURE_FILE: i32 = 315;
-    // 0x13C, confirmed
-    pub const SYSCOM_CAPTURE_TO_CAPTURE_BUFFER: i32 = 316;
-    // 0x13D, confirmed
-    pub const SYSCOM_SET_FONT_DECORATION: i32 = 317;
-    // 0x13D, confirmed
-    pub const SYSCOM_SET_MOUSE_CURSOR_HIDE_TIME: i32 = 317;
-    // 0x13E, confirmed
-    pub const SYSCOM_SET_FONT_DECORATION_DEFAULT: i32 = 318;
-    // 0x13E, confirmed
-    pub const SYSCOM_SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT: i32 = 318;
-    // 0x13F, confirmed
-    pub const SYSCOM_GET_FONT_DECORATION: i32 = 319;
-    // 0x13F, confirmed
-    pub const SYSCOM_GET_MOUSE_CURSOR_HIDE_TIME: i32 = 319;
-    // 0x140, confirmed
-    pub const SYSCOM_GET_SAVE_APPEND_DIR: i32 = 320;
-    // 0x141, confirmed
-    pub const SYSCOM_GET_SAVE_APPEND_NAME: i32 = 321;
-    // 0x142, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_APPEND_DIR: i32 = 322;
-    // 0x143, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_APPEND_NAME: i32 = 323;
-    // 0x144, confirmed
-    pub const SYSCOM_GET_SAVE_FULL_MESSAGE: i32 = 324;
-    // 0x145, confirmed
-    pub const SYSCOM_GET_QUICK_SAVE_FULL_MESSAGE: i32 = 325;
-    // 0x146, confirmed
-    pub const SYSCOM_SET_FONT_NAME_DEFAULT: i32 = 326;
-    // 0x147, confirmed
-    pub const SYSCOM_OPEN_TWEET_DIALOG: i32 = 327;
-    // 0x148, confirmed
-    pub const SYSCOM_SET_RETURN_SCENE_ONCE: i32 = 328;
-    // 0x149, confirmed
-    pub const SYSCOM_CHECK_MSG_BACK_OPEN: i32 = 329;
-    // 0x14A, confirmed
-    pub const SYSCOM_GET_SYSTEM_EXTRA_INT_VALUE: i32 = 330;
-    // 0x14B, confirmed
-    pub const SYSCOM_GET_SYSTEM_EXTRA_STR_VALUE: i32 = 331;
-
-    // SYSTEM
-    // 0x0, confirmed
-    pub const SYSTEM_CHECK_ACTIVE: i32 = 0;
-    // 0x1, confirmed
-    pub const SYSTEM_SHELL_OPEN_FILE: i32 = 1;
-    // 0x2, confirmed
-    pub const SYSTEM_CHECK_DUMMY_FILE_ONCE: i32 = 2;
-    // 0x3, confirmed
-    pub const SYSTEM_OPEN_DIALOG_FOR_CHIHAYA_BENCH: i32 = 3;
-    // 0x4, confirmed
-    pub const SYSTEM_GET_SPEC_INFO_FOR_CHIHAYA_BENCH: i32 = 4;
-    // 0x5, confirmed
-    pub const SYSTEM_SHELL_OPEN_WEB: i32 = 5;
-    // 0x6, confirmed
-    pub const SYSTEM_CHECK_FILE_EXIST: i32 = 6;
-    // 0x7, confirmed
-    pub const SYSTEM_DEBUG_MESSAGEBOX_OK: i32 = 7;
-    // 0x8, confirmed
-    pub const SYSTEM_DEBUG_MESSAGEBOX_OKCANCEL: i32 = 8;
-    // 0x9, confirmed
-    pub const SYSTEM_DEBUG_MESSAGEBOX_YESNO: i32 = 9;
-    // 0xA, confirmed
-    pub const SYSTEM_DEBUG_MESSAGEBOX_YESNOCANCEL: i32 = 10;
-    // 0xB, confirmed
-    pub const SYSTEM_DEBUG_WRITE_LOG: i32 = 11;
-    // 0xC, confirmed
-    pub const SYSTEM_CHECK_FILE_EXIST_SAVE_DIR: i32 = 12;
-    // 0xD, confirmed
-    pub const SYSTEM_CHECK_DEBUG_FLAG: i32 = 13;
-    // 0xE, confirmed
-    pub const SYSTEM_GET_CALENDAR: i32 = 14;
-    // 0xF, confirmed
-    pub const SYSTEM_GET_UNIX_TIME: i32 = 15;
-    // 0x10, confirmed
-    pub const SYSTEM_GET_LANGUAGE: i32 = 16;
-    // 0x11, confirmed
-    pub const SYSTEM_MESSAGEBOX_OK: i32 = 17;
-    // 0x12, confirmed
-    pub const SYSTEM_MESSAGEBOX_OKCANCEL: i32 = 18;
-    // 0x13, confirmed
-    pub const SYSTEM_MESSAGEBOX_YESNO: i32 = 19;
-    // 0x14, confirmed
-    pub const SYSTEM_MESSAGEBOX_YESNOCANCEL: i32 = 20;
-    // 0x15, confirmed
-    pub const SYSTEM_CLEAR_DUMMY_FILE: i32 = 21;
-
-    // WORLD
-    // 0x00, confirmed
-    pub const WORLD_CAMERA_EYE_X: i32 = 0;
-    // 0x01, confirmed
-    pub const WORLD_CAMERA_EYE_Y: i32 = 1;
-    // 0x02, confirmed
-    pub const WORLD_CAMERA_EYE_Z: i32 = 2;
-    // 0x03, confirmed
-    pub const WORLD_CAMERA_PINT_X: i32 = 3;
-    // 0x04, confirmed
-    pub const WORLD_CAMERA_PINT_Y: i32 = 4;
-    // 0x05, confirmed
-    pub const WORLD_CAMERA_PINT_Z: i32 = 5;
-    // 0x06, confirmed
-    pub const WORLD_CAMERA_UP_X: i32 = 6;
-    // 0x07, confirmed
-    pub const WORLD_CAMERA_UP_Y: i32 = 7;
-    // 0x08, confirmed
-    pub const WORLD_CAMERA_UP_Z: i32 = 8;
-    // 0x09, confirmed
-    pub const WORLD_CALC_CAMERA_EYE: i32 = 9;
-    // 0x0A, confirmed
-    pub const WORLD_SET_CAMERA_EYE: i32 = 10;
-    // 0x0B, confirmed
-    pub const WORLD_SET_CAMERA_PINT: i32 = 11;
-    // 0x0C, confirmed
-    pub const WORLD_SET_CAMERA_UP: i32 = 12;
-    // 0x0D, confirmed
-    pub const WORLD_CAMERA_VIEW_ANGLE: i32 = 13;
-    // 0x0E, confirmed
-    pub const WORLD_GET_NO: i32 = 14;
-    // 0x0F, confirmed
-    pub const WORLD_INIT: i32 = 15;
-    // 0x10, confirmed
-    pub const WORLD_CALC_CAMERA_PINT: i32 = 16;
-    // 0x11, confirmed
-    pub const WORLD_MONO: i32 = 17;
-    // 0x12, confirmed
-    pub const WORLD_CAMERA_EYE_X_EVE: i32 = 18;
-    // 0x13, confirmed
-    pub const WORLD_CAMERA_EYE_Y_EVE: i32 = 19;
-    // 0x14, confirmed
-    pub const WORLD_CAMERA_EYE_Z_EVE: i32 = 20;
-    // 0x15, confirmed
-    pub const WORLD_CAMERA_PINT_X_EVE: i32 = 21;
-    // 0x16, confirmed
-    pub const WORLD_CAMERA_PINT_Y_EVE: i32 = 22;
-    // 0x17, confirmed
-    pub const WORLD_CAMERA_PINT_Z_EVE: i32 = 23;
-    // 0x18, confirmed
-    pub const WORLD_CAMERA_UP_X_EVE: i32 = 24;
-    // 0x19, confirmed
-    pub const WORLD_CAMERA_UP_Y_EVE: i32 = 25;
-    // 0x1A, confirmed
-    pub const WORLD_CAMERA_UP_Z_EVE: i32 = 26;
-    // 0x1B, confirmed
-    pub const WORLD_SET_CAMERA_EVE_XZ_ROTATE: i32 = 27;
-    // 0x1C, confirmed
-    pub const WORLD_ORDER: i32 = 28;
-    // 0x1D, confirmed
-    pub const WORLD_LAYER: i32 = 29;
-    // 0x1E, confirmed
-    pub const WORLD_WIPE_COPY: i32 = 30;
-    // 0x1F, confirmed
-    pub const WORLD_WIPE_ERASE: i32 = 31;
-
-    // WORLDLIST
-    // 0x01, confirmed
-    pub const WORLDLIST_CREATE_WORLD: i32 = 1;
-    // 0x02, confirmed
-    pub const WORLDLIST_DESTROY_WORLD: i32 = 2;
-}
-
-#[inline]
-pub fn canonical_form_id(configured: u32, canonical: u32) -> u32 {
-    if configured != 0 {
-        configured
-    } else {
-        canonical
-    }
-}
-
-#[inline]
-pub fn matches_form_id(form_id: u32, configured: u32, canonical: u32) -> bool {
-    form_id == canonical || (configured != 0 && form_id == configured)
-}
-
-#[inline]
-pub fn is_stage_global_form(form_id: u32, configured: u32) -> bool {
-    form_id == global_form::STAGE_ALT
-        || form_id == global_form::STAGE_DEFAULT
-        || form_id == global_form::STAGE_ALIAS_37
-        || form_id == global_form::STAGE_ALIAS_38
-        || (configured != 0 && form_id == configured)
+    pub const UP: i32 = crate::runtime::forms::codes::ELM_UP;
+    pub const __TRANS: i32 = crate::runtime::forms::codes::ELM___TRANS;
+    pub const __SET: i32 = crate::runtime::forms::codes::ELM___SET;
+    pub const ARRAY: i32 = crate::runtime::forms::codes::ELM_ARRAY;
+    pub const GLOBAL______TEST: i32 = crate::runtime::forms::codes::elm_value::GLOBAL______TEST;
+    pub const GLOBAL___IAPP_DUMMY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___IAPP_DUMMY;
+    pub const GLOBAL___IAPP_DUMMY2: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___IAPP_DUMMY2;
+    pub const GLOBAL___IAPP_DUMMY_STR: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___IAPP_DUMMY_STR;
+    pub const GLOBAL___IAPP_DUMMY2_STR: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___IAPP_DUMMY2_STR;
+    pub const GLOBAL___FOG_NAME: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___FOG_NAME;
+    pub const GLOBAL___FOG_X: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___FOG_X;
+    pub const GLOBAL___FOG_X_EVE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___FOG_X_EVE;
+    pub const GLOBAL___FOG_NEAR: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___FOG_NEAR;
+    pub const GLOBAL___FOG_FAR: i32 = crate::runtime::forms::codes::elm_value::GLOBAL___FOG_FAR;
+    pub const GLOBAL_NOP: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_NOP;
+    pub const GLOBAL_OWARI: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_OWARI;
+    pub const GLOBAL_RETURNMENU: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_RETURNMENU;
+    pub const GLOBAL_JUMP: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_JUMP;
+    pub const GLOBAL_FARCALL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_FARCALL;
+    pub const GLOBAL_GET_SCENE_NAME: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_GET_SCENE_NAME;
+    pub const GLOBAL_GET_LINE_NO: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_GET_LINE_NO;
+    pub const GLOBAL_SET_TITLE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SET_TITLE;
+    pub const GLOBAL_GET_TITLE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_GET_TITLE;
+    pub const GLOBAL_SAVEPOINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SAVEPOINT;
+    pub const GLOBAL_CLEAR_SAVEPOINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLEAR_SAVEPOINT;
+    pub const GLOBAL_CHECK_SAVEPOINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CHECK_SAVEPOINT;
+    pub const GLOBAL_SELPOINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SELPOINT;
+    pub const GLOBAL_CLEAR_SELPOINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLEAR_SELPOINT;
+    pub const GLOBAL_STACK_SELPOINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_STACK_SELPOINT;
+    pub const GLOBAL_DROP_SELPOINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_DROP_SELPOINT;
+    pub const GLOBAL_CHECK_SELPOINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CHECK_SELPOINT;
+    pub const GLOBAL_TIMEWAIT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_TIMEWAIT;
+    pub const GLOBAL_TIMEWAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_TIMEWAIT_KEY;
+    pub const GLOBAL_FRAME: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_FRAME;
+    pub const GLOBAL_DISP: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_DISP;
+    pub const GLOBAL_WIPE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_WIPE;
+    pub const GLOBAL_MASK_WIPE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MASK_WIPE;
+    pub const GLOBAL_WIPE_ALL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_WIPE_ALL;
+    pub const GLOBAL_MASK_WIPE_ALL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MASK_WIPE_ALL;
+    pub const GLOBAL_WIPE_END: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_WIPE_END;
+    pub const GLOBAL_WAIT_WIPE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_WAIT_WIPE;
+    pub const GLOBAL_CHECK_WIPE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CHECK_WIPE;
+    pub const GLOBAL_CAPTURE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CAPTURE;
+    pub const GLOBAL_CAPTURE_FROM_FILE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CAPTURE_FROM_FILE;
+    pub const GLOBAL_CAPTURE_FREE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CAPTURE_FREE;
+    pub const GLOBAL_CAPTURE_FOR_OBJECT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CAPTURE_FOR_OBJECT;
+    pub const GLOBAL_CAPTURE_FOR_OBJECT_FREE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CAPTURE_FOR_OBJECT_FREE;
+    pub const GLOBAL_CAPTURE_FOR_LOCAL_SAVE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CAPTURE_FOR_LOCAL_SAVE;
+    pub const GLOBAL_CAPTURE_FOR_TWEET: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CAPTURE_FOR_TWEET;
+    pub const GLOBAL_CAPTURE_FREE_FOR_TWEET: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CAPTURE_FREE_FOR_TWEET;
+    pub const GLOBAL_MESSAGE_BOX: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MESSAGE_BOX;
+    pub const GLOBAL_SET_MWND: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SET_MWND;
+    pub const GLOBAL_GET_MWND: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_GET_MWND;
+    pub const GLOBAL_SET_SEL_MWND: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SET_SEL_MWND;
+    pub const GLOBAL_GET_SEL_MWND: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_GET_SEL_MWND;
+    pub const GLOBAL_SET_WAKU: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SET_WAKU;
+    pub const GLOBAL_OPEN: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_OPEN;
+    pub const GLOBAL_OPEN_WAIT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_OPEN_WAIT;
+    pub const GLOBAL_OPEN_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_OPEN_NOWAIT;
+    pub const GLOBAL_CLOSE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLOSE;
+    pub const GLOBAL_CLOSE_WAIT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLOSE_WAIT;
+    pub const GLOBAL_CLOSE_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLOSE_NOWAIT;
+    pub const GLOBAL_END_CLOSE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_END_CLOSE;
+    pub const GLOBAL_MSG_BLOCK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MSG_BLOCK;
+    pub const GLOBAL_MSG_PP_BLOCK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MSG_PP_BLOCK;
+    pub const GLOBAL_CLEAR: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLEAR;
+    pub const GLOBAL_PRINT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_PRINT;
+    pub const GLOBAL_RUBY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_RUBY;
+    pub const GLOBAL_MSGBTN: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MSGBTN;
+    pub const GLOBAL_WAIT_MSG: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_WAIT_MSG;
+    pub const GLOBAL_PP: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_PP;
+    pub const GLOBAL_R: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_R;
+    pub const GLOBAL_PAGE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_PAGE;
+    pub const GLOBAL_NL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_NL;
+    pub const GLOBAL_NLI: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_NLI;
+    pub const GLOBAL_INDENT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_INDENT;
+    pub const GLOBAL_CLEAR_INDENT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLEAR_INDENT;
+    pub const GLOBAL_REP_POS: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_REP_POS;
+    pub const GLOBAL_SIZE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SIZE;
+    pub const GLOBAL_COLOR: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_COLOR;
+    pub const GLOBAL_MULTI_MSG: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MULTI_MSG;
+    pub const GLOBAL_NEXT_MSG: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_NEXT_MSG;
+    pub const GLOBAL_START_SLIDE_MSG: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_START_SLIDE_MSG;
+    pub const GLOBAL_END_SLIDE_MSG: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_END_SLIDE_MSG;
+    pub const GLOBAL_SEL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SEL;
+    pub const GLOBAL_SEL_CANCEL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SEL_CANCEL;
+    pub const GLOBAL_SELMSG: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SELMSG;
+    pub const GLOBAL_SELMSG_CANCEL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SELMSG_CANCEL;
+    pub const GLOBAL_SELBTN: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SELBTN;
+    pub const GLOBAL_SELBTN_READY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SELBTN_READY;
+    pub const GLOBAL_SELBTN_CANCEL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SELBTN_CANCEL;
+    pub const GLOBAL_SELBTN_CANCEL_READY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SELBTN_CANCEL_READY;
+    pub const GLOBAL_SELBTN_START: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SELBTN_START;
+    pub const GLOBAL_SEL_IMAGE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SEL_IMAGE;
+    pub const GLOBAL_GET_LAST_SEL_MSG: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_GET_LAST_SEL_MSG;
+    pub const GLOBAL_KOE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE;
+    pub const GLOBAL_KOE_PLAY_WAIT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_PLAY_WAIT;
+    pub const GLOBAL_KOE_PLAY_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_PLAY_WAIT_KEY;
+    pub const GLOBAL_KOE_STOP: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_STOP;
+    pub const GLOBAL_KOE_WAIT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_WAIT;
+    pub const GLOBAL_KOE_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_WAIT_KEY;
+    pub const GLOBAL_KOE_CHECK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_CHECK;
+    pub const GLOBAL_KOE_CHECK_GET_KOE_NO: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_CHECK_GET_KOE_NO;
+    pub const GLOBAL_KOE_CHECK_GET_CHARA_NO: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_CHECK_GET_CHARA_NO;
+    pub const GLOBAL_KOE_CHECK_IS_EX_KOE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_CHECK_IS_EX_KOE;
+    pub const GLOBAL_KOE_SET_VOLUME: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_SET_VOLUME;
+    pub const GLOBAL_KOE_SET_VOLUME_MAX: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_SET_VOLUME_MAX;
+    pub const GLOBAL_KOE_SET_VOLUME_MIN: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_SET_VOLUME_MIN;
+    pub const GLOBAL_KOE_GET_VOLUME: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_GET_VOLUME;
+    pub const GLOBAL_EXKOE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_EXKOE;
+    pub const GLOBAL_EXKOE_PLAY_WAIT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_EXKOE_PLAY_WAIT;
+    pub const GLOBAL_EXKOE_PLAY_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_EXKOE_PLAY_WAIT_KEY;
+    pub const GLOBAL_CLEAR_FACE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLEAR_FACE;
+    pub const GLOBAL_SET_FACE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SET_FACE;
+    pub const GLOBAL_SET_NAMAE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SET_NAMAE;
+    pub const GLOBAL_CLEAR_MSGBK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CLEAR_MSGBK;
+    pub const GLOBAL_INSERT_MSGBK_IMG: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_INSERT_MSGBK_IMG;
+    pub const GLOBAL_A: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_A;
+    pub const GLOBAL_B: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_B;
+    pub const GLOBAL_C: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_C;
+    pub const GLOBAL_D: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_D;
+    pub const GLOBAL_E: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_E;
+    pub const GLOBAL_F: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_F;
+    pub const GLOBAL_G: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_G;
+    pub const GLOBAL_Z: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_Z;
+    pub const GLOBAL_S: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_S;
+    pub const GLOBAL_M: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_M;
+    pub const GLOBAL_X: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_X;
+    pub const GLOBAL_NAMAE_LOCAL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_NAMAE_LOCAL;
+    pub const GLOBAL_NAMAE_GLOBAL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_NAMAE_GLOBAL;
+    pub const GLOBAL_NAMAE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_NAMAE;
+    pub const GLOBAL_MATH: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MATH;
+    pub const GLOBAL_FILE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_FILE;
+    pub const GLOBAL_DATABASE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_DATABASE;
+    pub const GLOBAL_COUNTER: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_COUNTER;
+    pub const GLOBAL_G00BUF: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_G00BUF;
+    pub const GLOBAL_MASK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MASK;
+    pub const GLOBAL_STAGE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_STAGE;
+    pub const GLOBAL_BACK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_BACK;
+    pub const GLOBAL_FRONT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_FRONT;
+    pub const GLOBAL_NEXT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_NEXT;
+    pub const GLOBAL_MSGBK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MSGBK;
+    pub const GLOBAL_BGM: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_BGM;
+    pub const GLOBAL_KOE_ST: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KOE_ST;
+    pub const GLOBAL_PCM: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_PCM;
+    pub const GLOBAL_PCMCH: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_PCMCH;
+    pub const GLOBAL_PCMEVENT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_PCMEVENT;
+    pub const GLOBAL_SE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SE;
+    pub const GLOBAL_MOV: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MOV;
+    pub const GLOBAL_INPUT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_INPUT;
+    pub const GLOBAL_MOUSE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MOUSE;
+    pub const GLOBAL_KEY: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_KEY;
+    pub const GLOBAL_SCREEN: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SCREEN;
+    pub const GLOBAL_FRAME_ACTION: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_FRAME_ACTION;
+    pub const GLOBAL_FRAME_ACTION_CH: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_FRAME_ACTION_CH;
+    pub const GLOBAL_EDITBOX: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_EDITBOX;
+    pub const GLOBAL_SCRIPT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SCRIPT;
+    pub const GLOBAL_SYSCOM: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SYSCOM;
+    pub const GLOBAL_SYSCOM_MENU: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SYSCOM_MENU;
+    pub const GLOBAL_MWND_BTN: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_MWND_BTN;
+    pub const GLOBAL_CGTABLE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CGTABLE;
+    pub const GLOBAL_BGMTABLE: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_BGMTABLE;
+    pub const GLOBAL_SYSTEM: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SYSTEM;
+    pub const GLOBAL_CALL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CALL;
+    pub const GLOBAL_CUR_CALL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_CUR_CALL;
+    pub const GLOBAL_EXCALL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_EXCALL;
+    pub const GLOBAL_INIT_CALL_STACK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_INIT_CALL_STACK;
+    pub const GLOBAL_GET_CALL_STACK_CNT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_GET_CALL_STACK_CNT;
+    pub const GLOBAL_SET_CALL_STACK_CNT: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_SET_CALL_STACK_CNT;
+    pub const GLOBAL_DEL_CALL_STACK: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_DEL_CALL_STACK;
+    pub const GLOBAL_STEAM: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_STEAM;
+    pub const CALL_L: i32 = crate::runtime::forms::codes::elm_value::CALL_L;
+    pub const CALL_K: i32 = crate::runtime::forms::codes::elm_value::CALL_K;
+    pub const CALLLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::CALLLIST_ARRAY;
+    pub const INTLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::INTLIST_ARRAY;
+    pub const INTLIST_INIT: i32 = crate::runtime::forms::codes::elm_value::INTLIST_INIT;
+    pub const INTLIST_RESIZE: i32 = crate::runtime::forms::codes::elm_value::INTLIST_RESIZE;
+    pub const INTLIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::INTLIST_GET_SIZE;
+    pub const INTLIST_SETS: i32 = crate::runtime::forms::codes::elm_value::INTLIST_SETS;
+    pub const INTLIST_CLEAR: i32 = crate::runtime::forms::codes::elm_value::INTLIST_CLEAR;
+    pub const INTLIST_BIT: i32 = crate::runtime::forms::codes::elm_value::INTLIST_BIT;
+    pub const INTLIST_BIT2: i32 = crate::runtime::forms::codes::elm_value::INTLIST_BIT2;
+    pub const INTLIST_BIT4: i32 = crate::runtime::forms::codes::elm_value::INTLIST_BIT4;
+    pub const INTLIST_BIT8: i32 = crate::runtime::forms::codes::elm_value::INTLIST_BIT8;
+    pub const INTLIST_BIT16: i32 = crate::runtime::forms::codes::elm_value::INTLIST_BIT16;
+    pub const INTLISTREF_ARRAY: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_ARRAY;
+    pub const INTLISTREF_RESIZE: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_RESIZE;
+    pub const INTLISTREF_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_GET_SIZE;
+    pub const INTLISTREF_SETS: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_SETS;
+    pub const INTLISTREF_CLEAR: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_CLEAR;
+    pub const INTLISTREF_BIT: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_BIT;
+    pub const INTLISTREF_BIT2: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_BIT2;
+    pub const INTLISTREF_BIT4: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_BIT4;
+    pub const INTLISTREF_BIT8: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_BIT8;
+    pub const INTLISTREF_BIT16: i32 = crate::runtime::forms::codes::elm_value::INTLISTREF_BIT16;
+    pub const INTEVENT_SET: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_SET;
+    pub const INTEVENT_SET_REAL: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_SET_REAL;
+    pub const INTEVENT_LOOP: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_LOOP;
+    pub const INTEVENT_LOOP_REAL: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_LOOP_REAL;
+    pub const INTEVENT_TURN: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_TURN;
+    pub const INTEVENT_TURN_REAL: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_TURN_REAL;
+    pub const INTEVENT_YURE: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_YURE;
+    pub const INTEVENT_YURE_REAL: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_YURE_REAL;
+    pub const INTEVENT_END: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_END;
+    pub const INTEVENT_WAIT: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_WAIT;
+    pub const INTEVENT_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_WAIT_KEY;
+    pub const INTEVENT_CHECK: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_CHECK;
+    pub const INTEVENT_GET_EVENT_VALUE: i32 = crate::runtime::forms::codes::elm_value::INTEVENT_GET_EVENT_VALUE;
+    pub const INTEVENT___SET: i32 = crate::runtime::forms::codes::elm_value::INTEVENT___SET;
+    pub const INTEVENTLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::INTEVENTLIST_ARRAY;
+    pub const INTEVENTLIST_RESIZE: i32 = crate::runtime::forms::codes::elm_value::INTEVENTLIST_RESIZE;
+    pub const ALLEVENT_END: i32 = crate::runtime::forms::codes::elm_value::ALLEVENT_END;
+    pub const ALLEVENT_WAIT: i32 = crate::runtime::forms::codes::elm_value::ALLEVENT_WAIT;
+    pub const ALLEVENT_CHECK: i32 = crate::runtime::forms::codes::elm_value::ALLEVENT_CHECK;
+    pub const STR_UPPER: i32 = crate::runtime::forms::codes::elm_value::STR_UPPER;
+    pub const STR_LOWER: i32 = crate::runtime::forms::codes::elm_value::STR_LOWER;
+    pub const STR_LEN: i32 = crate::runtime::forms::codes::elm_value::STR_LEN;
+    pub const STR_CNT: i32 = crate::runtime::forms::codes::elm_value::STR_CNT;
+    pub const STR_LEFT: i32 = crate::runtime::forms::codes::elm_value::STR_LEFT;
+    pub const STR_LEFT_LEN: i32 = crate::runtime::forms::codes::elm_value::STR_LEFT_LEN;
+    pub const STR_MID: i32 = crate::runtime::forms::codes::elm_value::STR_MID;
+    pub const STR_MID_LEN: i32 = crate::runtime::forms::codes::elm_value::STR_MID_LEN;
+    pub const STR_RIGHT: i32 = crate::runtime::forms::codes::elm_value::STR_RIGHT;
+    pub const STR_RIGHT_LEN: i32 = crate::runtime::forms::codes::elm_value::STR_RIGHT_LEN;
+    pub const STR_SEARCH: i32 = crate::runtime::forms::codes::elm_value::STR_SEARCH;
+    pub const STR_SEARCH_LAST: i32 = crate::runtime::forms::codes::elm_value::STR_SEARCH_LAST;
+    pub const STR_GET_CODE: i32 = crate::runtime::forms::codes::elm_value::STR_GET_CODE;
+    pub const STR_TONUM: i32 = crate::runtime::forms::codes::elm_value::STR_TONUM;
+    pub const STRLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::STRLIST_ARRAY;
+    pub const STRLIST_INIT: i32 = crate::runtime::forms::codes::elm_value::STRLIST_INIT;
+    pub const STRLIST_RESIZE: i32 = crate::runtime::forms::codes::elm_value::STRLIST_RESIZE;
+    pub const STRLIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::STRLIST_GET_SIZE;
+    pub const STRLIST_SETS: i32 = crate::runtime::forms::codes::elm_value::STRLIST_SETS;
+    pub const MATH_MAX: i32 = crate::runtime::forms::codes::elm_value::MATH_MAX;
+    pub const MATH_MIN: i32 = crate::runtime::forms::codes::elm_value::MATH_MIN;
+    pub const MATH_LIMIT: i32 = crate::runtime::forms::codes::elm_value::MATH_LIMIT;
+    pub const MATH_ABS: i32 = crate::runtime::forms::codes::elm_value::MATH_ABS;
+    pub const MATH_RAND: i32 = crate::runtime::forms::codes::elm_value::MATH_RAND;
+    pub const MATH_SQRT: i32 = crate::runtime::forms::codes::elm_value::MATH_SQRT;
+    pub const MATH_LOG: i32 = crate::runtime::forms::codes::elm_value::MATH_LOG;
+    pub const MATH_LOG2: i32 = crate::runtime::forms::codes::elm_value::MATH_LOG2;
+    pub const MATH_LOG10: i32 = crate::runtime::forms::codes::elm_value::MATH_LOG10;
+    pub const MATH_SIN: i32 = crate::runtime::forms::codes::elm_value::MATH_SIN;
+    pub const MATH_COS: i32 = crate::runtime::forms::codes::elm_value::MATH_COS;
+    pub const MATH_TAN: i32 = crate::runtime::forms::codes::elm_value::MATH_TAN;
+    pub const MATH_ARCSIN: i32 = crate::runtime::forms::codes::elm_value::MATH_ARCSIN;
+    pub const MATH_ARCCOS: i32 = crate::runtime::forms::codes::elm_value::MATH_ARCCOS;
+    pub const MATH_ARCTAN: i32 = crate::runtime::forms::codes::elm_value::MATH_ARCTAN;
+    pub const MATH_DISTANCE: i32 = crate::runtime::forms::codes::elm_value::MATH_DISTANCE;
+    pub const MATH_ANGLE: i32 = crate::runtime::forms::codes::elm_value::MATH_ANGLE;
+    pub const MATH_LINEAR: i32 = crate::runtime::forms::codes::elm_value::MATH_LINEAR;
+    pub const MATH_TIMETABLE: i32 = crate::runtime::forms::codes::elm_value::MATH_TIMETABLE;
+    pub const MATH_TOSTR: i32 = crate::runtime::forms::codes::elm_value::MATH_TOSTR;
+    pub const MATH_TOSTR_ZERO: i32 = crate::runtime::forms::codes::elm_value::MATH_TOSTR_ZERO;
+    pub const MATH_TOSTR_ZEN: i32 = crate::runtime::forms::codes::elm_value::MATH_TOSTR_ZEN;
+    pub const MATH_TOSTR_ZEN_ZERO: i32 = crate::runtime::forms::codes::elm_value::MATH_TOSTR_ZEN_ZERO;
+    pub const MATH_TOSTR_BY_CODE: i32 = crate::runtime::forms::codes::elm_value::MATH_TOSTR_BY_CODE;
+    pub const FILE_LOAD_TXT: i32 = crate::runtime::forms::codes::elm_value::FILE_LOAD_TXT;
+    pub const FILE_PRELOAD_OMV: i32 = crate::runtime::forms::codes::elm_value::FILE_PRELOAD_OMV;
+    pub const CGTABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_FLAG;
+    pub const CGTABLE_SET_DISABLE: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_SET_DISABLE;
+    pub const CGTABLE_SET_ENABLE: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_SET_ENABLE;
+    pub const CGTABLE_SET_ALL_FLAG: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_SET_ALL_FLAG;
+    pub const CGTABLE_GET_FLAG_NO_BY_NAME: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_GET_FLAG_NO_BY_NAME;
+    pub const CGTABLE_GET_NAME_BY_FLAG_NO: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_GET_NAME_BY_FLAG_NO;
+    pub const CGTABLE_SET_LOOK_BY_NAME: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_SET_LOOK_BY_NAME;
+    pub const CGTABLE_GET_LOOK_BY_NAME: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_GET_LOOK_BY_NAME;
+    pub const CGTABLE_GET_CG_CNT: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_GET_CG_CNT;
+    pub const CGTABLE_GET_LOOK_CNT: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_GET_LOOK_CNT;
+    pub const CGTABLE_GET_LOOK_PERCENT: i32 = crate::runtime::forms::codes::elm_value::CGTABLE_GET_LOOK_PERCENT;
+    pub const BGMTABLE_GET_BGM_CNT: i32 = crate::runtime::forms::codes::elm_value::BGMTABLE_GET_BGM_CNT;
+    pub const BGMTABLE_SET_ALL_FLAG: i32 = crate::runtime::forms::codes::elm_value::BGMTABLE_SET_ALL_FLAG;
+    pub const BGMTABLE_SET_LISTEN_BY_NAME: i32 = crate::runtime::forms::codes::elm_value::BGMTABLE_SET_LISTEN_BY_NAME;
+    pub const BGMTABLE_GET_LISTEN_BY_NAME: i32 = crate::runtime::forms::codes::elm_value::BGMTABLE_GET_LISTEN_BY_NAME;
+    pub const DATABASE_GET_NUM: i32 = crate::runtime::forms::codes::elm_value::DATABASE_GET_NUM;
+    pub const DATABASE_GET_STR: i32 = crate::runtime::forms::codes::elm_value::DATABASE_GET_STR;
+    pub const DATABASE_GET_DATA: i32 = crate::runtime::forms::codes::elm_value::DATABASE_GET_DATA;
+    pub const DATABASE_CHECK_ITEM: i32 = crate::runtime::forms::codes::elm_value::DATABASE_CHECK_ITEM;
+    pub const DATABASE_CHECK_COLUMN: i32 = crate::runtime::forms::codes::elm_value::DATABASE_CHECK_COLUMN;
+    pub const DATABASE_FIND_NUM: i32 = crate::runtime::forms::codes::elm_value::DATABASE_FIND_NUM;
+    pub const DATABASE_FIND_STR: i32 = crate::runtime::forms::codes::elm_value::DATABASE_FIND_STR;
+    pub const DATABASE_FIND_STR_REAL: i32 = crate::runtime::forms::codes::elm_value::DATABASE_FIND_STR_REAL;
+    pub const DATABASELIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::DATABASELIST_ARRAY;
+    pub const DATABASELIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::DATABASELIST_GET_SIZE;
+    pub const G00BUF_LOAD: i32 = crate::runtime::forms::codes::elm_value::G00BUF_LOAD;
+    pub const G00BUF_FREE: i32 = crate::runtime::forms::codes::elm_value::G00BUF_FREE;
+    pub const G00BUFLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::G00BUFLIST_ARRAY;
+    pub const G00BUFLIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::G00BUFLIST_GET_SIZE;
+    pub const G00BUFLIST_FREE_ALL: i32 = crate::runtime::forms::codes::elm_value::G00BUFLIST_FREE_ALL;
+    pub const MASK_INIT: i32 = crate::runtime::forms::codes::elm_value::MASK_INIT;
+    pub const MASK_CREATE: i32 = crate::runtime::forms::codes::elm_value::MASK_CREATE;
+    pub const MASK_X: i32 = crate::runtime::forms::codes::elm_value::MASK_X;
+    pub const MASK_Y: i32 = crate::runtime::forms::codes::elm_value::MASK_Y;
+    pub const MASK_X_EVE: i32 = crate::runtime::forms::codes::elm_value::MASK_X_EVE;
+    pub const MASK_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::MASK_Y_EVE;
+    pub const MASKLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::MASKLIST_ARRAY;
+    pub const MASKLIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::MASKLIST_GET_SIZE;
+    pub const COUNTER_SET: i32 = crate::runtime::forms::codes::elm_value::COUNTER_SET;
+    pub const COUNTER_GET: i32 = crate::runtime::forms::codes::elm_value::COUNTER_GET;
+    pub const COUNTER_RESET: i32 = crate::runtime::forms::codes::elm_value::COUNTER_RESET;
+    pub const COUNTER_START: i32 = crate::runtime::forms::codes::elm_value::COUNTER_START;
+    pub const COUNTER_START_REAL: i32 = crate::runtime::forms::codes::elm_value::COUNTER_START_REAL;
+    pub const COUNTER_START_FRAME: i32 = crate::runtime::forms::codes::elm_value::COUNTER_START_FRAME;
+    pub const COUNTER_START_FRAME_REAL: i32 = crate::runtime::forms::codes::elm_value::COUNTER_START_FRAME_REAL;
+    pub const COUNTER_START_FRAME_LOOP: i32 = crate::runtime::forms::codes::elm_value::COUNTER_START_FRAME_LOOP;
+    pub const COUNTER_START_FRAME_LOOP_REAL: i32 = crate::runtime::forms::codes::elm_value::COUNTER_START_FRAME_LOOP_REAL;
+    pub const COUNTER_STOP: i32 = crate::runtime::forms::codes::elm_value::COUNTER_STOP;
+    pub const COUNTER_RESUME: i32 = crate::runtime::forms::codes::elm_value::COUNTER_RESUME;
+    pub const COUNTER_WAIT: i32 = crate::runtime::forms::codes::elm_value::COUNTER_WAIT;
+    pub const COUNTER_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::COUNTER_WAIT_KEY;
+    pub const COUNTER_CHECK_VALUE: i32 = crate::runtime::forms::codes::elm_value::COUNTER_CHECK_VALUE;
+    pub const COUNTER_CHECK_ACTIVE: i32 = crate::runtime::forms::codes::elm_value::COUNTER_CHECK_ACTIVE;
+    pub const COUNTERLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::COUNTERLIST_ARRAY;
+    pub const COUNTERLIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::COUNTERLIST_GET_SIZE;
+    pub const FRAMEACTION_START: i32 = crate::runtime::forms::codes::elm_value::FRAMEACTION_START;
+    pub const FRAMEACTION_START_REAL: i32 = crate::runtime::forms::codes::elm_value::FRAMEACTION_START_REAL;
+    pub const FRAMEACTION_END: i32 = crate::runtime::forms::codes::elm_value::FRAMEACTION_END;
+    pub const FRAMEACTION_COUNTER: i32 = crate::runtime::forms::codes::elm_value::FRAMEACTION_COUNTER;
+    pub const FRAMEACTION_IS_END_ACTION: i32 = crate::runtime::forms::codes::elm_value::FRAMEACTION_IS_END_ACTION;
+    pub const FRAMEACTIONLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::FRAMEACTIONLIST_ARRAY;
+    pub const FRAMEACTIONLIST_RESIZE: i32 = crate::runtime::forms::codes::elm_value::FRAMEACTIONLIST_RESIZE;
+    pub const FRAMEACTIONLIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::FRAMEACTIONLIST_GET_SIZE;
+    pub const WORLD_CAMERA_EYE_X: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_EYE_X;
+    pub const WORLD_CAMERA_EYE_X_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_EYE_X_EVE;
+    pub const WORLD_CAMERA_EYE_Y: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_EYE_Y;
+    pub const WORLD_CAMERA_EYE_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_EYE_Y_EVE;
+    pub const WORLD_CAMERA_EYE_Z: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_EYE_Z;
+    pub const WORLD_CAMERA_EYE_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_EYE_Z_EVE;
+    pub const WORLD_CAMERA_PINT_X: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_PINT_X;
+    pub const WORLD_CAMERA_PINT_X_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_PINT_X_EVE;
+    pub const WORLD_CAMERA_PINT_Y: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_PINT_Y;
+    pub const WORLD_CAMERA_PINT_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_PINT_Y_EVE;
+    pub const WORLD_CAMERA_PINT_Z: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_PINT_Z;
+    pub const WORLD_CAMERA_PINT_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_PINT_Z_EVE;
+    pub const WORLD_CAMERA_UP_X: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_UP_X;
+    pub const WORLD_CAMERA_UP_X_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_UP_X_EVE;
+    pub const WORLD_CAMERA_UP_Y: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_UP_Y;
+    pub const WORLD_CAMERA_UP_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_UP_Y_EVE;
+    pub const WORLD_CAMERA_UP_Z: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_UP_Z;
+    pub const WORLD_CAMERA_UP_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_UP_Z_EVE;
+    pub const WORLD_CAMERA_VIEW_ANGLE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CAMERA_VIEW_ANGLE;
+    pub const WORLD_MONO: i32 = crate::runtime::forms::codes::elm_value::WORLD_MONO;
+    pub const WORLD_INIT: i32 = crate::runtime::forms::codes::elm_value::WORLD_INIT;
+    pub const WORLD_GET_NO: i32 = crate::runtime::forms::codes::elm_value::WORLD_GET_NO;
+    pub const WORLD_SET_CAMERA_EYE: i32 = crate::runtime::forms::codes::elm_value::WORLD_SET_CAMERA_EYE;
+    pub const WORLD_CALC_CAMERA_EYE: i32 = crate::runtime::forms::codes::elm_value::WORLD_CALC_CAMERA_EYE;
+    pub const WORLD_SET_CAMERA_PINT: i32 = crate::runtime::forms::codes::elm_value::WORLD_SET_CAMERA_PINT;
+    pub const WORLD_CALC_CAMERA_PINT: i32 = crate::runtime::forms::codes::elm_value::WORLD_CALC_CAMERA_PINT;
+    pub const WORLD_SET_CAMERA_UP: i32 = crate::runtime::forms::codes::elm_value::WORLD_SET_CAMERA_UP;
+    pub const WORLD_SET_CAMERA_EVE_XZ_ROTATE: i32 = crate::runtime::forms::codes::elm_value::WORLD_SET_CAMERA_EVE_XZ_ROTATE;
+    pub const WORLD_ORDER: i32 = crate::runtime::forms::codes::elm_value::WORLD_ORDER;
+    pub const WORLD_LAYER: i32 = crate::runtime::forms::codes::elm_value::WORLD_LAYER;
+    pub const WORLD_WIPE_COPY: i32 = crate::runtime::forms::codes::elm_value::WORLD_WIPE_COPY;
+    pub const WORLD_WIPE_ERASE: i32 = crate::runtime::forms::codes::elm_value::WORLD_WIPE_ERASE;
+    pub const WORLDLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::WORLDLIST_ARRAY;
+    pub const WORLDLIST_CREATE_WORLD: i32 = crate::runtime::forms::codes::elm_value::WORLDLIST_CREATE_WORLD;
+    pub const WORLDLIST_DESTROY_WORLD: i32 = crate::runtime::forms::codes::elm_value::WORLDLIST_DESTROY_WORLD;
+    pub const STAGE_CREATE_OBJECT: i32 = crate::runtime::forms::codes::elm_value::STAGE_CREATE_OBJECT;
+    pub const STAGE_CREATE_MWND: i32 = crate::runtime::forms::codes::elm_value::STAGE_CREATE_MWND;
+    pub const STAGE_OBJECT: i32 = crate::runtime::forms::codes::elm_value::STAGE_OBJECT;
+    pub const STAGE_OBJBTNGROUP: i32 = crate::runtime::forms::codes::elm_value::STAGE_OBJBTNGROUP;
+    pub const STAGE_MWND: i32 = crate::runtime::forms::codes::elm_value::STAGE_MWND;
+    pub const STAGE_BTNSELITEM: i32 = crate::runtime::forms::codes::elm_value::STAGE_BTNSELITEM;
+    pub const STAGE_EFFECT: i32 = crate::runtime::forms::codes::elm_value::STAGE_EFFECT;
+    pub const STAGE_QUAKE: i32 = crate::runtime::forms::codes::elm_value::STAGE_QUAKE;
+    pub const STAGE_WORLD: i32 = crate::runtime::forms::codes::elm_value::STAGE_WORLD;
+    pub const STAGELIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::STAGELIST_ARRAY;
+    pub const OBJECT___IAPP_DUMMY: i32 = crate::runtime::forms::codes::elm_value::OBJECT___IAPP_DUMMY;
+    pub const OBJECT_GET_ELEMENT_NAME: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_ELEMENT_NAME;
+    pub const OBJECT_DISP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_DISP;
+    pub const OBJECT_PATNO: i32 = crate::runtime::forms::codes::elm_value::OBJECT_PATNO;
+    pub const OBJECT_WORLD: i32 = crate::runtime::forms::codes::elm_value::OBJECT_WORLD;
+    pub const OBJECT_ORDER: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ORDER;
+    pub const OBJECT_LAYER: i32 = crate::runtime::forms::codes::elm_value::OBJECT_LAYER;
+    pub const OBJECT_X: i32 = crate::runtime::forms::codes::elm_value::OBJECT_X;
+    pub const OBJECT_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECT_Y;
+    pub const OBJECT_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECT_Z;
+    pub const OBJECT_X_REP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_X_REP;
+    pub const OBJECT_Y_REP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_Y_REP;
+    pub const OBJECT_Z_REP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_Z_REP;
+    pub const OBJECT_CENTER_X: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_X;
+    pub const OBJECT_CENTER_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_Y;
+    pub const OBJECT_CENTER_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_Z;
+    pub const OBJECT_CENTER_REP_X: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_REP_X;
+    pub const OBJECT_CENTER_REP_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_REP_Y;
+    pub const OBJECT_CENTER_REP_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_REP_Z;
+    pub const OBJECT_SCALE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SCALE_X;
+    pub const OBJECT_SCALE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SCALE_Y;
+    pub const OBJECT_SCALE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SCALE_Z;
+    pub const OBJECT_ROTATE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ROTATE_X;
+    pub const OBJECT_ROTATE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ROTATE_Y;
+    pub const OBJECT_ROTATE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ROTATE_Z;
+    pub const OBJECT_CLIP_USE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_USE;
+    pub const OBJECT_CLIP_LEFT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_LEFT;
+    pub const OBJECT_CLIP_TOP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_TOP;
+    pub const OBJECT_CLIP_RIGHT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_RIGHT;
+    pub const OBJECT_CLIP_BOTTOM: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_BOTTOM;
+    pub const OBJECT_SRC_CLIP_USE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_USE;
+    pub const OBJECT_SRC_CLIP_LEFT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_LEFT;
+    pub const OBJECT_SRC_CLIP_TOP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_TOP;
+    pub const OBJECT_SRC_CLIP_RIGHT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_RIGHT;
+    pub const OBJECT_SRC_CLIP_BOTTOM: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_BOTTOM;
+    pub const OBJECT_TR: i32 = crate::runtime::forms::codes::elm_value::OBJECT_TR;
+    pub const OBJECT_TR_REP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_TR_REP;
+    pub const OBJECT_MONO: i32 = crate::runtime::forms::codes::elm_value::OBJECT_MONO;
+    pub const OBJECT_REVERSE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_REVERSE;
+    pub const OBJECT_BRIGHT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_BRIGHT;
+    pub const OBJECT_DARK: i32 = crate::runtime::forms::codes::elm_value::OBJECT_DARK;
+    pub const OBJECT_COLOR_R: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_R;
+    pub const OBJECT_COLOR_G: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_G;
+    pub const OBJECT_COLOR_B: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_B;
+    pub const OBJECT_COLOR_RATE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_RATE;
+    pub const OBJECT_COLOR_ADD_R: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_ADD_R;
+    pub const OBJECT_COLOR_ADD_G: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_ADD_G;
+    pub const OBJECT_COLOR_ADD_B: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_ADD_B;
+    pub const OBJECT_TONECURVE_NO: i32 = crate::runtime::forms::codes::elm_value::OBJECT_TONECURVE_NO;
+    pub const OBJECT_MASK_NO: i32 = crate::runtime::forms::codes::elm_value::OBJECT_MASK_NO;
+    pub const OBJECT_FOG_USE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_FOG_USE;
+    pub const OBJECT_LIGHT_NO: i32 = crate::runtime::forms::codes::elm_value::OBJECT_LIGHT_NO;
+    pub const OBJECT_CULLING: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CULLING;
+    pub const OBJECT_ALPHA_TEST: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ALPHA_TEST;
+    pub const OBJECT_ALPHA_BLEND: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ALPHA_BLEND;
+    pub const OBJECT_BLEND: i32 = crate::runtime::forms::codes::elm_value::OBJECT_BLEND;
+    pub const OBJECT_WIPE_COPY: i32 = crate::runtime::forms::codes::elm_value::OBJECT_WIPE_COPY;
+    pub const OBJECT_WIPE_ERASE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_WIPE_ERASE;
+    pub const OBJECT_CLICK_DISABLE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLICK_DISABLE;
+    pub const OBJECT_PATNO_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_PATNO_EVE;
+    pub const OBJECT_X_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_X_EVE;
+    pub const OBJECT_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_Y_EVE;
+    pub const OBJECT_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_Z_EVE;
+    pub const OBJECT_X_REP_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_X_REP_EVE;
+    pub const OBJECT_Y_REP_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_Y_REP_EVE;
+    pub const OBJECT_Z_REP_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_Z_REP_EVE;
+    pub const OBJECT_CENTER_X_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_X_EVE;
+    pub const OBJECT_CENTER_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_Y_EVE;
+    pub const OBJECT_CENTER_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_Z_EVE;
+    pub const OBJECT_CENTER_REP_X_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_REP_X_EVE;
+    pub const OBJECT_CENTER_REP_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_REP_Y_EVE;
+    pub const OBJECT_CENTER_REP_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CENTER_REP_Z_EVE;
+    pub const OBJECT_SCALE_X_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SCALE_X_EVE;
+    pub const OBJECT_SCALE_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SCALE_Y_EVE;
+    pub const OBJECT_SCALE_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SCALE_Z_EVE;
+    pub const OBJECT_ROTATE_X_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ROTATE_X_EVE;
+    pub const OBJECT_ROTATE_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ROTATE_Y_EVE;
+    pub const OBJECT_ROTATE_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ROTATE_Z_EVE;
+    pub const OBJECT_TR_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_TR_EVE;
+    pub const OBJECT_TR_REP_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_TR_REP_EVE;
+    pub const OBJECT_CLIP_LEFT_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_LEFT_EVE;
+    pub const OBJECT_CLIP_TOP_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_TOP_EVE;
+    pub const OBJECT_CLIP_RIGHT_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_RIGHT_EVE;
+    pub const OBJECT_CLIP_BOTTOM_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLIP_BOTTOM_EVE;
+    pub const OBJECT_SRC_CLIP_LEFT_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_LEFT_EVE;
+    pub const OBJECT_SRC_CLIP_TOP_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_TOP_EVE;
+    pub const OBJECT_SRC_CLIP_RIGHT_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_RIGHT_EVE;
+    pub const OBJECT_SRC_CLIP_BOTTOM_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SRC_CLIP_BOTTOM_EVE;
+    pub const OBJECT_MONO_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_MONO_EVE;
+    pub const OBJECT_REVERSE_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_REVERSE_EVE;
+    pub const OBJECT_BRIGHT_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_BRIGHT_EVE;
+    pub const OBJECT_DARK_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_DARK_EVE;
+    pub const OBJECT_COLOR_R_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_R_EVE;
+    pub const OBJECT_COLOR_G_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_G_EVE;
+    pub const OBJECT_COLOR_B_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_B_EVE;
+    pub const OBJECT_COLOR_RATE_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_RATE_EVE;
+    pub const OBJECT_COLOR_ADD_R_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_ADD_R_EVE;
+    pub const OBJECT_COLOR_ADD_G_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_ADD_G_EVE;
+    pub const OBJECT_COLOR_ADD_B_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_COLOR_ADD_B_EVE;
+    pub const OBJECT_ALL_EVE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ALL_EVE;
+    pub const OBJECT_FRAME_ACTION: i32 = crate::runtime::forms::codes::elm_value::OBJECT_FRAME_ACTION;
+    pub const OBJECT_FRAME_ACTION_CH: i32 = crate::runtime::forms::codes::elm_value::OBJECT_FRAME_ACTION_CH;
+    pub const OBJECT_CHILD: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CHILD;
+    pub const OBJECT_F: i32 = crate::runtime::forms::codes::elm_value::OBJECT_F;
+    pub const OBJECT_INIT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_INIT;
+    pub const OBJECT_INIT_PARAM: i32 = crate::runtime::forms::codes::elm_value::OBJECT_INIT_PARAM;
+    pub const OBJECT_FREE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_FREE;
+    pub const OBJECT_CREATE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE;
+    pub const OBJECT_CREATE_RECT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_RECT;
+    pub const OBJECT_CREATE_STRING: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_STRING;
+    pub const OBJECT_CREATE_NUMBER: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_NUMBER;
+    pub const OBJECT_CREATE_WEATHER: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_WEATHER;
+    pub const OBJECT_CREATE_SAVE_THUMB: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_SAVE_THUMB;
+    pub const OBJECT_CREATE_CAPTURE_THUMB: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_CAPTURE_THUMB;
+    pub const OBJECT_CREATE_CAPTURE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_CAPTURE;
+    pub const OBJECT_CREATE_FROM_CAPTURE_FILE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_FROM_CAPTURE_FILE;
+    pub const OBJECT_CREATE_MOVIE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_MOVIE;
+    pub const OBJECT_CREATE_MOVIE_LOOP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_MOVIE_LOOP;
+    pub const OBJECT_CREATE_MOVIE_WAIT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_MOVIE_WAIT;
+    pub const OBJECT_CREATE_MOVIE_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_MOVIE_WAIT_KEY;
+    pub const OBJECT_CREATE_EMOTE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_EMOTE;
+    pub const OBJECT_CREATE_MESH: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_MESH;
+    pub const OBJECT_CREATE_BILLBOARD: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_BILLBOARD;
+    pub const OBJECT_CREATE_COPY_FROM: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CREATE_COPY_FROM;
+    pub const OBJECT_CHANGE_FILE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CHANGE_FILE;
+    pub const OBJECT_EXIST_TYPE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EXIST_TYPE;
+    pub const OBJECT_SET_POS: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_POS;
+    pub const OBJECT_SET_SCALE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_SCALE;
+    pub const OBJECT_SET_ROTATE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_ROTATE;
+    pub const OBJECT_SET_CENTER: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_CENTER;
+    pub const OBJECT_SET_CENTER_REP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_CENTER_REP;
+    pub const OBJECT_SET_CLIP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_CLIP;
+    pub const OBJECT_SET_SRC_CLIP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_SRC_CLIP;
+    pub const OBJECT_GET_TYPE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_TYPE;
+    pub const OBJECT_GET_SIZE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_SIZE_X;
+    pub const OBJECT_GET_SIZE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_SIZE_Y;
+    pub const OBJECT_GET_SIZE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_SIZE_Z;
+    pub const OBJECT_GET_PIXEL_COLOR_R: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_PIXEL_COLOR_R;
+    pub const OBJECT_GET_PIXEL_COLOR_G: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_PIXEL_COLOR_G;
+    pub const OBJECT_GET_PIXEL_COLOR_B: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_PIXEL_COLOR_B;
+    pub const OBJECT_GET_PIXEL_COLOR_A: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_PIXEL_COLOR_A;
+    pub const OBJECT_GET_FILE_NAME: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_FILE_NAME;
+    pub const OBJECT_SET_STRING: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_STRING;
+    pub const OBJECT_GET_STRING: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_STRING;
+    pub const OBJECT_SET_STRING_PARAM: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_STRING_PARAM;
+    pub const OBJECT_SET_NUMBER: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_NUMBER;
+    pub const OBJECT_GET_NUMBER: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_NUMBER;
+    pub const OBJECT_SET_NUMBER_PARAM: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_NUMBER_PARAM;
+    pub const OBJECT_SET_WEATHER_PARAM_TYPE_A: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_WEATHER_PARAM_TYPE_A;
+    pub const OBJECT_SET_WEATHER_PARAM_TYPE_B: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_WEATHER_PARAM_TYPE_B;
+    pub const OBJECT_PAUSE_MOVIE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_PAUSE_MOVIE;
+    pub const OBJECT_RESUME_MOVIE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_RESUME_MOVIE;
+    pub const OBJECT_SEEK_MOVIE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SEEK_MOVIE;
+    pub const OBJECT_GET_MOVIE_SEEK_TIME: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_MOVIE_SEEK_TIME;
+    pub const OBJECT_CHECK_MOVIE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CHECK_MOVIE;
+    pub const OBJECT_WAIT_MOVIE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_WAIT_MOVIE;
+    pub const OBJECT_WAIT_MOVIE_KEY: i32 = crate::runtime::forms::codes::elm_value::OBJECT_WAIT_MOVIE_KEY;
+    pub const OBJECT_END_MOVIE_LOOP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_END_MOVIE_LOOP;
+    pub const OBJECT_SET_MOVIE_AUTO_FREE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_MOVIE_AUTO_FREE;
+    pub const OBJECT_CLEAR_BUTTON: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLEAR_BUTTON;
+    pub const OBJECT_SET_BUTTON: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON;
+    pub const OBJECT_SET_BUTTON_GROUP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON_GROUP;
+    pub const OBJECT_SET_BUTTON_STATE_NORMAL: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON_STATE_NORMAL;
+    pub const OBJECT_SET_BUTTON_STATE_SELECT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON_STATE_SELECT;
+    pub const OBJECT_SET_BUTTON_STATE_DISABLE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON_STATE_DISABLE;
+    pub const OBJECT_GET_BUTTON_STATE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_BUTTON_STATE;
+    pub const OBJECT_GET_BUTTON_HIT_STATE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_BUTTON_HIT_STATE;
+    pub const OBJECT_GET_BUTTON_REAL_STATE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_BUTTON_REAL_STATE;
+    pub const OBJECT_SET_BUTTON_PUSHKEEP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON_PUSHKEEP;
+    pub const OBJECT_GET_BUTTON_PUSHKEEP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_BUTTON_PUSHKEEP;
+    pub const OBJECT_SET_BUTTON_ALPHA_TEST: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON_ALPHA_TEST;
+    pub const OBJECT_GET_BUTTON_ALPHA_TEST: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_BUTTON_ALPHA_TEST;
+    pub const OBJECT_CLEAR_BUTTON_CALL: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLEAR_BUTTON_CALL;
+    pub const OBJECT_SET_BUTTON_CALL: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON_CALL;
+    pub const OBJECT_LOAD_GAN: i32 = crate::runtime::forms::codes::elm_value::OBJECT_LOAD_GAN;
+    pub const OBJECT_START_GAN: i32 = crate::runtime::forms::codes::elm_value::OBJECT_START_GAN;
+    pub const OBJECT_ADD_HINTS: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ADD_HINTS;
+    pub const OBJECT_CLEAR_HINTS: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLEAR_HINTS;
+    pub const OBJECT_SET_CHILD_SORT_TYPE_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_CHILD_SORT_TYPE_DEFAULT;
+    pub const OBJECT_SET_CHILD_SORT_TYPE_TEST: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_CHILD_SORT_TYPE_TEST;
+    pub const OBJECT_GET_PAT_CNT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_PAT_CNT;
+    pub const OBJECT_EMOTE_PLAY_TIMELINE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_PLAY_TIMELINE;
+    pub const OBJECT_EMOTE_STOP_TIMELINE: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_STOP_TIMELINE;
+    pub const OBJECT_EMOTE_CHECK_PLAYING: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_CHECK_PLAYING;
+    pub const OBJECT_EMOTE_WAIT_PLAYING: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_WAIT_PLAYING;
+    pub const OBJECT_EMOTE_WAIT_PLAYING_KEY: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_WAIT_PLAYING_KEY;
+    pub const OBJECT_EMOTE_SKIP: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_SKIP;
+    pub const OBJECT_EMOTE_PASS: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_PASS;
+    pub const OBJECT_EMOTE_MOUTH_VOLUME: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_MOUTH_VOLUME;
+    pub const OBJECT_EMOTE_KOE_CHARA_NO: i32 = crate::runtime::forms::codes::elm_value::OBJECT_EMOTE_KOE_CHARA_NO;
+    pub const OBJECTLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::OBJECTLIST_ARRAY;
+    pub const OBJECTLIST_RESIZE: i32 = crate::runtime::forms::codes::elm_value::OBJECTLIST_RESIZE;
+    pub const OBJECTLIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::OBJECTLIST_GET_SIZE;
+    pub const OBJECTEVENT_SET_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_X;
+    pub const OBJECTEVENT_SET_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_Y;
+    pub const OBJECTEVENT_SET_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_Z;
+    pub const OBJECTEVENT_SET_SCALE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_SCALE_X;
+    pub const OBJECTEVENT_SET_SCALE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_SCALE_Y;
+    pub const OBJECTEVENT_SET_SCALE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_SCALE_Z;
+    pub const OBJECTEVENT_SET_ROTATE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_ROTATE_X;
+    pub const OBJECTEVENT_SET_ROTATE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_ROTATE_Y;
+    pub const OBJECTEVENT_SET_ROTATE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_ROTATE_Z;
+    pub const OBJECTEVENT_SET_TR: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_SET_TR;
+    pub const OBJECTEVENT_LOOP_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_LOOP_X;
+    pub const OBJECTEVENT_LOOP_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_LOOP_Y;
+    pub const OBJECTEVENT_LOOP_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_LOOP_Z;
+    pub const OBJECTEVENT_LOOP_TR: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_LOOP_TR;
+    pub const OBJECTEVENT_TURN_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_TURN_X;
+    pub const OBJECTEVENT_TURN_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_TURN_Y;
+    pub const OBJECTEVENT_TURN_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_TURN_Z;
+    pub const OBJECTEVENT_TURN_TR: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_TURN_TR;
+    pub const OBJECTEVENT_STOP_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_X;
+    pub const OBJECTEVENT_STOP_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_Y;
+    pub const OBJECTEVENT_STOP_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_Z;
+    pub const OBJECTEVENT_STOP_SCALE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_SCALE_X;
+    pub const OBJECTEVENT_STOP_SCALE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_SCALE_Y;
+    pub const OBJECTEVENT_STOP_SCALE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_SCALE_Z;
+    pub const OBJECTEVENT_STOP_ROTATE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_ROTATE_X;
+    pub const OBJECTEVENT_STOP_ROTATE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_ROTATE_Y;
+    pub const OBJECTEVENT_STOP_ROTATE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_ROTATE_Z;
+    pub const OBJECTEVENT_STOP_TR: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_TR;
+    pub const OBJECTEVENT_STOP_ALL: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_STOP_ALL;
+    pub const OBJECTEVENT_WAIT_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_X;
+    pub const OBJECTEVENT_WAIT_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_Y;
+    pub const OBJECTEVENT_WAIT_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_Z;
+    pub const OBJECTEVENT_WAIT_SCALE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_SCALE_X;
+    pub const OBJECTEVENT_WAIT_SCALE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_SCALE_Y;
+    pub const OBJECTEVENT_WAIT_SCALE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_SCALE_Z;
+    pub const OBJECTEVENT_WAIT_ROTATE_X: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_ROTATE_X;
+    pub const OBJECTEVENT_WAIT_ROTATE_Y: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_ROTATE_Y;
+    pub const OBJECTEVENT_WAIT_ROTATE_Z: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_ROTATE_Z;
+    pub const OBJECTEVENT_WAIT_TR: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_TR;
+    pub const OBJECTEVENT_WAIT_ALL: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENT_WAIT_ALL;
+    pub const OBJECTEVENTLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::OBJECTEVENTLIST_ARRAY;
+    pub const MWND_SET_WAKU: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_WAKU;
+    pub const MWND_OPEN: i32 = crate::runtime::forms::codes::elm_value::MWND_OPEN;
+    pub const MWND_OPEN_WAIT: i32 = crate::runtime::forms::codes::elm_value::MWND_OPEN_WAIT;
+    pub const MWND_OPEN_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::MWND_OPEN_NOWAIT;
+    pub const MWND_CLOSE: i32 = crate::runtime::forms::codes::elm_value::MWND_CLOSE;
+    pub const MWND_CLOSE_WAIT: i32 = crate::runtime::forms::codes::elm_value::MWND_CLOSE_WAIT;
+    pub const MWND_CLOSE_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::MWND_CLOSE_NOWAIT;
+    pub const MWND_CHECK_OPEN: i32 = crate::runtime::forms::codes::elm_value::MWND_CHECK_OPEN;
+    pub const MWND_END_CLOSE: i32 = crate::runtime::forms::codes::elm_value::MWND_END_CLOSE;
+    pub const MWND_MSG_BLOCK: i32 = crate::runtime::forms::codes::elm_value::MWND_MSG_BLOCK;
+    pub const MWND_MSG_PP_BLOCK: i32 = crate::runtime::forms::codes::elm_value::MWND_MSG_PP_BLOCK;
+    pub const MWND_CLEAR: i32 = crate::runtime::forms::codes::elm_value::MWND_CLEAR;
+    pub const MWND____NOVEL_CLEAR: i32 = crate::runtime::forms::codes::elm_value::MWND____NOVEL_CLEAR;
+    pub const MWND_SET_NAMAE: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_NAMAE;
+    pub const MWND_NAMAE: i32 = crate::runtime::forms::codes::elm_value::MWND_NAMAE;
+    pub const MWND____OVER_FLOW_NAMAE: i32 = crate::runtime::forms::codes::elm_value::MWND____OVER_FLOW_NAMAE;
+    pub const MWND_PRINT: i32 = crate::runtime::forms::codes::elm_value::MWND_PRINT;
+    pub const MWND____OVER_FLOW_PRINT: i32 = crate::runtime::forms::codes::elm_value::MWND____OVER_FLOW_PRINT;
+    pub const MWND_RUBY: i32 = crate::runtime::forms::codes::elm_value::MWND_RUBY;
+    pub const MWND_WAIT_MSG: i32 = crate::runtime::forms::codes::elm_value::MWND_WAIT_MSG;
+    pub const MWND_PP: i32 = crate::runtime::forms::codes::elm_value::MWND_PP;
+    pub const MWND_R: i32 = crate::runtime::forms::codes::elm_value::MWND_R;
+    pub const MWND_PAGE: i32 = crate::runtime::forms::codes::elm_value::MWND_PAGE;
+    pub const MWND_SEL: i32 = crate::runtime::forms::codes::elm_value::MWND_SEL;
+    pub const MWND_SEL_CANCEL: i32 = crate::runtime::forms::codes::elm_value::MWND_SEL_CANCEL;
+    pub const MWND_SELMSG: i32 = crate::runtime::forms::codes::elm_value::MWND_SELMSG;
+    pub const MWND_SELMSG_CANCEL: i32 = crate::runtime::forms::codes::elm_value::MWND_SELMSG_CANCEL;
+    pub const MWND_NL: i32 = crate::runtime::forms::codes::elm_value::MWND_NL;
+    pub const MWND_NLI: i32 = crate::runtime::forms::codes::elm_value::MWND_NLI;
+    pub const MWND_INDENT: i32 = crate::runtime::forms::codes::elm_value::MWND_INDENT;
+    pub const MWND_CLEAR_INDENT: i32 = crate::runtime::forms::codes::elm_value::MWND_CLEAR_INDENT;
+    pub const MWND_SIZE: i32 = crate::runtime::forms::codes::elm_value::MWND_SIZE;
+    pub const MWND_REP_POS: i32 = crate::runtime::forms::codes::elm_value::MWND_REP_POS;
+    pub const MWND_COLOR: i32 = crate::runtime::forms::codes::elm_value::MWND_COLOR;
+    pub const MWND_MULTI_MSG: i32 = crate::runtime::forms::codes::elm_value::MWND_MULTI_MSG;
+    pub const MWND_NEXT_MSG: i32 = crate::runtime::forms::codes::elm_value::MWND_NEXT_MSG;
+    pub const MWND_START_SLIDE_MSG: i32 = crate::runtime::forms::codes::elm_value::MWND_START_SLIDE_MSG;
+    pub const MWND____SLIDE_MSG: i32 = crate::runtime::forms::codes::elm_value::MWND____SLIDE_MSG;
+    pub const MWND_END_SLIDE_MSG: i32 = crate::runtime::forms::codes::elm_value::MWND_END_SLIDE_MSG;
+    pub const MWND_MSGBTN: i32 = crate::runtime::forms::codes::elm_value::MWND_MSGBTN;
+    pub const MWND_KOE: i32 = crate::runtime::forms::codes::elm_value::MWND_KOE;
+    pub const MWND_KOE_PLAY_WAIT: i32 = crate::runtime::forms::codes::elm_value::MWND_KOE_PLAY_WAIT;
+    pub const MWND_KOE_PLAY_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::MWND_KOE_PLAY_WAIT_KEY;
+    pub const MWND_EXKOE: i32 = crate::runtime::forms::codes::elm_value::MWND_EXKOE;
+    pub const MWND_EXKOE_PLAY_WAIT: i32 = crate::runtime::forms::codes::elm_value::MWND_EXKOE_PLAY_WAIT;
+    pub const MWND_EXKOE_PLAY_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::MWND_EXKOE_PLAY_WAIT_KEY;
+    pub const MWND_CLEAR_FACE: i32 = crate::runtime::forms::codes::elm_value::MWND_CLEAR_FACE;
+    pub const MWND_SET_FACE: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_FACE;
+    pub const MWND_WORLD: i32 = crate::runtime::forms::codes::elm_value::MWND_WORLD;
+    pub const MWND_LAYER: i32 = crate::runtime::forms::codes::elm_value::MWND_LAYER;
+    pub const MWND_OBJECT: i32 = crate::runtime::forms::codes::elm_value::MWND_OBJECT;
+    pub const MWND_BUTTON: i32 = crate::runtime::forms::codes::elm_value::MWND_BUTTON;
+    pub const MWND_FACE: i32 = crate::runtime::forms::codes::elm_value::MWND_FACE;
+    pub const MWND_INIT_WINDOW_POS: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_WINDOW_POS;
+    pub const MWND_INIT_WINDOW_SIZE: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_WINDOW_SIZE;
+    pub const MWND_INIT_WINDOW_MOJI_CNT: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_WINDOW_MOJI_CNT;
+    pub const MWND_INIT_WAKU_FILE: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_WAKU_FILE;
+    pub const MWND_INIT_FILTER_FILE: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_FILTER_FILE;
+    pub const MWND_INIT_OPEN_ANIME_TYPE: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_OPEN_ANIME_TYPE;
+    pub const MWND_INIT_OPEN_ANIME_TIME: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_OPEN_ANIME_TIME;
+    pub const MWND_INIT_CLOSE_ANIME_TYPE: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_CLOSE_ANIME_TYPE;
+    pub const MWND_INIT_CLOSE_ANIME_TIME: i32 = crate::runtime::forms::codes::elm_value::MWND_INIT_CLOSE_ANIME_TIME;
+    pub const MWND_SET_WINDOW_POS: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_WINDOW_POS;
+    pub const MWND_SET_WINDOW_SIZE: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_WINDOW_SIZE;
+    pub const MWND_SET_WINDOW_MOJI_CNT: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_WINDOW_MOJI_CNT;
+    pub const MWND_SET_WAKU_FILE: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_WAKU_FILE;
+    pub const MWND_SET_FILTER_FILE: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_FILTER_FILE;
+    pub const MWND_SET_OPEN_ANIME_TYPE: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_OPEN_ANIME_TYPE;
+    pub const MWND_SET_OPEN_ANIME_TIME: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_OPEN_ANIME_TIME;
+    pub const MWND_SET_CLOSE_ANIME_TYPE: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_CLOSE_ANIME_TYPE;
+    pub const MWND_SET_CLOSE_ANIME_TIME: i32 = crate::runtime::forms::codes::elm_value::MWND_SET_CLOSE_ANIME_TIME;
+    pub const MWND_GET_WINDOW_POS_X: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_WINDOW_POS_X;
+    pub const MWND_GET_WINDOW_POS_Y: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_WINDOW_POS_Y;
+    pub const MWND_GET_WINDOW_SIZE_X: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_WINDOW_SIZE_X;
+    pub const MWND_GET_WINDOW_SIZE_Y: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_WINDOW_SIZE_Y;
+    pub const MWND_GET_WINDOW_MOJI_CNT_X: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_WINDOW_MOJI_CNT_X;
+    pub const MWND_GET_WINDOW_MOJI_CNT_Y: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_WINDOW_MOJI_CNT_Y;
+    pub const MWND_GET_WAKU_FILE: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_WAKU_FILE;
+    pub const MWND_GET_FILTER_FILE: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_FILTER_FILE;
+    pub const MWND_GET_OPEN_ANIME_TYPE: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_OPEN_ANIME_TYPE;
+    pub const MWND_GET_OPEN_ANIME_TIME: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_OPEN_ANIME_TIME;
+    pub const MWND_GET_CLOSE_ANIME_TYPE: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_CLOSE_ANIME_TYPE;
+    pub const MWND_GET_CLOSE_ANIME_TIME: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_CLOSE_ANIME_TIME;
+    pub const MWND_GET_DEFAULT_OPEN_ANIME_TYPE: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_DEFAULT_OPEN_ANIME_TYPE;
+    pub const MWND_GET_DEFAULT_OPEN_ANIME_TIME: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_DEFAULT_OPEN_ANIME_TIME;
+    pub const MWND_GET_DEFAULT_CLOSE_ANIME_TYPE: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_DEFAULT_CLOSE_ANIME_TYPE;
+    pub const MWND_GET_DEFAULT_CLOSE_ANIME_TIME: i32 = crate::runtime::forms::codes::elm_value::MWND_GET_DEFAULT_CLOSE_ANIME_TIME;
+    pub const MWNDLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::MWNDLIST_ARRAY;
+    pub const MWNDLIST_CLOSE: i32 = crate::runtime::forms::codes::elm_value::MWNDLIST_CLOSE;
+    pub const MWNDLIST_CLOSE_WAIT: i32 = crate::runtime::forms::codes::elm_value::MWNDLIST_CLOSE_WAIT;
+    pub const MWNDLIST_CLOSE_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::MWNDLIST_CLOSE_NOWAIT;
+    pub const GROUP_SEL: i32 = crate::runtime::forms::codes::elm_value::GROUP_SEL;
+    pub const GROUP_SEL_CANCEL: i32 = crate::runtime::forms::codes::elm_value::GROUP_SEL_CANCEL;
+    pub const GROUP_INIT: i32 = crate::runtime::forms::codes::elm_value::GROUP_INIT;
+    pub const GROUP_START: i32 = crate::runtime::forms::codes::elm_value::GROUP_START;
+    pub const GROUP_START_CANCEL: i32 = crate::runtime::forms::codes::elm_value::GROUP_START_CANCEL;
+    pub const GROUP_END: i32 = crate::runtime::forms::codes::elm_value::GROUP_END;
+    pub const GROUP_GET_HIT_NO: i32 = crate::runtime::forms::codes::elm_value::GROUP_GET_HIT_NO;
+    pub const GROUP_GET_PUSHED_NO: i32 = crate::runtime::forms::codes::elm_value::GROUP_GET_PUSHED_NO;
+    pub const GROUP_GET_DECIDED_NO: i32 = crate::runtime::forms::codes::elm_value::GROUP_GET_DECIDED_NO;
+    pub const GROUP_ON_HIT_NO: i32 = crate::runtime::forms::codes::elm_value::GROUP_ON_HIT_NO;
+    pub const GROUP_ON_PUSHED_NO: i32 = crate::runtime::forms::codes::elm_value::GROUP_ON_PUSHED_NO;
+    pub const GROUP_ON_DECIDED_NO: i32 = crate::runtime::forms::codes::elm_value::GROUP_ON_DECIDED_NO;
+    pub const GROUP_GET_RESULT: i32 = crate::runtime::forms::codes::elm_value::GROUP_GET_RESULT;
+    pub const GROUP_GET_RESULT_BUTTON_NO: i32 = crate::runtime::forms::codes::elm_value::GROUP_GET_RESULT_BUTTON_NO;
+    pub const GROUP_ORDER: i32 = crate::runtime::forms::codes::elm_value::GROUP_ORDER;
+    pub const GROUP_LAYER: i32 = crate::runtime::forms::codes::elm_value::GROUP_LAYER;
+    pub const GROUP_CANCEL_PRIORITY: i32 = crate::runtime::forms::codes::elm_value::GROUP_CANCEL_PRIORITY;
+    pub const GROUPLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::GROUPLIST_ARRAY;
+    pub const GROUPLIST_ALLOC: i32 = crate::runtime::forms::codes::elm_value::GROUPLIST_ALLOC;
+    pub const GROUPLIST_FREE: i32 = crate::runtime::forms::codes::elm_value::GROUPLIST_FREE;
+    pub const BTNSELITEM_OBJECT: i32 = crate::runtime::forms::codes::elm_value::BTNSELITEM_OBJECT;
+    pub const BTNSELITEMLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::BTNSELITEMLIST_ARRAY;
+    pub const BTNSELITEMLIST_ALLOC: i32 = crate::runtime::forms::codes::elm_value::BTNSELITEMLIST_ALLOC;
+    pub const BTNSELITEMLIST_FREE: i32 = crate::runtime::forms::codes::elm_value::BTNSELITEMLIST_FREE;
+    pub const SCREEN_INIT: i32 = crate::runtime::forms::codes::elm_value::SCREEN_INIT;
+    pub const SCREEN_X: i32 = crate::runtime::forms::codes::elm_value::SCREEN_X;
+    pub const SCREEN_Y: i32 = crate::runtime::forms::codes::elm_value::SCREEN_Y;
+    pub const SCREEN_Z: i32 = crate::runtime::forms::codes::elm_value::SCREEN_Z;
+    pub const SCREEN_MONO: i32 = crate::runtime::forms::codes::elm_value::SCREEN_MONO;
+    pub const SCREEN_REVERSE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_REVERSE;
+    pub const SCREEN_BRIGHT: i32 = crate::runtime::forms::codes::elm_value::SCREEN_BRIGHT;
+    pub const SCREEN_DARK: i32 = crate::runtime::forms::codes::elm_value::SCREEN_DARK;
+    pub const SCREEN_COLOR_R: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_R;
+    pub const SCREEN_COLOR_G: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_G;
+    pub const SCREEN_COLOR_B: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_B;
+    pub const SCREEN_COLOR_RATE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_RATE;
+    pub const SCREEN_COLOR_ADD_R: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_ADD_R;
+    pub const SCREEN_COLOR_ADD_G: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_ADD_G;
+    pub const SCREEN_COLOR_ADD_B: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_ADD_B;
+    pub const SCREEN_X_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_X_EVE;
+    pub const SCREEN_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_Y_EVE;
+    pub const SCREEN_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_Z_EVE;
+    pub const SCREEN_MONO_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_MONO_EVE;
+    pub const SCREEN_REVERSE_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_REVERSE_EVE;
+    pub const SCREEN_BRIGHT_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_BRIGHT_EVE;
+    pub const SCREEN_DARK_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_DARK_EVE;
+    pub const SCREEN_COLOR_R_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_R_EVE;
+    pub const SCREEN_COLOR_G_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_G_EVE;
+    pub const SCREEN_COLOR_B_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_B_EVE;
+    pub const SCREEN_COLOR_RATE_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_RATE_EVE;
+    pub const SCREEN_COLOR_ADD_R_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_ADD_R_EVE;
+    pub const SCREEN_COLOR_ADD_G_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_ADD_G_EVE;
+    pub const SCREEN_COLOR_ADD_B_EVE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_COLOR_ADD_B_EVE;
+    pub const SCREEN_EFFECT: i32 = crate::runtime::forms::codes::elm_value::SCREEN_EFFECT;
+    pub const SCREEN_SHAKE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_SHAKE;
+    pub const SCREEN_QUAKE: i32 = crate::runtime::forms::codes::elm_value::SCREEN_QUAKE;
+    pub const QUAKE_START: i32 = crate::runtime::forms::codes::elm_value::QUAKE_START;
+    pub const QUAKE_START_WAIT: i32 = crate::runtime::forms::codes::elm_value::QUAKE_START_WAIT;
+    pub const QUAKE_START_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::QUAKE_START_WAIT_KEY;
+    pub const QUAKE_START_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::QUAKE_START_NOWAIT;
+    pub const QUAKE_START_ALL: i32 = crate::runtime::forms::codes::elm_value::QUAKE_START_ALL;
+    pub const QUAKE_START_ALL_WAIT: i32 = crate::runtime::forms::codes::elm_value::QUAKE_START_ALL_WAIT;
+    pub const QUAKE_START_ALL_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::QUAKE_START_ALL_WAIT_KEY;
+    pub const QUAKE_START_ALL_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::QUAKE_START_ALL_NOWAIT;
+    pub const QUAKE_END: i32 = crate::runtime::forms::codes::elm_value::QUAKE_END;
+    pub const QUAKE_WAIT: i32 = crate::runtime::forms::codes::elm_value::QUAKE_WAIT;
+    pub const QUAKE_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::QUAKE_WAIT_KEY;
+    pub const QUAKE_CHECK: i32 = crate::runtime::forms::codes::elm_value::QUAKE_CHECK;
+    pub const QUAKELIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::QUAKELIST_ARRAY;
+    pub const EDITBOX_CREATE: i32 = crate::runtime::forms::codes::elm_value::EDITBOX_CREATE;
+    pub const EDITBOX_DESTROY: i32 = crate::runtime::forms::codes::elm_value::EDITBOX_DESTROY;
+    pub const EDITBOX_SET_TEXT: i32 = crate::runtime::forms::codes::elm_value::EDITBOX_SET_TEXT;
+    pub const EDITBOX_GET_TEXT: i32 = crate::runtime::forms::codes::elm_value::EDITBOX_GET_TEXT;
+    pub const EDITBOX_SET_FOCUS: i32 = crate::runtime::forms::codes::elm_value::EDITBOX_SET_FOCUS;
+    pub const EDITBOX_CHECK_DECIDED: i32 = crate::runtime::forms::codes::elm_value::EDITBOX_CHECK_DECIDED;
+    pub const EDITBOX_CHECK_CANCELED: i32 = crate::runtime::forms::codes::elm_value::EDITBOX_CHECK_CANCELED;
+    pub const EDITBOX_CLEAR_INPUT: i32 = crate::runtime::forms::codes::elm_value::EDITBOX_CLEAR_INPUT;
+    pub const EDITBOXLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::EDITBOXLIST_ARRAY;
+    pub const EDITBOXLIST_CLEAR_INPUT: i32 = crate::runtime::forms::codes::elm_value::EDITBOXLIST_CLEAR_INPUT;
+    pub const EFFECT_INIT: i32 = crate::runtime::forms::codes::elm_value::EFFECT_INIT;
+    pub const EFFECT_WIPE_COPY: i32 = crate::runtime::forms::codes::elm_value::EFFECT_WIPE_COPY;
+    pub const EFFECT_WIPE_ERASE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_WIPE_ERASE;
+    pub const EFFECT_X: i32 = crate::runtime::forms::codes::elm_value::EFFECT_X;
+    pub const EFFECT_Y: i32 = crate::runtime::forms::codes::elm_value::EFFECT_Y;
+    pub const EFFECT_Z: i32 = crate::runtime::forms::codes::elm_value::EFFECT_Z;
+    pub const EFFECT_MONO: i32 = crate::runtime::forms::codes::elm_value::EFFECT_MONO;
+    pub const EFFECT_REVERSE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_REVERSE;
+    pub const EFFECT_BRIGHT: i32 = crate::runtime::forms::codes::elm_value::EFFECT_BRIGHT;
+    pub const EFFECT_DARK: i32 = crate::runtime::forms::codes::elm_value::EFFECT_DARK;
+    pub const EFFECT_COLOR_R: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_R;
+    pub const EFFECT_COLOR_G: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_G;
+    pub const EFFECT_COLOR_B: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_B;
+    pub const EFFECT_COLOR_RATE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_RATE;
+    pub const EFFECT_COLOR_ADD_R: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_ADD_R;
+    pub const EFFECT_COLOR_ADD_G: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_ADD_G;
+    pub const EFFECT_COLOR_ADD_B: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_ADD_B;
+    pub const EFFECT_X_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_X_EVE;
+    pub const EFFECT_Y_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_Y_EVE;
+    pub const EFFECT_Z_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_Z_EVE;
+    pub const EFFECT_MONO_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_MONO_EVE;
+    pub const EFFECT_REVERSE_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_REVERSE_EVE;
+    pub const EFFECT_BRIGHT_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_BRIGHT_EVE;
+    pub const EFFECT_DARK_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_DARK_EVE;
+    pub const EFFECT_COLOR_R_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_R_EVE;
+    pub const EFFECT_COLOR_G_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_G_EVE;
+    pub const EFFECT_COLOR_B_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_B_EVE;
+    pub const EFFECT_COLOR_RATE_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_RATE_EVE;
+    pub const EFFECT_COLOR_ADD_R_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_ADD_R_EVE;
+    pub const EFFECT_COLOR_ADD_G_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_ADD_G_EVE;
+    pub const EFFECT_COLOR_ADD_B_EVE: i32 = crate::runtime::forms::codes::elm_value::EFFECT_COLOR_ADD_B_EVE;
+    pub const EFFECT_BEGIN_ORDER: i32 = crate::runtime::forms::codes::elm_value::EFFECT_BEGIN_ORDER;
+    pub const EFFECT_END_ORDER: i32 = crate::runtime::forms::codes::elm_value::EFFECT_END_ORDER;
+    pub const EFFECT_BEGIN_LAYER: i32 = crate::runtime::forms::codes::elm_value::EFFECT_BEGIN_LAYER;
+    pub const EFFECT_END_LAYER: i32 = crate::runtime::forms::codes::elm_value::EFFECT_END_LAYER;
+    pub const EFFECTLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::EFFECTLIST_ARRAY;
+    pub const EFFECTLIST_RESIZE: i32 = crate::runtime::forms::codes::elm_value::EFFECTLIST_RESIZE;
+    pub const EFFECTLIST_GET_SIZE: i32 = crate::runtime::forms::codes::elm_value::EFFECTLIST_GET_SIZE;
+    pub const MSGBK_INSERT_IMG: i32 = crate::runtime::forms::codes::elm_value::MSGBK_INSERT_IMG;
+    pub const MSGBK_INSERT_MSG: i32 = crate::runtime::forms::codes::elm_value::MSGBK_INSERT_MSG;
+    pub const MSGBK_ADD_MSG: i32 = crate::runtime::forms::codes::elm_value::MSGBK_ADD_MSG;
+    pub const MSGBK_ADD_KOE: i32 = crate::runtime::forms::codes::elm_value::MSGBK_ADD_KOE;
+    pub const MSGBK_ADD_NAMAE: i32 = crate::runtime::forms::codes::elm_value::MSGBK_ADD_NAMAE;
+    pub const MSGBK_GO_NEXT_MSG: i32 = crate::runtime::forms::codes::elm_value::MSGBK_GO_NEXT_MSG;
+    pub const BGM_PLAY: i32 = crate::runtime::forms::codes::elm_value::BGM_PLAY;
+    pub const BGM_PLAY_ONESHOT: i32 = crate::runtime::forms::codes::elm_value::BGM_PLAY_ONESHOT;
+    pub const BGM_PLAY_WAIT: i32 = crate::runtime::forms::codes::elm_value::BGM_PLAY_WAIT;
+    pub const BGM_READY: i32 = crate::runtime::forms::codes::elm_value::BGM_READY;
+    pub const BGM_READY_ONESHOT: i32 = crate::runtime::forms::codes::elm_value::BGM_READY_ONESHOT;
+    pub const BGM_WAIT: i32 = crate::runtime::forms::codes::elm_value::BGM_WAIT;
+    pub const BGM_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::BGM_WAIT_KEY;
+    pub const BGM_STOP: i32 = crate::runtime::forms::codes::elm_value::BGM_STOP;
+    pub const BGM_PAUSE: i32 = crate::runtime::forms::codes::elm_value::BGM_PAUSE;
+    pub const BGM_RESUME: i32 = crate::runtime::forms::codes::elm_value::BGM_RESUME;
+    pub const BGM_RESUME_WAIT: i32 = crate::runtime::forms::codes::elm_value::BGM_RESUME_WAIT;
+    pub const BGM_WAIT_FADE: i32 = crate::runtime::forms::codes::elm_value::BGM_WAIT_FADE;
+    pub const BGM_WAIT_FADE_KEY: i32 = crate::runtime::forms::codes::elm_value::BGM_WAIT_FADE_KEY;
+    pub const BGM_CHECK: i32 = crate::runtime::forms::codes::elm_value::BGM_CHECK;
+    pub const BGM_SET_VOLUME: i32 = crate::runtime::forms::codes::elm_value::BGM_SET_VOLUME;
+    pub const BGM_SET_VOLUME_MAX: i32 = crate::runtime::forms::codes::elm_value::BGM_SET_VOLUME_MAX;
+    pub const BGM_SET_VOLUME_MIN: i32 = crate::runtime::forms::codes::elm_value::BGM_SET_VOLUME_MIN;
+    pub const BGM_GET_REGIST_NAME: i32 = crate::runtime::forms::codes::elm_value::BGM_GET_REGIST_NAME;
+    pub const BGM_GET_VOLUME: i32 = crate::runtime::forms::codes::elm_value::BGM_GET_VOLUME;
+    pub const BGM_GET_PLAY_POS: i32 = crate::runtime::forms::codes::elm_value::BGM_GET_PLAY_POS;
+    pub const PCM_PLAY: i32 = crate::runtime::forms::codes::elm_value::PCM_PLAY;
+    pub const PCM_STOP: i32 = crate::runtime::forms::codes::elm_value::PCM_STOP;
+    pub const PCMCH_PLAY: i32 = crate::runtime::forms::codes::elm_value::PCMCH_PLAY;
+    pub const PCMCH_PLAY_LOOP: i32 = crate::runtime::forms::codes::elm_value::PCMCH_PLAY_LOOP;
+    pub const PCMCH_PLAY_WAIT: i32 = crate::runtime::forms::codes::elm_value::PCMCH_PLAY_WAIT;
+    pub const PCMCH_READY: i32 = crate::runtime::forms::codes::elm_value::PCMCH_READY;
+    pub const PCMCH_READY_LOOP: i32 = crate::runtime::forms::codes::elm_value::PCMCH_READY_LOOP;
+    pub const PCMCH_STOP: i32 = crate::runtime::forms::codes::elm_value::PCMCH_STOP;
+    pub const PCMCH_PAUSE: i32 = crate::runtime::forms::codes::elm_value::PCMCH_PAUSE;
+    pub const PCMCH_RESUME: i32 = crate::runtime::forms::codes::elm_value::PCMCH_RESUME;
+    pub const PCMCH_RESUME_WAIT: i32 = crate::runtime::forms::codes::elm_value::PCMCH_RESUME_WAIT;
+    pub const PCMCH_WAIT: i32 = crate::runtime::forms::codes::elm_value::PCMCH_WAIT;
+    pub const PCMCH_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::PCMCH_WAIT_KEY;
+    pub const PCMCH_WAIT_FADE: i32 = crate::runtime::forms::codes::elm_value::PCMCH_WAIT_FADE;
+    pub const PCMCH_WAIT_FADE_KEY: i32 = crate::runtime::forms::codes::elm_value::PCMCH_WAIT_FADE_KEY;
+    pub const PCMCH_CHECK: i32 = crate::runtime::forms::codes::elm_value::PCMCH_CHECK;
+    pub const PCMCH_GET_VOLUME: i32 = crate::runtime::forms::codes::elm_value::PCMCH_GET_VOLUME;
+    pub const PCMCH_SET_VOLUME: i32 = crate::runtime::forms::codes::elm_value::PCMCH_SET_VOLUME;
+    pub const PCMCH_SET_VOLUME_MAX: i32 = crate::runtime::forms::codes::elm_value::PCMCH_SET_VOLUME_MAX;
+    pub const PCMCH_SET_VOLUME_MIN: i32 = crate::runtime::forms::codes::elm_value::PCMCH_SET_VOLUME_MIN;
+    pub const PCMCHLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::PCMCHLIST_ARRAY;
+    pub const PCMCHLIST_STOP_ALL: i32 = crate::runtime::forms::codes::elm_value::PCMCHLIST_STOP_ALL;
+    pub const SE_PLAY: i32 = crate::runtime::forms::codes::elm_value::SE_PLAY;
+    pub const SE_PLAY_BY_FILE_NAME: i32 = crate::runtime::forms::codes::elm_value::SE_PLAY_BY_FILE_NAME;
+    pub const SE_PLAY_BY_KOE_NO: i32 = crate::runtime::forms::codes::elm_value::SE_PLAY_BY_KOE_NO;
+    pub const SE_PLAY_BY_SE_NO: i32 = crate::runtime::forms::codes::elm_value::SE_PLAY_BY_SE_NO;
+    pub const SE_STOP: i32 = crate::runtime::forms::codes::elm_value::SE_STOP;
+    pub const SE_WAIT: i32 = crate::runtime::forms::codes::elm_value::SE_WAIT;
+    pub const SE_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::SE_WAIT_KEY;
+    pub const SE_CHECK: i32 = crate::runtime::forms::codes::elm_value::SE_CHECK;
+    pub const SE_SET_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SE_SET_VOLUME;
+    pub const SE_SET_VOLUME_MAX: i32 = crate::runtime::forms::codes::elm_value::SE_SET_VOLUME_MAX;
+    pub const SE_SET_VOLUME_MIN: i32 = crate::runtime::forms::codes::elm_value::SE_SET_VOLUME_MIN;
+    pub const SE_GET_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SE_GET_VOLUME;
+    pub const MOV_PLAY: i32 = crate::runtime::forms::codes::elm_value::MOV_PLAY;
+    pub const MOV_PLAY_WAIT: i32 = crate::runtime::forms::codes::elm_value::MOV_PLAY_WAIT;
+    pub const MOV_PLAY_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::MOV_PLAY_WAIT_KEY;
+    pub const MOV_STOP: i32 = crate::runtime::forms::codes::elm_value::MOV_STOP;
+    pub const PCMEVENT_START_ONESHOT: i32 = crate::runtime::forms::codes::elm_value::PCMEVENT_START_ONESHOT;
+    pub const PCMEVENT_START_LOOP: i32 = crate::runtime::forms::codes::elm_value::PCMEVENT_START_LOOP;
+    pub const PCMEVENT_START_RANDOM: i32 = crate::runtime::forms::codes::elm_value::PCMEVENT_START_RANDOM;
+    pub const PCMEVENT_STOP: i32 = crate::runtime::forms::codes::elm_value::PCMEVENT_STOP;
+    pub const PCMEVENT_WAIT: i32 = crate::runtime::forms::codes::elm_value::PCMEVENT_WAIT;
+    pub const PCMEVENT_WAIT_KEY: i32 = crate::runtime::forms::codes::elm_value::PCMEVENT_WAIT_KEY;
+    pub const PCMEVENT_CHECK: i32 = crate::runtime::forms::codes::elm_value::PCMEVENT_CHECK;
+    pub const PCMEVENTLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::PCMEVENTLIST_ARRAY;
+    pub const MOUSE_CLEAR: i32 = crate::runtime::forms::codes::elm_value::MOUSE_CLEAR;
+    pub const MOUSE_NEXT: i32 = crate::runtime::forms::codes::elm_value::MOUSE_NEXT;
+    pub const MOUSE_POS_X: i32 = crate::runtime::forms::codes::elm_value::MOUSE_POS_X;
+    pub const MOUSE_POS_Y: i32 = crate::runtime::forms::codes::elm_value::MOUSE_POS_Y;
+    pub const MOUSE_GET_POS_X: i32 = crate::runtime::forms::codes::elm_value::MOUSE_GET_POS_X;
+    pub const MOUSE_GET_POS_Y: i32 = crate::runtime::forms::codes::elm_value::MOUSE_GET_POS_Y;
+    pub const MOUSE_GET_POS: i32 = crate::runtime::forms::codes::elm_value::MOUSE_GET_POS;
+    pub const MOUSE_SET_POS: i32 = crate::runtime::forms::codes::elm_value::MOUSE_SET_POS;
+    pub const MOUSE_WHEEL: i32 = crate::runtime::forms::codes::elm_value::MOUSE_WHEEL;
+    pub const MOUSE_LEFT: i32 = crate::runtime::forms::codes::elm_value::MOUSE_LEFT;
+    pub const MOUSE_RIGHT: i32 = crate::runtime::forms::codes::elm_value::MOUSE_RIGHT;
+    pub const KEY_ON_DOWN: i32 = crate::runtime::forms::codes::elm_value::KEY_ON_DOWN;
+    pub const KEY_ON_UP: i32 = crate::runtime::forms::codes::elm_value::KEY_ON_UP;
+    pub const KEY_ON_DOWN_UP: i32 = crate::runtime::forms::codes::elm_value::KEY_ON_DOWN_UP;
+    pub const KEY_IS_DOWN: i32 = crate::runtime::forms::codes::elm_value::KEY_IS_DOWN;
+    pub const KEY_IS_UP: i32 = crate::runtime::forms::codes::elm_value::KEY_IS_UP;
+    pub const KEY_ON_FLICK: i32 = crate::runtime::forms::codes::elm_value::KEY_ON_FLICK;
+    pub const KEY_GET_FLICK_PIXEL: i32 = crate::runtime::forms::codes::elm_value::KEY_GET_FLICK_PIXEL;
+    pub const KEY_GET_FLICK_ANGLE: i32 = crate::runtime::forms::codes::elm_value::KEY_GET_FLICK_ANGLE;
+    pub const KEY_GET_FLICK_MM: i32 = crate::runtime::forms::codes::elm_value::KEY_GET_FLICK_MM;
+    pub const KEYLIST_ARRAY: i32 = crate::runtime::forms::codes::elm_value::KEYLIST_ARRAY;
+    pub const KEYLIST_WAIT: i32 = crate::runtime::forms::codes::elm_value::KEYLIST_WAIT;
+    pub const KEYLIST_WAIT_FORCE: i32 = crate::runtime::forms::codes::elm_value::KEYLIST_WAIT_FORCE;
+    pub const KEYLIST_CLEAR: i32 = crate::runtime::forms::codes::elm_value::KEYLIST_CLEAR;
+    pub const KEYLIST_NEXT: i32 = crate::runtime::forms::codes::elm_value::KEYLIST_NEXT;
+    pub const INPUT_CLEAR: i32 = crate::runtime::forms::codes::elm_value::INPUT_CLEAR;
+    pub const INPUT_NEXT: i32 = crate::runtime::forms::codes::elm_value::INPUT_NEXT;
+    pub const INPUT_DECIDE: i32 = crate::runtime::forms::codes::elm_value::INPUT_DECIDE;
+    pub const INPUT_CANCEL: i32 = crate::runtime::forms::codes::elm_value::INPUT_CANCEL;
+    pub const SYSCOM_SET_SYSCOM_MENU_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SYSCOM_MENU_ENABLE;
+    pub const SYSCOM_SET_SYSCOM_MENU_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SYSCOM_MENU_DISABLE;
+    pub const SYSCOM_SET_MWND_BTN_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MWND_BTN_ENABLE;
+    pub const SYSCOM_SET_MWND_BTN_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MWND_BTN_DISABLE;
+    pub const SYSCOM_SET_MWND_BTN_TOUCH_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MWND_BTN_TOUCH_ENABLE;
+    pub const SYSCOM_SET_MWND_BTN_TOUCH_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MWND_BTN_TOUCH_DISABLE;
+    pub const SYSCOM_CALL_EX: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_EX;
+    pub const SYSCOM_CALL_SYSCOM_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_SYSCOM_MENU;
+    pub const SYSCOM_CALL_SAVE_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_SAVE_MENU;
+    pub const SYSCOM_CALL_LOAD_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_LOAD_MENU;
+    pub const SYSCOM_CALL_CONFIG_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_MENU;
+    pub const SYSCOM_CALL_CONFIG_WINDOW_MODE_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_WINDOW_MODE_MENU;
+    pub const SYSCOM_CALL_CONFIG_VOLUME_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_VOLUME_MENU;
+    pub const SYSCOM_CALL_CONFIG_BGMFADE_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_BGMFADE_MENU;
+    pub const SYSCOM_CALL_CONFIG_KOEMODE_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_KOEMODE_MENU;
+    pub const SYSCOM_CALL_CONFIG_CHARAKOE_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_CHARAKOE_MENU;
+    pub const SYSCOM_CALL_CONFIG_JITAN_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_JITAN_MENU;
+    pub const SYSCOM_CALL_CONFIG_MESSAGE_SPEED_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_MESSAGE_SPEED_MENU;
+    pub const SYSCOM_CALL_CONFIG_AUTO_MODE_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_AUTO_MODE_MENU;
+    pub const SYSCOM_CALL_CONFIG_FONT_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_FONT_MENU;
+    pub const SYSCOM_CALL_CONFIG_FILTER_COLOR_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_FILTER_COLOR_MENU;
+    pub const SYSCOM_CALL_CONFIG_SYSTEM_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_SYSTEM_MENU;
+    pub const SYSCOM_CALL_CONFIG_MOVIE_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_CONFIG_MOVIE_MENU;
+    pub const SYSCOM_INIT_SYSCOM_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_INIT_SYSCOM_FLAG;
+    pub const SYSCOM_SET_READ_SKIP_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_READ_SKIP_ONOFF_FLAG;
+    pub const SYSCOM_GET_READ_SKIP_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_READ_SKIP_ONOFF_FLAG;
+    pub const SYSCOM_SET_READ_SKIP_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_READ_SKIP_ENABLE_FLAG;
+    pub const SYSCOM_GET_READ_SKIP_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_READ_SKIP_ENABLE_FLAG;
+    pub const SYSCOM_SET_READ_SKIP_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_READ_SKIP_EXIST_FLAG;
+    pub const SYSCOM_GET_READ_SKIP_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_READ_SKIP_EXIST_FLAG;
+    pub const SYSCOM_CHECK_READ_SKIP_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_READ_SKIP_ENABLE;
+    pub const SYSCOM_SET_AUTO_SKIP_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_SKIP_ONOFF_FLAG;
+    pub const SYSCOM_GET_AUTO_SKIP_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_AUTO_SKIP_ONOFF_FLAG;
+    pub const SYSCOM_SET_AUTO_SKIP_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_SKIP_ENABLE_FLAG;
+    pub const SYSCOM_GET_AUTO_SKIP_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_AUTO_SKIP_ENABLE_FLAG;
+    pub const SYSCOM_SET_AUTO_SKIP_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_SKIP_EXIST_FLAG;
+    pub const SYSCOM_GET_AUTO_SKIP_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_AUTO_SKIP_EXIST_FLAG;
+    pub const SYSCOM_CHECK_AUTO_SKIP_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_AUTO_SKIP_ENABLE;
+    pub const SYSCOM_SET_AUTO_MODE_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_MODE_ONOFF_FLAG;
+    pub const SYSCOM_GET_AUTO_MODE_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_AUTO_MODE_ONOFF_FLAG;
+    pub const SYSCOM_SET_AUTO_MODE_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_MODE_ENABLE_FLAG;
+    pub const SYSCOM_GET_AUTO_MODE_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_AUTO_MODE_ENABLE_FLAG;
+    pub const SYSCOM_SET_AUTO_MODE_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_MODE_EXIST_FLAG;
+    pub const SYSCOM_GET_AUTO_MODE_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_AUTO_MODE_EXIST_FLAG;
+    pub const SYSCOM_CHECK_AUTO_MODE_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_AUTO_MODE_ENABLE;
+    pub const SYSCOM_SET_HIDE_MWND_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_HIDE_MWND_ONOFF_FLAG;
+    pub const SYSCOM_GET_HIDE_MWND_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_HIDE_MWND_ONOFF_FLAG;
+    pub const SYSCOM_SET_HIDE_MWND_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_HIDE_MWND_ENABLE_FLAG;
+    pub const SYSCOM_GET_HIDE_MWND_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_HIDE_MWND_ENABLE_FLAG;
+    pub const SYSCOM_SET_HIDE_MWND_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_HIDE_MWND_EXIST_FLAG;
+    pub const SYSCOM_GET_HIDE_MWND_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_HIDE_MWND_EXIST_FLAG;
+    pub const SYSCOM_CHECK_HIDE_MWND_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_HIDE_MWND_ENABLE;
+    pub const SYSCOM_OPEN_MSG_BACK: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_OPEN_MSG_BACK;
+    pub const SYSCOM_CLOSE_MSG_BACK: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CLOSE_MSG_BACK;
+    pub const SYSCOM_SET_MSG_BACK_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MSG_BACK_ENABLE_FLAG;
+    pub const SYSCOM_GET_MSG_BACK_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_MSG_BACK_ENABLE_FLAG;
+    pub const SYSCOM_SET_MSG_BACK_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MSG_BACK_EXIST_FLAG;
+    pub const SYSCOM_GET_MSG_BACK_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_MSG_BACK_EXIST_FLAG;
+    pub const SYSCOM_CHECK_MSG_BACK_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_MSG_BACK_ENABLE;
+    pub const SYSCOM_CHECK_MSG_BACK_OPEN: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_MSG_BACK_OPEN;
+    pub const SYSCOM_SET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG;
+    pub const SYSCOM_GET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG;
+    pub const SYSCOM_SET_LOCAL_EXTRA_SWITCH_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_LOCAL_EXTRA_SWITCH_ENABLE_FLAG;
+    pub const SYSCOM_GET_LOCAL_EXTRA_SWITCH_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_LOCAL_EXTRA_SWITCH_ENABLE_FLAG;
+    pub const SYSCOM_SET_LOCAL_EXTRA_SWITCH_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_LOCAL_EXTRA_SWITCH_EXIST_FLAG;
+    pub const SYSCOM_GET_LOCAL_EXTRA_SWITCH_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_LOCAL_EXTRA_SWITCH_EXIST_FLAG;
+    pub const SYSCOM_CHECK_LOCAL_EXTRA_SWITCH_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_LOCAL_EXTRA_SWITCH_ENABLE;
+    pub const SYSCOM_SET_LOCAL_EXTRA_MODE_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_LOCAL_EXTRA_MODE_VALUE;
+    pub const SYSCOM_GET_LOCAL_EXTRA_MODE_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_LOCAL_EXTRA_MODE_VALUE;
+    pub const SYSCOM_SET_LOCAL_EXTRA_MODE_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_LOCAL_EXTRA_MODE_ENABLE_FLAG;
+    pub const SYSCOM_GET_LOCAL_EXTRA_MODE_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_LOCAL_EXTRA_MODE_ENABLE_FLAG;
+    pub const SYSCOM_SET_LOCAL_EXTRA_MODE_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_LOCAL_EXTRA_MODE_EXIST_FLAG;
+    pub const SYSCOM_GET_LOCAL_EXTRA_MODE_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_LOCAL_EXTRA_MODE_EXIST_FLAG;
+    pub const SYSCOM_CHECK_LOCAL_EXTRA_MODE_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_LOCAL_EXTRA_MODE_ENABLE;
+    pub const SYSCOM_RETURN_TO_SEL: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_RETURN_TO_SEL;
+    pub const SYSCOM_SET_RETURN_TO_SEL_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_RETURN_TO_SEL_ENABLE_FLAG;
+    pub const SYSCOM_GET_RETURN_TO_SEL_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_RETURN_TO_SEL_ENABLE_FLAG;
+    pub const SYSCOM_SET_RETURN_TO_SEL_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_RETURN_TO_SEL_EXIST_FLAG;
+    pub const SYSCOM_GET_RETURN_TO_SEL_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_RETURN_TO_SEL_EXIST_FLAG;
+    pub const SYSCOM_CHECK_RETURN_TO_SEL_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_RETURN_TO_SEL_ENABLE;
+    pub const SYSCOM_RETURN_TO_MENU: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_RETURN_TO_MENU;
+    pub const SYSCOM_SET_RETURN_TO_MENU_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_RETURN_TO_MENU_ENABLE_FLAG;
+    pub const SYSCOM_GET_RETURN_TO_MENU_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_RETURN_TO_MENU_ENABLE_FLAG;
+    pub const SYSCOM_SET_RETURN_TO_MENU_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_RETURN_TO_MENU_EXIST_FLAG;
+    pub const SYSCOM_GET_RETURN_TO_MENU_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_RETURN_TO_MENU_EXIST_FLAG;
+    pub const SYSCOM_CHECK_RETURN_TO_MENU_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_RETURN_TO_MENU_ENABLE;
+    pub const SYSCOM_END_GAME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_END_GAME;
+    pub const SYSCOM_SET_END_GAME_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_END_GAME_ENABLE_FLAG;
+    pub const SYSCOM_GET_END_GAME_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_END_GAME_ENABLE_FLAG;
+    pub const SYSCOM_SET_END_GAME_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_END_GAME_EXIST_FLAG;
+    pub const SYSCOM_GET_END_GAME_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_END_GAME_EXIST_FLAG;
+    pub const SYSCOM_CHECK_END_GAME_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_END_GAME_ENABLE;
+    pub const SYSCOM_GET_TOTAL_PLAY_TIME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_TOTAL_PLAY_TIME;
+    pub const SYSCOM_SET_TOTAL_PLAY_TIME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_TOTAL_PLAY_TIME;
+    pub const SYSCOM_REPLAY_KOE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_REPLAY_KOE;
+    pub const SYSCOM_CHECK_REPLAY_KOE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_REPLAY_KOE;
+    pub const SYSCOM_GET_REPLAY_KOE_KOE_NO: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_REPLAY_KOE_KOE_NO;
+    pub const SYSCOM_GET_REPLAY_KOE_CHARA_NO: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_REPLAY_KOE_CHARA_NO;
+    pub const SYSCOM_CLEAR_REPLAY_KOE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CLEAR_REPLAY_KOE;
+    pub const SYSCOM_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SAVE;
+    pub const SYSCOM_QUICK_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_QUICK_SAVE;
+    pub const SYSCOM_END_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_END_SAVE;
+    pub const SYSCOM_SET_SAVE_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SAVE_ENABLE_FLAG;
+    pub const SYSCOM_GET_SAVE_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_ENABLE_FLAG;
+    pub const SYSCOM_SET_SAVE_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SAVE_EXIST_FLAG;
+    pub const SYSCOM_GET_SAVE_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_EXIST_FLAG;
+    pub const SYSCOM_CHECK_SAVE_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_SAVE_ENABLE;
+    pub const SYSCOM_LOAD: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_LOAD;
+    pub const SYSCOM_QUICK_LOAD: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_QUICK_LOAD;
+    pub const SYSCOM_END_LOAD: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_END_LOAD;
+    pub const SYSCOM_SET_LOAD_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_LOAD_ENABLE_FLAG;
+    pub const SYSCOM_GET_LOAD_ENABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_LOAD_ENABLE_FLAG;
+    pub const SYSCOM_SET_LOAD_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_LOAD_EXIST_FLAG;
+    pub const SYSCOM_GET_LOAD_EXIST_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_LOAD_EXIST_FLAG;
+    pub const SYSCOM_CHECK_LOAD_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_LOAD_ENABLE;
+    pub const SYSCOM_GET_SAVE_CNT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_CNT;
+    pub const SYSCOM_GET_QUICK_SAVE_CNT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_CNT;
+    pub const SYSCOM_GET_SAVE_EXIST: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_EXIST;
+    pub const SYSCOM_GET_QUICK_SAVE_EXIST: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_EXIST;
+    pub const SYSCOM_GET_END_SAVE_EXIST: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_END_SAVE_EXIST;
+    pub const SYSCOM_GET_SAVE_NEW_NO: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_NEW_NO;
+    pub const SYSCOM_GET_QUICK_SAVE_NEW_NO: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_NEW_NO;
+    pub const SYSCOM_GET_SAVE_YEAR: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_YEAR;
+    pub const SYSCOM_GET_QUICK_SAVE_YEAR: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_YEAR;
+    pub const SYSCOM_GET_SAVE_MONTH: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_MONTH;
+    pub const SYSCOM_GET_QUICK_SAVE_MONTH: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_MONTH;
+    pub const SYSCOM_GET_SAVE_DAY: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_DAY;
+    pub const SYSCOM_GET_QUICK_SAVE_DAY: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_DAY;
+    pub const SYSCOM_GET_SAVE_WEEKDAY: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_WEEKDAY;
+    pub const SYSCOM_GET_QUICK_SAVE_WEEKDAY: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_WEEKDAY;
+    pub const SYSCOM_GET_SAVE_HOUR: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_HOUR;
+    pub const SYSCOM_GET_QUICK_SAVE_HOUR: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_HOUR;
+    pub const SYSCOM_GET_SAVE_MINUTE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_MINUTE;
+    pub const SYSCOM_GET_QUICK_SAVE_MINUTE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_MINUTE;
+    pub const SYSCOM_GET_SAVE_SECOND: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_SECOND;
+    pub const SYSCOM_GET_QUICK_SAVE_SECOND: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_SECOND;
+    pub const SYSCOM_GET_SAVE_MILLISECOND: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_MILLISECOND;
+    pub const SYSCOM_GET_QUICK_SAVE_MILLISECOND: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_MILLISECOND;
+    pub const SYSCOM_GET_SAVE_TITLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_TITLE;
+    pub const SYSCOM_GET_QUICK_SAVE_TITLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_TITLE;
+    pub const SYSCOM_GET_SAVE_MESSAGE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_MESSAGE;
+    pub const SYSCOM_GET_SAVE_FULL_MESSAGE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_FULL_MESSAGE;
+    pub const SYSCOM_GET_QUICK_SAVE_MESSAGE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_MESSAGE;
+    pub const SYSCOM_GET_QUICK_SAVE_FULL_MESSAGE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_FULL_MESSAGE;
+    pub const SYSCOM_GET_SAVE_COMMENT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_COMMENT;
+    pub const SYSCOM_SET_SAVE_COMMENT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SAVE_COMMENT;
+    pub const SYSCOM_GET_QUICK_SAVE_COMMENT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_COMMENT;
+    pub const SYSCOM_SET_QUICK_SAVE_COMMENT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_QUICK_SAVE_COMMENT;
+    pub const SYSCOM_GET_SAVE_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_VALUE;
+    pub const SYSCOM_GET_QUICK_SAVE_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_VALUE;
+    pub const SYSCOM_SET_SAVE_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SAVE_VALUE;
+    pub const SYSCOM_SET_QUICK_SAVE_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_QUICK_SAVE_VALUE;
+    pub const SYSCOM_GET_SAVE_APPEND_DIR: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_APPEND_DIR;
+    pub const SYSCOM_GET_QUICK_SAVE_APPEND_DIR: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_APPEND_DIR;
+    pub const SYSCOM_GET_SAVE_APPEND_NAME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVE_APPEND_NAME;
+    pub const SYSCOM_GET_QUICK_SAVE_APPEND_NAME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_QUICK_SAVE_APPEND_NAME;
+    pub const SYSCOM_COPY_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_COPY_SAVE;
+    pub const SYSCOM_COPY_QUICK_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_COPY_QUICK_SAVE;
+    pub const SYSCOM_CHANGE_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHANGE_SAVE;
+    pub const SYSCOM_CHANGE_QUICK_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHANGE_QUICK_SAVE;
+    pub const SYSCOM_DELETE_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_DELETE_SAVE;
+    pub const SYSCOM_DELETE_QUICK_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_DELETE_QUICK_SAVE;
+    pub const SYSCOM_INNER_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_INNER_SAVE;
+    pub const SYSCOM_INNER_LOAD: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_INNER_LOAD;
+    pub const SYSCOM_CLEAR_INNER_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CLEAR_INNER_SAVE;
+    pub const SYSCOM_COPY_INNER_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_COPY_INNER_SAVE;
+    pub const SYSCOM_CHECK_INNER_SAVE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_INNER_SAVE;
+    pub const SYSCOM_MSG_BACK_LOAD: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_MSG_BACK_LOAD;
+    pub const SYSCOM_GET_CURRENT_SAVE_SCENE_TITLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_CURRENT_SAVE_SCENE_TITLE;
+    pub const SYSCOM_GET_CURRENT_SAVE_MESSAGE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_CURRENT_SAVE_MESSAGE;
+    pub const SYSCOM_SET_WINDOW_MODE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_WINDOW_MODE;
+    pub const SYSCOM_SET_WINDOW_MODE_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_WINDOW_MODE_DEFAULT;
+    pub const SYSCOM_GET_WINDOW_MODE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_WINDOW_MODE;
+    pub const SYSCOM_SET_WINDOW_MODE_SIZE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_WINDOW_MODE_SIZE;
+    pub const SYSCOM_SET_WINDOW_MODE_SIZE_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_WINDOW_MODE_SIZE_DEFAULT;
+    pub const SYSCOM_GET_WINDOW_MODE_SIZE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_WINDOW_MODE_SIZE;
+    pub const SYSCOM_CHECK_WINDOW_MODE_SIZE_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CHECK_WINDOW_MODE_SIZE_ENABLE;
+    pub const SYSCOM_SET_ALL_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_ALL_VOLUME;
+    pub const SYSCOM_SET_ALL_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_ALL_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_ALL_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_ALL_VOLUME;
+    pub const SYSCOM_SET_BGM_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_BGM_VOLUME;
+    pub const SYSCOM_SET_BGM_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_BGM_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_BGM_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_BGM_VOLUME;
+    pub const SYSCOM_SET_KOE_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_KOE_VOLUME;
+    pub const SYSCOM_SET_KOE_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_KOE_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_KOE_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_KOE_VOLUME;
+    pub const SYSCOM_SET_PCM_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_PCM_VOLUME;
+    pub const SYSCOM_SET_PCM_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_PCM_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_PCM_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_PCM_VOLUME;
+    pub const SYSCOM_SET_SE_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SE_VOLUME;
+    pub const SYSCOM_SET_SE_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SE_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_SE_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SE_VOLUME;
+    pub const SYSCOM_SET_MOV_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MOV_VOLUME;
+    pub const SYSCOM_SET_MOV_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MOV_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_MOV_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_MOV_VOLUME;
+    pub const SYSCOM_SET_SOUND_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SOUND_VOLUME;
+    pub const SYSCOM_SET_SOUND_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SOUND_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_SOUND_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SOUND_VOLUME;
+    pub const SYSCOM_SET_BGMFADE_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_BGMFADE_VOLUME;
+    pub const SYSCOM_SET_BGMFADE_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_BGMFADE_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_BGMFADE_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_BGMFADE_VOLUME;
+    pub const SYSCOM_SET_ALL_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_ALL_ONOFF;
+    pub const SYSCOM_SET_ALL_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_ALL_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_ALL_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_ALL_ONOFF;
+    pub const SYSCOM_SET_BGM_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_BGM_ONOFF;
+    pub const SYSCOM_SET_BGM_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_BGM_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_BGM_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_BGM_ONOFF;
+    pub const SYSCOM_SET_KOE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_KOE_ONOFF;
+    pub const SYSCOM_SET_KOE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_KOE_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_KOE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_KOE_ONOFF;
+    pub const SYSCOM_SET_PCM_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_PCM_ONOFF;
+    pub const SYSCOM_SET_PCM_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_PCM_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_PCM_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_PCM_ONOFF;
+    pub const SYSCOM_SET_SE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SE_ONOFF;
+    pub const SYSCOM_SET_SE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SE_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_SE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SE_ONOFF;
+    pub const SYSCOM_SET_MOV_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MOV_ONOFF;
+    pub const SYSCOM_SET_MOV_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MOV_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_MOV_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_MOV_ONOFF;
+    pub const SYSCOM_SET_SOUND_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SOUND_ONOFF;
+    pub const SYSCOM_SET_SOUND_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SOUND_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_SOUND_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SOUND_ONOFF;
+    pub const SYSCOM_SET_BGMFADE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_BGMFADE_ONOFF;
+    pub const SYSCOM_SET_BGMFADE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_BGMFADE_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_BGMFADE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_BGMFADE_ONOFF;
+    pub const SYSCOM_SET_KOEMODE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_KOEMODE;
+    pub const SYSCOM_SET_KOEMODE_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_KOEMODE_DEFAULT;
+    pub const SYSCOM_GET_KOEMODE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_KOEMODE;
+    pub const SYSCOM_SET_CHARAKOE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_CHARAKOE_ONOFF;
+    pub const SYSCOM_SET_CHARAKOE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_CHARAKOE_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_CHARAKOE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_CHARAKOE_ONOFF;
+    pub const SYSCOM_SET_CHARAKOE_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_CHARAKOE_VOLUME;
+    pub const SYSCOM_SET_CHARAKOE_VOLUME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_CHARAKOE_VOLUME_DEFAULT;
+    pub const SYSCOM_GET_CHARAKOE_VOLUME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_CHARAKOE_VOLUME;
+    pub const SYSCOM_SET_JITAN_NORMAL_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_JITAN_NORMAL_ONOFF;
+    pub const SYSCOM_SET_JITAN_NORMAL_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_JITAN_NORMAL_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_JITAN_NORMAL_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_JITAN_NORMAL_ONOFF;
+    pub const SYSCOM_SET_JITAN_AUTO_MODE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_JITAN_AUTO_MODE_ONOFF;
+    pub const SYSCOM_SET_JITAN_AUTO_MODE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_JITAN_AUTO_MODE_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_JITAN_AUTO_MODE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_JITAN_AUTO_MODE_ONOFF;
+    pub const SYSCOM_SET_JITAN_KOE_REPLAY_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_JITAN_KOE_REPLAY_ONOFF;
+    pub const SYSCOM_SET_JITAN_KOE_REPLAY_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_JITAN_KOE_REPLAY_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_JITAN_KOE_REPLAY_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_JITAN_KOE_REPLAY_ONOFF;
+    pub const SYSCOM_SET_JITAN_SPEED: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_JITAN_SPEED;
+    pub const SYSCOM_SET_JITAN_SPEED_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_JITAN_SPEED_DEFAULT;
+    pub const SYSCOM_GET_JITAN_SPEED: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_JITAN_SPEED;
+    pub const SYSCOM_SET_MESSAGE_SPEED: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MESSAGE_SPEED;
+    pub const SYSCOM_SET_MESSAGE_SPEED_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MESSAGE_SPEED_DEFAULT;
+    pub const SYSCOM_GET_MESSAGE_SPEED: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_MESSAGE_SPEED;
+    pub const SYSCOM_SET_MESSAGE_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MESSAGE_NOWAIT;
+    pub const SYSCOM_SET_MESSAGE_NOWAIT_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MESSAGE_NOWAIT_DEFAULT;
+    pub const SYSCOM_GET_MESSAGE_NOWAIT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_MESSAGE_NOWAIT;
+    pub const SYSCOM_SET_AUTO_MODE_MOJI_WAIT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_MODE_MOJI_WAIT;
+    pub const SYSCOM_SET_AUTO_MODE_MOJI_WAIT_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_MODE_MOJI_WAIT_DEFAULT;
+    pub const SYSCOM_GET_AUTO_MODE_MOJI_WAIT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_AUTO_MODE_MOJI_WAIT;
+    pub const SYSCOM_SET_AUTO_MODE_MIN_WAIT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_MODE_MIN_WAIT;
+    pub const SYSCOM_SET_AUTO_MODE_MIN_WAIT_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_AUTO_MODE_MIN_WAIT_DEFAULT;
+    pub const SYSCOM_GET_AUTO_MODE_MIN_WAIT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_AUTO_MODE_MIN_WAIT;
+    pub const SYSCOM_SET_MOUSE_CURSOR_HIDE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MOUSE_CURSOR_HIDE_ONOFF;
+    pub const SYSCOM_SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_MOUSE_CURSOR_HIDE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_MOUSE_CURSOR_HIDE_ONOFF;
+    pub const SYSCOM_SET_MOUSE_CURSOR_HIDE_TIME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MOUSE_CURSOR_HIDE_TIME;
+    pub const SYSCOM_SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT;
+    pub const SYSCOM_GET_MOUSE_CURSOR_HIDE_TIME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_MOUSE_CURSOR_HIDE_TIME;
+    pub const SYSCOM_SET_FILTER_COLOR_R: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FILTER_COLOR_R;
+    pub const SYSCOM_SET_FILTER_COLOR_R_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FILTER_COLOR_R_DEFAULT;
+    pub const SYSCOM_GET_FILTER_COLOR_R: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_FILTER_COLOR_R;
+    pub const SYSCOM_SET_FILTER_COLOR_G: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FILTER_COLOR_G;
+    pub const SYSCOM_SET_FILTER_COLOR_G_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FILTER_COLOR_G_DEFAULT;
+    pub const SYSCOM_GET_FILTER_COLOR_G: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_FILTER_COLOR_G;
+    pub const SYSCOM_SET_FILTER_COLOR_B: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FILTER_COLOR_B;
+    pub const SYSCOM_SET_FILTER_COLOR_B_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FILTER_COLOR_B_DEFAULT;
+    pub const SYSCOM_GET_FILTER_COLOR_B: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_FILTER_COLOR_B;
+    pub const SYSCOM_SET_FILTER_COLOR_A: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FILTER_COLOR_A;
+    pub const SYSCOM_SET_FILTER_COLOR_A_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FILTER_COLOR_A_DEFAULT;
+    pub const SYSCOM_GET_FILTER_COLOR_A: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_FILTER_COLOR_A;
+    pub const SYSCOM_SET_OBJECT_DISP_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_OBJECT_DISP_ONOFF;
+    pub const SYSCOM_SET_OBJECT_DISP_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_OBJECT_DISP_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_OBJECT_DISP_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_OBJECT_DISP_ONOFF;
+    pub const SYSCOM_SET_GLOBAL_EXTRA_SWITCH_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_GLOBAL_EXTRA_SWITCH_ONOFF;
+    pub const SYSCOM_SET_GLOBAL_EXTRA_SWITCH_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_GLOBAL_EXTRA_SWITCH_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_GLOBAL_EXTRA_SWITCH_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_GLOBAL_EXTRA_SWITCH_ONOFF;
+    pub const SYSCOM_SET_GLOBAL_EXTRA_MODE_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_GLOBAL_EXTRA_MODE_VALUE;
+    pub const SYSCOM_SET_GLOBAL_EXTRA_MODE_VALUE_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_GLOBAL_EXTRA_MODE_VALUE_DEFAULT;
+    pub const SYSCOM_GET_GLOBAL_EXTRA_MODE_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_GLOBAL_EXTRA_MODE_VALUE;
+    pub const SYSCOM_SET_SAVELOAD_ALERT_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SAVELOAD_ALERT_ONOFF;
+    pub const SYSCOM_SET_SLEEP_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SLEEP_ONOFF;
+    pub const SYSCOM_SET_NO_WIPE_ANIME_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_NO_WIPE_ANIME_ONOFF;
+    pub const SYSCOM_SET_NO_MWND_ANIME_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_NO_MWND_ANIME_ONOFF;
+    pub const SYSCOM_SET_SKIP_WIPE_ANIME_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SKIP_WIPE_ANIME_ONOFF;
+    pub const SYSCOM_SET_WHEEL_NEXT_MESSAGE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_WHEEL_NEXT_MESSAGE_ONOFF;
+    pub const SYSCOM_SET_KOE_DONT_STOP_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_KOE_DONT_STOP_ONOFF;
+    pub const SYSCOM_SET_SKIP_UNREAD_MESSAGE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SKIP_UNREAD_MESSAGE_ONOFF;
+    pub const SYSCOM_SET_PLAY_SILENT_SOUND_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_PLAY_SILENT_SOUND_ONOFF;
+    pub const SYSCOM_SET_SAVELOAD_ALERT_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SAVELOAD_ALERT_ONOFF_DEFAULT;
+    pub const SYSCOM_SET_SLEEP_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SLEEP_ONOFF_DEFAULT;
+    pub const SYSCOM_SET_NO_WIPE_ANIME_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_NO_WIPE_ANIME_ONOFF_DEFAULT;
+    pub const SYSCOM_SET_NO_MWND_ANIME_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_NO_MWND_ANIME_ONOFF_DEFAULT;
+    pub const SYSCOM_SET_SKIP_WIPE_ANIME_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SKIP_WIPE_ANIME_ONOFF_DEFAULT;
+    pub const SYSCOM_SET_WHEEL_NEXT_MESSAGE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_WHEEL_NEXT_MESSAGE_ONOFF_DEFAULT;
+    pub const SYSCOM_SET_KOE_DONT_STOP_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_KOE_DONT_STOP_ONOFF_DEFAULT;
+    pub const SYSCOM_SET_SKIP_UNREAD_MESSAGE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_SKIP_UNREAD_MESSAGE_ONOFF_DEFAULT;
+    pub const SYSCOM_SET_PLAY_SILENT_SOUND_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_PLAY_SILENT_SOUND_ONOFF_DEFAULT;
+    pub const SYSCOM_GET_SAVELOAD_ALERT_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SAVELOAD_ALERT_ONOFF;
+    pub const SYSCOM_GET_SLEEP_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SLEEP_ONOFF;
+    pub const SYSCOM_GET_NO_WIPE_ANIME_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_NO_WIPE_ANIME_ONOFF;
+    pub const SYSCOM_GET_NO_MWND_ANIME_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_NO_MWND_ANIME_ONOFF;
+    pub const SYSCOM_GET_SKIP_WIPE_ANIME_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SKIP_WIPE_ANIME_ONOFF;
+    pub const SYSCOM_GET_WHEEL_NEXT_MESSAGE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_WHEEL_NEXT_MESSAGE_ONOFF;
+    pub const SYSCOM_GET_KOE_DONT_STOP_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_KOE_DONT_STOP_ONOFF;
+    pub const SYSCOM_GET_SKIP_UNREAD_MESSAGE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SKIP_UNREAD_MESSAGE_ONOFF;
+    pub const SYSCOM_GET_PLAY_SILENT_SOUND_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_PLAY_SILENT_SOUND_ONOFF;
+    pub const SYSCOM_IS_FONT_EXIST: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_IS_FONT_EXIST;
+    pub const SYSCOM_SET_FONT_NAME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FONT_NAME;
+    pub const SYSCOM_SET_FONT_NAME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FONT_NAME_DEFAULT;
+    pub const SYSCOM_GET_FONT_NAME: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_FONT_NAME;
+    pub const SYSCOM_SET_FONT_BOLD: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FONT_BOLD;
+    pub const SYSCOM_SET_FONT_BOLD_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FONT_BOLD_DEFAULT;
+    pub const SYSCOM_GET_FONT_BOLD: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_FONT_BOLD;
+    pub const SYSCOM_SET_FONT_DECORATION: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FONT_DECORATION;
+    pub const SYSCOM_SET_FONT_DECORATION_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_FONT_DECORATION_DEFAULT;
+    pub const SYSCOM_GET_FONT_DECORATION: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_FONT_DECORATION;
+    pub const SYSCOM_CREATE_CAPTURE_BUFFER: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CREATE_CAPTURE_BUFFER;
+    pub const SYSCOM_DESTROY_CAPTURE_BUFFER: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_DESTROY_CAPTURE_BUFFER;
+    pub const SYSCOM_CAPTURE_AND_SAVE_BUFFER_TO_PNG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CAPTURE_AND_SAVE_BUFFER_TO_PNG;
+    pub const SYSCOM_CAPTURE_TO_CAPTURE_BUFFER: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CAPTURE_TO_CAPTURE_BUFFER;
+    pub const SYSCOM_SAVE_CAPTURE_BUFFER_TO_FILE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SAVE_CAPTURE_BUFFER_TO_FILE;
+    pub const SYSCOM_LOAD_FLAG_FROM_CAPTURE_FILE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_LOAD_FLAG_FROM_CAPTURE_FILE;
+    pub const SYSCOM_OPEN_TWEET_DIALOG: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_OPEN_TWEET_DIALOG;
+    pub const SYSCOM_SET_RETURN_SCENE_ONCE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_SET_RETURN_SCENE_ONCE;
+    pub const SYSCOM_GET_SYSTEM_EXTRA_INT_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SYSTEM_EXTRA_INT_VALUE;
+    pub const SYSCOM_GET_SYSTEM_EXTRA_STR_VALUE: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_GET_SYSTEM_EXTRA_STR_VALUE;
+    pub const SYSCOMMENU_SET_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOMMENU_SET_ENABLE;
+    pub const SYSCOMMENU_SET_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SYSCOMMENU_SET_DISABLE;
+    pub const MWNDBTN_SET_ENABLE: i32 = crate::runtime::forms::codes::elm_value::MWNDBTN_SET_ENABLE;
+    pub const MWNDBTN_SET_DISABLE: i32 = crate::runtime::forms::codes::elm_value::MWNDBTN_SET_DISABLE;
+    pub const SCRIPT_SET_AUTO_SAVEPOINT_OFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_AUTO_SAVEPOINT_OFF;
+    pub const SCRIPT_SET_AUTO_SAVEPOINT_ON: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_AUTO_SAVEPOINT_ON;
+    pub const SCRIPT_SET_SKIP_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_SKIP_DISABLE;
+    pub const SCRIPT_SET_SKIP_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_SKIP_ENABLE;
+    pub const SCRIPT_GET_SKIP_DISABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_SKIP_DISABLE_FLAG;
+    pub const SCRIPT_SET_SKIP_DISABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_SKIP_DISABLE_FLAG;
+    pub const SCRIPT_SET_CTRL_SKIP_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_CTRL_SKIP_DISABLE;
+    pub const SCRIPT_SET_CTRL_SKIP_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_CTRL_SKIP_ENABLE;
+    pub const SCRIPT_GET_CTRL_SKIP_DISABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_CTRL_SKIP_DISABLE_FLAG;
+    pub const SCRIPT_SET_CTRL_SKIP_DISABLE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_CTRL_SKIP_DISABLE_FLAG;
+    pub const SCRIPT_CHECK_SKIP: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_CHECK_SKIP;
+    pub const SCRIPT_SET_STOP_SKIP_BY_KEY_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_STOP_SKIP_BY_KEY_DISABLE;
+    pub const SCRIPT_SET_STOP_SKIP_BY_KEY_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_STOP_SKIP_BY_KEY_ENABLE;
+    pub const SCRIPT_SET_END_MSG_BY_KEY_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_END_MSG_BY_KEY_DISABLE;
+    pub const SCRIPT_SET_END_MSG_BY_KEY_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_END_MSG_BY_KEY_ENABLE;
+    pub const SCRIPT_SET_SKIP_UNREAD_MESSAGE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_SKIP_UNREAD_MESSAGE_FLAG;
+    pub const SCRIPT_GET_SKIP_UNREAD_MESSAGE_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_SKIP_UNREAD_MESSAGE_FLAG;
+    pub const SCRIPT_START_AUTO_MODE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_START_AUTO_MODE;
+    pub const SCRIPT_END_AUTO_MODE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_END_AUTO_MODE;
+    pub const SCRIPT_SET_AUTO_MODE_MOJI_WAIT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_AUTO_MODE_MOJI_WAIT;
+    pub const SCRIPT_SET_AUTO_MODE_MOJI_WAIT_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_AUTO_MODE_MOJI_WAIT_DEFAULT;
+    pub const SCRIPT_GET_AUTO_MODE_MOJI_WAIT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_AUTO_MODE_MOJI_WAIT;
+    pub const SCRIPT_SET_AUTO_MODE_MIN_WAIT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_AUTO_MODE_MIN_WAIT;
+    pub const SCRIPT_SET_AUTO_MODE_MIN_WAIT_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_AUTO_MODE_MIN_WAIT_DEFAULT;
+    pub const SCRIPT_GET_AUTO_MODE_MIN_WAIT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_AUTO_MODE_MIN_WAIT;
+    pub const SCRIPT_SET_AUTO_MODE_MOJI_CNT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_AUTO_MODE_MOJI_CNT;
+    pub const SCRIPT_SET_MESSAGE_SPEED: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MESSAGE_SPEED;
+    pub const SCRIPT_SET_MESSAGE_SPEED_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MESSAGE_SPEED_DEFAULT;
+    pub const SCRIPT_GET_MESSAGE_SPEED: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_MESSAGE_SPEED;
+    pub const SCRIPT_SET_MESSAGE_NOWAIT_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MESSAGE_NOWAIT_FLAG;
+    pub const SCRIPT_GET_MESSAGE_NOWAIT_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_MESSAGE_NOWAIT_FLAG;
+    pub const SCRIPT_SET_MSG_ASYNC_MODE_ON: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_ASYNC_MODE_ON;
+    pub const SCRIPT_SET_MSG_ASYNC_MODE_ON_ONCE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_ASYNC_MODE_ON_ONCE;
+    pub const SCRIPT_SET_MSG_ASYNC_MODE_OFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_ASYNC_MODE_OFF;
+    pub const SCRIPT_SET_HIDE_MWND_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_HIDE_MWND_DISABLE;
+    pub const SCRIPT_SET_HIDE_MWND_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_HIDE_MWND_ENABLE;
+    pub const SCRIPT_SET_MSG_BACK_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_BACK_DISABLE;
+    pub const SCRIPT_SET_MSG_BACK_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_BACK_ENABLE;
+    pub const SCRIPT_SET_MSG_BACK_OFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_BACK_OFF;
+    pub const SCRIPT_SET_MSG_BACK_ON: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_BACK_ON;
+    pub const SCRIPT_SET_MSG_BACK_DISP_OFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_BACK_DISP_OFF;
+    pub const SCRIPT_SET_MSG_BACK_DISP_ON: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_BACK_DISP_ON;
+    pub const SCRIPT_SET_MSG_BACK_PROC_OFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_BACK_PROC_OFF;
+    pub const SCRIPT_SET_MSG_BACK_PROC_ON: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MSG_BACK_PROC_ON;
+    pub const SCRIPT_SET_MOUSE_MOVE_BY_KEY_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MOUSE_MOVE_BY_KEY_DISABLE;
+    pub const SCRIPT_SET_MOUSE_MOVE_BY_KEY_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MOUSE_MOVE_BY_KEY_ENABLE;
+    pub const SCRIPT_SET_MOUSE_DISP_OFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MOUSE_DISP_OFF;
+    pub const SCRIPT_SET_MOUSE_DISP_ON: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MOUSE_DISP_ON;
+    pub const SCRIPT_SET_MOUSE_CURSOR_HIDE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MOUSE_CURSOR_HIDE_ONOFF;
+    pub const SCRIPT_SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MOUSE_CURSOR_HIDE_ONOFF_DEFAULT;
+    pub const SCRIPT_GET_MOUSE_CURSOR_HIDE_ONOFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_MOUSE_CURSOR_HIDE_ONOFF;
+    pub const SCRIPT_SET_MOUSE_CURSOR_HIDE_TIME: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MOUSE_CURSOR_HIDE_TIME;
+    pub const SCRIPT_SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MOUSE_CURSOR_HIDE_TIME_DEFAULT;
+    pub const SCRIPT_GET_MOUSE_CURSOR_HIDE_TIME: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_MOUSE_CURSOR_HIDE_TIME;
+    pub const SCRIPT_SET_KEY_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_KEY_DISABLE;
+    pub const SCRIPT_SET_KEY_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_KEY_ENABLE;
+    pub const SCRIPT_SET_MWND_ANIME_ON_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MWND_ANIME_ON_FLAG;
+    pub const SCRIPT_GET_MWND_ANIME_ON_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_MWND_ANIME_ON_FLAG;
+    pub const SCRIPT_SET_MWND_ANIME_OFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MWND_ANIME_OFF_FLAG;
+    pub const SCRIPT_GET_MWND_ANIME_OFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_MWND_ANIME_OFF_FLAG;
+    pub const SCRIPT_SET_MWND_DISP_OFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_MWND_DISP_OFF_FLAG;
+    pub const SCRIPT_GET_MWND_DISP_OFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_MWND_DISP_OFF_FLAG;
+    pub const SCRIPT_SET_QUAKE_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_QUAKE_STOP_FLAG;
+    pub const SCRIPT_GET_EMOTE_MOUTH_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_EMOTE_MOUTH_STOP_FLAG;
+    pub const SCRIPT_SET_EMOTE_MOUTH_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_EMOTE_MOUTH_STOP_FLAG;
+    pub const SCRIPT_GET_QUAKE_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_QUAKE_STOP_FLAG;
+    pub const SCRIPT_SET_VSYNC_WAIT_OFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_VSYNC_WAIT_OFF_FLAG;
+    pub const SCRIPT_GET_VSYNC_WAIT_OFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_VSYNC_WAIT_OFF_FLAG;
+    pub const SCRIPT_SET_KOE_DONT_STOP_ON_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_KOE_DONT_STOP_ON_FLAG;
+    pub const SCRIPT_GET_KOE_DONT_STOP_ON_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_KOE_DONT_STOP_ON_FLAG;
+    pub const SCRIPT_SET_KOE_DONT_STOP_OFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_KOE_DONT_STOP_OFF_FLAG;
+    pub const SCRIPT_GET_KOE_DONT_STOP_OFF_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_KOE_DONT_STOP_OFF_FLAG;
+    pub const SCRIPT_SET_SHORTCUT_DISABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_SHORTCUT_DISABLE;
+    pub const SCRIPT_SET_SHORTCUT_ENABLE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_SHORTCUT_ENABLE;
+    pub const SCRIPT_START_BGMFADE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_START_BGMFADE;
+    pub const SCRIPT_END_BGMFADE: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_END_BGMFADE;
+    pub const SCRIPT_SET_SKIP_TRIGGER: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_SKIP_TRIGGER;
+    pub const SCRIPT_IGNORE_R_ON: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_IGNORE_R_ON;
+    pub const SCRIPT_IGNORE_R_OFF: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_IGNORE_R_OFF;
+    pub const SCRIPT_SET_CURSOR_NO: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_CURSOR_NO;
+    pub const SCRIPT_GET_CURSOR_NO: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_CURSOR_NO;
+    pub const SCRIPT_SET_TIME_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_TIME_STOP_FLAG;
+    pub const SCRIPT_SET_COUNTER_TIME_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_COUNTER_TIME_STOP_FLAG;
+    pub const SCRIPT_SET_FRAME_ACTION_TIME_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_FRAME_ACTION_TIME_STOP_FLAG;
+    pub const SCRIPT_SET_STAGE_TIME_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_STAGE_TIME_STOP_FLAG;
+    pub const SCRIPT_GET_TIME_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_TIME_STOP_FLAG;
+    pub const SCRIPT_GET_COUNTER_TIME_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_COUNTER_TIME_STOP_FLAG;
+    pub const SCRIPT_GET_FRAME_ACTION_TIME_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_FRAME_ACTION_TIME_STOP_FLAG;
+    pub const SCRIPT_GET_STAGE_TIME_STOP_FLAG: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_STAGE_TIME_STOP_FLAG;
+    pub const SCRIPT_SET_FONT_NAME: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_FONT_NAME;
+    pub const SCRIPT_SET_FONT_NAME_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_FONT_NAME_DEFAULT;
+    pub const SCRIPT_GET_FONT_NAME: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_FONT_NAME;
+    pub const SCRIPT_SET_FONT_BOLD: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_FONT_BOLD;
+    pub const SCRIPT_SET_FONT_BOLD_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_FONT_BOLD_DEFAULT;
+    pub const SCRIPT_GET_FONT_BOLD: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_FONT_BOLD;
+    pub const SCRIPT_SET_FONT_SHADOW: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_FONT_SHADOW;
+    pub const SCRIPT_SET_FONT_SHADOW_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_SET_FONT_SHADOW_DEFAULT;
+    pub const SCRIPT_GET_FONT_SHADOW: i32 = crate::runtime::forms::codes::elm_value::SCRIPT_GET_FONT_SHADOW;
+    pub const SYSTEM_CHECK_ACTIVE: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_CHECK_ACTIVE;
+    pub const SYSTEM_CHECK_DEBUG_FLAG: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_CHECK_DEBUG_FLAG;
+    pub const SYSTEM_SHELL_OPEN_FILE: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_SHELL_OPEN_FILE;
+    pub const SYSTEM_SHELL_OPEN_WEB: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_SHELL_OPEN_WEB;
+    pub const SYSTEM_CHECK_FILE_EXIST: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_CHECK_FILE_EXIST;
+    pub const SYSTEM_CHECK_FILE_EXIST_SAVE_DIR: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_CHECK_FILE_EXIST_SAVE_DIR;
+    pub const SYSTEM_CHECK_DUMMY_FILE_ONCE: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_CHECK_DUMMY_FILE_ONCE;
+    pub const SYSTEM_CLEAR_DUMMY_FILE: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_CLEAR_DUMMY_FILE;
+    pub const SYSTEM_OPEN_DIALOG_FOR_CHIHAYA_BENCH: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_OPEN_DIALOG_FOR_CHIHAYA_BENCH;
+    pub const SYSTEM_GET_SPEC_INFO_FOR_CHIHAYA_BENCH: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_GET_SPEC_INFO_FOR_CHIHAYA_BENCH;
+    pub const SYSTEM_MESSAGEBOX_OK: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_MESSAGEBOX_OK;
+    pub const SYSTEM_MESSAGEBOX_OKCANCEL: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_MESSAGEBOX_OKCANCEL;
+    pub const SYSTEM_MESSAGEBOX_YESNO: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_MESSAGEBOX_YESNO;
+    pub const SYSTEM_MESSAGEBOX_YESNOCANCEL: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_MESSAGEBOX_YESNOCANCEL;
+    pub const SYSTEM_DEBUG_MESSAGEBOX_OK: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_DEBUG_MESSAGEBOX_OK;
+    pub const SYSTEM_DEBUG_MESSAGEBOX_OKCANCEL: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_DEBUG_MESSAGEBOX_OKCANCEL;
+    pub const SYSTEM_DEBUG_MESSAGEBOX_YESNO: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_DEBUG_MESSAGEBOX_YESNO;
+    pub const SYSTEM_DEBUG_MESSAGEBOX_YESNOCANCEL: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_DEBUG_MESSAGEBOX_YESNOCANCEL;
+    pub const SYSTEM_DEBUG_WRITE_LOG: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_DEBUG_WRITE_LOG;
+    pub const SYSTEM_GET_CALENDAR: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_GET_CALENDAR;
+    pub const SYSTEM_GET_UNIX_TIME: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_GET_UNIX_TIME;
+    pub const SYSTEM_GET_LANGUAGE: i32 = crate::runtime::forms::codes::elm_value::SYSTEM_GET_LANGUAGE;
+    pub const EXCALL_ARRAY: i32 = crate::runtime::forms::codes::elm_value::EXCALL_ARRAY;
+    pub const EXCALL_ALLOC: i32 = crate::runtime::forms::codes::elm_value::EXCALL_ALLOC;
+    pub const EXCALL_CHECK_ALLOC: i32 = crate::runtime::forms::codes::elm_value::EXCALL_CHECK_ALLOC;
+    pub const EXCALL_IS_EXCALL: i32 = crate::runtime::forms::codes::elm_value::EXCALL_IS_EXCALL;
+    pub const EXCALL_FREE: i32 = crate::runtime::forms::codes::elm_value::EXCALL_FREE;
+    pub const EXCALL_STAGE: i32 = crate::runtime::forms::codes::elm_value::EXCALL_STAGE;
+    pub const EXCALL_BACK: i32 = crate::runtime::forms::codes::elm_value::EXCALL_BACK;
+    pub const EXCALL_FRONT: i32 = crate::runtime::forms::codes::elm_value::EXCALL_FRONT;
+    pub const EXCALL_NEXT: i32 = crate::runtime::forms::codes::elm_value::EXCALL_NEXT;
+    pub const EXCALL_COUNTER: i32 = crate::runtime::forms::codes::elm_value::EXCALL_COUNTER;
+    pub const EXCALL_FRAME_ACTION: i32 = crate::runtime::forms::codes::elm_value::EXCALL_FRAME_ACTION;
+    pub const EXCALL_FRAME_ACTION_CH: i32 = crate::runtime::forms::codes::elm_value::EXCALL_FRAME_ACTION_CH;
+    pub const EXCALL_F: i32 = crate::runtime::forms::codes::elm_value::EXCALL_F;
+    pub const EXCALL_SCRIPT: i32 = crate::runtime::forms::codes::elm_value::EXCALL_SCRIPT;
+    pub const STEAM_SET_ACHIEVEMENT: i32 = crate::runtime::forms::codes::elm_value::STEAM_SET_ACHIEVEMENT;
+    pub const STEAM_RESET_ALL_STATUS: i32 = crate::runtime::forms::codes::elm_value::STEAM_RESET_ALL_STATUS;
 }
 
 pub use elm_value::*;
@@ -2532,10 +1629,6 @@ pub use global_form::*;
 
 // Runtime numeric constants recovered from the original engine and reverse results.
 // Values here are fixed constants used directly by the runtime.
-
-use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct RuntimeConstants {
@@ -3013,40 +2106,40 @@ pub struct RuntimeConstants {
 impl Default for RuntimeConstants {
     fn default() -> Self {
         let mut out = Self {
-            form_global_stage: fm::STAGE as u32,
-            form_global_mov: fm::MOV as u32,
-            form_global_bgm: fm::BGM as u32,
-            form_global_pcm: fm::PCM as u32,
-            form_global_pcmch: fm::PCMCH as u32,
-            form_global_se: fm::SE as u32,
-            form_global_pcm_event: fm::PCMEVENT as u32,
-            form_global_excall: fm::EXCALL as u32,
-            form_global_koe_st: fm::KOE as u32,
+            form_global_stage: global_form::STAGE,
+            form_global_mov: global_form::MOV,
+            form_global_bgm: global_form::BGM,
+            form_global_pcm: global_form::PCM,
+            form_global_pcmch: global_form::PCMCH,
+            form_global_se: global_form::SE,
+            form_global_pcm_event: global_form::PCMEVENT,
+            form_global_excall: global_form::EXCALL,
+            form_global_koe_st: global_form::KOE_ST,
             form_global_bgm_table: global_form::BGMTABLE,
 
-            form_global_screen: fm::SCREEN as u32,
+            form_global_screen: global_form::SCREEN,
             form_global_msgbk: global_form::MSGBK,
 
-            form_global_input: fm::INPUT as u32,
-            form_global_mouse: fm::MOUSE as u32,
-            form_global_keylist: fm::KEYLIST as u32,
-            form_global_key: fm::KEY as u32,
+            form_global_input: global_form::INPUT,
+            form_global_mouse: global_form::MOUSE,
+            form_global_keylist: global_form::KEY,
+            form_global_key: global_form::KEY,
 
             // Optional global forms (disabled by default).
-            form_global_syscom: fm::SYSCOM as u32,
-            form_global_script: fm::SCRIPT as u32,
-            form_global_system: fm::SYSTEM as u32,
-            form_global_frame_action: fm::FRAMEACTION as u32,
-            form_global_frame_action_ch: fm::FRAMEACTIONLIST as u32,
+            form_global_syscom: global_form::SYSCOM,
+            form_global_script: global_form::SCRIPT,
+            form_global_system: global_form::SYSTEM,
+            form_global_frame_action: global_form::FRAME_ACTION,
+            form_global_frame_action_ch: crate::runtime::forms::codes::FORM_GLOBAL_FRAME_ACTION_CH,
 
-            form_global_math: fm::MATH as u32,
-            form_global_cgtable: fm::CGTABLE as u32,
-            form_global_database: fm::DATABASE as u32,
-            form_global_g00buf: fm::G00BUF as u32,
-            form_global_mask: fm::MASK as u32,
-            form_global_editbox: fm::EDITBOX as u32,
-            form_global_file: fm::FILE as u32,
-            form_global_steam: 0,
+            form_global_math: global_form::MATH,
+            form_global_cgtable: global_form::CGTABLE,
+            form_global_database: global_form::DATABASE,
+            form_global_g00buf: global_form::G00BUF,
+            form_global_mask: global_form::MASK,
+            form_global_editbox: global_form::EDITBOX,
+            form_global_file: global_form::FILE,
+            form_global_steam: global_form::STEAM,
 
             screen_sel_effect: elm_value::SCREEN_EFFECT,
             screen_sel_quake: elm_value::SCREEN_QUAKE,
@@ -3471,77 +2564,3 @@ impl Default for RuntimeConstants {
     }
 }
 
-fn try_load_u32_map_file(path: &Path, out: &mut HashMap<u32, String>) {
-    if !path.is_file() {
-        return;
-    }
-    if let Ok(text) = fs::read_to_string(path) {
-        parse_u32_name_map_str(out, &text);
-    }
-}
-
-fn try_load_i64_map_file(path: &Path, out: &mut HashMap<i64, String>) {
-    if !path.is_file() {
-        return;
-    }
-    if let Ok(text) = fs::read_to_string(path) {
-        parse_i64_name_map_str(out, &text);
-    }
-}
-
-fn parse_u32_name_map_str(out: &mut HashMap<u32, String>, text: &str) {
-    for line in text.split(|c| c == ';' || c == '\n') {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((k, v)) = line.split_once('=') else {
-            continue;
-        };
-        let k = k.trim();
-        let v = v.trim();
-        if v.is_empty() {
-            continue;
-        }
-        let Some(n) = parse_i64(k) else {
-            continue;
-        };
-        if n < 0 {
-            continue;
-        }
-        out.insert(n as u32, v.to_string());
-    }
-}
-
-fn parse_i64_name_map_str(out: &mut HashMap<i64, String>, text: &str) {
-    for line in text.split(|c| c == ';' || c == '\n') {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let Some((k, v)) = line.split_once('=') else {
-            continue;
-        };
-        let k = k.trim();
-        let v = v.trim();
-        if v.is_empty() {
-            continue;
-        }
-        let Some(n) = parse_i64(k) else {
-            continue;
-        };
-        out.insert(n, v.to_string());
-    }
-}
-
-fn parse_i64(s: &str) -> Option<i64> {
-    let s = s.trim();
-    if s.is_empty() {
-        return None;
-    }
-    if let Some(rest) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
-        i64::from_str_radix(rest.trim(), 16).ok()
-    } else {
-        s.parse::<i64>().ok()
-    }
-}

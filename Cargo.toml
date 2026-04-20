@@ -6,6 +6,8 @@ members = [
   "crates/na_mpeg2_decoder",
   "crates/siglus_omv_decoder",
   "crates/theora-rs",
+  "crates/siglus_ss_decompiler",
+  "crates/siglus_gameexe_ini",
 ]
 
 [workspace.package]

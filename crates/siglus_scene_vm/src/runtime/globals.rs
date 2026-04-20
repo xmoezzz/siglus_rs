@@ -493,6 +493,8 @@ pub struct GlobalState {
     pub frame_actions: HashMap<u32, ObjectFrameActionState>,
     /// Global frame-action channel lists keyed by the owning form id.
     pub frame_action_lists: HashMap<u32, Vec<ObjectFrameActionState>>,
+    /// Finish callbacks queued by FRAMEACTION.START/START_REAL/END.
+    pub pending_frame_action_finishes: Vec<PendingFrameActionFinish>,
 
     /// Stage UI subsystem state keyed by the stage form ID.
     pub stage_forms: HashMap<u32, StageFormState>,
@@ -503,6 +505,7 @@ pub struct GlobalState {
     /// Last object target touched by stage/object dispatch. Compact object-only chains in scene bytecode
     /// use this as the ambient current-object context when they omit the object index.
     pub current_stage_object: Option<(i64, usize)>,
+    pub current_object_chain: Option<Vec<i32>>,
 
     /// Screen subsystem state keyed by the screen form ID.
     pub screen_forms: HashMap<u32, ScreenFormState>,
@@ -563,10 +566,12 @@ impl Default for GlobalState {
 
             frame_actions: HashMap::new(),
             frame_action_lists: HashMap::new(),
+            pending_frame_action_finishes: Vec::new(),
             stage_forms: HashMap::new(),
             focused_stage_group: None,
             focused_stage_mwnd: None,
             current_stage_object: None,
+            current_object_chain: None,
 
             screen_forms: HashMap::new(),
             msgbk_forms: HashMap::new(),
@@ -587,154 +592,197 @@ impl Default for GlobalState {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum CounterMode {
-    Idle,
-    RunningMs,
-    RunningFrame {
-        from: i64,
-        to: i64,
-        frame_span: i64,
-        looped: bool,
-    },
+#[derive(Debug, Clone, Default)]
+pub struct PendingFrameActionFinish {
+    pub frame_action_chain: Vec<i32>,
+    pub object_chain: Option<Vec<i32>>,
+    pub scn_name: String,
+    pub cmd_name: String,
+    pub end_time: i64,
+    pub args: Vec<crate::runtime::Value>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub struct Counter {
-    base_ms: i64,
-    start: Option<Instant>,
-    start_frame: i64,
-    mode: CounterMode,
+    cur_time: i64,
+    is_running: bool,
+    real_flag: bool,
+    frame_mode: bool,
+    frame_loop_flag: bool,
+    frame_start_value: i64,
+    frame_end_value: i64,
+    frame_time: i64,
 }
 
 impl Default for Counter {
     fn default() -> Self {
         Self {
-            base_ms: 0,
-            start: None,
-            start_frame: 0,
-            mode: CounterMode::Idle,
+            cur_time: 0,
+            is_running: false,
+            real_flag: false,
+            frame_mode: false,
+            frame_loop_flag: false,
+            frame_start_value: 0,
+            frame_end_value: 0,
+            frame_time: 0,
         }
     }
 }
 
 impl Counter {
-    pub fn reset(&mut self) {
-        *self = Self::default();
-    }
-
-    pub fn set_count(&mut self, count_ms: i64) {
-        self.base_ms = count_ms;
-        self.start = None;
-        self.mode = CounterMode::Idle;
-    }
-
-    pub fn start(&mut self) {
-        self.mode = CounterMode::RunningMs;
-        self.start = Some(Instant::now());
-    }
-
-    pub fn start_real(&mut self) {
-        self.start();
-    }
-
-    pub fn start_frame(&mut self, from: i64, to: i64, frame_span: i64, current_frame: i64) {
-        self.base_ms = 0;
-        self.start = None;
-        self.start_frame = current_frame;
-        self.mode = CounterMode::RunningFrame {
-            from,
-            to,
-            frame_span: frame_span.max(1),
-            looped: false,
-        };
-    }
-
-    pub fn start_frame_real(&mut self, from: i64, to: i64, frame_span: i64, current_frame: i64) {
-        self.start_frame(from, to, frame_span, current_frame);
-    }
-
-    pub fn start_frame_loop(&mut self, from: i64, to: i64, frame_span: i64, current_frame: i64) {
-        self.base_ms = 0;
-        self.start = None;
-        self.start_frame = current_frame;
-        self.mode = CounterMode::RunningFrame {
-            from,
-            to,
-            frame_span: frame_span.max(1),
-            looped: true,
-        };
-    }
-
-    pub fn start_frame_loop_real(
-        &mut self,
-        from: i64,
-        to: i64,
-        frame_span: i64,
-        current_frame: i64,
-    ) {
-        self.start_frame_loop(from, to, frame_span, current_frame);
-    }
-
-    pub fn stop(&mut self) {
-        match self.mode {
-            CounterMode::RunningMs => {
-                if let Some(s) = self.start.take() {
-                    self.base_ms += Instant::now().duration_since(s).as_millis() as i64;
-                }
-                self.mode = CounterMode::Idle;
-            }
-            CounterMode::RunningFrame { .. } => {
-                self.mode = CounterMode::Idle;
-            }
-            CounterMode::Idle => {}
+    fn limit(min: i64, value: i64, max: i64) -> i64 {
+        if value < min {
+            min
+        } else if value > max {
+            max
+        } else {
+            value
         }
     }
 
+    pub fn reinit(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn reset(&mut self) {
+        self.is_running = false;
+        self.real_flag = false;
+        self.frame_mode = false;
+        self.cur_time = 0;
+    }
+
+    pub fn set_count(&mut self, value: i64) {
+        if self.frame_mode {
+            if self.frame_end_value == self.frame_start_value {
+                self.cur_time = 0;
+                return;
+            }
+
+            let denom = self.frame_end_value - self.frame_start_value;
+            let frame_time = self.frame_time;
+            let mut cur_time = (value - self.frame_start_value) * frame_time / denom;
+            if self.frame_loop_flag {
+                cur_time = Self::limit(0, cur_time, frame_time - 1);
+            } else {
+                cur_time = Self::limit(0, cur_time, frame_time);
+            }
+            self.cur_time = cur_time;
+        } else {
+            self.cur_time = value;
+        }
+    }
+
+    pub fn start(&mut self) {
+        self.is_running = true;
+        self.real_flag = false;
+        self.frame_mode = false;
+        self.cur_time = 0;
+    }
+
+    pub fn start_real(&mut self) {
+        self.is_running = true;
+        self.real_flag = true;
+        self.frame_mode = false;
+        self.cur_time = 0;
+    }
+
+    pub fn start_frame(&mut self, from: i64, to: i64, frame_time: i64) {
+        self.is_running = true;
+        self.real_flag = false;
+        self.frame_mode = true;
+        self.frame_loop_flag = false;
+        self.frame_start_value = from;
+        self.frame_end_value = to;
+        self.frame_time = frame_time;
+        self.cur_time = 0;
+    }
+
+    pub fn start_frame_real(&mut self, from: i64, to: i64, frame_time: i64) {
+        self.is_running = true;
+        self.real_flag = true;
+        self.frame_mode = true;
+        self.frame_loop_flag = false;
+        self.frame_start_value = from;
+        self.frame_end_value = to;
+        self.frame_time = frame_time;
+        self.cur_time = 0;
+    }
+
+    pub fn start_frame_loop(&mut self, from: i64, to: i64, frame_time: i64) {
+        self.is_running = true;
+        self.real_flag = false;
+        self.frame_mode = true;
+        self.frame_loop_flag = true;
+        self.frame_start_value = from;
+        self.frame_end_value = to;
+        self.frame_time = frame_time;
+        self.cur_time = 0;
+    }
+
+    pub fn start_frame_loop_real(&mut self, from: i64, to: i64, frame_time: i64) {
+        self.is_running = true;
+        self.real_flag = true;
+        self.frame_mode = true;
+        self.frame_loop_flag = true;
+        self.frame_start_value = from;
+        self.frame_end_value = to;
+        self.frame_time = frame_time;
+        self.cur_time = 0;
+    }
+
+    pub fn stop(&mut self) {
+        self.is_running = false;
+    }
+
     pub fn resume(&mut self) {
-        if matches!(self.mode, CounterMode::Idle) {
-            self.mode = CounterMode::RunningMs;
-            self.start = Some(Instant::now());
+        self.is_running = true;
+    }
+
+    pub fn update_time(&mut self, past_game_time: i32, past_real_time: i32) {
+        if self.is_running {
+            let add = if self.real_flag { past_real_time } else { past_game_time };
+            self.cur_time = self.cur_time.saturating_add(add as i64);
+        }
+
+        if self.frame_mode && !self.frame_loop_flag && self.cur_time >= self.frame_time {
+            self.is_running = false;
         }
     }
 
     pub fn get_count(&self) -> i64 {
-        match self.mode {
-            CounterMode::RunningMs => match self.start {
-                Some(s) => self.base_ms + Instant::now().duration_since(s).as_millis() as i64,
-                None => self.base_ms,
-            },
-            _ => self.base_ms,
+        if self.frame_mode {
+            if self.frame_time <= 0 {
+                return self.frame_end_value;
+            }
+            if self.frame_start_value == self.frame_end_value {
+                return self.frame_end_value;
+            }
+
+            let span = self.frame_end_value - self.frame_start_value;
+            let mut value = span * self.cur_time / self.frame_time;
+            if self.frame_loop_flag {
+                value %= span;
+                value += self.frame_start_value;
+            } else {
+                value += self.frame_start_value;
+                if self.frame_start_value > self.frame_end_value {
+                    value = Self::limit(self.frame_end_value, value, self.frame_start_value);
+                } else {
+                    value = Self::limit(self.frame_start_value, value, self.frame_end_value);
+                }
+            }
+            value
+        } else {
+            self.cur_time
         }
     }
 
-    pub fn get_count_with_frame(&self, current_frame: i64) -> i64 {
-        match self.mode {
-            CounterMode::RunningFrame {
-                from,
-                to,
-                frame_span,
-                looped,
-            } => {
-                let elapsed = (current_frame - self.start_frame).max(0);
-                if looped {
-                    if frame_span <= 0 {
-                        return from;
-                    }
-                    let pos = elapsed % frame_span;
-                    from + (to - from) * pos / frame_span
-                } else if elapsed >= frame_span {
-                    to
-                } else {
-                    from + (to - from) * elapsed / frame_span
-                }
-            }
-            _ => self.get_count(),
-        }
+    pub fn get_count_with_frame(&self, _current_frame: i64) -> i64 {
+        self.get_count()
     }
 
     pub fn is_running(&self) -> bool {
-        !matches!(self.mode, CounterMode::Idle)
+        self.is_running
     }
 }
 
@@ -1668,7 +1716,7 @@ pub struct ObjectFrameActionState {
     pub end_time: i64,
     pub real_time_flag: bool,
     pub end_flag: bool,
-    pub args: Vec<i64>,
+    pub args: Vec<crate::runtime::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -1727,6 +1775,7 @@ pub struct ObjectBaseState {
     pub alpha_test: i64,
     pub alpha_blend: i64,
     pub blend: i64,
+    pub child_sort_type: i64,
 }
 
 impl Default for ObjectBaseState {
@@ -1786,6 +1835,7 @@ impl Default for ObjectBaseState {
             alpha_test: 1,
             alpha_blend: 1,
             blend: 0,
+            child_sort_type: 0,
         }
     }
 }
@@ -1913,43 +1963,87 @@ impl ObjectPropEvents {
         self.color_add_b.reinit();
     }
 
+    pub fn update_time(&mut self, past_game_time: i32, past_real_time: i32) {
+        self.patno.update_time(past_game_time, past_real_time);
+        self.x.update_time(past_game_time, past_real_time);
+        self.y.update_time(past_game_time, past_real_time);
+        self.z.update_time(past_game_time, past_real_time);
+        self.center_x.update_time(past_game_time, past_real_time);
+        self.center_y.update_time(past_game_time, past_real_time);
+        self.center_z.update_time(past_game_time, past_real_time);
+        self.center_rep_x.update_time(past_game_time, past_real_time);
+        self.center_rep_y.update_time(past_game_time, past_real_time);
+        self.center_rep_z.update_time(past_game_time, past_real_time);
+        self.scale_x.update_time(past_game_time, past_real_time);
+        self.scale_y.update_time(past_game_time, past_real_time);
+        self.scale_z.update_time(past_game_time, past_real_time);
+        self.rotate_x.update_time(past_game_time, past_real_time);
+        self.rotate_y.update_time(past_game_time, past_real_time);
+        self.rotate_z.update_time(past_game_time, past_real_time);
+        self.clip_left.update_time(past_game_time, past_real_time);
+        self.clip_top.update_time(past_game_time, past_real_time);
+        self.clip_right.update_time(past_game_time, past_real_time);
+        self.clip_bottom.update_time(past_game_time, past_real_time);
+        self.src_clip_left.update_time(past_game_time, past_real_time);
+        self.src_clip_top.update_time(past_game_time, past_real_time);
+        self.src_clip_right.update_time(past_game_time, past_real_time);
+        self.src_clip_bottom.update_time(past_game_time, past_real_time);
+        self.tr.update_time(past_game_time, past_real_time);
+        self.mono.update_time(past_game_time, past_real_time);
+        self.reverse.update_time(past_game_time, past_real_time);
+        self.bright.update_time(past_game_time, past_real_time);
+        self.dark.update_time(past_game_time, past_real_time);
+        self.color_r.update_time(past_game_time, past_real_time);
+        self.color_g.update_time(past_game_time, past_real_time);
+        self.color_b.update_time(past_game_time, past_real_time);
+        self.color_rate.update_time(past_game_time, past_real_time);
+        self.color_add_r.update_time(past_game_time, past_real_time);
+        self.color_add_g.update_time(past_game_time, past_real_time);
+        self.color_add_b.update_time(past_game_time, past_real_time);
+    }
+
+    pub fn frame(&mut self) {
+        self.patno.frame();
+        self.x.frame();
+        self.y.frame();
+        self.z.frame();
+        self.center_x.frame();
+        self.center_y.frame();
+        self.center_z.frame();
+        self.center_rep_x.frame();
+        self.center_rep_y.frame();
+        self.center_rep_z.frame();
+        self.scale_x.frame();
+        self.scale_y.frame();
+        self.scale_z.frame();
+        self.rotate_x.frame();
+        self.rotate_y.frame();
+        self.rotate_z.frame();
+        self.clip_left.frame();
+        self.clip_top.frame();
+        self.clip_right.frame();
+        self.clip_bottom.frame();
+        self.src_clip_left.frame();
+        self.src_clip_top.frame();
+        self.src_clip_right.frame();
+        self.src_clip_bottom.frame();
+        self.tr.frame();
+        self.mono.frame();
+        self.reverse.frame();
+        self.bright.frame();
+        self.dark.frame();
+        self.color_r.frame();
+        self.color_g.frame();
+        self.color_b.frame();
+        self.color_rate.frame();
+        self.color_add_r.frame();
+        self.color_add_g.frame();
+        self.color_add_b.frame();
+    }
+
     pub fn tick(&mut self, delta: i32) {
-        self.patno.tick(delta);
-        self.x.tick(delta);
-        self.y.tick(delta);
-        self.z.tick(delta);
-        self.center_x.tick(delta);
-        self.center_y.tick(delta);
-        self.center_z.tick(delta);
-        self.center_rep_x.tick(delta);
-        self.center_rep_y.tick(delta);
-        self.center_rep_z.tick(delta);
-        self.scale_x.tick(delta);
-        self.scale_y.tick(delta);
-        self.scale_z.tick(delta);
-        self.rotate_x.tick(delta);
-        self.rotate_y.tick(delta);
-        self.rotate_z.tick(delta);
-        self.clip_left.tick(delta);
-        self.clip_top.tick(delta);
-        self.clip_right.tick(delta);
-        self.clip_bottom.tick(delta);
-        self.src_clip_left.tick(delta);
-        self.src_clip_top.tick(delta);
-        self.src_clip_right.tick(delta);
-        self.src_clip_bottom.tick(delta);
-        self.tr.tick(delta);
-        self.mono.tick(delta);
-        self.reverse.tick(delta);
-        self.bright.tick(delta);
-        self.dark.tick(delta);
-        self.color_r.tick(delta);
-        self.color_g.tick(delta);
-        self.color_b.tick(delta);
-        self.color_rate.tick(delta);
-        self.color_add_r.tick(delta);
-        self.color_add_g.tick(delta);
-        self.color_add_b.tick(delta);
+        self.update_time(delta, delta);
+        self.frame();
     }
 
     pub fn any_active(&self) -> bool {
@@ -2145,19 +2239,39 @@ impl ObjectPropEventLists {
         self.tr_rep.clear();
     }
 
-    pub fn tick(&mut self, delta: i32) {
+    pub fn update_time(&mut self, past_game_time: i32, past_real_time: i32) {
         for ev in &mut self.x_rep {
-            ev.tick(delta);
+            ev.update_time(past_game_time, past_real_time);
         }
         for ev in &mut self.y_rep {
-            ev.tick(delta);
+            ev.update_time(past_game_time, past_real_time);
         }
         for ev in &mut self.z_rep {
-            ev.tick(delta);
+            ev.update_time(past_game_time, past_real_time);
         }
         for ev in &mut self.tr_rep {
-            ev.tick(delta);
+            ev.update_time(past_game_time, past_real_time);
         }
+    }
+
+    pub fn frame(&mut self) {
+        for ev in &mut self.x_rep {
+            ev.frame();
+        }
+        for ev in &mut self.y_rep {
+            ev.frame();
+        }
+        for ev in &mut self.z_rep {
+            ev.frame();
+        }
+        for ev in &mut self.tr_rep {
+            ev.frame();
+        }
+    }
+
+    pub fn tick(&mut self, delta: i32) {
+        self.update_time(delta, delta);
+        self.frame();
     }
 
     pub fn any_active(&self) -> bool {
@@ -3059,8 +3173,18 @@ impl ObjectState {
 
     pub fn tick(&mut self, past_game_time: i32, past_real_time: i32) {
         let delta = past_game_time.max(0);
-        self.runtime.prop_events.tick(delta);
-        self.runtime.prop_event_lists.tick(delta);
+        self.runtime
+            .prop_events
+            .update_time(past_game_time, past_real_time);
+        self.runtime.prop_events.frame();
+        self.runtime
+            .prop_event_lists
+            .update_time(past_game_time, past_real_time);
+        self.runtime.prop_event_lists.frame();
+        self.frame_action.counter.update_time(past_game_time, past_real_time);
+        for fa in &mut self.frame_action_ch {
+            fa.counter.update_time(past_game_time, past_real_time);
+        }
         for child in &mut self.runtime.child_objects {
             child.tick(past_game_time, past_real_time);
         }
@@ -3941,6 +4065,25 @@ impl GlobalState {
         }
         if self.change_display_mode_proc_cnt > 0 {
             self.change_display_mode_proc_cnt -= 1;
+        }
+
+        if !self.script.counter_time_stop_flag {
+            for counters in self.counter_lists.values_mut() {
+                for counter in counters {
+                    counter.update_time(past_game_time, past_real_time);
+                }
+            }
+        }
+
+        if !self.script.frame_action_time_stop_flag {
+            for fa in self.frame_actions.values_mut() {
+                fa.counter.update_time(past_game_time, past_real_time);
+            }
+            for list in self.frame_action_lists.values_mut() {
+                for fa in list {
+                    fa.counter.update_time(past_game_time, past_real_time);
+                }
+            }
         }
 
         for ml in self.mask_lists.values_mut() {

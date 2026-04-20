@@ -4,13 +4,13 @@ use crate::runtime::{CommandContext, Value};
 
 use super::codes::se_op;
 
-fn store_or_push_se_prop(ctx: &mut CommandContext, op: i64, args: &[Value]) {
+fn store_or_push_se_prop(ctx: &mut CommandContext, op: i32, args: &[Value]) {
     let form_key = if ctx.ids.form_global_se != 0 {
         ctx.ids.form_global_se
     } else {
         super::codes::FORM_GLOBAL_SE
     };
-    let prop = op as i32;
+    let prop = op;
     if let Some(v) = args.get(0).cloned() {
         match v {
             Value::Str(s) => {
@@ -81,7 +81,7 @@ fn resolve_numeric_candidates(n: i64) -> Vec<String> {
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let ret_form: Option<i64> = crate::runtime::forms::prop_access::current_vm_meta(ctx).1;
     let Some(op) =
-        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args).map(i64::from)
+        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
     else {
         bail!("SE form expects an element opcode");
     };

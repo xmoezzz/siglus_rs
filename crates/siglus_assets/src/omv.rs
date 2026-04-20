@@ -11,10 +11,15 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
+pub const OMV_THEORA_TYPE_RGB: u32 = 0;
+pub const OMV_THEORA_TYPE_RGBA: u32 = 1;
+pub const OMV_THEORA_TYPE_YUV: u32 = 2;
+
 #[derive(Debug, Clone)]
 pub struct OmvHeader {
     pub header_size: u32,
     pub version: u32,
+    pub theora_type: u32,
     pub display_width: u32,
     pub display_height: u32,
     pub frame_time_us: u32,
@@ -75,6 +80,7 @@ fn read_header(buf: &[u8]) -> Result<OmvHeader> {
 
     let header_size = u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]);
     let version = u32::from_le_bytes([buf[4], buf[5], buf[6], buf[7]]);
+    let theora_type = u32::from_le_bytes([buf[0x28], buf[0x29], buf[0x2a], buf[0x2b]]);
     let display_width = u32::from_le_bytes([buf[0x2c], buf[0x2d], buf[0x2e], buf[0x2f]]);
     let display_height = u32::from_le_bytes([buf[0x30], buf[0x31], buf[0x32], buf[0x33]]);
     let frame_time_us = u32::from_le_bytes([buf[0x3c], buf[0x3d], buf[0x3e], buf[0x3f]]);
@@ -84,6 +90,9 @@ fn read_header(buf: &[u8]) -> Result<OmvHeader> {
 
     if header_size < 0x58 {
         bail!("invalid OMV header size: {header_size:#x}");
+    }
+    if theora_type > OMV_THEORA_TYPE_YUV {
+        bail!("invalid OMV theora type: {theora_type}");
     }
     if display_width == 0 || display_height == 0 {
         bail!(
@@ -96,6 +105,7 @@ fn read_header(buf: &[u8]) -> Result<OmvHeader> {
     Ok(OmvHeader {
         header_size,
         version,
+        theora_type,
         display_width,
         display_height,
         frame_time_us,

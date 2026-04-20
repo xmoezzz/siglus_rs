@@ -12,6 +12,40 @@ pub struct CIndex {
     pub size: i32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackIncProp {
+    pub form: i32,
+    pub size: i32,
+}
+
+impl PackIncProp {
+    pub fn read(buf: &[u8], off: usize) -> Result<Self> {
+        if off + 8 > buf.len() {
+            bail!("scene_pck: PackIncProp out of bounds");
+        }
+        let form = i32::from_le_bytes(buf[off..off + 4].try_into().unwrap());
+        let size = i32::from_le_bytes(buf[off + 4..off + 8].try_into().unwrap());
+        Ok(Self { form, size })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PackIncCmd {
+    pub scn_no: i32,
+    pub offset: i32,
+}
+
+impl PackIncCmd {
+    pub fn read(buf: &[u8], off: usize) -> Result<Self> {
+        if off + 8 > buf.len() {
+            bail!("scene_pck: PackIncCmd out of bounds");
+        }
+        let scn_no = i32::from_le_bytes(buf[off..off + 4].try_into().unwrap());
+        let offset = i32::from_le_bytes(buf[off + 4..off + 8].try_into().unwrap());
+        Ok(Self { scn_no, offset })
+    }
+}
+
 impl CIndex {
     pub fn read(buf: &[u8], off: usize) -> Result<Self> {
         if off + 8 > buf.len() {
@@ -146,6 +180,50 @@ pub struct ScenePck {
     pub scn_name_map: HashMap<String, usize>,
     pub inc_prop_name_map: HashMap<u32, String>,
     pub inc_cmd_name_map: HashMap<u32, String>,
+    pub inc_props: Vec<PackIncProp>,
+    pub inc_cmds: Vec<PackIncCmd>,
+}
+
+fn read_pack_inc_props(buf: &[u8], list_ofs: usize, count: usize) -> Result<Vec<PackIncProp>> {
+    let mut out = Vec::new();
+    if count == 0 {
+        return Ok(out);
+    }
+    let byte_len = count
+        .checked_mul(8)
+        .ok_or_else(|| anyhow!("scene_pck: inc_prop_list size overflow"))?;
+    let end = list_ofs
+        .checked_add(byte_len)
+        .ok_or_else(|| anyhow!("scene_pck: inc_prop_list offset overflow"))?;
+    if end > buf.len() {
+        bail!("scene_pck: inc_prop_list out of bounds");
+    }
+    out.reserve(count);
+    for i in 0..count {
+        out.push(PackIncProp::read(buf, list_ofs + i * 8)?);
+    }
+    Ok(out)
+}
+
+fn read_pack_inc_cmds(buf: &[u8], list_ofs: usize, count: usize) -> Result<Vec<PackIncCmd>> {
+    let mut out = Vec::new();
+    if count == 0 {
+        return Ok(out);
+    }
+    let byte_len = count
+        .checked_mul(8)
+        .ok_or_else(|| anyhow!("scene_pck: inc_cmd_list size overflow"))?;
+    let end = list_ofs
+        .checked_add(byte_len)
+        .ok_or_else(|| anyhow!("scene_pck: inc_cmd_list offset overflow"))?;
+    if end > buf.len() {
+        bail!("scene_pck: inc_cmd_list out of bounds");
+    }
+    out.reserve(count);
+    for i in 0..count {
+        out.push(PackIncCmd::read(buf, list_ofs + i * 8)?);
+    }
+    Ok(out)
 }
 
 fn read_indexed_utf16_name_map(
@@ -364,6 +442,16 @@ impl ScenePck {
             header.inc_cmd_name_cnt.max(0) as usize,
             header.inc_cmd_name_list_ofs.max(0) as usize,
         )?;
+        let inc_props = read_pack_inc_props(
+            &out,
+            header.inc_prop_list_ofs.max(0) as usize,
+            header.inc_prop_cnt.max(0) as usize,
+        )?;
+        let inc_cmds = read_pack_inc_cmds(
+            &out,
+            header.inc_cmd_list_ofs.max(0) as usize,
+            header.inc_cmd_cnt.max(0) as usize,
+        )?;
 
         Ok(Self {
             buf: out,
@@ -371,6 +459,8 @@ impl ScenePck {
             scn_name_map,
             inc_prop_name_map,
             inc_cmd_name_map,
+            inc_props,
+            inc_cmds,
         })
     }
 
@@ -402,6 +492,22 @@ impl ScenePck {
             return Some(i);
         }
         self.scn_name_map.get(name_or_index).copied()
+    }
+
+    pub fn find_scene_name(&self, scn_no: usize) -> Option<&str> {
+        self.scn_name_map
+            .iter()
+            .find_map(|(name, no)| if *no == scn_no { Some(name.as_str()) } else { None })
+    }
+
+    pub fn find_inc_cmd_no(&self, cmd_name: &str) -> Option<usize> {
+        self.inc_cmd_name_map.iter().find_map(|(no, name)| {
+            if name.eq_ignore_ascii_case(cmd_name) {
+                Some(*no as usize)
+            } else {
+                None
+            }
+        })
     }
 }
 

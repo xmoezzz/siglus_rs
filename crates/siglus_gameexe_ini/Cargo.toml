@@ -1,0 +1,9 @@
+[package]
+name = "siglus_gameexe_ini"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+siglus_assets = { path = "../siglus_assets" }

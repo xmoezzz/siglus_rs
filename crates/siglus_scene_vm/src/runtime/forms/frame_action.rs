@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use crate::runtime::forms::prop_access;
-use crate::runtime::globals::ObjectFrameActionState;
+use crate::runtime::globals::{ObjectFrameActionState, PendingFrameActionFinish};
 use crate::runtime::{CommandContext, Value};
 
 fn as_i64(v: &Value) -> Option<i64> {
@@ -21,12 +21,26 @@ fn push_ok(ctx: &mut CommandContext, ret_form: Option<i64>) {
     ctx.push(v);
 }
 
+fn queue_finish(ctx: &mut CommandContext, fa: &ObjectFrameActionState, frame_action_chain: Vec<i32>) {
+    if fa.cmd_name.is_empty() {
+        return;
+    }
+    ctx.globals.pending_frame_action_finishes.push(PendingFrameActionFinish {
+        frame_action_chain,
+        object_chain: None,
+        scn_name: fa.scn_name.clone(),
+        cmd_name: fa.cmd_name.clone(),
+        end_time: fa.end_time,
+        args: fa.args.clone(),
+    });
+}
+
 fn apply_set_from_parts(
     fa: &mut ObjectFrameActionState,
     scene_name: &str,
     end_time: i64,
     cmd_name: String,
-    args: Vec<i64>,
+    args: Vec<Value>,
     real_time_flag: bool,
 ) {
     fa.end_time = end_time;
@@ -44,9 +58,10 @@ fn apply_set_from_parts(
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    let Some((chain_pos, chain)) = prop_access::parse_current_element_chain(ctx, args) else {
+    let Some((chain_pos, chain_ref)) = prop_access::parse_current_element_chain(ctx, args) else {
         return Ok(false);
     };
+    let chain: Vec<i32> = chain_ref.to_vec();
     let tail: Vec<i32> = chain[1..].to_vec();
     let script_args: Vec<Value> = prop_access::script_args(args, chain_pos).to_vec();
     let scene_name = ctx.current_scene_name.clone().unwrap_or_default();
@@ -98,25 +113,21 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let fa_args = script_args.iter().skip(2).filter_map(as_i64).collect();
-            apply_set_from_parts(
-                ctx.globals.frame_actions.entry(form_id).or_default(),
-                &scene_name,
-                end_time,
-                cmd_name,
-                fa_args,
-                false,
-            );
+            let fa_args = script_args.iter().skip(2).cloned().collect();
+            {
+                let fa_snapshot = ctx.globals.frame_actions.entry(form_id).or_default().clone();
+                queue_finish(ctx, &fa_snapshot, chain.clone());
+                let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                apply_set_from_parts(fa, &scene_name, end_time, cmd_name, fa_args, false);
+            }
             push_ok(ctx, ret_form);
             Ok(true)
         }
         crate::runtime::constants::elm_value::FRAMEACTION_END => {
+            let fa_snapshot = ctx.globals.frame_actions.entry(form_id).or_default().clone();
+            queue_finish(ctx, &fa_snapshot, chain.clone());
             let fa = ctx.globals.frame_actions.entry(form_id).or_default();
-            fa.end_flag = true;
-            fa.counter.reset();
-            fa.cmd_name.clear();
-            fa.scn_name.clear();
-            fa.args.clear();
+            *fa = ObjectFrameActionState::default();
             push_ok(ctx, ret_form);
             Ok(true)
         }
@@ -127,15 +138,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .and_then(|v| v.as_str())
                 .unwrap_or("")
                 .to_string();
-            let fa_args = script_args.iter().skip(2).filter_map(as_i64).collect();
-            apply_set_from_parts(
-                ctx.globals.frame_actions.entry(form_id).or_default(),
-                &scene_name,
-                end_time,
-                cmd_name,
-                fa_args,
-                true,
-            );
+            let fa_args = script_args.iter().skip(2).cloned().collect();
+            {
+                let fa_snapshot = ctx.globals.frame_actions.entry(form_id).or_default().clone();
+                queue_finish(ctx, &fa_snapshot, chain.clone());
+                let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                apply_set_from_parts(fa, &scene_name, end_time, cmd_name, fa_args, true);
+            }
             push_ok(ctx, ret_form);
             Ok(true)
         }

@@ -95,7 +95,6 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         return Ok(false);
     }
     let idx = chain[2].max(0) as usize;
-    let current_frame = ctx.globals.render_frame as i64;
     let params = crate::runtime::forms::prop_access::script_args(args, chain_pos);
 
     {
@@ -127,7 +126,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .counter_lists
                 .get(&form_id)
                 .and_then(|v| v.get(idx))
-                .map(|c| c.get_count_with_frame(current_frame))
+                .map(|c| c.get_count())
                 .unwrap_or(0);
             ctx.push(Value::Int(value));
         }
@@ -152,7 +151,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .counter_lists
                 .get(&form_id)
                 .and_then(|v| v.get(idx))
-                .map(|c| c.get_count_with_frame(current_frame))
+                .map(|c| c.get_count())
                 .unwrap_or(0);
             ctx.push(Value::Int(value));
         }
@@ -196,12 +195,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .get_mut(&form_id)
                 .and_then(|v| v.get_mut(idx))
             {
-                counter.start_frame(
-                    arg_int(params, 0),
-                    arg_int(params, 1),
-                    arg_int(params, 2),
-                    current_frame,
-                );
+                counter.start_frame(arg_int(params, 0), arg_int(params, 1), arg_int(params, 2));
             }
             ctx.push(Value::Int(0));
         }
@@ -212,12 +206,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .get_mut(&form_id)
                 .and_then(|v| v.get_mut(idx))
             {
-                counter.start_frame_real(
-                    arg_int(params, 0),
-                    arg_int(params, 1),
-                    arg_int(params, 2),
-                    current_frame,
-                );
+                counter.start_frame_real(arg_int(params, 0), arg_int(params, 1), arg_int(params, 2));
             }
             ctx.push(Value::Int(0));
         }
@@ -228,12 +217,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .get_mut(&form_id)
                 .and_then(|v| v.get_mut(idx))
             {
-                counter.start_frame_loop(
-                    arg_int(params, 0),
-                    arg_int(params, 1),
-                    arg_int(params, 2),
-                    current_frame,
-                );
+                counter.start_frame_loop(arg_int(params, 0), arg_int(params, 1), arg_int(params, 2));
             }
             ctx.push(Value::Int(0));
         }
@@ -244,12 +228,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .get_mut(&form_id)
                 .and_then(|v| v.get_mut(idx))
             {
-                counter.start_frame_loop_real(
-                    arg_int(params, 0),
-                    arg_int(params, 1),
-                    arg_int(params, 2),
-                    current_frame,
-                );
+                counter.start_frame_loop_real(arg_int(params, 0), arg_int(params, 1), arg_int(params, 2));
             }
             ctx.push(Value::Int(0));
         }
@@ -289,7 +268,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .counter_lists
                 .get(&form_id)
                 .and_then(|v| v.get(idx))
-                .map(|c| c.get_count_with_frame(current_frame))
+                .map(|c| c.get_count())
                 .unwrap_or(arg_int(params, 0));
             let ok = cur - arg_int(params, 0) >= 0;
             ctx.push(Value::Int(if ok { 1 } else { 0 }));

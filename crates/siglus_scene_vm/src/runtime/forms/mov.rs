@@ -4,13 +4,13 @@ use crate::runtime::{CommandContext, Value};
 
 use super::codes::mov_op;
 
-fn store_or_push_mov_prop(ctx: &mut CommandContext, op: i64, args: &[Value]) {
+fn store_or_push_mov_prop(ctx: &mut CommandContext, op: i32, args: &[Value]) {
     let form_key = if ctx.ids.form_global_mov != 0 {
         ctx.ids.form_global_mov
     } else {
         super::codes::FORM_GLOBAL_MOV
     };
-    let prop = op as i32;
+    let prop = op;
     if let Some(v) = args.get(0).cloned() {
         match v {
             Value::Str(s) => {
@@ -61,7 +61,7 @@ fn arg_int(args: &[Value], idx: usize) -> Option<i64> {
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let Some(op) =
-        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args).map(i64::from)
+        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
     else {
         bail!("MOV form expects an element opcode");
     };

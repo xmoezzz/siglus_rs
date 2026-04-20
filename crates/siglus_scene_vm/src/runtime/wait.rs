@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use crate::audio::{BgmEngine, PcmEngine, SeEngine};
 
 use super::constants::RuntimeConstants;
-use super::globals::GlobalState;
+use super::globals::{GlobalState, ObjectState};
 use super::Value;
 
 #[derive(Debug, Clone, Copy)]
@@ -28,18 +28,18 @@ pub enum EventWait {
     ObjectAll {
         stage_form_id: u32,
         stage_idx: i64,
-        obj_idx: usize,
+        runtime_slot: usize,
     },
     ObjectOne {
         stage_form_id: u32,
         stage_idx: i64,
-        obj_idx: usize,
+        runtime_slot: usize,
         op: i32,
     },
     ObjectList {
         stage_form_id: u32,
         stage_idx: i64,
-        obj_idx: usize,
+        runtime_slot: usize,
         list_op: i32,
         list_idx: usize,
     },
@@ -58,8 +58,37 @@ pub enum EventWait {
 pub struct MovieWait {
     pub stage_form_id: u32,
     pub stage_idx: i64,
-    pub obj_idx: usize,
+    pub runtime_slot: usize,
     pub return_value_flag: bool,
+}
+
+fn object_runtime_slot(idx: usize, obj: &ObjectState) -> usize {
+    obj.runtime_slot_or(idx)
+}
+
+fn find_object_by_runtime_slot<'a>(objects: &'a [ObjectState], runtime_slot: usize) -> Option<&'a ObjectState> {
+    for (idx, obj) in objects.iter().enumerate() {
+        if object_runtime_slot(idx, obj) == runtime_slot {
+            return Some(obj);
+        }
+        if let Some(found) = find_object_by_runtime_slot(&obj.runtime.child_objects, runtime_slot) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn object_active_by_runtime_slot(
+    globals: &GlobalState,
+    stage_form_id: u32,
+    stage_idx: i64,
+    runtime_slot: usize,
+) -> Option<&ObjectState> {
+    globals
+        .stage_forms
+        .get(&stage_form_id)
+        .and_then(|st| st.object_lists.get(&stage_idx))
+        .and_then(|list| find_object_by_runtime_slot(list, runtime_slot))
 }
 
 #[derive(Debug, Default, Clone)]
@@ -151,66 +180,40 @@ impl VmWait {
                 EventWait::ObjectAll {
                     stage_form_id,
                     stage_idx,
-                    obj_idx,
-                } => match globals.stage_forms.get(stage_form_id) {
-                    None => true,
-                    Some(st) => match st.object_lists.get(stage_idx) {
-                        None => true,
-                        Some(list) => {
-                            if *obj_idx >= list.len() {
-                                true
-                            } else {
-                                !list[*obj_idx].any_event_active()
-                            }
-                        }
-                    },
-                },
+                    runtime_slot,
+                } => object_active_by_runtime_slot(globals, *stage_form_id, *stage_idx, *runtime_slot)
+                    .map(|obj| !obj.used || !obj.any_event_active())
+                    .unwrap_or(true),
                 EventWait::ObjectOne {
                     stage_form_id,
                     stage_idx,
-                    obj_idx,
+                    runtime_slot,
                     op,
-                } => match globals.stage_forms.get(stage_form_id) {
-                    None => true,
-                    Some(st) => match st.object_lists.get(stage_idx) {
-                        None => true,
-                        Some(list) => {
-                            if *obj_idx >= list.len() {
-                                true
-                            } else {
-                                let obj = &list[*obj_idx];
-                                !obj.int_event_by_op(ids, *op)
-                                    .map(|e| e.check_event())
-                                    .unwrap_or(false)
-                            }
-                        }
-                    },
-                },
+                } => object_active_by_runtime_slot(globals, *stage_form_id, *stage_idx, *runtime_slot)
+                    .map(|obj| {
+                        !obj.used
+                            || !obj
+                                .int_event_by_op(ids, *op)
+                                .map(|e| e.check_event())
+                                .unwrap_or(false)
+                    })
+                    .unwrap_or(true),
                 EventWait::ObjectList {
                     stage_form_id,
                     stage_idx,
-                    obj_idx,
+                    runtime_slot,
                     list_op,
                     list_idx,
-                } => match globals.stage_forms.get(stage_form_id) {
-                    None => true,
-                    Some(st) => match st.object_lists.get(stage_idx) {
-                        None => true,
-                        Some(list) => {
-                            if *obj_idx >= list.len() {
-                                true
-                            } else {
-                                let obj = &list[*obj_idx];
-                                let active = obj
-                                    .int_event_list_by_op(ids, *list_op)
-                                    .and_then(|v| v.get(*list_idx))
-                                    .map(|e| e.check_event())
-                                    .unwrap_or(false);
-                                !active
-                            }
-                        }
-                    },
-                },
+                } => object_active_by_runtime_slot(globals, *stage_form_id, *stage_idx, *runtime_slot)
+                    .map(|obj| {
+                        let active = obj
+                            .int_event_list_by_op(ids, *list_op)
+                            .and_then(|v| v.get(*list_idx))
+                            .map(|e| e.check_event())
+                            .unwrap_or(false);
+                        !obj.used || !active
+                    })
+                    .unwrap_or(true),
                 EventWait::GenericIntEvent { form_id, index } => match index {
                     Some(i) => globals
                         .int_event_lists
@@ -232,7 +235,7 @@ impl VmWait {
                     .counter_lists
                     .get(form_id)
                     .and_then(|v| v.get(*index))
-                    .map(|c| c.get_count_with_frame(globals.render_frame as i64) - *target >= 0)
+                    .map(|c| c.get_count() - *target >= 0)
                     .unwrap_or(true),
             };
             if done {
@@ -243,19 +246,14 @@ impl VmWait {
 
         // Auto-clear movie waits when playback ends.
         if let Some(w) = self.movie {
-            let done = match globals.stage_forms.get(&w.stage_form_id) {
-                None => true,
-                Some(st) => match st.object_lists.get(&w.stage_idx) {
-                    None => true,
-                    Some(list) => {
-                        if w.obj_idx >= list.len() {
-                            true
-                        } else {
-                            !list[w.obj_idx].movie.check_movie()
-                        }
-                    }
-                },
-            };
+            let done = object_active_by_runtime_slot(
+                globals,
+                w.stage_form_id,
+                w.stage_idx,
+                w.runtime_slot,
+            )
+            .map(|obj| !obj.used || !obj.movie.check_movie())
+            .unwrap_or(true);
 
             if done {
                 if w.return_value_flag {
@@ -325,13 +323,13 @@ impl VmWait {
         &mut self,
         stage_form_id: u32,
         stage_idx: i64,
-        obj_idx: usize,
+        runtime_slot: usize,
         key_skip: bool,
     ) {
         self.event = Some(EventWait::ObjectAll {
             stage_form_id,
             stage_idx,
-            obj_idx,
+            runtime_slot,
         });
         self.event_key_skip = key_skip;
         if key_skip {
@@ -343,14 +341,14 @@ impl VmWait {
         &mut self,
         stage_form_id: u32,
         stage_idx: i64,
-        obj_idx: usize,
+        runtime_slot: usize,
         op: i32,
         key_skip: bool,
     ) {
         self.event = Some(EventWait::ObjectOne {
             stage_form_id,
             stage_idx,
-            obj_idx,
+            runtime_slot,
             op,
         });
         self.event_key_skip = key_skip;
@@ -363,7 +361,7 @@ impl VmWait {
         &mut self,
         stage_form_id: u32,
         stage_idx: i64,
-        obj_idx: usize,
+        runtime_slot: usize,
         list_op: i32,
         list_idx: usize,
         key_skip: bool,
@@ -371,7 +369,7 @@ impl VmWait {
         self.event = Some(EventWait::ObjectList {
             stage_form_id,
             stage_idx,
-            obj_idx,
+            runtime_slot,
             list_op,
             list_idx,
         });
@@ -385,14 +383,14 @@ impl VmWait {
         &mut self,
         stage_form_id: u32,
         stage_idx: i64,
-        obj_idx: usize,
+        runtime_slot: usize,
         key_skip: bool,
         return_value_flag: bool,
     ) {
         self.movie = Some(MovieWait {
             stage_form_id,
             stage_idx,
-            obj_idx,
+            runtime_slot,
             return_value_flag,
         });
         self.movie_key_skip = key_skip;

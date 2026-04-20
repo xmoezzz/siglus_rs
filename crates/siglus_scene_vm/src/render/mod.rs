@@ -522,6 +522,9 @@ pub struct Renderer {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
+    logical_width: f32,
+    logical_height: f32,
+    scale_factor: f32,
 
     pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
     bind_group_layout: wgpu::BindGroupLayout,
@@ -996,7 +999,7 @@ fn project_shadow_point(sprite: &crate::layer::Sprite, world: [f32; 3]) -> Optio
         return None;
     }
     let depth = (cz / sprite.light_atten[3].max(1.0)).clamp(0.0, 1.0);
-    Some([x_ndc, y_ndc, depth * 2.0 - 1.0, 1.0])
+    Some([x_ndc, y_ndc, depth, 1.0])
 }
 
 fn sprite_model_cols(
@@ -1569,13 +1572,29 @@ impl Renderer {
             .unwrap_or(surface_caps.formats[0]);
 
         let size = window.inner_size();
+        let scale_factor = window.scale_factor() as f32;
+        let logical_size = size.to_logical::<f32>(window.scale_factor());
+        let logical_width = logical_size.width.max(1.0);
+        let logical_height = logical_size.height.max(1.0);
+        let alpha_mode = surface_caps
+            .alpha_modes
+            .iter()
+            .copied()
+            .find(|m| *m == wgpu::CompositeAlphaMode::Opaque)
+            .unwrap_or(surface_caps.alpha_modes[0]);
+        let present_mode = surface_caps
+            .present_modes
+            .iter()
+            .copied()
+            .find(|m| *m == wgpu::PresentMode::Fifo)
+            .unwrap_or(surface_caps.present_modes[0]);
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: surface_caps.present_modes[0],
-            alpha_mode: surface_caps.alpha_modes[0],
+            present_mode,
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -1779,6 +1798,9 @@ impl Renderer {
             device,
             queue,
             config,
+            logical_width,
+            logical_height,
+            scale_factor: scale_factor.max(1.0),
             pipelines: HashMap::new(),
             bind_group_layout,
             shader,
@@ -1800,9 +1822,21 @@ impl Renderer {
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
+        self.resize_with_scale(width, height, self.scale_factor);
+    }
+
+    pub fn resize_with_scale(&mut self, width: u32, height: u32, scale_factor: f32) {
         if width == 0 || height == 0 {
             return;
         }
+        let sf = if scale_factor.is_finite() && scale_factor > 0.0 {
+            scale_factor
+        } else {
+            1.0
+        };
+        self.scale_factor = sf;
+        self.logical_width = ((width as f32) / sf).max(1.0);
+        self.logical_height = ((height as f32) / sf).max(1.0);
         self.config.width = width;
         self.config.height = height;
         self.surface.configure(&self.device, &self.config);
@@ -1839,8 +1873,11 @@ impl Renderer {
         self.verts.clear();
         self.draws.clear();
 
-        let win_w = self.config.width as f32;
-        let win_h = self.config.height as f32;
+        let win_w = self.logical_width.max(1.0);
+        let win_h = self.logical_height.max(1.0);
+        let surface_w = self.config.width;
+        let surface_h = self.config.height;
+        let surface_scale = self.scale_factor.max(1.0);
 
         for s in sprites {
             let sprite = &s.sprite;
@@ -1865,7 +1902,7 @@ impl Renderer {
                 }
             };
 
-            let scissor = dst_scissor_rect(sprite.dst_clip, self.config.width, self.config.height);
+            let scissor = dst_scissor_rect_scaled(sprite.dst_clip, surface_w, surface_h, surface_scale);
             if let Some(sci) = scissor {
                 if sci.w == 0 || sci.h == 0 {
                     continue;
@@ -2019,13 +2056,19 @@ impl Renderer {
             } else {
                 MeshDrawKind::SpriteQuad
             };
+            let requires_alpha_composition = sprite.alpha < 255
+                || sprite.tr < 255
+                || has_mask
+                || has_tonecurve
+                || has_wipe_src
+                || sprite.wipe_fx_mode != 0;
             let pipeline_key = PipelineKey {
                 technique,
                 blend: sprite.blend,
                 alpha_blend: if matches!(technique.special, TechniqueSpecial::Overlay) {
                     false
                 } else {
-                    sprite.alpha_blend
+                    sprite.alpha_blend || requires_alpha_composition
                 },
                 use_depth,
                 cull_back: pipeline_cull_back(sprite, false),
@@ -2076,7 +2119,7 @@ impl Renderer {
                         {
                             false
                         } else {
-                            sprite.alpha_blend
+                            sprite.alpha_blend || requires_alpha_composition
                         },
                         use_depth,
                         cull_back: pipeline_cull_back(sprite, batch.material.cull_disable),
@@ -2852,13 +2895,13 @@ impl Renderer {
             Some(match key.blend {
                 SpriteBlend::Normal => wgpu::BlendState {
                     color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::One,
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
                         dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
                         operation: wgpu::BlendOperation::Add,
                     },
                     alpha: wgpu::BlendComponent {
                         src_factor: wgpu::BlendFactor::One,
-                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        dst_factor: wgpu::BlendFactor::One,
                         operation: wgpu::BlendOperation::Add,
                     },
                 },
@@ -2880,16 +2923,16 @@ impl Renderer {
                 },
                 SpriteBlend::Mul => wgpu::BlendState {
                     color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::Dst,
-                        dst_factor: wgpu::BlendFactor::Zero,
+                        src_factor: wgpu::BlendFactor::Zero,
+                        dst_factor: wgpu::BlendFactor::Src,
                         operation: wgpu::BlendOperation::Add,
                     },
                     alpha: wgpu::BlendComponent::OVER,
                 },
                 SpriteBlend::Screen => wgpu::BlendState {
                     color: wgpu::BlendComponent {
-                        src_factor: wgpu::BlendFactor::OneMinusDst,
-                        dst_factor: wgpu::BlendFactor::One,
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrc,
                         operation: wgpu::BlendOperation::Add,
                     },
                     alpha: wgpu::BlendComponent::OVER,
@@ -3778,7 +3821,11 @@ fn append_fullscreen_blit_vertices(verts: &mut Vec<Vertex>) -> std::ops::Range<u
 fn pixel_to_ndc(x: f32, y: f32, depth: f32, win_w: f32, win_h: f32) -> (f32, f32, f32) {
     let nx = (x / win_w) * 2.0 - 1.0;
     let ny = 1.0 - (y / win_h) * 2.0;
-    let nz = depth * 2.0 - 1.0;
+    // WGPU follows the Direct3D/Vulkan clip-space convention: z is 0..1.
+    // The previous OpenGL-style mapping (depth * 2 - 1) put all 2D quads at z=-1,
+    // which is outside WGPU clip space and makes the game window render black even
+    // though the VM submits sprites correctly.
+    let nz = depth.clamp(0.0, 1.0);
     (nx, ny, nz)
 }
 
@@ -3822,14 +3869,24 @@ fn src_clip_rect(clip: Option<ClipRect>, img_w: u32, img_h: u32) -> Result<(f32,
     }
 }
 
-fn dst_scissor_rect(clip: Option<ClipRect>, win_w: u32, win_h: u32) -> Option<ScissorRect> {
+fn dst_scissor_rect_scaled(
+    clip: Option<ClipRect>,
+    surface_w: u32,
+    surface_h: u32,
+    scale_factor: f32,
+) -> Option<ScissorRect> {
     let c = clip?;
-    let mut left = c.left.max(0) as i64;
-    let mut top = c.top.max(0) as i64;
-    let mut right = c.right.max(0) as i64;
-    let mut bottom = c.bottom.max(0) as i64;
-    let max_w = win_w as i64;
-    let max_h = win_h as i64;
+    let sf = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    let mut left = ((c.left.max(0) as f32) * sf).floor() as i64;
+    let mut top = ((c.top.max(0) as f32) * sf).floor() as i64;
+    let mut right = ((c.right.max(0) as f32) * sf).ceil() as i64;
+    let mut bottom = ((c.bottom.max(0) as f32) * sf).ceil() as i64;
+    let max_w = surface_w as i64;
+    let max_h = surface_h as i64;
     left = left.min(max_w);
     right = right.min(max_w);
     top = top.min(max_h);
@@ -4103,12 +4160,12 @@ fn project_main(world: vec3<f32>) -> vec4<f32> {
     }
     let x_ndc = cx / (cz * max(vs_u.camera_params.x, 1e-3));
     let y_ndc = cy / (cz * max(vs_u.camera_params.y, 1e-3));
-    let z_ndc = clamp((cz - 1.0) / 10000.0 - 1.0, -1.0, 1.0);
+    let z_ndc = clamp((cz - 1.0) / 10000.0, 0.0, 1.0);
     return vec4<f32>(x_ndc, y_ndc, z_ndc, 1.0);
   }
   let x_ndc = (world.x / max(vs_u.camera_params.z, 1.0)) * 2.0 - 1.0;
   let y_ndc = 1.0 - (world.y / max(vs_u.camera_params.w, 1.0)) * 2.0;
-  let z_ndc = clamp(-world.z / 50000.0, -1.0, 1.0);
+  let z_ndc = clamp(-world.z / 50000.0, 0.0, 1.0);
   return vec4<f32>(x_ndc, y_ndc, z_ndc, 1.0);
 }
 
@@ -4126,7 +4183,7 @@ fn project_shadow(world: vec3<f32>) -> vec4<f32> {
   let x_ndc = cx / (cz * max(vs_u.shadow_params.x, 1e-3));
   let y_ndc = cy / (cz * max(vs_u.shadow_params.x, 1e-3));
   let depth = clamp(cz / max(vs_u.shadow_params.y, 1.0), 0.0, 1.0);
-  return vec4<f32>(x_ndc, y_ndc, depth * 2.0 - 1.0, 1.0);
+  return vec4<f32>(x_ndc, y_ndc, depth, 1.0);
 }
 
 fn vs_common(v: VsIn) -> VsOut {
@@ -4183,10 +4240,10 @@ fn vs_shadow_common(v: VsIn) -> ShadowVsOut {
     let world = apply_model(local_world);
     let shadow = project_shadow(world);
     o.pos = vec4<f32>(shadow.xyz, 1.0);
-    o.depth = clamp(shadow.z * 0.5 + 0.5, 0.0, 1.0);
+    o.depth = clamp(shadow.z, 0.0, 1.0);
   } else {
     o.pos = vec4<f32>(v.shadow_pos.xyz, 1.0);
-    o.depth = clamp(v.shadow_pos.z * 0.5 + 0.5, 0.0, 1.0);
+    o.depth = clamp(v.shadow_pos.z, 0.0, 1.0);
   }
   o.uv = v.uv;
   o.alpha_test = v.effects4.y;
@@ -4466,7 +4523,7 @@ fn sample_shadow_visibility(shadow_pos: vec4<f32>) -> f32 {
   }
   let dims_u = textureDimensions(shadow_tex, 0);
   let texel = vec2<f32>(1.0 / max(f32(dims_u.x), 1.0), 1.0 / max(f32(dims_u.y), 1.0));
-  let current = clamp(ndc.z * 0.5 + 0.5, 0.0, 1.0);
+  let current = clamp(ndc.z, 0.0, 1.0);
   let bias = max(vs_u.mesh_misc.y, 0.0005);
   var vis = 0.0;
   for (var oy: i32 = -1; oy <= 1; oy = oy + 1) {
@@ -4720,6 +4777,10 @@ fn fs_common_2d(i: VsOut2d) -> vec4<f32> {
     let mul_rgb = mix(vec3<f32>(1.0, 1.0, 1.0), rgb, a);
     return vec4<f32>(mul_rgb, a);
   }
+  if (blend_code > 3.5 && blend_code < 4.5) {
+    let screen_rgb = mix(vec3<f32>(0.0, 0.0, 0.0), rgb, a);
+    return vec4<f32>(screen_rgb, a);
+  }
   if (blend_code > 4.5 && blend_code < 5.5) {
     let dims_u = textureDimensions(tex3, 0);
     let screen_uv = vec2<f32>(
@@ -4731,7 +4792,7 @@ fn fs_common_2d(i: VsOut2d) -> vec4<f32> {
     let out_rgb = mix(dst.rgb, ov, a);
     return vec4<f32>(out_rgb, 1.0);
   }
-  return vec4<f32>(rgb * a, a);
+  return vec4<f32>(rgb, a);
 }
 
 fn fs_common(i: VsOut) -> vec4<f32> {
@@ -4920,6 +4981,10 @@ fn fs_common(i: VsOut) -> vec4<f32> {
     let mul_rgb = mix(vec3<f32>(1.0, 1.0, 1.0), rgb, a);
     return vec4<f32>(mul_rgb, a);
   }
+  if (blend_code > 3.5 && blend_code < 4.5) {
+    let screen_rgb = mix(vec3<f32>(0.0, 0.0, 0.0), rgb, a);
+    return vec4<f32>(screen_rgb, a);
+  }
   if (blend_code > 4.5 && blend_code < 5.5) {
     let dims_u = textureDimensions(tex3, 0);
     let screen_uv = vec2<f32>(
@@ -4931,7 +4996,7 @@ fn fs_common(i: VsOut) -> vec4<f32> {
     let out_rgb = mix(dst.rgb, ov, a);
     return vec4<f32>(out_rgb, 1.0);
   }
-  return vec4<f32>(rgb * a, a);
+  return vec4<f32>(rgb, a);
 }
 
 fn fs_shadow_common(i: ShadowVsOut) -> vec4<f32> {

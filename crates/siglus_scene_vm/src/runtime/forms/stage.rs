@@ -13,13 +13,14 @@ use crate::runtime::constants;
 use crate::runtime::globals::{
     BtnSelItemState, GroupListOpKind, GroupOpKind, MsgBackState, MwndListOpKind, MwndOpKind,
     MwndSelectionChoice, MwndSelectionState, ObjectBackend, ObjectEventTarget,
-    ObjectFrameActionState, ObjectListOpKind, ObjectOpKind, ObjectState, ObjectWeatherParam,
+    ObjectFrameActionState, PendingFrameActionFinish, ObjectListOpKind, ObjectOpKind, ObjectState, ObjectWeatherParam,
     StageFormState, WorldState, OBJECT_NESTED_SLOT_KEY,
 };
 use crate::runtime::int_event::IntEvent;
 use crate::runtime::Value;
 
 use super::super::CommandContext;
+use super::codes::{int_event_list_op, int_event_op, intlist_op};
 use super::prop_access;
 use super::syscom;
 
@@ -280,6 +281,71 @@ fn dispatch_int_event_like(
         _ => {}
     }
     None
+}
+
+enum IntEventDispatchAction {
+    Done,
+    Wait { key_skip: bool },
+}
+
+fn dispatch_int_event_subop(
+    ev: &mut IntEvent,
+    subop: i32,
+    script_args: &[Value],
+    _al_id: Option<i64>,
+) -> Option<IntEventDispatchAction> {
+    match subop {
+        int_event_op::SET | int_event_op::SET_REAL => {
+            if script_args.len() >= 4 {
+                let value = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
+                let total_time = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
+                let delay_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
+                let speed_type = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
+                let real_flag = if subop == int_event_op::SET_REAL { 1 } else { 0 };
+                ev.set_event(value, total_time, delay_time, speed_type, real_flag);
+            }
+            Some(IntEventDispatchAction::Done)
+        }
+        int_event_op::LOOP | int_event_op::LOOP_REAL => {
+            if script_args.len() >= 5 {
+                let start_value = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
+                let end_value = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
+                let loop_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
+                let delay_time = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
+                let speed_type = script_args.get(4).and_then(as_i64).unwrap_or(0) as i32;
+                let real_flag = if subop == int_event_op::LOOP_REAL { 1 } else { 0 };
+                ev.loop_event(start_value, end_value, loop_time, delay_time, speed_type, real_flag);
+            }
+            Some(IntEventDispatchAction::Done)
+        }
+        int_event_op::TURN | int_event_op::TURN_REAL => {
+            if script_args.len() >= 5 {
+                let start_value = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
+                let end_value = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
+                let loop_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
+                let delay_time = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
+                let speed_type = script_args.get(4).and_then(as_i64).unwrap_or(0) as i32;
+                let real_flag = if subop == int_event_op::TURN_REAL { 1 } else { 0 };
+                ev.turn_event(start_value, end_value, loop_time, delay_time, speed_type, real_flag);
+            }
+            Some(IntEventDispatchAction::Done)
+        }
+        int_event_op::END => {
+            ev.end_event();
+            Some(IntEventDispatchAction::Done)
+        }
+        int_event_op::WAIT => Some(IntEventDispatchAction::Wait { key_skip: false }),
+        int_event_op::WAIT_KEY => Some(IntEventDispatchAction::Wait { key_skip: true }),
+        int_event_op::CHECK => Some(IntEventDispatchAction::Done),
+        int_event_op::GET_EVENT_VALUE => Some(IntEventDispatchAction::Done),
+        int_event_op::__SET => {
+            if let Some(v) = script_args.first().and_then(as_i64) {
+                ev.set_value(v as i32);
+            }
+            Some(IntEventDispatchAction::Done)
+        }
+        _ => None,
+    }
 }
 
 fn try_set_ui_bg_from_name(ctx: &mut CommandContext, name: &str) {
@@ -769,6 +835,18 @@ fn split_pos_named<'a>(args: &'a [Value]) -> (Vec<&'a Value>, Vec<(i32, &'a Valu
     (pos, named)
 }
 
+fn overload_at_least(al_id: Option<i64>, positional_len: usize, level: i64, required_args: usize) -> bool {
+    al_id.unwrap_or(-1) >= level || positional_len >= required_args
+}
+
+fn positional_i64(pos: &[&Value], index: usize, default: i64) -> i64 {
+    pos.get(index).and_then(|v| v.as_i64()).unwrap_or(default)
+}
+
+fn script_i64(args: &[Value], index: usize, default: i64) -> i64 {
+    args.get(index).and_then(as_i64).unwrap_or(default)
+}
+
 fn resolve_movie_path(project_dir: &Path, append_dir: &str, file_name: &str) -> Option<PathBuf> {
     crate::resource::find_mov_path_with_append_dir(project_dir, append_dir, file_name)
         .ok()
@@ -797,10 +875,14 @@ fn resolve_filter_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
 }
 
 fn movie_total_time_ms(ctx: &mut CommandContext, file: &str) -> Option<u64> {
+    // Original Siglus creates/restructures the movie player before playback and
+    // the lifetime follows the actual decoded stream.  Do not use OMV packet
+    // hints here because they include non-frame packets for some files and can
+    // make auto_free fire before the first visible frame.
     ctx.movie
-        .prepare(file)
+        .ensure_asset(file)
         .ok()
-        .and_then(|info| info.duration_ms())
+        .and_then(|(asset, _)| asset.info.duration_ms())
 }
 
 fn digits_most_significant(mut n: u64) -> Vec<i64> {
@@ -1203,6 +1285,54 @@ fn dispatch_object_op(
     };
     let obj = &mut obj_write_back.obj;
 
+    fn split_frame_action_chain(
+        ctx: &CommandContext,
+        op: i32,
+        tail: &[i32],
+    ) -> (Vec<i32>, Option<Vec<i32>>) {
+        let element = ctx
+            .vm_call
+            .as_ref()
+            .map(|m| m.element.clone())
+            .unwrap_or_default();
+        if element.is_empty() {
+            return (Vec::new(), None);
+        }
+        let pos = element
+            .iter()
+            .position(|v| *v == op)
+            .unwrap_or_else(|| element.len().saturating_sub(1));
+        let mut end = pos + 1;
+        if op == ctx.ids.obj_frame_action_ch
+            && tail.len() >= 2
+            && (tail[0] == ctx.ids.elm_array || tail[0] == crate::runtime::forms::codes::ELM_ARRAY)
+        {
+            end = (pos + 3).min(element.len());
+        }
+        let frame_action_chain = element[..end].to_vec();
+        let object_chain = if pos > 0 { Some(element[..pos].to_vec()) } else { None };
+        (frame_action_chain, object_chain)
+    }
+
+    fn queue_finish(
+        ctx: &mut CommandContext,
+        fa: &ObjectFrameActionState,
+        frame_action_chain: Vec<i32>,
+        object_chain: Option<Vec<i32>>,
+    ) {
+        if fa.cmd_name.is_empty() {
+            return;
+        }
+        ctx.globals.pending_frame_action_finishes.push(PendingFrameActionFinish {
+            frame_action_chain,
+            object_chain,
+            scn_name: fa.scn_name.clone(),
+            cmd_name: fa.cmd_name.clone(),
+            end_time: fa.end_time,
+            args: fa.args.clone(),
+        });
+    }
+
     fn frame_action_set_from_args(
         ctx: &CommandContext,
         fa: &mut ObjectFrameActionState,
@@ -1224,16 +1354,14 @@ fn dispatch_object_op(
         } else {
             fa.counter.start();
         }
-        fa.args = script_args
-            .iter()
-            .skip(2)
-            .filter_map(as_i64)
-            .collect::<Vec<_>>();
+        fa.args = script_args.iter().skip(2).cloned().collect();
     }
 
     fn dispatch_object_frame_action(
         ctx: &mut CommandContext,
         fa: &mut ObjectFrameActionState,
+        frame_action_chain: Vec<i32>,
+        object_chain: Option<Vec<i32>>,
         tail: &[i32],
         script_args: &[Value],
         rhs: Option<&Value>,
@@ -1263,17 +1391,19 @@ fn dispatch_object_op(
                 true
             }
             1 => {
+                queue_finish(ctx, fa, frame_action_chain.clone(), object_chain.clone());
                 frame_action_set_from_args(ctx, fa, script_args, false);
                 push_ok(ctx, ret_form);
                 true
             }
             2 => {
-                fa.end_flag = true;
-                fa.counter.reset();
+                queue_finish(ctx, fa, frame_action_chain.clone(), object_chain.clone());
+                *fa = ObjectFrameActionState::default();
                 push_ok(ctx, ret_form);
                 true
             }
             3 => {
+                queue_finish(ctx, fa, frame_action_chain.clone(), object_chain.clone());
                 frame_action_set_from_args(ctx, fa, script_args, true);
                 push_ok(ctx, ret_form);
                 true
@@ -1331,19 +1461,21 @@ fn dispatch_object_op(
         return true;
     }
 
-    if ctx.ids.obj_frame_action != 0
-        && op == ctx.ids.obj_frame_action
-        && dispatch_object_frame_action(
+    if ctx.ids.obj_frame_action != 0 && op == ctx.ids.obj_frame_action {
+        let (frame_action_chain, object_chain) = split_frame_action_chain(ctx, op, tail);
+        if dispatch_object_frame_action(
             ctx,
             &mut obj.frame_action,
+            frame_action_chain,
+            object_chain,
             tail,
             script_args,
             rhs,
             al_id,
             ret_form,
-        )
-    {
-        return true;
+        ) {
+            return true;
+        }
     }
 
     if ctx.ids.obj_frame_action_ch != 0 && op == ctx.ids.obj_frame_action_ch {
@@ -1353,9 +1485,12 @@ fn dispatch_object_op(
                 obj.frame_action_ch
                     .resize_with(idx + 1, ObjectFrameActionState::default);
             }
+            let (frame_action_chain, object_chain) = split_frame_action_chain(ctx, op, tail);
             if dispatch_object_frame_action(
                 ctx,
                 &mut obj.frame_action_ch[idx],
+                frame_action_chain,
+                object_chain,
                 &tail[2..],
                 script_args,
                 rhs,
@@ -1412,6 +1547,13 @@ fn dispatch_object_op(
                 let stage_list = st.object_lists.get_mut(&stage_idx).unwrap();
                 stage_list[slot] = child_snapshot;
             }
+            let prev_chain = ctx.globals.current_object_chain.clone();
+            if let Some(mut prefix) = prev_chain.clone() {
+                prefix.push(crate::runtime::forms::codes::elm_value::OBJECT_CHILD);
+                prefix.push(ctx.ids.elm_array);
+                prefix.push(child_idx as i32);
+                ctx.globals.current_object_chain = Some(prefix);
+            }
             let handled = dispatch_object_op(
                 ctx,
                 st,
@@ -1424,6 +1566,7 @@ fn dispatch_object_op(
                 rhs,
                 al_id,
             );
+            ctx.globals.current_object_chain = prev_chain;
             let child_after = {
                 let stage_list = st.object_lists.get_mut(&stage_idx).unwrap();
                 std::mem::take(&mut stage_list[slot])
@@ -1487,9 +1630,37 @@ fn dispatch_object_op(
                 }
                 return true;
             }
+            if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
+                match t[0] {
+                    int_event_op::CHECK => {
+                        ctx.stack
+                            .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
+                    }
+                    int_event_op::GET_EVENT_VALUE => {
+                        ctx.stack.push(Value::Int(ev.get_total_value() as i64));
+                    }
+                    _ => match action {
+                        IntEventDispatchAction::Done => ctx.stack.push(Value::Int(0)),
+                        IntEventDispatchAction::Wait { key_skip } => {
+                            if ev.check_event() {
+                                ctx.wait.wait_object_event_list(
+                                    ctx.ids.form_global_stage,
+                                    stage_idx,
+                                    obj_u,
+                                    op,
+                                    ri,
+                                    key_skip,
+                                );
+                            }
+                            push_ok(ctx, ret_form);
+                        }
+                    },
+                }
+                return true;
+            }
         } else if t.len() == 1 {
             match t[0] {
-                crate::runtime::constants::elm_value::INTLIST_RESIZE => {
+                int_event_list_op::RESIZE => {
                     let n = script_args.first().and_then(as_i64).unwrap_or(0).max(0) as usize;
                     rep_list.resize_with(n, || IntEvent::new(0));
                     ctx.stack.push(Value::Int(0));
@@ -1533,7 +1704,7 @@ fn dispatch_object_op(
 
         if is_obj_int_list && arr_idx.is_none() && t.len() == 1 {
             match t[0] {
-                3 => {
+                intlist_op::RESIZE => {
                     if let Some(n0) = script_args.first().and_then(as_i64) {
                         if !(ctx.ids.obj_f != 0 && op == ctx.ids.obj_f) {
                             let n = n0.max(0) as usize;
@@ -1545,7 +1716,7 @@ fn dispatch_object_op(
                     ctx.stack.push(Value::Int(0));
                     return true;
                 }
-                4 => {
+                intlist_op::GET_SIZE => {
                     let n = obj
                         .int_list_by_op(&ctx.ids, op)
                         .map(|v| v.len())
@@ -1560,7 +1731,7 @@ fn dispatch_object_op(
         if is_obj_int_event_list
             && arr_idx.is_none()
             && t.len() == 1
-            && t[0] == 1
+            && t[0] == int_event_list_op::RESIZE
             && script_args.len() == 1
         {
             if let Some(n0) = script_args.first().and_then(as_i64) {
@@ -1595,60 +1766,33 @@ fn dispatch_object_op(
                     }
                     return true;
                 }
-                match t[0] {
-                    0 => {
-                        if script_args.len() >= 4 {
-                            let v = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
-                            let tt = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
-                            let d = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
-                            let sp = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
-                            ev.set_event(v, tt, d, sp, 0);
-                        }
-                        ctx.stack.push(Value::Int(0));
-                        return true;
-                    }
-                    1 => {
-                        if script_args.len() >= 5 {
-                            let sv = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
-                            let evv = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
-                            let lt = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
-                            let d = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
-                            let sp = script_args.get(4).and_then(as_i64).unwrap_or(0) as i32;
-                            ev.loop_event(sv, evv, lt, d, sp, 0);
-                        }
-                        ctx.stack.push(Value::Int(0));
-                        return true;
-                    }
-                    2 => {
-                        if ret_form.unwrap_or(0) != 0 {
+                if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
+                    match t[0] {
+                        int_event_op::CHECK => {
                             ctx.stack
                                 .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
-                        } else {
-                            ev.end_event();
-                            ctx.stack.push(Value::Int(0));
                         }
-                        return true;
-                    }
-                    3 => {
-                        if ev.check_event() {
-                            ctx.wait.wait_object_event_list(
-                                ctx.ids.form_global_stage,
-                                stage_idx,
-                                obj_u,
-                                op,
-                                ri,
-                                false,
-                            );
+                        int_event_op::GET_EVENT_VALUE => {
+                            ctx.stack.push(Value::Int(ev.get_total_value() as i64));
                         }
-                        push_ok(ctx, ret_form);
-                        return true;
+                        _ => match action {
+                            IntEventDispatchAction::Done => ctx.stack.push(Value::Int(0)),
+                            IntEventDispatchAction::Wait { key_skip } => {
+                                if ev.check_event() {
+                                    ctx.wait.wait_object_event_list(
+                                        ctx.ids.form_global_stage,
+                                        stage_idx,
+                                        obj_u,
+                                        op,
+                                        ri,
+                                        key_skip,
+                                    );
+                                }
+                                push_ok(ctx, ret_form);
+                            }
+                        },
                     }
-                    4 => {
-                        ctx.stack
-                            .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
-                        return true;
-                    }
-                    _ => {}
+                    return true;
                 }
             }
 
@@ -1684,61 +1828,32 @@ fn dispatch_object_op(
                 }
                 return true;
             }
-            if (0..=4).contains(&t[0]) {
+            if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
                 match t[0] {
-                    0 => {
-                        if script_args.len() >= 4 {
-                            let v = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
-                            let tt = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
-                            let d = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
-                            let sp = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
-                            ev.set_event(v, tt, d, sp, 0);
-                        }
-                        ctx.stack.push(Value::Int(0));
-                        return true;
-                    }
-                    1 => {
-                        if script_args.len() >= 5 {
-                            let sv = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
-                            let evv = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
-                            let lt = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
-                            let d = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
-                            let sp = script_args.get(4).and_then(as_i64).unwrap_or(0) as i32;
-                            ev.loop_event(sv, evv, lt, d, sp, 0);
-                        }
-                        ctx.stack.push(Value::Int(0));
-                        return true;
-                    }
-                    2 => {
-                        if ret_form.unwrap_or(0) != 0 {
-                            ctx.stack
-                                .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
-                        } else {
-                            ev.end_event();
-                            ctx.stack.push(Value::Int(0));
-                        }
-                        return true;
-                    }
-                    3 => {
-                        if ev.check_event() {
-                            ctx.wait.wait_object_event(
-                                ctx.ids.form_global_stage,
-                                stage_idx,
-                                obj_u,
-                                op,
-                                false,
-                            );
-                        }
-                        push_ok(ctx, ret_form);
-                        return true;
-                    }
-                    4 => {
+                    int_event_op::CHECK => {
                         ctx.stack
                             .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
-                        return true;
                     }
-                    _ => {}
+                    int_event_op::GET_EVENT_VALUE => {
+                        ctx.stack.push(Value::Int(ev.get_total_value() as i64));
+                    }
+                    _ => match action {
+                        IntEventDispatchAction::Done => ctx.stack.push(Value::Int(0)),
+                        IntEventDispatchAction::Wait { key_skip } => {
+                            if ev.check_event() {
+                                ctx.wait.wait_object_event(
+                                    ctx.ids.form_global_stage,
+                                    stage_idx,
+                                    obj_u,
+                                    op,
+                                    key_skip,
+                                );
+                            }
+                            push_ok(ctx, ret_form);
+                        }
+                    },
                 }
+                return true;
             }
         }
     }
@@ -1808,24 +1923,24 @@ fn dispatch_object_op(
             return true;
         };
 
-        let aid = al_id.unwrap_or(0);
-        let disp = if aid >= 1 {
-            script_args.get(1).and_then(as_i64).unwrap_or(0) != 0
+        let argc = script_args.len();
+        let disp = if overload_at_least(al_id, argc, 1, 2) {
+            script_i64(script_args, 1, 0) != 0
         } else {
             false
         };
-        let x = if aid >= 2 {
-            script_args.get(2).and_then(as_i64).unwrap_or(0)
+        let x = if overload_at_least(al_id, argc, 2, 4) {
+            script_i64(script_args, 2, 0)
         } else {
             0
         };
-        let y = if aid >= 2 {
-            script_args.get(3).and_then(as_i64).unwrap_or(0)
+        let y = if overload_at_least(al_id, argc, 2, 4) {
+            script_i64(script_args, 3, 0)
         } else {
             0
         };
-        let patno = if aid >= 3 {
-            script_args.get(4).and_then(as_i64).unwrap_or(0)
+        let patno = if overload_at_least(al_id, argc, 3, 5) {
+            script_i64(script_args, 4, 0)
         } else {
             0
         };
@@ -2540,14 +2655,14 @@ fn dispatch_object_op(
         };
 
         // Optional parameters (al_id-based fallthrough): (disp, x, y)
-        let aid = al_id.unwrap_or(0);
-        let disp_i = if aid >= 1 {
-            pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+        let argc = pos.len();
+        let disp_i = if overload_at_least(al_id, argc, 1, 2) {
+            positional_i64(&pos, 1, 0)
         } else {
             0
         };
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        if aid >= 2 {
+        if overload_at_least(al_id, argc, 2, 4) {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
                     &ctx.ids,
@@ -2679,14 +2794,14 @@ fn dispatch_object_op(
         obj.movie.reset();
         obj.init_param_like();
         // Optional (disp, x, y) via al_id.
-        let aid = al_id.unwrap_or(0);
-        let disp_i = if aid >= 1 {
-            pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+        let argc = pos.len();
+        let disp_i = if overload_at_least(al_id, argc, 1, 2) {
+            positional_i64(&pos, 1, 0)
         } else {
             0
         };
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        if aid >= 2 {
+        if overload_at_least(al_id, argc, 2, 4) {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
                     &ctx.ids,
@@ -2722,14 +2837,14 @@ fn dispatch_object_op(
         obj.movie.reset();
         obj.init_param_like();
         // Optional (disp, x, y) via al_id.
-        let aid = al_id.unwrap_or(0);
-        let disp_i = if aid >= 1 {
-            pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+        let argc = pos.len();
+        let disp_i = if overload_at_least(al_id, argc, 1, 2) {
+            positional_i64(&pos, 1, 0)
         } else {
             0
         };
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        if aid >= 2 {
+        if overload_at_least(al_id, argc, 2, 4) {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
                     &ctx.ids,
@@ -2763,14 +2878,14 @@ fn dispatch_object_op(
         obj.movie.reset();
         obj.init_param_like();
         // Optional parameters: (disp, x, y) via al_id with different indexing.
-        let aid = al_id.unwrap_or(0);
-        let disp_i = if aid >= 1 {
-            pos.get(0).and_then(|v| v.as_i64()).unwrap_or(0)
+        let argc = pos.len();
+        let disp_i = if overload_at_least(al_id, argc, 1, 1) {
+            positional_i64(&pos, 0, 0)
         } else {
             0
         };
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        if aid >= 2 {
+        if overload_at_least(al_id, argc, 2, 3) {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
                     &ctx.ids,
@@ -2854,14 +2969,14 @@ fn dispatch_object_op(
             );
 
             // Optional (disp, x, y) via al_id.
-            let aid = al_id.unwrap_or(0);
-            let disp_i = if aid >= 1 {
-                pos.get(1).and_then(|v| v.as_i64()).unwrap_or(0)
+            let argc = pos.len();
+            let disp_i = if overload_at_least(al_id, argc, 1, 2) {
+                positional_i64(&pos, 1, 0)
             } else {
                 0
             };
             obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-            if aid >= 2 {
+            if overload_at_least(al_id, argc, 2, 4) {
                 if ctx.ids.obj_x != 0 {
                     obj.set_int_prop(
                         &ctx.ids,
@@ -2932,14 +3047,14 @@ fn dispatch_object_op(
         obj.init_param_like();
 
         // Optional (disp, x, y) via al_id.
-        let aid = al_id.unwrap_or(0);
-        let disp_i = if aid >= 1 {
-            pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0)
+        let argc = pos.len();
+        let disp_i = if overload_at_least(al_id, argc, 1, 4) {
+            positional_i64(&pos, 3, 0)
         } else {
             0
         };
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        if aid >= 2 {
+        if overload_at_least(al_id, argc, 2, 6) {
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(
                     &ctx.ids,
@@ -4240,6 +4355,17 @@ fn dispatch_object_op(
         return true;
     }
 
+    if op == constants::elm_value::OBJECT_SET_CHILD_SORT_TYPE_DEFAULT {
+        obj.base.child_sort_type = 0;
+        ctx.stack.push(Value::Int(0));
+        return true;
+    }
+    if op == constants::elm_value::OBJECT_SET_CHILD_SORT_TYPE_TEST {
+        obj.base.child_sort_type = 1;
+        ctx.stack.push(Value::Int(0));
+        return true;
+    }
+
     let k = resolve_object_op(&ctx.ids, op);
     match k {
         ObjectOpKind::Init => {
@@ -4440,24 +4566,24 @@ fn dispatch_object_op(
             //   al_id==1 => disp
             //   al_id==2 => disp,x,y
             //   al_id==3 => disp,x,y,patno
-            let aid = al_id.unwrap_or(0);
-            let disp = if aid >= 1 {
-                script_args.get(1).and_then(as_i64).unwrap_or(0) != 0
+            let argc = script_args.len();
+            let disp = if overload_at_least(al_id, argc, 1, 2) {
+                script_i64(script_args, 1, 0) != 0
             } else {
                 false
             };
-            let x = if aid >= 2 {
-                script_args.get(2).and_then(as_i64).unwrap_or(0)
+            let x = if overload_at_least(al_id, argc, 2, 4) {
+                script_i64(script_args, 2, 0)
             } else {
                 0
             };
-            let y = if aid >= 2 {
-                script_args.get(3).and_then(as_i64).unwrap_or(0)
+            let y = if overload_at_least(al_id, argc, 2, 4) {
+                script_i64(script_args, 3, 0)
             } else {
                 0
             };
-            let patno = if aid >= 3 {
-                script_args.get(4).and_then(as_i64).unwrap_or(0)
+            let patno = if overload_at_least(al_id, argc, 3, 5) {
+                script_i64(script_args, 4, 0)
             } else {
                 0
             };
@@ -6486,7 +6612,16 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                 };
 
                 if child == stage_object {
-                    dispatch_object_op(
+                    let prev_chain = ctx.globals.current_object_chain.clone();
+                    ctx.globals.current_object_chain = Some(vec![
+                        form_id as i32,
+                        ctx.ids.elm_array,
+                        stage as i32,
+                        stage_object,
+                        ctx.ids.elm_array,
+                        idx as i32,
+                    ]);
+                    let handled = dispatch_object_op(
                         ctx,
                         st,
                         stage,
@@ -6497,7 +6632,9 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                         ret_form,
                         rhs,
                         al_id,
-                    )
+                    );
+                    ctx.globals.current_object_chain = prev_chain;
+                    handled
                 } else if child == crate::runtime::forms::codes::STAGE_ELM_OBJBTNGROUP {
                     dispatch_group_item_op(
                         ctx,
@@ -6560,6 +6697,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             let element_chain = chain.to_vec();
             if child == crate::runtime::forms::codes::STAGE_ELM_OBJECT && idx >= 0 {
                 ctx.globals.current_stage_object = Some((stage, idx as usize));
+                ctx.globals.current_object_chain = Some(element_chain.clone());
             }
             if al_id == Some(1) {
                 ctx.stack.push(Value::Int(0));

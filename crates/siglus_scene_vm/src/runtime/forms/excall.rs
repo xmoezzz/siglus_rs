@@ -40,7 +40,7 @@ fn excall_stage_form_key(ctx: &CommandContext, selector: i32) -> u32 {
     }
 }
 
-fn synth_form_key(base: u32, selector: i32, op: i64) -> u32 {
+fn synth_form_key(base: u32, selector: i32, op: i32) -> u32 {
     (base << 8) ^ (((selector as u32) & 0x0f) << 4) ^ (op as u32 & 0x0f)
 }
 
@@ -51,7 +51,7 @@ fn parse_call<'a>(
     usize,
     &'a [i32],
     i32,
-    i64,
+    i32,
     &'a [Value],
     Option<i64>,
     Option<i64>,
@@ -69,8 +69,7 @@ fn parse_call<'a>(
     let op = chain
         .get(op_pos)
         .copied()
-        .map(i64::from)
-        .or_else(|| args.get(0).and_then(|v| v.as_i64()))?;
+        .or_else(|| args.get(0).and_then(|v| v.as_i64()).map(|v| v as i32))?;
     let params = if chain_pos > 1 {
         &args[1..chain_pos]
     } else {
