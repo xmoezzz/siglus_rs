@@ -156,15 +156,24 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
             for i in 0..debuf_entries {
                 let p_off = pairs_off + i * pair_size;
                 let offset = read_u32le(&debuf, p_off)? as usize;
-                let length = read_u32le(&debuf, p_off + 4)? as usize;
-                if offset == 0 || length == 0 {
+                let length_raw = read_u32le(&debuf, p_off + 4)? as i32;
+                if offset == 0 || length_raw == 0 || offset >= debuf.len() {
                     continue;
                 }
-                if offset + length > debuf.len() {
-                    // Some files may store length but not used; we keep strict for now.
-                    bail!("type2 pair {i} out of bounds: off={offset} len={length}");
+
+                // Original C_g00::get_cut_data_point() treats negative size as a
+                // linked/reused cut-data marker and still returns g00_data + offset.
+                // C_g00_cut::set_data(type2) parses the cut header/chips from that
+                // pointer and does not need the signed size as a hard bound.
+                let end = if length_raw > 0 {
+                    offset.saturating_add(length_raw as usize).min(debuf.len())
+                } else {
+                    debuf.len()
+                };
+                if end <= offset {
+                    continue;
                 }
-                let part_bytes = &debuf[offset..offset + length];
+                let part_bytes = &debuf[offset..end];
                 let img = extract_g02_part(part_bytes)
                     .with_context(|| format!("extract g02 part idx={i}"))?;
                 frames.push(img);
@@ -523,10 +532,10 @@ fn extract_g02_part(part_bytes: &[u8]) -> Result<RgbaImage> {
         bail!("g02 part has zero dimensions");
     }
 
-    // Heuristic: part header size is not consistent across implementations.
-    // We try a few known header sizes and validate by parsing block headers + pixel chunks sequentially.
-    // Candidates include 0x24 (prefix-only), 0x74 (one observed), 0xD0 (common RealLive/Siglus).
-    let candidates: [usize; 10] = [0x24, 0x74, 0xD0, 0xC0, 0xE0, 0x80, 0x90, 0xA0, 0xB0, 0x100];
+    // MSVC layout for the original G00_CUT_HEADER_STRUCT is 0x74 bytes.
+    // Try the original layout first, then keep the older defensive candidates for
+    // unusual extracted assets.
+    let candidates: [usize; 10] = [0x74, 0x24, 0xD0, 0xC0, 0xE0, 0x80, 0x90, 0xA0, 0xB0, 0x100];
 
     let mut chosen_header: Option<usize> = None;
     for &hdr in &candidates {

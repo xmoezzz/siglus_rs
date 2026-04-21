@@ -78,11 +78,15 @@ pub(crate) fn wav_duration_ms(wav: &[u8]) -> Option<u64> {
 struct Slot {
     handle: Option<StaticSoundHandle>,
     until: Option<Instant>,
+    looping: bool,
     last_name: Option<String>,
 }
 
 impl Slot {
     fn is_playing(&mut self) -> bool {
+        if self.looping {
+            return self.handle.is_some();
+        }
         if let Some(t) = self.until {
             if Instant::now() >= t {
                 // Drop the handle reference; the backend should have ended.
@@ -178,6 +182,7 @@ impl SfxEngine {
                 let _ = h.stop(tween);
             }
             s.until = None;
+            s.looping = false;
             s.last_name = None;
         }
         Ok(())
@@ -204,6 +209,7 @@ impl SfxEngine {
             let _ = h.stop(tween);
         }
         s.until = None;
+        s.looping = false;
         s.last_name = None;
         Ok(())
     }
@@ -278,6 +284,7 @@ impl SfxEngine {
             s.handle = None;
         }
 
+        s.looping = loop_flag;
         if loop_flag {
             s.until = None;
         } else if let Some(ms) = dur_ms {
@@ -295,6 +302,15 @@ impl SfxEngine {
         let direct = Path::new(file_name);
         if direct.exists() {
             return Ok(direct.to_path_buf());
+        }
+
+        if let Ok((path, _ty)) = crate::resource::find_audio_path_with_append_dir(
+            &self.project_dir,
+            "",
+            &self.sub_dir,
+            file_name,
+        ) {
+            return Ok(path);
         }
 
         let dir = self.project_dir.join(&self.sub_dir);

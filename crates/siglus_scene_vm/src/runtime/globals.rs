@@ -230,6 +230,37 @@ pub struct SystemMessageBoxRecord {
 }
 
 #[derive(Debug, Clone)]
+pub struct SystemMessageBoxButton {
+    pub label: String,
+    pub value: i64,
+}
+
+#[derive(Debug, Clone)]
+pub struct SystemMessageBoxModalState {
+    pub kind: i32,
+    pub text: String,
+    pub debug_only: bool,
+    pub buttons: Vec<SystemMessageBoxButton>,
+    pub cursor: usize,
+}
+
+impl SystemMessageBoxModalState {
+    pub fn selected_value(&self) -> i64 {
+        self.buttons
+            .get(self.cursor.min(self.buttons.len().saturating_sub(1)))
+            .map(|b| b.value)
+            .unwrap_or(0)
+    }
+
+    pub fn cancel_value(&self) -> i64 {
+        self.buttons
+            .last()
+            .map(|b| b.value)
+            .unwrap_or_else(|| self.selected_value())
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct SystemRuntimeState {
     pub active_flag: bool,
     pub debug_flag: bool,
@@ -239,6 +270,7 @@ pub struct SystemRuntimeState {
     pub bench_dialogs: Vec<String>,
     pub messagebox_history: Vec<SystemMessageBoxRecord>,
     pub messagebox_response_queue: Vec<i64>,
+    pub messagebox_modal: Option<SystemMessageBoxModalState>,
     pub spec_info: String,
 }
 
@@ -253,6 +285,7 @@ impl Default for SystemRuntimeState {
             bench_dialogs: Vec::new(),
             messagebox_history: Vec::new(),
             messagebox_response_queue: Vec::new(),
+            messagebox_modal: None,
             spec_info: "siglus_scene_vm".to_string(),
         }
     }
@@ -312,6 +345,23 @@ pub struct SaveSlotState {
     pub values: HashMap<i32, i64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyscomPendingProcKind {
+    ReturnToSel,
+    ReturnToMenu,
+    BacklogLoad,
+}
+
+#[derive(Debug, Clone)]
+pub struct SyscomPendingProc {
+    pub kind: SyscomPendingProcKind,
+    pub warning: bool,
+    pub se_play: bool,
+    pub fade_out: bool,
+    pub leave_msgbk: bool,
+    pub save_id: i64,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SyscomRuntimeState {
     pub syscom_menu_disable: bool,
@@ -352,6 +402,8 @@ pub struct SyscomRuntimeState {
     pub capture_buffer: Option<RgbaImage>,
     pub capture_size: Option<(u32, u32)>,
     pub return_scene_once: Option<(String, i64)>,
+    pub pending_proc: Option<SyscomPendingProc>,
+    pub msg_back_load_tid: i64,
 }
 
 /// Global mutable state used by various "global element" (form) handlers.
@@ -495,6 +547,8 @@ pub struct GlobalState {
     pub frame_action_lists: HashMap<u32, Vec<ObjectFrameActionState>>,
     /// Finish callbacks queued by FRAMEACTION.START/START_REAL/END.
     pub pending_frame_action_finishes: Vec<PendingFrameActionFinish>,
+    /// Button decided actions queued from C_elm_object::button_event semantics.
+    pub pending_button_actions: Vec<PendingButtonAction>,
 
     /// Stage UI subsystem state keyed by the stage form ID.
     pub stage_forms: HashMap<u32, StageFormState>,
@@ -502,6 +556,8 @@ pub struct GlobalState {
     pub focused_stage_group: Option<(u32, i64, usize)>,
     /// Currently focused message-window selection (form_id, stage_idx, mwnd_idx).
     pub focused_stage_mwnd: Option<(u32, i64, usize)>,
+    /// GLOBAL.SELBTN button-selection runtime state.
+    pub selbtn: BtnSelectRuntimeState,
     /// Last object target touched by stage/object dispatch. Compact object-only chains in scene bytecode
     /// use this as the ambient current-object context when they omit the object index.
     pub current_stage_object: Option<(i64, usize)>,
@@ -521,12 +577,21 @@ pub struct GlobalState {
 
     /// System-command runtime state.
     pub syscom: SyscomRuntimeState,
+    /// Active GLOBAL.MOV direct movie player.
+    pub mov: GlobalMovieState,
+
+    /// Last full-screen capture made by GLOBAL.CAPTURE / CAPTURE_FROM_FILE.
+    pub capture_image: Option<RgbaImage>,
+    /// Capture buffer used by OBJECT.CREATE_CAPTURE and thumb fallback paths.
+    pub capture_for_object_image: Option<RgbaImage>,
 
     /// Currently selected append directory used by original file resolution helpers.
     pub append_dir: String,
 
     /// BGM table listened flags keyed by registered name.
     pub bgm_table_listened: HashMap<String, bool>,
+    /// BGM table flags indexed by original BGM registration number.
+    pub bgm_table_flags: Vec<bool>,
     /// Default flag applied to names not seen yet via BGMTABLE.SET_ALL_FLAG.
     pub bgm_table_all_flag: bool,
 
@@ -567,9 +632,11 @@ impl Default for GlobalState {
             frame_actions: HashMap::new(),
             frame_action_lists: HashMap::new(),
             pending_frame_action_finishes: Vec::new(),
+            pending_button_actions: Vec::new(),
             stage_forms: HashMap::new(),
             focused_stage_group: None,
             focused_stage_mwnd: None,
+            selbtn: BtnSelectRuntimeState::default(),
             current_stage_object: None,
             current_object_chain: None,
 
@@ -579,9 +646,13 @@ impl Default for GlobalState {
             script: ScriptRuntimeState::default(),
             system: SystemRuntimeState::default(),
             syscom: SyscomRuntimeState::default(),
+            mov: GlobalMovieState::default(),
+            capture_image: None,
+            capture_for_object_image: None,
             append_dir: String::new(),
 
             bgm_table_listened: HashMap::new(),
+            bgm_table_flags: Vec::new(),
             bgm_table_all_flag: false,
 
             wipe: None,
@@ -593,6 +664,29 @@ impl Default for GlobalState {
 }
 
 #[derive(Debug, Clone, Default)]
+pub struct BtnSelectChoiceState {
+    pub text: String,
+    pub item_type: i64,
+    pub color: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct BtnSelectRuntimeState {
+    pub template_no: i64,
+    pub choices: Vec<BtnSelectChoiceState>,
+    pub cursor: usize,
+    pub cancel_enable: bool,
+    pub capture_flag: bool,
+    pub started: bool,
+    pub result: i64,
+    pub sync_type: i64,
+    pub read_flag_scene_no: i64,
+    pub read_flag_flag_no: i64,
+    pub sel_start_call_scn: String,
+    pub sel_start_call_z_no: i64,
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct PendingFrameActionFinish {
     pub frame_action_chain: Vec<i32>,
     pub object_chain: Option<Vec<i32>>,
@@ -600,6 +694,109 @@ pub struct PendingFrameActionFinish {
     pub cmd_name: String,
     pub end_time: i64,
     pub args: Vec<crate::runtime::Value>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct PendingButtonAction {
+    pub scn_name: String,
+    pub cmd_name: String,
+    pub z_no: i64,
+}
+
+/// Runtime state for the GLOBAL.MOV player.
+///
+/// Original Siglus MOV is not a stage OBJECT; it is a full-screen/direct movie
+/// player. The WGPU port renders it through a dedicated LayerManager sprite so
+/// MOV.PLAY/WAIT/STOP still produce visible frames when stage objects are hidden.
+#[derive(Debug, Clone)]
+pub struct GlobalMovieState {
+    pub file_name: Option<String>,
+    pub playing: bool,
+    pub key_skip_flag: bool,
+    pub timer_ms: u64,
+    pub total_ms: Option<u64>,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub layer_id: Option<LayerId>,
+    pub sprite_id: Option<SpriteId>,
+    pub image_id: Option<ImageId>,
+    pub last_frame_idx: Option<usize>,
+    pub audio_id: Option<u64>,
+}
+
+impl Default for GlobalMovieState {
+    fn default() -> Self {
+        Self {
+            file_name: None,
+            playing: false,
+            key_skip_flag: false,
+            timer_ms: 0,
+            total_ms: None,
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            layer_id: None,
+            sprite_id: None,
+            image_id: None,
+            last_frame_idx: None,
+            audio_id: None,
+        }
+    }
+}
+
+impl GlobalMovieState {
+    pub fn start(
+        &mut self,
+        file_name: String,
+        x: i32,
+        y: i32,
+        width: u32,
+        height: u32,
+        total_ms: Option<u64>,
+        key_skip_flag: bool,
+    ) {
+        self.file_name = Some(file_name);
+        self.playing = true;
+        self.key_skip_flag = key_skip_flag;
+        self.timer_ms = 0;
+        self.total_ms = total_ms;
+        self.x = x;
+        self.y = y;
+        self.width = width;
+        self.height = height;
+        self.last_frame_idx = None;
+        self.audio_id = None;
+    }
+
+    pub fn stop(&mut self) {
+        self.file_name = None;
+        self.playing = false;
+        self.key_skip_flag = false;
+        self.timer_ms = 0;
+        self.total_ms = None;
+        self.last_frame_idx = None;
+        self.audio_id = None;
+    }
+
+    pub fn tick(&mut self, past_real_time: i32) {
+        if !self.playing {
+            return;
+        }
+        let add = past_real_time.max(0) as u64;
+        if add == 0 {
+            return;
+        }
+        self.timer_ms = self.timer_ms.saturating_add(add);
+        if let Some(total) = self.total_ms {
+            if total > 0 && self.timer_ms >= total {
+                self.timer_ms = total;
+                self.playing = false;
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1393,6 +1590,11 @@ pub enum ObjectBackend {
         layer_id: LayerId,
         sprite_ids: Vec<SpriteId>,
     },
+    /// WEATHER object backend: sprite list owned by the weather object runtime.
+    Weather {
+        layer_id: LayerId,
+        sprite_ids: Vec<SpriteId>,
+    },
     /// MOVIE object backend: a single sprite updated with video frames.
     Movie {
         layer_id: LayerId,
@@ -1479,6 +1681,10 @@ pub struct ObjectButtonState {
     pub decided_action_scn_name: String,
     pub decided_action_cmd_name: String,
     pub decided_action_z_no: i64,
+    /// Previous-frame hit flag used to model *_this_frame button transitions.
+    pub last_hit: bool,
+    /// Previous-frame pushed flag used to model *_this_frame button transitions.
+    pub last_pushed: bool,
 }
 
 impl Default for ObjectButtonState {
@@ -1486,10 +1692,10 @@ impl Default for ObjectButtonState {
         Self {
             enabled: false,
             button_no: 0,
-            group_no: 0,
+            group_no: -1,
             group_idx_override: None,
-            action_no: 0,
-            se_no: 0,
+            action_no: -1,
+            se_no: -1,
             push_keep: false,
             alpha_test: false,
             state: 0,
@@ -1498,6 +1704,8 @@ impl Default for ObjectButtonState {
             decided_action_scn_name: String::new(),
             decided_action_cmd_name: String::new(),
             decided_action_z_no: -1,
+            last_hit: false,
+            last_pushed: false,
         }
     }
 }
@@ -1576,6 +1784,69 @@ pub struct ObjectWeatherParam {
     pub real_time_flag: bool,
 }
 
+#[derive(Debug, Default, Clone)]
+pub struct ObjectWeatherWorkSub {
+    pub state: i64,
+    pub state_cur_time: i64,
+    pub state_time_len: i64,
+    pub move_start_pos_x: i64,
+    pub move_start_pos_y: i64,
+    pub move_start_distance: i64,
+    pub move_start_degree: i64,
+    pub move_time_x: i64,
+    pub move_time_y: i64,
+    pub move_cur_time: i64,
+    pub sin_time_x: i64,
+    pub sin_time_y: i64,
+    pub sin_power_x: i64,
+    pub sin_power_y: i64,
+    pub sin_cur_time: i64,
+    pub center_rotate: i64,
+    pub zoom_min: i64,
+    pub zoom_max: i64,
+    pub scale_x: i64,
+    pub scale_y: i64,
+    pub active_time_len: i64,
+    pub real_time_flag: bool,
+    pub restruct_flag: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct ObjectWeatherWorkState {
+    pub cnt_max: usize,
+    pub sub: Vec<ObjectWeatherWorkSub>,
+    rand_seed: u32,
+}
+
+impl Default for ObjectWeatherWorkState {
+    fn default() -> Self {
+        Self {
+            cnt_max: 0,
+            sub: Vec::new(),
+            rand_seed: 0x1234_abcd,
+        }
+    }
+}
+
+impl ObjectWeatherWorkState {
+    fn next_rand(&mut self) -> i64 {
+        self.rand_seed = self
+            .rand_seed
+            .wrapping_mul(1103515245)
+            .wrapping_add(12345);
+        ((self.rand_seed >> 16) & 0x7fff) as i64
+    }
+
+    pub fn rand_mod(&mut self, modulo: i64) -> i64 {
+        if modulo <= 0 {
+            0
+        } else {
+            self.next_rand() % modulo
+        }
+    }
+}
+
+
 #[derive(Debug, Clone)]
 pub struct ObjectMovieState {
     pub loop_flag: bool,
@@ -1644,6 +1915,8 @@ impl ObjectMovieState {
         self.just_looped = false;
         self.seeked = false;
     }
+
+
 
     pub fn tick(&mut self, past_game_time: i32, past_real_time: i32) {
         self.just_finished = false;
@@ -1776,6 +2049,7 @@ pub struct ObjectBaseState {
     pub alpha_blend: i64,
     pub blend: i64,
     pub child_sort_type: i64,
+    pub no_event_hint: bool,
 }
 
 impl Default for ObjectBaseState {
@@ -1836,6 +2110,7 @@ impl Default for ObjectBaseState {
             alpha_blend: 1,
             blend: 0,
             child_sort_type: 0,
+            no_event_hint: false,
         }
     }
 }
@@ -2359,6 +2634,7 @@ pub struct ObjectState {
 
     /// For WEATHER objects (type A/B).
     pub weather_param: ObjectWeatherParam,
+    pub weather_work: ObjectWeatherWorkState,
 
     /// For SAVE_THUMB / THUMB objects.
     pub thumb_save_no: i64,
@@ -2399,7 +2675,83 @@ impl ObjectState {
         op: i32,
         value: i64,
     ) {
-        let Some(ev) = self.int_event_by_op_mut(ids, op) else {
+        let target = if ids.obj_patno != 0 && op == ids.obj_patno {
+            ObjectEventTarget::Patno
+        } else if ids.obj_x != 0 && op == ids.obj_x {
+            ObjectEventTarget::X
+        } else if ids.obj_y != 0 && op == ids.obj_y {
+            ObjectEventTarget::Y
+        } else if ids.obj_z != 0 && op == ids.obj_z {
+            ObjectEventTarget::Z
+        } else if ids.obj_center_x != 0 && op == ids.obj_center_x {
+            ObjectEventTarget::CenterX
+        } else if ids.obj_center_y != 0 && op == ids.obj_center_y {
+            ObjectEventTarget::CenterY
+        } else if ids.obj_center_z != 0 && op == ids.obj_center_z {
+            ObjectEventTarget::CenterZ
+        } else if ids.obj_center_rep_x != 0 && op == ids.obj_center_rep_x {
+            ObjectEventTarget::CenterRepX
+        } else if ids.obj_center_rep_y != 0 && op == ids.obj_center_rep_y {
+            ObjectEventTarget::CenterRepY
+        } else if ids.obj_center_rep_z != 0 && op == ids.obj_center_rep_z {
+            ObjectEventTarget::CenterRepZ
+        } else if ids.obj_scale_x != 0 && op == ids.obj_scale_x {
+            ObjectEventTarget::ScaleX
+        } else if ids.obj_scale_y != 0 && op == ids.obj_scale_y {
+            ObjectEventTarget::ScaleY
+        } else if ids.obj_scale_z != 0 && op == ids.obj_scale_z {
+            ObjectEventTarget::ScaleZ
+        } else if ids.obj_rotate_x != 0 && op == ids.obj_rotate_x {
+            ObjectEventTarget::RotateX
+        } else if ids.obj_rotate_y != 0 && op == ids.obj_rotate_y {
+            ObjectEventTarget::RotateY
+        } else if ids.obj_rotate_z != 0 && op == ids.obj_rotate_z {
+            ObjectEventTarget::RotateZ
+        } else if ids.obj_clip_left != 0 && op == ids.obj_clip_left {
+            ObjectEventTarget::ClipLeft
+        } else if ids.obj_clip_top != 0 && op == ids.obj_clip_top {
+            ObjectEventTarget::ClipTop
+        } else if ids.obj_clip_right != 0 && op == ids.obj_clip_right {
+            ObjectEventTarget::ClipRight
+        } else if ids.obj_clip_bottom != 0 && op == ids.obj_clip_bottom {
+            ObjectEventTarget::ClipBottom
+        } else if ids.obj_src_clip_left != 0 && op == ids.obj_src_clip_left {
+            ObjectEventTarget::SrcClipLeft
+        } else if ids.obj_src_clip_top != 0 && op == ids.obj_src_clip_top {
+            ObjectEventTarget::SrcClipTop
+        } else if ids.obj_src_clip_right != 0 && op == ids.obj_src_clip_right {
+            ObjectEventTarget::SrcClipRight
+        } else if ids.obj_src_clip_bottom != 0 && op == ids.obj_src_clip_bottom {
+            ObjectEventTarget::SrcClipBottom
+        } else if ids.obj_tr != 0 && op == ids.obj_tr {
+            ObjectEventTarget::Tr
+        } else if ids.obj_mono != 0 && op == ids.obj_mono {
+            ObjectEventTarget::Mono
+        } else if ids.obj_reverse != 0 && op == ids.obj_reverse {
+            ObjectEventTarget::Reverse
+        } else if ids.obj_bright != 0 && op == ids.obj_bright {
+            ObjectEventTarget::Bright
+        } else if ids.obj_dark != 0 && op == ids.obj_dark {
+            ObjectEventTarget::Dark
+        } else if ids.obj_color_r != 0 && op == ids.obj_color_r {
+            ObjectEventTarget::ColorR
+        } else if ids.obj_color_g != 0 && op == ids.obj_color_g {
+            ObjectEventTarget::ColorG
+        } else if ids.obj_color_b != 0 && op == ids.obj_color_b {
+            ObjectEventTarget::ColorB
+        } else if ids.obj_color_rate != 0 && op == ids.obj_color_rate {
+            ObjectEventTarget::ColorRate
+        } else if ids.obj_color_add_r != 0 && op == ids.obj_color_add_r {
+            ObjectEventTarget::ColorAddR
+        } else if ids.obj_color_add_g != 0 && op == ids.obj_color_add_g {
+            ObjectEventTarget::ColorAddG
+        } else if ids.obj_color_add_b != 0 && op == ids.obj_color_add_b {
+            ObjectEventTarget::ColorAddB
+        } else {
+            self.event_target(ids, op)
+        };
+
+        let Some(ev) = self.runtime.prop_events.get_mut(target) else {
             return;
         };
         ev.set_value(value as i32);
@@ -2421,6 +2773,7 @@ impl ObjectState {
         self.string_param = ObjectStringParam::default();
         self.number_param = ObjectNumberParam::default();
         self.weather_param = ObjectWeatherParam::default();
+        self.weather_work = ObjectWeatherWorkState::default();
         self.thumb_save_no = -1;
 
         self.movie.reset();
@@ -2431,6 +2784,118 @@ impl ObjectState {
         self.mask_cache.clear();
         self.mesh_animation_state = crate::mesh3d::MeshAnimationState::default();
     }
+
+    fn weather_rand_percent(&mut self, base: i64, span: i64) -> i64 {
+        base + self.weather_work.rand_mod(span)
+    }
+
+    fn setup_weather_sub(&mut self, idx: usize, init_state: i64, screen_w: i64, screen_h: i64) {
+        if idx >= self.weather_work.sub.len() {
+            return;
+        }
+        let param = self.weather_param.clone();
+        let screen_w = screen_w.max(1);
+        let screen_h = screen_h.max(1);
+        let mut sub = ObjectWeatherWorkSub::default();
+        sub.state = init_state;
+
+        if param.weather_type == 1 {
+            sub.move_start_pos_x = self.weather_work.rand_mod(screen_w);
+            sub.move_start_pos_y = self.weather_work.rand_mod(screen_h);
+            sub.move_time_x = param.move_time_x * self.weather_rand_percent(90, 20) / 100;
+            sub.move_time_y = param.move_time_y * self.weather_rand_percent(90, 20) / 100;
+            sub.move_cur_time = self.weather_work.next_rand();
+            sub.sin_time_x = param.sin_time_x * self.weather_rand_percent(90, 20) / 100;
+            sub.sin_time_y = param.sin_time_y * self.weather_rand_percent(90, 20) / 100;
+            sub.sin_power_x = param.sin_power_x * self.weather_rand_percent(90, 20) / 100;
+            sub.sin_power_y = param.sin_power_y * self.weather_rand_percent(90, 20) / 100;
+            sub.sin_cur_time = self.weather_work.next_rand();
+            sub.scale_x = param.scale_x;
+            sub.scale_y = param.scale_y;
+            sub.active_time_len = param.active_time * self.weather_rand_percent(80, 40) / 100;
+            sub.state_time_len = if init_state == 0 {
+                self.weather_work.rand_mod(3000)
+            } else {
+                sub.active_time_len
+            };
+            sub.real_time_flag = param.real_time_flag;
+        } else if param.weather_type == 2 {
+            let max_distance_x = if param.center_x > screen_w / 2 {
+                param.center_x
+            } else {
+                screen_w - param.center_x
+            };
+            let max_distance_y = if param.center_y > screen_h / 2 {
+                param.center_y
+            } else {
+                screen_h - param.center_y
+            };
+            let max_distance =
+                (((max_distance_x * max_distance_x + max_distance_y * max_distance_y) as f64)
+                    .sqrt()) as i64;
+            sub.move_start_distance =
+                self.weather_work.rand_mod(max_distance.max(1)) * param.appear_range / 100;
+            sub.move_start_degree = self.weather_work.rand_mod(3600);
+            sub.move_time_x = param.move_time_x.abs() * self.weather_rand_percent(80, 40) / 100;
+            sub.move_time_y = param.move_time_y.abs() * self.weather_rand_percent(80, 40) / 100;
+            sub.sin_time_x = param.sin_time_x * self.weather_rand_percent(90, 20) / 100;
+            sub.sin_time_y = param.sin_time_y * self.weather_rand_percent(90, 20) / 100;
+            sub.sin_power_x = param.sin_power_x * self.weather_rand_percent(90, 20) / 100;
+            sub.sin_power_y = param.sin_power_y * self.weather_rand_percent(90, 20) / 100;
+            sub.sin_cur_time = self.weather_work.next_rand();
+            sub.center_rotate = param.center_rotate * self.weather_rand_percent(90, 20) / 100;
+            sub.zoom_min = param.zoom_min;
+            sub.zoom_max = param.zoom_max;
+            sub.scale_x = param.scale_x;
+            sub.scale_y = param.scale_y;
+            sub.active_time_len = param.move_time_x.abs() * max_distance / 1000 - 1000;
+            sub.state_time_len = if init_state == 0 {
+                self.weather_work
+                    .rand_mod((1000 + sub.active_time_len + 1000).max(1))
+            } else {
+                sub.active_time_len
+            };
+            sub.move_cur_time = if sub.state_time_len == 0 {
+                0
+            } else {
+                self.weather_work.rand_mod(sub.state_time_len.abs().max(1))
+            };
+            sub.real_time_flag = param.real_time_flag;
+        }
+        sub.restruct_flag = false;
+        self.weather_work.sub[idx] = sub;
+    }
+
+    pub fn weather_sprite_count(&self) -> usize {
+        match self.weather_param.weather_type {
+            1 => self.weather_work.cnt_max.saturating_mul(4),
+            2 => self.weather_work.cnt_max,
+            _ => 0,
+        }
+    }
+
+    pub fn restruct_weather_work(&mut self, screen_w: i64, screen_h: i64) {
+        if self.object_type != 4 {
+            return;
+        }
+        for sub in &mut self.weather_work.sub {
+            sub.restruct_flag = true;
+        }
+        let cnt = self.weather_param.cnt.max(0) as usize;
+        let old_cnt = self.weather_work.sub.len();
+        if cnt > old_cnt {
+            self.weather_work
+                .sub
+                .resize_with(cnt, ObjectWeatherWorkSub::default);
+            for idx in old_cnt..cnt {
+                self.setup_weather_sub(idx, 0, screen_w, screen_h);
+            }
+        }
+        if cnt > self.weather_work.cnt_max {
+            self.weather_work.cnt_max = cnt;
+        }
+    }
+
 
     pub fn init_param_like(&mut self) {
         self.base = ObjectBaseState::default();
@@ -3199,27 +3664,77 @@ impl ObjectState {
         }
     }
 
+
+    pub fn update_weather_time(
+        &mut self,
+        past_game_time: i32,
+        past_real_time: i32,
+        screen_w: i64,
+        screen_h: i64,
+    ) {
+        if self.object_type != 4 || !matches!(self.weather_param.weather_type, 1 | 2) {
+            return;
+        }
+        let cnt = self.weather_param.cnt.max(0) as usize;
+        let cnt_max = self.weather_work.cnt_max.min(self.weather_work.sub.len());
+        for idx in 0..cnt_max {
+            let mut setup_after_sleep = false;
+            {
+                let sub = &mut self.weather_work.sub[idx];
+                if idx >= cnt && sub.state == 0 {
+                    continue;
+                }
+                let past_time = if sub.real_time_flag {
+                    past_real_time.max(0) as i64
+                } else {
+                    past_game_time.max(0) as i64
+                };
+                sub.state_cur_time = sub.state_cur_time.saturating_add(past_time);
+                sub.move_cur_time = sub.move_cur_time.saturating_add(past_time);
+                sub.sin_cur_time = sub.sin_cur_time.saturating_add(past_time);
+
+                if (idx >= cnt || sub.restruct_flag)
+                    && sub.state == 2
+                    && sub.state_time_len - sub.state_cur_time >= 3000
+                {
+                    sub.state_cur_time = sub.state_time_len.saturating_sub(1500);
+                }
+
+                while sub.state_cur_time - sub.state_time_len > 0 {
+                    let amari_time = sub.state_cur_time - sub.state_time_len;
+                    sub.state = (sub.state + 1) % 4;
+                    if sub.state == 0 {
+                        if idx >= cnt {
+                            break;
+                        }
+                        setup_after_sleep = true;
+                        break;
+                    }
+                    if sub.state == 1 {
+                        sub.move_cur_time = amari_time;
+                    }
+                    sub.state_time_len = match sub.state {
+                        1 => 1000,
+                        2 => sub.active_time_len,
+                        3 => 1000,
+                        _ => sub.state_time_len,
+                    };
+                    sub.state_cur_time = amari_time;
+                }
+            }
+            if setup_after_sleep {
+                self.setup_weather_sub(idx, 1, screen_w, screen_h);
+            }
+        }
+    }
+
     pub fn any_event_active(&self) -> bool {
-        if self.runtime.prop_events.any_active() || self.runtime.prop_event_lists.any_active() {
-            return true;
-        }
-        if self
-            .runtime
-            .child_objects
-            .iter()
-            .any(|child| child.any_event_active())
-        {
-            return true;
-        }
-        false
+        self.runtime.prop_events.any_active() || self.runtime.prop_event_lists.any_active()
     }
 
     pub fn end_all_events(&mut self) {
         self.runtime.prop_events.end_all();
         self.runtime.prop_event_lists.end_all();
-        for child in &mut self.runtime.child_objects {
-            child.end_all_events();
-        }
     }
 
     pub fn event_target(
@@ -4066,6 +4581,7 @@ impl GlobalState {
         if self.change_display_mode_proc_cnt > 0 {
             self.change_display_mode_proc_cnt -= 1;
         }
+        self.mov.tick(past_real_time);
 
         if !self.script.counter_time_stop_flag {
             for counters in self.counter_lists.values_mut() {

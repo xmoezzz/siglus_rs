@@ -31,7 +31,7 @@ fn main() -> Result<()> {
             let running = vm.step()?;
             if !running || vm.is_halted() || vm.is_blocked() { break; }
         }
-        if vm.is_blocked() { vm.ctx.wait.notify_key(); }
+        if vm.is_blocked() { vm.ctx.notify_wait_key(); }
         vm.tick_frame()?;
         if frame % 25 == 0 || frame >= 395 && frame <= 430 {
             let mut visible = Vec::new();

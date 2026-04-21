@@ -7,7 +7,7 @@ use anyhow::Result;
 use std::path::{Path, PathBuf};
 
 use crate::image_manager::ImageId;
-use crate::layer::{SpriteFit, SpriteId, SpriteSizeMode};
+use crate::layer::{LayerId, SpriteFit, SpriteId, SpriteSizeMode};
 use crate::mesh3d::load_mesh_asset;
 use crate::runtime::constants;
 use crate::runtime::globals::{
@@ -36,6 +36,33 @@ fn is_stage_form_id(ctx: &CommandContext, form_id: i32) -> bool {
         || form_id == crate::runtime::constants::global_form::STAGE_DEFAULT as i32
         || form_id == crate::runtime::constants::global_form::STAGE_ALIAS_37 as i32
         || form_id == crate::runtime::constants::global_form::STAGE_ALIAS_38 as i32
+}
+
+fn mark_cgtable_look_from_object_create(
+    tables: &mut crate::runtime::tables::AssetTables,
+    disabled: bool,
+    name: &str,
+) {
+    if disabled {
+        return;
+    }
+    let flag_no = tables
+        .cgtable
+        .as_ref()
+        .and_then(|t| t.get_sub_from_name(name))
+        .map(|e| e.flag_no);
+    let Some(flag_no) = flag_no else {
+        return;
+    };
+    if flag_no < 0 {
+        return;
+    }
+    let idx = flag_no as usize;
+    let want = tables.cgtable_flag_cnt.unwrap_or(0).max(idx + 1);
+    if tables.cg_flags.len() < want {
+        tables.cg_flags.resize(want, 0);
+    }
+    tables.cg_flags[idx] = 1;
 }
 
 #[derive(Debug, Clone)]
@@ -74,6 +101,19 @@ fn load_thumb_image_id(ctx: &mut CommandContext, idx: i64) -> Option<ImageId> {
         }
     }
     None
+}
+
+fn insert_capture_image_id(ctx: &mut CommandContext, prefer_object_capture: bool) -> ImageId {
+    if prefer_object_capture {
+        if let Some(img) = ctx.globals.capture_for_object_image.clone() {
+            return ctx.images.insert_image(img);
+        }
+    }
+    if let Some(img) = ctx.globals.capture_image.clone() {
+        return ctx.images.insert_image(img);
+    }
+    let cap = ctx.capture_frame_rgba();
+    ctx.images.insert_image(cap)
 }
 
 fn parse_mwnd_selection_args(
@@ -288,6 +328,18 @@ enum IntEventDispatchAction {
     Wait { key_skip: bool },
 }
 
+fn apply_named_event_start(ev: &mut IntEvent, script_args: &[Value]) {
+    for arg in script_args {
+        if let Value::NamedArg { id: 0, value } = arg {
+            if let Some(v) = value.as_i64() {
+                let v = v as i32;
+                ev.set_value(v);
+                ev.cur_value = v;
+            }
+        }
+    }
+}
+
 fn dispatch_int_event_subop(
     ev: &mut IntEvent,
     subop: i32,
@@ -296,6 +348,7 @@ fn dispatch_int_event_subop(
 ) -> Option<IntEventDispatchAction> {
     match subop {
         int_event_op::SET | int_event_op::SET_REAL => {
+            apply_named_event_start(ev, script_args);
             if script_args.len() >= 4 {
                 let value = script_args.get(0).and_then(as_i64).unwrap_or(0) as i32;
                 let total_time = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
@@ -337,13 +390,6 @@ fn dispatch_int_event_subop(
         int_event_op::WAIT => Some(IntEventDispatchAction::Wait { key_skip: false }),
         int_event_op::WAIT_KEY => Some(IntEventDispatchAction::Wait { key_skip: true }),
         int_event_op::CHECK => Some(IntEventDispatchAction::Done),
-        int_event_op::GET_EVENT_VALUE => Some(IntEventDispatchAction::Done),
-        int_event_op::__SET => {
-            if let Some(v) = script_args.first().and_then(as_i64) {
-                ev.set_value(v as i32);
-            }
-            Some(IntEventDispatchAction::Done)
-        }
         _ => None,
     }
 }
@@ -753,6 +799,10 @@ fn object_clear_backend(
         ObjectBackend::Number {
             layer_id,
             ref sprite_ids,
+        }
+        | ObjectBackend::Weather {
+            layer_id,
+            ref sprite_ids,
         } => {
             if let Some(layer) = ctx.layers.layer_mut(layer_id) {
                 for &sid in sprite_ids {
@@ -815,7 +865,41 @@ fn bind_capture_backend(
     };
 }
 
+pub(crate) fn resolve_capture_file_path(project_dir: &Path, append_dir: &str, raw: &str) -> Option<PathBuf> {
+    let raw_path = Path::new(raw);
+    let mut candidates = Vec::new();
+    if raw_path.is_absolute() {
+        candidates.push(raw_path.to_path_buf());
+    } else {
+        candidates.push(project_dir.join(raw_path));
+        candidates.push(project_dir.join("savedata").join(raw_path));
+        candidates.push(project_dir.join("save").join(raw_path));
+        candidates.push(project_dir.join("dat").join(raw_path));
+        if !append_dir.is_empty() {
+            let append = Path::new(append_dir);
+            if append.is_absolute() {
+                candidates.push(append.join(raw_path));
+            } else {
+                candidates.push(project_dir.join(append).join(raw_path));
+            }
+        }
+    }
+    let mut expanded = Vec::new();
+    for base in candidates {
+        expanded.push(base.clone());
+        if base.extension().is_none() {
+            expanded.push(base.with_extension("png"));
+            expanded.push(base.with_extension("bmp"));
+            expanded.push(base.with_extension("jpg"));
+            expanded.push(base.with_extension("jpeg"));
+        }
+    }
+    expanded.into_iter().find(|p| p.is_file())
+}
+
+
 const TNM_SCALE_UNIT: i64 = 1000;
+const TNM_SCREEN_RATE: i64 = 1;
 const TNM_BTN_STATE_NORMAL: i64 = 0;
 const TNM_BTN_STATE_HIT: i64 = 1;
 const TNM_BTN_STATE_PUSH: i64 = 2;
@@ -845,6 +929,16 @@ fn positional_i64(pos: &[&Value], index: usize, default: i64) -> i64 {
 
 fn script_i64(args: &[Value], index: usize, default: i64) -> i64 {
     args.get(index).and_then(as_i64).unwrap_or(default)
+}
+
+fn object_event_list_default(ids: &crate::runtime::constants::RuntimeConstants, op: i32) -> i32 {
+    if (ids.obj_tr_rep != 0 && op == ids.obj_tr_rep)
+        || (ids.obj_tr_rep_eve != 0 && op == ids.obj_tr_rep_eve)
+    {
+        255
+    } else {
+        0
+    }
 }
 
 fn resolve_movie_path(project_dir: &Path, append_dir: &str, file_name: &str) -> Option<PathBuf> {
@@ -896,6 +990,91 @@ fn digits_most_significant(mut n: u64) -> Vec<i64> {
     }
     d.reverse();
     d
+}
+
+fn sample_image_component(ctx: &CommandContext, image_id: ImageId, x: i64, y: i64, channel: usize) -> i64 {
+    if x < 0 || y < 0 || channel >= 4 {
+        return 0;
+    }
+    let Some(img) = ctx.images.get(image_id) else {
+        return 0;
+    };
+    let xi = x as u32;
+    let yi = y as u32;
+    if xi >= img.width || yi >= img.height {
+        return 0;
+    }
+    let idx = ((yi * img.width + xi) * 4) as usize + channel;
+    img.rgba.get(idx).copied().unwrap_or(0) as i64
+}
+
+fn sample_sprite_component(
+    ctx: &CommandContext,
+    layer_id: LayerId,
+    sprite_id: SpriteId,
+    x: i64,
+    y: i64,
+    channel: usize,
+) -> i64 {
+    let Some(image_id) = ctx
+        .layers
+        .layer(layer_id)
+        .and_then(|layer| layer.sprite(sprite_id))
+        .and_then(|spr| spr.image_id)
+    else {
+        return 0;
+    };
+    sample_image_component(ctx, image_id, x, y, channel)
+}
+
+fn sample_object_pixel_component(
+    ctx: &mut CommandContext,
+    obj: &ObjectState,
+    stage_idx: i64,
+    obj_idx: usize,
+    x: i64,
+    y: i64,
+    cut_no: i64,
+    channel: usize,
+) -> i64 {
+    if x < 0 || y < 0 || cut_no < 0 {
+        return 0;
+    }
+
+    match &obj.backend {
+        ObjectBackend::Movie { image_id: Some(id), .. } if obj.object_type == 9 && cut_no == 0 => {
+            return sample_image_component(ctx, *id, x, y, channel);
+        }
+        ObjectBackend::Rect { layer_id, sprite_id, .. } if matches!(obj.object_type, 8 | 10 | 11) && cut_no == 0 => {
+            return sample_sprite_component(ctx, *layer_id, *sprite_id, x, y, channel);
+        }
+        _ => {}
+    }
+
+    if !matches!(obj.object_type, 2 | 5 | 8 | 9 | 10 | 11) {
+        return 0;
+    }
+
+    let file = obj
+        .file_name
+        .as_deref()
+        .map(str::to_string)
+        .or_else(|| ctx.gfx.object_peek_file(stage_idx, obj_idx as i64));
+    let Some(file) = file else {
+        return 0;
+    };
+
+    let Ok((path, _pct)) = crate::resource::find_g00_image_with_append_dir(
+        ctx.images.project_dir(),
+        &ctx.globals.append_dir,
+        &file,
+    ) else {
+        return 0;
+    };
+    let Ok(id) = ctx.images.load_file(&path, cut_no as usize) else {
+        return 0;
+    };
+    sample_image_component(ctx, id, x, y, channel)
 }
 
 fn update_number_backend(ctx: &mut CommandContext, obj: &mut ObjectState) {
@@ -1075,6 +1254,236 @@ fn string_layout(obj: &ObjectState) -> (u32, u32, u32) {
     (font_px, max_w, max_h)
 }
 
+fn duplicate_sprite_to_layer(
+    ctx: &mut CommandContext,
+    src_layer_id: LayerId,
+    src_sprite_id: SpriteId,
+    dst_layer_id: LayerId,
+) -> Option<SpriteId> {
+    let src_sprite = ctx
+        .layers
+        .layer(src_layer_id)
+        .and_then(|layer| layer.sprite(src_sprite_id))
+        .cloned()?;
+    let dst_sprite_id = {
+        let dst_layer = ctx.layers.layer_mut(dst_layer_id)?;
+        let sid = dst_layer.create_sprite();
+        if let Some(dst_sprite) = dst_layer.sprite_mut(sid) {
+            *dst_sprite = src_sprite;
+        }
+        sid
+    };
+    Some(dst_sprite_id)
+}
+
+fn duplicate_object_backend_for_copy(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    backend: &ObjectBackend,
+) -> ObjectBackend {
+    match backend {
+        ObjectBackend::Rect {
+            layer_id,
+            sprite_id,
+            width,
+            height,
+        } => {
+            let dst_layer_id = ensure_rect_layer(ctx, st, stage_idx);
+            duplicate_sprite_to_layer(ctx, *layer_id, *sprite_id, dst_layer_id)
+                .map(|sid| ObjectBackend::Rect {
+                    layer_id: dst_layer_id,
+                    sprite_id: sid,
+                    width: *width,
+                    height: *height,
+                })
+                .unwrap_or(ObjectBackend::None)
+        }
+        ObjectBackend::String {
+            layer_id,
+            sprite_id,
+            width,
+            height,
+        } => {
+            let dst_layer_id = ensure_rect_layer(ctx, st, stage_idx);
+            duplicate_sprite_to_layer(ctx, *layer_id, *sprite_id, dst_layer_id)
+                .map(|sid| ObjectBackend::String {
+                    layer_id: dst_layer_id,
+                    sprite_id: sid,
+                    width: *width,
+                    height: *height,
+                })
+                .unwrap_or(ObjectBackend::None)
+        }
+        ObjectBackend::Movie {
+            layer_id,
+            sprite_id,
+            image_id,
+            width,
+            height,
+        } => {
+            let dst_layer_id = ensure_rect_layer(ctx, st, stage_idx);
+            duplicate_sprite_to_layer(ctx, *layer_id, *sprite_id, dst_layer_id)
+                .map(|sid| ObjectBackend::Movie {
+                    layer_id: dst_layer_id,
+                    sprite_id: sid,
+                    image_id: *image_id,
+                    width: *width,
+                    height: *height,
+                })
+                .unwrap_or(ObjectBackend::None)
+        }
+        ObjectBackend::Number { layer_id, sprite_ids } => {
+            let dst_layer_id = ensure_rect_layer(ctx, st, stage_idx);
+            let mut copied = Vec::with_capacity(sprite_ids.len());
+            for sid in sprite_ids {
+                if let Some(new_sid) = duplicate_sprite_to_layer(ctx, *layer_id, *sid, dst_layer_id) {
+                    copied.push(new_sid);
+                }
+            }
+            ObjectBackend::Number {
+                layer_id: dst_layer_id,
+                sprite_ids: copied,
+            }
+        }
+        ObjectBackend::Weather { layer_id, sprite_ids } => {
+            let dst_layer_id = ensure_rect_layer(ctx, st, stage_idx);
+            let mut copied = Vec::with_capacity(sprite_ids.len());
+            for sid in sprite_ids {
+                if let Some(new_sid) = duplicate_sprite_to_layer(ctx, *layer_id, *sid, dst_layer_id) {
+                    copied.push(new_sid);
+                }
+            }
+            ObjectBackend::Weather {
+                layer_id: dst_layer_id,
+                sprite_ids: copied,
+            }
+        }
+        ObjectBackend::Gfx | ObjectBackend::None => ObjectBackend::None,
+    }
+}
+
+fn sync_special_gfx_sprite_for_object(
+    ctx: &mut CommandContext,
+    stage_idx: i64,
+    obj_slot: usize,
+    obj: &ObjectState,
+) {
+    let Some((lid, sid)) = ctx.gfx.object_sprite_binding(stage_idx, obj_slot as i64) else {
+        return;
+    };
+    let Some(layer) = ctx.layers.layer_mut(lid) else {
+        return;
+    };
+    let Some(sprite) = layer.sprite_mut(sid) else {
+        return;
+    };
+
+    match obj.object_type {
+        6 => {
+            // Original CREATE_MESH restructures a mesh object from the object's file path.
+            // The WGPU path consumes mesh_file_name/mesh_kind instead of a plain image id.
+            sprite.image_id = None;
+            sprite.billboard = false;
+            sprite.mesh_file_name = obj.file_name.clone();
+            sprite.mesh_kind = 1;
+            sprite.shadow_cast = true;
+            sprite.shadow_receive = true;
+            sprite.camera_enabled = true;
+        }
+        7 => {
+            // Original CREATE_BILLBOARD creates a 3D camera-facing PCT/album sprite, not a mesh.
+            sprite.billboard = true;
+            sprite.mesh_file_name = None;
+            sprite.mesh_kind = 0;
+            sprite.shadow_cast = false;
+            sprite.shadow_receive = false;
+            sprite.camera_enabled = true;
+        }
+        _ => {}
+    }
+}
+
+fn object_clear_backend_recursive(
+    ctx: &mut CommandContext,
+    obj: &mut ObjectState,
+    stage_idx: i64,
+    obj_idx: usize,
+) {
+    object_clear_backend(ctx, obj, stage_idx, obj_idx);
+    for child in &mut obj.runtime.child_objects {
+        if let Some(slot) = child.nested_runtime_slot {
+            object_clear_backend_recursive(ctx, child, stage_idx, slot);
+        } else if !matches!(child.backend, ObjectBackend::Gfx) {
+            object_clear_backend_recursive(ctx, child, stage_idx, obj_idx);
+        }
+    }
+}
+
+fn assign_copy_runtime_slots(
+    st: &mut StageFormState,
+    stage_idx: i64,
+    obj: &mut ObjectState,
+    fixed_root_slot: Option<usize>,
+) {
+    obj.nested_runtime_slot = fixed_root_slot;
+    for child in &mut obj.runtime.child_objects {
+        child.nested_runtime_slot = None;
+        nested_object_slot(st, stage_idx, child);
+        let child_slot = child.nested_runtime_slot;
+        assign_copy_runtime_slots(st, stage_idx, child, child_slot);
+    }
+}
+
+fn duplicate_object_tree_backends_for_copy(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    obj: &mut ObjectState,
+    obj_slot: usize,
+) {
+    let src_backend = obj.backend.clone();
+    let src_file = obj.file_name.clone();
+    obj.backend = match src_backend {
+        ObjectBackend::Gfx => {
+            if let Some(file) = src_file.clone() {
+                let disp = obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp) != 0;
+                let x = obj.get_int_prop(&ctx.ids, ctx.ids.obj_x);
+                let y = obj.get_int_prop(&ctx.ids, ctx.ids.obj_y);
+                let pat = obj.get_int_prop(&ctx.ids, ctx.ids.obj_patno);
+                {
+                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                    let _ = gfx.object_create(
+                        images,
+                        layers,
+                        stage_idx,
+                        obj_slot as i64,
+                        &file,
+                        disp as i64,
+                        x,
+                        y,
+                        pat,
+                    );
+                }
+                sync_special_gfx_sprite_for_object(ctx, stage_idx, obj_slot, obj);
+                ObjectBackend::Gfx
+            } else {
+                ObjectBackend::None
+            }
+        }
+        other => duplicate_object_backend_for_copy(ctx, st, stage_idx, &other),
+    };
+    if obj.file_name.is_none() {
+        obj.file_name = src_file;
+    }
+
+    for child in &mut obj.runtime.child_objects {
+        if let Some(slot) = child.nested_runtime_slot {
+            duplicate_object_tree_backends_for_copy(ctx, st, stage_idx, child, slot);
+        }
+    }
+}
+
 fn update_string_backend(
     ctx: &mut CommandContext,
     st: &mut StageFormState,
@@ -1158,7 +1567,7 @@ fn resolve_object_op(ids: &constants::RuntimeConstants, op: i32) -> ObjectOpKind
     if op == constants::OBJECT_CREATE_RECT {
         return ObjectOpKind::CreateRect;
     }
-    if ids.obj_set_string != 0 && op == ids.obj_set_string {
+    if op == constants::elm_value::OBJECT_CREATE_STRING {
         return ObjectOpKind::CreateString;
     }
     if ids.obj_set_pos != 0 && op == ids.obj_set_pos {
@@ -1212,6 +1621,105 @@ impl Drop for ObjectWriteBack {
     }
 }
 
+fn clone_object_from_element_for_child_ref(
+    ctx: &CommandContext,
+    st: &StageFormState,
+    current_stage: i64,
+    current_obj_idx: usize,
+    current_obj: &ObjectState,
+    element: &[i32],
+) -> Option<ObjectState> {
+    let stage_object = if ctx.ids.stage_elm_object != 0 {
+        ctx.ids.stage_elm_object
+    } else {
+        crate::runtime::forms::codes::STAGE_ELM_OBJECT
+    };
+    match parse_target(ctx, element)? {
+        StageTarget::ChildItemRef { stage, child, idx } if child == stage_object && idx >= 0 => {
+            st.object_lists
+                .get(&stage)
+                .and_then(|list| list.get(idx as usize))
+                .cloned()
+        }
+        StageTarget::ChildItemOp {
+            stage,
+            child,
+            idx,
+            op,
+            tail,
+        } if child == stage_object && idx >= 0 => {
+            if op as i32 == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
+                && tail.len() == 2
+                && (tail[0] == -1 || tail[0] == ctx.ids.elm_array)
+            {
+                let child_idx = tail[1].max(0) as usize;
+                if stage == current_stage && idx as usize == current_obj_idx {
+                    current_obj.runtime.child_objects.get(child_idx).cloned()
+                } else {
+                    st.object_lists
+                        .get(&stage)
+                        .and_then(|list| list.get(idx as usize))
+                        .and_then(|obj| obj.runtime.child_objects.get(child_idx))
+                        .cloned()
+                }
+            } else if tail.is_empty() {
+                st.object_lists
+                    .get(&stage)
+                    .and_then(|list| list.get(idx as usize))
+                    .cloned()
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
+
+fn clone_object_from_element_for_create_copy(
+    ctx: &CommandContext,
+    st: &StageFormState,
+    element: &[i32],
+) -> Option<ObjectState> {
+    let stage_object = if ctx.ids.stage_elm_object != 0 {
+        ctx.ids.stage_elm_object
+    } else {
+        crate::runtime::forms::codes::STAGE_ELM_OBJECT
+    };
+    match parse_target(ctx, element)? {
+        StageTarget::ChildItemRef { stage, child, idx } if child == stage_object && idx >= 0 => {
+            st.object_lists
+                .get(&stage)
+                .and_then(|list| list.get(idx as usize))
+                .cloned()
+        }
+        StageTarget::ChildItemOp { stage, child, idx, op, tail }
+            if child == stage_object && idx >= 0 =>
+        {
+            if tail.is_empty() {
+                return st
+                    .object_lists
+                    .get(&stage)
+                    .and_then(|list| list.get(idx as usize))
+                    .cloned();
+            }
+            if op as i32 == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
+                && tail.len() == 2
+                && (tail[0] == -1 || tail[0] == ctx.ids.elm_array)
+            {
+                let child_idx = tail[1].max(0) as usize;
+                return st
+                    .object_lists
+                    .get(&stage)
+                    .and_then(|list| list.get(idx as usize))
+                    .and_then(|obj| obj.runtime.child_objects.get(child_idx))
+                    .cloned();
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
 fn dispatch_object_op(
     ctx: &mut CommandContext,
     st: &mut StageFormState,
@@ -1254,22 +1762,15 @@ fn dispatch_object_op(
     }
 
     // We avoid sharing backend resources (sprites) across objects.
-    let mut copy_from_snapshot: Option<(i64, usize, ObjectState)> = None;
-    if rhs.is_none() && ret_form == Some(0) && script_args.len() == 1 {
+    let mut copy_from_snapshot: Option<ObjectState> = None;
+    if ctx.ids.obj_create_copy_from != 0
+        && op == ctx.ids.obj_create_copy_from
+        && rhs.is_none()
+        && ret_form == Some(0)
+        && script_args.len() == 1
+    {
         if let Value::Element(e) = &script_args[0] {
-            if let Some(StageTarget::ChildItemOp {
-                stage, child, idx, ..
-            }) = parse_target(ctx, e)
-            {
-                if child == ctx.ids.stage_elm_object && idx >= 0 {
-                    let src_u = idx as usize;
-                    if let Some(src_list) = st.object_lists.get(&stage) {
-                        if let Some(src_obj) = src_list.get(src_u) {
-                            copy_from_snapshot = Some((stage, src_u, src_obj.clone()));
-                        }
-                    }
-                }
-            }
+            copy_from_snapshot = clone_object_from_element_for_create_copy(ctx, st, e);
         }
     }
 
@@ -1284,6 +1785,7 @@ fn dispatch_object_op(
         obj: obj0,
     };
     let obj = &mut obj_write_back.obj;
+    let obj_runtime_slot = obj.runtime_slot_or(obj_u);
 
     fn split_frame_action_chain(
         ctx: &CommandContext,
@@ -1416,47 +1918,17 @@ fn dispatch_object_op(
         }
     }
 
-    if let Some((src_stage, src_idx, mut src)) = copy_from_snapshot.take() {
-        // Reset destination.
-        object_clear_backend(ctx, obj, stage_idx, obj_u);
-        let src_file = src.file_name.clone();
-        src.backend = ObjectBackend::None;
-        if let Some(file) = src.file_name.clone() {
-            let disp = ctx
-                .gfx
-                .object_peek_disp(src_stage, src_idx as i64)
-                .unwrap_or(0)
-                != 0;
-            let (x, y) = ctx
-                .gfx
-                .object_peek_pos(src_stage, src_idx as i64)
-                .unwrap_or((0, 0));
-            let pat = ctx
-                .gfx
-                .object_peek_patno(src_stage, src_idx as i64)
-                .unwrap_or(0);
-            {
-                let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-                let _ = gfx.object_create(
-                    images,
-                    layers,
-                    stage_idx,
-                    obj_u as i64,
-                    &file,
-                    disp as i64,
-                    x,
-                    y,
-                    pat,
-                );
-            }
-            src.backend = ObjectBackend::Gfx;
-        }
-        // Preserve file name even if gfx binding fails.
-        if src.file_name.is_none() {
-            src.file_name = src_file;
-        }
+    if let Some(mut src) = copy_from_snapshot.take() {
+        // Original C++ does p_obj->reinit(true) before p_obj->copy(src, false).
+        // Clear the destination tree first, then copy source state and rebuild all
+        // renderer-side resources for the destination object tree.
+        let dst_runtime_slot = obj.nested_runtime_slot;
+        object_clear_backend_recursive(ctx, obj, stage_idx, obj_u);
+        assign_copy_runtime_slots(st, stage_idx, &mut src, dst_runtime_slot);
+        let root_slot = dst_runtime_slot.unwrap_or(obj_u);
+        duplicate_object_tree_backends_for_copy(ctx, st, stage_idx, &mut src, root_slot);
+        src.used = true;
         *obj = src;
-        obj.used = true;
         push_ok(ctx, ret_form);
         return true;
     }
@@ -1522,7 +1994,62 @@ fn dispatch_object_op(
         if !obj.has_int_prop(ctx.ids.obj_disp) {
             obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
         }
-        if tail.len() >= 3 && tail[0] == -1 {
+        if tail.len() == 2 && (tail[0] == -1 || tail[0] == ctx.ids.elm_array) {
+            let child_idx = tail[1].max(0) as usize;
+            if obj.runtime.child_objects.len() <= child_idx {
+                obj.runtime
+                    .child_objects
+                    .resize_with(child_idx + 1, ObjectState::default);
+            }
+            let slot = nested_object_slot(st, stage_idx, &mut obj.runtime.child_objects[child_idx]);
+            if !obj.runtime.child_objects[child_idx].has_int_prop(ctx.ids.obj_disp) {
+                obj.runtime.child_objects[child_idx].set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
+            }
+            obj.runtime.child_objects[child_idx].used = true;
+
+            let mut element_chain = ctx
+                .globals
+                .current_object_chain
+                .clone()
+                .unwrap_or_else(|| {
+                    vec![
+                        ctx.ids.form_global_stage as i32,
+                        ctx.ids.elm_array,
+                        stage_idx as i32,
+                        ctx.ids.stage_elm_object,
+                        ctx.ids.elm_array,
+                        obj_u as i32,
+                    ]
+                });
+            element_chain.push(crate::runtime::forms::codes::elm_value::OBJECT_CHILD);
+            element_chain.push(ctx.ids.elm_array);
+            element_chain.push(child_idx as i32);
+
+            ctx.globals.current_object_chain = Some(element_chain.clone());
+            ctx.globals.current_stage_object = Some((stage_idx, slot));
+
+            if al_id == Some(1) {
+                if let Some(Value::Element(src_element)) = rhs.or_else(|| script_args.first()) {
+                    if let Some(src_obj) = clone_object_from_element_for_child_ref(
+                        ctx,
+                        st,
+                        stage_idx,
+                        obj_u,
+                        obj,
+                        src_element,
+                    ) {
+                        let mut copied = src_obj;
+                        copied.nested_runtime_slot = Some(slot);
+                        obj.runtime.child_objects[child_idx] = copied;
+                    }
+                }
+                push_ok(ctx, ret_form);
+            } else {
+                ctx.stack.push(Value::Element(element_chain));
+            }
+            return true;
+        }
+        if tail.len() >= 3 && (tail[0] == -1 || tail[0] == ctx.ids.elm_array || tail[0] == super::codes::ELM_ARRAY) {
             let child_idx = tail[1].max(0) as usize;
             let slot = {
                 let list = &mut obj.runtime.child_objects;
@@ -1618,7 +2145,7 @@ fn dispatch_object_op(
             }
             let ri = rep_idx as usize;
             if rep_list.len() <= ri {
-                rep_list.resize_with(ri + 1, || IntEvent::new(0));
+                rep_list.resize_with(ri + 1, || IntEvent::new(object_event_list_default(&ctx.ids, op)));
             }
             let ev = &mut rep_list[ri];
             if t.is_empty() {
@@ -1636,9 +2163,6 @@ fn dispatch_object_op(
                         ctx.stack
                             .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
                     }
-                    int_event_op::GET_EVENT_VALUE => {
-                        ctx.stack.push(Value::Int(ev.get_total_value() as i64));
-                    }
                     _ => match action {
                         IntEventDispatchAction::Done => ctx.stack.push(Value::Int(0)),
                         IntEventDispatchAction::Wait { key_skip } => {
@@ -1646,13 +2170,18 @@ fn dispatch_object_op(
                                 ctx.wait.wait_object_event_list(
                                     ctx.ids.form_global_stage,
                                     stage_idx,
-                                    obj_u,
+                                    obj_runtime_slot,
                                     op,
                                     ri,
                                     key_skip,
+                                    key_skip,
                                 );
+                                if !key_skip {
+                                    push_ok(ctx, ret_form);
+                                }
+                            } else {
+                                push_ok(ctx, ret_form);
                             }
-                            push_ok(ctx, ret_form);
                         }
                     },
                 }
@@ -1662,7 +2191,7 @@ fn dispatch_object_op(
             match t[0] {
                 int_event_list_op::RESIZE => {
                     let n = script_args.first().and_then(as_i64).unwrap_or(0).max(0) as usize;
-                    rep_list.resize_with(n, || IntEvent::new(0));
+                    rep_list.resize_with(n, || IntEvent::new(object_event_list_default(&ctx.ids, op)));
                     ctx.stack.push(Value::Int(0));
                     return true;
                 }
@@ -1681,7 +2210,7 @@ fn dispatch_object_op(
             for idx in start.min(end)..=start.max(end) {
                 let ui = idx.max(0) as usize;
                 if rep_list.len() <= ui {
-                    rep_list.resize_with(ui + 1, || IntEvent::new(0));
+                    rep_list.resize_with(ui + 1, || IntEvent::new(object_event_list_default(&ctx.ids, op)));
                 }
                 rep_list[ui].set_value(value);
             }
@@ -1737,7 +2266,7 @@ fn dispatch_object_op(
             if let Some(n0) = script_args.first().and_then(as_i64) {
                 let n = n0.max(0) as usize;
                 if let Some(list) = obj.int_event_list_by_op_mut(&ctx.ids, op) {
-                    list.resize_with(n, || IntEvent::new(0));
+                    list.resize_with(n, || IntEvent::new(object_event_list_default(&ctx.ids, op)));
                 }
             }
             ctx.stack.push(Value::Int(0));
@@ -1754,7 +2283,7 @@ fn dispatch_object_op(
             if is_obj_int_event_list {
                 let ent = obj.int_event_list_by_op_mut(&ctx.ids, op).unwrap();
                 if ent.len() <= ri {
-                    ent.resize_with(ri + 1, || IntEvent::new(0));
+                    ent.resize_with(ri + 1, || IntEvent::new(object_event_list_default(&ctx.ids, op)));
                 }
                 let ev = &mut ent[ri];
                 if t.is_empty() {
@@ -1772,9 +2301,6 @@ fn dispatch_object_op(
                             ctx.stack
                                 .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
                         }
-                        int_event_op::GET_EVENT_VALUE => {
-                            ctx.stack.push(Value::Int(ev.get_total_value() as i64));
-                        }
                         _ => match action {
                             IntEventDispatchAction::Done => ctx.stack.push(Value::Int(0)),
                             IntEventDispatchAction::Wait { key_skip } => {
@@ -1782,13 +2308,18 @@ fn dispatch_object_op(
                                     ctx.wait.wait_object_event_list(
                                         ctx.ids.form_global_stage,
                                         stage_idx,
-                                        obj_u,
+                                        obj_runtime_slot,
                                         op,
                                         ri,
                                         key_skip,
+                                        key_skip,
                                     );
+                                    if !key_skip {
+                                        push_ok(ctx, ret_form);
+                                    }
+                                } else {
+                                    push_ok(ctx, ret_form);
                                 }
-                                push_ok(ctx, ret_form);
                             }
                         },
                     }
@@ -1834,9 +2365,6 @@ fn dispatch_object_op(
                         ctx.stack
                             .push(Value::Int(if ev.check_event() { 1 } else { 0 }));
                     }
-                    int_event_op::GET_EVENT_VALUE => {
-                        ctx.stack.push(Value::Int(ev.get_total_value() as i64));
-                    }
                     _ => match action {
                         IntEventDispatchAction::Done => ctx.stack.push(Value::Int(0)),
                         IntEventDispatchAction::Wait { key_skip } => {
@@ -1844,12 +2372,17 @@ fn dispatch_object_op(
                                 ctx.wait.wait_object_event(
                                     ctx.ids.form_global_stage,
                                     stage_idx,
-                                    obj_u,
+                                    obj_runtime_slot,
                                     op,
                                     key_skip,
+                                    key_skip,
                                 );
+                                if !key_skip {
+                                    push_ok(ctx, ret_form);
+                                }
+                            } else {
+                                push_ok(ctx, ret_form);
                             }
-                            push_ok(ctx, ret_form);
                         }
                     },
                 }
@@ -1871,7 +2404,7 @@ fn dispatch_object_op(
         if sub == ctx.ids.elm_allevent_wait {
             if obj.any_event_active() {
                 ctx.wait
-                    .wait_object_all_events(ctx.ids.form_global_stage, stage_idx, obj_u, false);
+                    .wait_object_all_events(ctx.ids.form_global_stage, stage_idx, obj_runtime_slot, false);
             }
             push_ok(ctx, ret_form);
             return true;
@@ -1916,6 +2449,36 @@ fn dispatch_object_op(
         ctx.stack.push(Value::Str(s));
         return true;
     }
+    if ctx.ids.obj_exist_type != 0 && op == ctx.ids.obj_exist_type {
+        ctx.stack.push(Value::Int(if obj.object_type == 0 { 0 } else { 1 }));
+        return true;
+    }
+
+    if op == constants::elm_value::OBJECT_GET_TYPE {
+        ctx.stack.push(Value::Int(obj.object_type));
+        return true;
+    }
+
+    if op == constants::elm_value::OBJECT_GET_ELEMENT_NAME {
+        ctx.stack.push(Value::Str(format!("stage[{}].object[{}]", stage_idx, obj_u)));
+        return true;
+    }
+
+    if op == constants::elm_value::OBJECT_CLEAR_HINTS
+        || op == constants::elm_value::OBJECT_ADD_HINTS
+    {
+        if op == constants::elm_value::OBJECT_CLEAR_HINTS {
+            obj.base.no_event_hint = false;
+        }
+        let (_pos, named) = split_pos_named(script_args);
+        for (id, v) in named {
+            if id == 0 {
+                obj.base.no_event_hint = v.as_i64().unwrap_or(0) != 0;
+            }
+        }
+        push_ok(ctx, ret_form);
+        return true;
+    }
 
     if op == ctx.ids.obj_create {
         let Some(file) = script_args.get(0).and_then(as_str) else {
@@ -1953,9 +2516,9 @@ fn dispatch_object_op(
         object_clear_backend(ctx, obj, stage_idx, obj_u);
         obj.init_param_like();
 
-        {
+        let create_result = {
             let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-            let _ = gfx.object_create(
+            gfx.object_create(
                 images,
                 layers,
                 stage_idx,
@@ -1965,7 +2528,12 @@ fn dispatch_object_op(
                 x,
                 y,
                 patno,
-            );
+            )
+        };
+        if let Err(err) = create_result {
+            ctx.unknown.record_note(&format!(
+                "OBJECT.CREATE.image.failed:stage={stage_idx}:slot={obj_u}:file={file}:patno={patno}:{err}"
+            ));
         }
         obj.used = true;
         obj.backend = ObjectBackend::Gfx;
@@ -1975,6 +2543,7 @@ fn dispatch_object_op(
         obj.number_param = Default::default();
         obj.file_name = Some(file.to_string());
         obj.string_value = None;
+        mark_cgtable_look_from_object_create(&mut ctx.tables, ctx.globals.cg_table_off, file);
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp { 1 } else { 0 });
         if ctx.ids.obj_x != 0 {
             obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
@@ -2248,8 +2817,15 @@ fn dispatch_object_op(
         if let Some(v) = set_v {
             match obj.backend {
                 ObjectBackend::Gfx => {
-                    let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-                    let _ = gfx.object_set_pat_no(images, layers, stage_idx, obj_u as i64, v);
+                    let pat_result = {
+                        let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
+                        gfx.object_set_pat_no(images, layers, stage_idx, obj_u as i64, v)
+                    };
+                    if let Err(err) = pat_result {
+                        ctx.unknown.record_note(&format!(
+                            "OBJECT.PATNO.image.failed:stage={stage_idx}:slot={obj_u}:patno={v}:{err}"
+                        ));
+                    }
                 }
                 ObjectBackend::Number { .. } => {
                     obj.set_int_prop(&ctx.ids, op, v);
@@ -2461,6 +3037,7 @@ fn dispatch_object_op(
         };
         // CHANGE_FILE does not reinit; it swaps the underlying file.
         obj.file_name = Some(name.to_string());
+        mark_cgtable_look_from_object_create(&mut ctx.tables, ctx.globals.cg_table_off, name);
         if matches!(obj.backend, ObjectBackend::Gfx) {
             let disp = ctx
                 .gfx
@@ -2697,15 +3274,44 @@ fn dispatch_object_op(
         obj.used = true;
         obj.object_type = 4;
         obj.file_name = Some(file.to_string());
+        obj.string_value = None;
+        obj.number_value = 0;
+        obj.string_param = Default::default();
+        obj.number_param = Default::default();
         obj.weather_param = Default::default();
+        obj.weather_work = Default::default();
         obj.movie.reset();
+        obj.emote = Default::default();
+        obj.gan_file = None;
         obj.init_param_like();
         obj.mesh_animation_state = crate::mesh3d::MeshAnimationState::default();
-        {
-            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-            let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, 1, 0, 0, 0);
+
+        let layer_id = ensure_rect_layer(ctx, st, stage_idx);
+        obj.backend = ObjectBackend::Weather {
+            layer_id,
+            sprite_ids: Vec::new(),
+        };
+
+        let argc = pos.len();
+        let disp_i = if overload_at_least(al_id, argc, 1, 2) {
+            positional_i64(&pos, 1, 0)
+        } else {
+            0
+        };
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+        if overload_at_least(al_id, argc, 2, 4) {
+            if ctx.ids.obj_x != 0 {
+                obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, positional_i64(&pos, 2, 0));
+            }
+            if ctx.ids.obj_y != 0 {
+                obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, positional_i64(&pos, 3, 0));
+            }
         }
-        obj.backend = ObjectBackend::Gfx;
+        if ctx.ids.obj_patno != 0 {
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_patno, 0);
+        }
+
+        obj.restruct_weather_work(ctx.screen_w as i64, ctx.screen_h as i64);
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2716,32 +3322,54 @@ fn dispatch_object_op(
             push_ok(ctx, ret_form);
             return true;
         };
+        let argc = pos.len();
+        let disp_i = if overload_at_least(al_id, argc, 1, 2) {
+            positional_i64(&pos, 1, 0)
+        } else {
+            0
+        };
+        let x = if overload_at_least(al_id, argc, 2, 4) {
+            positional_i64(&pos, 2, 0)
+        } else {
+            0
+        };
+        let y = if overload_at_least(al_id, argc, 2, 4) {
+            positional_i64(&pos, 3, 0)
+        } else {
+            0
+        };
+
+        if obj.object_type == 6 && obj.file_name.as_deref() == Some(file) {
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
+            push_ok(ctx, ret_form);
+            return true;
+        }
+
         object_clear_backend(ctx, obj, stage_idx, obj_u);
         obj.used = true;
         obj.object_type = 6;
         obj.file_name = Some(file.to_string());
         obj.movie.reset();
+        obj.emote = Default::default();
+        obj.gan_file = None;
         obj.init_param_like();
         obj.mesh_animation_state = crate::mesh3d::MeshAnimationState::default();
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_patno, 0);
+
+        if let Err(e) = load_mesh_asset(&ctx.project_dir, ctx.images.current_append_dir(), file) {
+            ctx.unknown
+                .record_note(&format!("object.create_mesh.asset.failed:{file}:{e}"));
+        }
         {
             let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-            let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, 1, 0, 0, 0);
+            let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, disp_i, x, y, 0);
         }
-        if let Ok(asset) = load_mesh_asset(&ctx.project_dir, ctx.images.current_append_dir(), file)
-        {
-            if let Some(tex_path) = asset.texture_path.as_ref() {
-                if let Ok(tex_id) = ctx.images.load_file(tex_path, 0) {
-                    if let Some((lid, sid)) = ctx.gfx.object_sprite_binding(stage_idx, obj_u as i64)
-                    {
-                        if let Some(layer) = ctx.layers.layer_mut(lid) {
-                            if let Some(sprite) = layer.sprite_mut(sid) {
-                                sprite.image_id = Some(tex_id);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        sync_special_gfx_sprite_for_object(ctx, stage_idx, obj_u, obj);
         obj.backend = ObjectBackend::Gfx;
         push_ok(ctx, ret_form);
         return true;
@@ -2753,32 +3381,49 @@ fn dispatch_object_op(
             push_ok(ctx, ret_form);
             return true;
         };
+        let argc = pos.len();
+        let disp_i = if overload_at_least(al_id, argc, 1, 2) {
+            positional_i64(&pos, 1, 0)
+        } else {
+            0
+        };
+        let x = if overload_at_least(al_id, argc, 2, 4) {
+            positional_i64(&pos, 2, 0)
+        } else {
+            0
+        };
+        let y = if overload_at_least(al_id, argc, 2, 4) {
+            positional_i64(&pos, 3, 0)
+        } else {
+            0
+        };
+
+        if obj.object_type == 7 && obj.file_name.as_deref() == Some(file) {
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
+            push_ok(ctx, ret_form);
+            return true;
+        }
+
         object_clear_backend(ctx, obj, stage_idx, obj_u);
         obj.used = true;
         obj.object_type = 7;
         obj.file_name = Some(file.to_string());
         obj.movie.reset();
+        obj.emote = Default::default();
+        obj.gan_file = None;
         obj.init_param_like();
         obj.mesh_animation_state = crate::mesh3d::MeshAnimationState::default();
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_patno, 0);
         {
             let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-            let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, 1, 0, 0, 0);
+            let _ = gfx.object_create(images, layers, stage_idx, obj_u as i64, file, disp_i, x, y, 0);
         }
-        if let Ok(asset) = load_mesh_asset(&ctx.project_dir, ctx.images.current_append_dir(), file)
-        {
-            if let Some(tex_path) = asset.texture_path.as_ref() {
-                if let Ok(tex_id) = ctx.images.load_file(tex_path, 0) {
-                    if let Some((lid, sid)) = ctx.gfx.object_sprite_binding(stage_idx, obj_u as i64)
-                    {
-                        if let Some(layer) = ctx.layers.layer_mut(lid) {
-                            if let Some(sprite) = layer.sprite_mut(sid) {
-                                sprite.image_id = Some(tex_id);
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        sync_special_gfx_sprite_for_object(ctx, stage_idx, obj_u, obj);
         obj.backend = ObjectBackend::Gfx;
         push_ok(ctx, ret_form);
         return true;
@@ -2817,12 +3462,14 @@ fn dispatch_object_op(
                 );
             }
         }
-        if let Some(img_id) = load_thumb_image_id(ctx, save_no) {
-            bind_capture_backend(ctx, obj, stage_idx, img_id);
+        let img_id = if let Some(img_id) = load_thumb_image_id(ctx, save_no) {
+            img_id
         } else {
             ctx.unknown
                 .record_note(&format!("save_thumb.image.missing:{save_no}"));
-        }
+            insert_capture_image_id(ctx, true)
+        };
+        bind_capture_backend(ctx, obj, stage_idx, img_id);
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2860,12 +3507,14 @@ fn dispatch_object_op(
                 );
             }
         }
-        if let Some(img_id) = load_thumb_image_id(ctx, thumb_no) {
-            bind_capture_backend(ctx, obj, stage_idx, img_id);
+        let img_id = if let Some(img_id) = load_thumb_image_id(ctx, thumb_no) {
+            img_id
         } else {
             ctx.unknown
                 .record_note(&format!("thumb.image.missing:{thumb_no}"));
-        }
+            insert_capture_image_id(ctx, true)
+        };
+        bind_capture_backend(ctx, obj, stage_idx, img_id);
         push_ok(ctx, ret_form);
         return true;
     }
@@ -2901,8 +3550,30 @@ fn dispatch_object_op(
                 );
             }
         }
-        let cap = ctx.capture_frame_rgba();
-        let img_id = ctx.images.insert_image(cap);
+        let img_id = insert_capture_image_id(ctx, true);
+        bind_capture_backend(ctx, obj, stage_idx, img_id);
+        push_ok(ctx, ret_form);
+        return true;
+    }
+
+    if op == constants::elm_value::OBJECT_CREATE_FROM_CAPTURE_FILE {
+        let (pos, _named) = split_pos_named(script_args);
+        let Some(file) = pos.get(0).and_then(|v| v.as_str()) else {
+            panic!("OBJECT.CREATE_FROM_CAPTURE_FILE requires file name");
+        };
+        let Some(path) = resolve_capture_file_path(&ctx.project_dir, &ctx.globals.append_dir, file) else {
+            panic!("OBJECT.CREATE_FROM_CAPTURE_FILE cannot resolve file: {file}");
+        };
+        object_clear_backend(ctx, obj, stage_idx, obj_u);
+        obj.used = true;
+        obj.object_type = 10;
+        obj.file_name = Some(file.to_string());
+        obj.movie.reset();
+        obj.init_param_like();
+        let img_id = ctx
+            .images
+            .load_file(&path, 0)
+            .unwrap_or_else(|e| panic!("OBJECT.CREATE_FROM_CAPTURE_FILE failed to load {}: {e}", path.display()));
         bind_capture_backend(ctx, obj, stage_idx, img_id);
         push_ok(ctx, ret_form);
         return true;
@@ -2958,8 +3629,22 @@ fn dispatch_object_op(
             obj.button.clear();
             obj.clear_runtime_only();
 
-            let total_ms = resolve_movie_path(&ctx.project_dir, &ctx.globals.append_dir, file)
-                .and_then(|_| movie_total_time_ms(ctx, file));
+            let movie_path = resolve_movie_path(&ctx.project_dir, &ctx.globals.append_dir, file);
+            let total_ms = movie_path.as_ref().and_then(|_| movie_total_time_ms(ctx, file));
+            sg_debug_stage(format!(
+                "CREATE_MOVIE stage={} obj={} file={} resolved={:?} loop={} wait={} key_skip={} auto_free={} real_time={} ready_only={} total_ms={:?}",
+                stage_idx,
+                obj_u,
+                file,
+                movie_path,
+                loop_flag,
+                wait_flag,
+                key_skip_flag,
+                auto_free_flag,
+                real_time_flag,
+                ready_only_flag,
+                total_ms
+            ));
             obj.movie.start(
                 total_ms,
                 loop_flag,
@@ -2998,7 +3683,7 @@ fn dispatch_object_op(
                 ctx.wait.wait_object_movie(
                     ctx.ids.form_global_stage,
                     stage_idx,
-                    obj_u,
+                    obj_runtime_slot,
                     key_skip_flag,
                     key_skip_flag,
                 );
@@ -3080,6 +3765,10 @@ fn dispatch_object_op(
     // ---------------------------------------------------------------------
 
     if ctx.ids.obj_set_weather_param_type_a != 0 && op == ctx.ids.obj_set_weather_param_type_a {
+        if obj.object_type != 4 {
+            push_ok(ctx, ret_form);
+            return true;
+        }
         let (_pos, named) = split_pos_named(script_args);
         let mut wp = ObjectWeatherParam {
             weather_type: 1,
@@ -3110,7 +3799,7 @@ fn dispatch_object_op(
         for (id, v) in named {
             let iv = v.as_i64().unwrap_or(0);
             match id {
-                0 => wp.cnt = iv,
+                0 => wp.cnt = iv.saturating_mul(TNM_SCREEN_RATE).saturating_mul(TNM_SCREEN_RATE),
                 1 => wp.pat_mode = iv,
                 2 => wp.pat_no_00 = iv,
                 3 => wp.pat_no_01 = iv,
@@ -3130,16 +3819,16 @@ fn dispatch_object_op(
         }
 
         obj.weather_param = wp;
-        if matches!(obj.backend, ObjectBackend::Gfx) {
-            let pat = obj.weather_param.pat_no_00;
-            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-            let _ = gfx.object_set_patno(images, layers, stage_idx, obj_u as i64, pat);
-        }
+        obj.restruct_weather_work(ctx.screen_w as i64, ctx.screen_h as i64);
         push_ok(ctx, ret_form);
         return true;
     }
 
     if ctx.ids.obj_set_weather_param_type_b != 0 && op == ctx.ids.obj_set_weather_param_type_b {
+        if obj.object_type != 4 {
+            push_ok(ctx, ret_form);
+            return true;
+        }
         let (_pos, named) = split_pos_named(script_args);
         let mut wp = ObjectWeatherParam {
             weather_type: 2,
@@ -3148,8 +3837,8 @@ fn dispatch_object_op(
             pat_no_00: 0,
             pat_no_01: 0,
             pat_time: 0,
-            move_time_x: 0,
-            move_time_y: 0,
+            move_time_x: 1000,
+            move_time_y: 1000,
             sin_time_x: 0,
             sin_power_x: 0,
             sin_time_y: 0,
@@ -3175,8 +3864,11 @@ fn dispatch_object_op(
                 2 => wp.pat_no_00 = iv,
                 3 => wp.pat_no_01 = iv,
                 4 => wp.pat_time = iv,
-                5 => wp.move_time = iv,
-                6 => {}
+                5 => {
+                    wp.move_time = iv;
+                    wp.move_time_x = iv;
+                    wp.move_time_y = iv;
+                }
                 7 => wp.sin_time_x = iv,
                 8 => wp.sin_power_x = iv,
                 9 => wp.sin_time_y = iv,
@@ -3195,11 +3887,7 @@ fn dispatch_object_op(
         }
 
         obj.weather_param = wp;
-        if matches!(obj.backend, ObjectBackend::Gfx) {
-            let pat = obj.weather_param.pat_no_00;
-            let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-            let _ = gfx.object_set_patno(images, layers, stage_idx, obj_u as i64, pat);
-        }
+        obj.restruct_weather_work(ctx.screen_w as i64, ctx.screen_h as i64);
         push_ok(ctx, ret_form);
         return true;
     }
@@ -3251,7 +3939,7 @@ fn dispatch_object_op(
     if ctx.ids.obj_wait_movie != 0 && op == ctx.ids.obj_wait_movie {
         if obj.movie.check_movie() {
             ctx.wait
-                .wait_object_movie(ctx.ids.form_global_stage, stage_idx, obj_u, false, false);
+                .wait_object_movie(ctx.ids.form_global_stage, stage_idx, obj_runtime_slot, false, false);
         }
         push_ok(ctx, ret_form);
         return true;
@@ -3260,7 +3948,7 @@ fn dispatch_object_op(
         if obj.movie.check_movie() {
             // wait_movie(true, true)
             ctx.wait
-                .wait_object_movie(ctx.ids.form_global_stage, stage_idx, obj_u, true, true);
+                .wait_object_movie(ctx.ids.form_global_stage, stage_idx, obj_runtime_slot, true, true);
             if ret_form.unwrap_or(0) != 0 {
                 return true;
             }
@@ -3321,6 +4009,9 @@ fn dispatch_object_op(
         obj.button.group_no = group_no;
         obj.button.action_no = action_no;
         obj.button.se_no = se_no;
+        if group_no >= 0 {
+            ensure_group(ctx, st, stage_idx, group_no as usize);
+        }
         obj.button.hit = false;
         obj.button.pushed = false;
         push_ok(ctx, ret_form);
@@ -3328,17 +4019,33 @@ fn dispatch_object_op(
     }
 
     if ctx.ids.obj_set_button_group != 0 && op == ctx.ids.obj_set_button_group {
-        // al_id==0: int group_no, al_id==1: element group
+        // Original C++ accepts either a numeric group number or a GROUP element.
+        // A GROUP element is a STAGE.OBJBTNGROUP[...] item/reference, not OBJECT.CHILD.
         if al_id == Some(1) {
             if let Some(Value::Element(e)) = script_args.get(0) {
-                if let Some(StageTarget::ChildItemOp { idx: gidx, .. }) = parse_target(ctx, e) {
-                    obj.button.group_idx_override = Some(gidx.max(0) as usize);
+                match parse_target(ctx, e) {
+                    Some(StageTarget::ChildItemOp { child, idx, .. })
+                        if child == crate::runtime::forms::codes::STAGE_ELM_OBJBTNGROUP =>
+                    {
+                        obj.button.group_no = idx.max(0);
+                        obj.button.group_idx_override = Some(idx.max(0) as usize);
+                    }
+                    Some(StageTarget::ChildItemRef { child, idx, .. })
+                        if child == crate::runtime::forms::codes::STAGE_ELM_OBJBTNGROUP =>
+                    {
+                        obj.button.group_no = idx.max(0);
+                        obj.button.group_idx_override = Some(idx.max(0) as usize);
+                    }
+                    _ => {}
                 }
             }
         } else {
             let g = script_args.get(0).and_then(|v| v.as_i64()).unwrap_or(0);
             obj.button.group_no = g;
             obj.button.group_idx_override = None;
+        }
+        if let Some(gidx) = obj.button.group_idx() {
+            ensure_group(ctx, st, stage_idx, gidx);
         }
         push_ok(ctx, ret_form);
         return true;
@@ -3388,7 +4095,7 @@ fn dispatch_object_op(
     }
 
     if ctx.ids.obj_get_button_hit_state != 0 && op == ctx.ids.obj_get_button_hit_state {
-        ctx.stack.push(Value::Int(if obj.button.hit {
+        ctx.stack.push(Value::Int(if obj.button.action_no >= 0 && obj.button.hit {
             TNM_BTN_STATE_HIT
         } else {
             TNM_BTN_STATE_NORMAL
@@ -3397,6 +4104,10 @@ fn dispatch_object_op(
     }
 
     if ctx.ids.obj_get_button_real_state != 0 && op == ctx.ids.obj_get_button_real_state {
+        if obj.button.action_no < 0 {
+            ctx.stack.push(Value::Int(TNM_BTN_STATE_NORMAL));
+            return true;
+        }
         // Conservative: incorporate group selection.
         let mut stt = obj.button.state;
         if stt != TNM_BTN_STATE_SELECT && stt != TNM_BTN_STATE_DISABLE {
@@ -3421,10 +4132,8 @@ fn dispatch_object_op(
     }
 
     if ctx.ids.obj_set_button_call != 0 && op == ctx.ids.obj_set_button_call {
-        // uses current scene name + cmd_name argument.
-        // This runtime does not track the current scene name yet, so we store an empty scn_name.
         let cmd = script_args.get(0).and_then(|v| v.as_str()).unwrap_or("");
-        obj.button.decided_action_scn_name.clear();
+        obj.button.decided_action_scn_name = ctx.current_scene_name.clone().unwrap_or_default();
         obj.button.decided_action_cmd_name = cmd.to_string();
         obj.button.decided_action_z_no = -1;
         push_ok(ctx, ret_form);
@@ -3443,7 +4152,7 @@ fn dispatch_object_op(
     // FRAME_ACTION / GAN
     // ---------------------------------------------------------------------
 
-    if ctx.ids.obj_load_gan != 0 && op == ctx.ids.obj_load_gan {
+    if op == crate::runtime::forms::codes::ELM_OBJECT_LOAD_GAN {
         let Some(name) = script_args.get(0).and_then(|v| v.as_str()) else {
             push_ok(ctx, ret_form);
             return true;
@@ -3459,18 +4168,21 @@ fn dispatch_object_op(
         return true;
     }
 
-    if ctx.ids.obj_start_gan != 0 && op == ctx.ids.obj_start_gan {
+    if op == crate::runtime::forms::codes::ELM_OBJECT_START_GAN {
         let mut set_no = 0i64;
         let mut loop_flag = true;
         let mut real_time_flag = false;
-        if let Some(v) = script_args.get(0).and_then(as_i64) {
-            set_no = v;
-        }
-        if let Some(v) = script_args.get(1).and_then(as_i64) {
-            loop_flag = v != 0;
-        }
-        if let Some(v) = script_args.get(2).and_then(as_i64) {
-            real_time_flag = v != 0;
+        match al_id.unwrap_or(0) {
+            1 => {
+                set_no = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                loop_flag = script_args.get(1).and_then(as_i64).unwrap_or(1) != 0;
+                real_time_flag = script_args.get(2).and_then(as_i64).unwrap_or(0) != 0;
+            }
+            0 => {
+                set_no = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                loop_flag = script_args.get(1).and_then(as_i64).unwrap_or(1) != 0;
+            }
+            _ => {}
         }
         obj.gan.start_anm(set_no as i32, loop_flag, real_time_flag);
         push_ok(ctx, ret_form);
@@ -4301,56 +5013,31 @@ fn dispatch_object_op(
         || (ctx.ids.obj_get_pixel_color_b != 0 && op == ctx.ids.obj_get_pixel_color_b)
         || (ctx.ids.obj_get_pixel_color_a != 0 && op == ctx.ids.obj_get_pixel_color_a)
     {
-        // GET_PIXEL_COLOR_* (x, y, pat=0 or arg2)
-        let x = script_args.get(0).and_then(as_i64).unwrap_or(0);
-        let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
-        let pat = if al_id == Some(1) {
-            script_args.get(2).and_then(as_i64).unwrap_or(0).max(0) as usize
-        } else {
+        // C++ dispatch: al_id 0 uses cut_no=0, al_id 1 uses the third argument.
+        // Unsupported object types, missing textures, out-of-range pixels, or unsupported overloads return 0.
+        let channel = if ctx.ids.obj_get_pixel_color_r != 0 && op == ctx.ids.obj_get_pixel_color_r {
             0usize
+        } else if ctx.ids.obj_get_pixel_color_g != 0 && op == ctx.ids.obj_get_pixel_color_g {
+            1usize
+        } else if ctx.ids.obj_get_pixel_color_b != 0 && op == ctx.ids.obj_get_pixel_color_b {
+            2usize
+        } else {
+            3usize
         };
-
-        let mut out = 0i64;
-        if x >= 0 && y >= 0 {
-            if let Some(name) = obj.file_name.as_deref() {
-                if let Ok((path, _pct)) = crate::resource::find_g00_image_with_append_dir(
-                    ctx.images.project_dir(),
-                    &ctx.globals.append_dir,
-                    name,
-                ) {
-                    if let Ok(id) = ctx.images.load_file(&path, pat) {
-                        if let Some(img) = ctx.images.get(id) {
-                            let xi = x as u32;
-                            let yi = y as u32;
-                            if xi < img.width && yi < img.height {
-                                let idx = ((yi * img.width + xi) * 4) as usize;
-                                if idx + 4 <= img.rgba.len() {
-                                    let r = img.rgba[idx] as i64;
-                                    let g = img.rgba[idx + 1] as i64;
-                                    let b = img.rgba[idx + 2] as i64;
-                                    let a = img.rgba[idx + 3] as i64;
-                                    out = if ctx.ids.obj_get_pixel_color_r != 0
-                                        && op == ctx.ids.obj_get_pixel_color_r
-                                    {
-                                        r
-                                    } else if ctx.ids.obj_get_pixel_color_g != 0
-                                        && op == ctx.ids.obj_get_pixel_color_g
-                                    {
-                                        g
-                                    } else if ctx.ids.obj_get_pixel_color_b != 0
-                                        && op == ctx.ids.obj_get_pixel_color_b
-                                    {
-                                        b
-                                    } else {
-                                        a
-                                    };
-                                }
-                            }
-                        }
-                    }
-                }
+        let out = match al_id {
+            Some(0) | None => {
+                let x = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
+                sample_object_pixel_component(ctx, obj, stage_idx, obj_u, x, y, 0, channel)
             }
-        }
+            Some(1) => {
+                let x = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
+                let cut_no = script_args.get(2).and_then(as_i64).unwrap_or(0);
+                sample_object_pixel_component(ctx, obj, stage_idx, obj_u, x, y, cut_no, channel)
+            }
+            _ => 0,
+        };
         ctx.stack.push(Value::Int(out));
         return true;
     }
@@ -4935,6 +5622,9 @@ fn dispatch_object_op(
 
             push_ok(ctx, ret_form);
             true
+        }
+        ObjectOpKind::Unknown => {
+            panic!("unsupported OBJECT op {} tail={:?} al_id={:?}", op, tail, al_id);
         }
         _ => false,
     }
@@ -5619,16 +6309,9 @@ fn dispatch_group_item_op(
             ctx.globals.focused_stage_group =
                 Some((ctx.ids.form_global_stage, stage_idx, group_idx));
 
-            // Block VM until a key is pressed.
+            // Block VM until a decision is produced by the runtime input bridge.
+            // The original engine pushes the result only when the selection is decided.
             ctx.wait.wait_key();
-
-            if let Some(rf) = ret_form {
-                if rf != 0 {
-                    ctx.stack.push(default_for_ret_form(rf));
-                }
-            } else {
-                ctx.stack.push(Value::Int(0));
-            }
             true
         }
         GroupOpKind::End => {
@@ -5828,7 +6511,7 @@ fn dispatch_mwnd_item_op(
             )
             .unwrap_or(false)
         } else {
-            let (child_idx, child_op, child_tail) = if tail[0] == -1 && tail.len() >= 3 {
+            let (child_idx, child_op, child_tail) = if tail.len() >= 3 && (tail[0] == -1 || tail[0] == ctx.ids.elm_array || tail[0] == super::codes::ELM_ARRAY) {
                 (tail[1] as i64, tail[2], &tail[3..])
             } else if tail.len() >= 2 {
                 (tail[0] as i64, tail[1], &tail[2..])
@@ -6053,8 +6736,8 @@ fn dispatch_mwnd_item_op(
                 result: 0,
             });
             ctx.globals.focused_stage_mwnd = Some((ctx.ids.form_global_stage, stage_idx, mwnd_idx));
+            // The return value is pushed by the runtime input bridge on decide/cancel.
             ctx.wait.wait_key();
-            push_ok(ctx, ret_form);
             true
         }
         MwndOpKind::Ruby => {
@@ -6439,7 +7122,7 @@ fn dispatch_btnselitem_item_op(
         )
         .unwrap_or(false)
     } else {
-        let (child_idx, child_op, child_tail) = if tail[0] == -1 && tail.len() >= 3 {
+        let (child_idx, child_op, child_tail) = if tail.len() >= 3 && (tail[0] == -1 || tail[0] == ctx.ids.elm_array || tail[0] == super::codes::ELM_ARRAY) {
             (tail[1] as i64, tail[2], &tail[3..])
         } else if tail.len() >= 2 {
             (tail[0] as i64, tail[1], &tail[2..])

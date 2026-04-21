@@ -20,6 +20,7 @@ pub mod keylist;
 pub mod koe_st;
 pub mod mouse;
 pub mod mov;
+pub mod object_event;
 pub mod msgbk;
 pub mod pcm;
 pub mod pcmch;

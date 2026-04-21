@@ -77,6 +77,16 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     };
 
     match call.op {
+        op if op == crate::runtime::constants::MSGBK_INSERT_IMG => {
+            let file = arg_str(call.params, 0).unwrap_or("");
+            let x = arg_i64(call.params, 1).unwrap_or(0) as i32;
+            let y = arg_i64(call.params, 2).unwrap_or(0) as i32;
+            if !file.is_empty() {
+                msgbk_state_mut(ctx, form_id).add_pct(file, x, y);
+            }
+            ctx.push(Value::Int(0));
+            Ok(true)
+        }
         op if op == crate::runtime::constants::MSGBK_INSERT_MSG => {
             let msg = arg_str(call.params, 0).unwrap_or("");
             let (scene_no, line_no) = resolve_debug_open_scene(ctx, call.params)?;

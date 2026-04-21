@@ -174,8 +174,8 @@ fn run_int_event_command(
             ev.end_event();
             ctx.stack.push(default_for_ret_form(ret_form));
         }
-        int_event_op::WAIT => ctx.wait.wait_generic_int_event(0, None, false),
-        int_event_op::WAIT_KEY => ctx.wait.wait_generic_int_event(0, None, true),
+        int_event_op::WAIT => ctx.wait.wait_generic_int_event(0, None, false, false),
+        int_event_op::WAIT_KEY => ctx.wait.wait_generic_int_event(0, None, true, true),
         int_event_op::CHECK => ctx
             .stack
             .push(Value::Int(if ev.check_event() { 1 } else { 0 })),

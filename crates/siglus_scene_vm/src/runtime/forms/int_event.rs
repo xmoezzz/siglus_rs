@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::runtime::forms::codes::{int_event_list_op, int_event_op};
 use crate::runtime::int_event::IntEvent;
@@ -53,8 +53,8 @@ fn run_event_op(
     args: &[Value],
     chain_pos: usize,
     index: Option<usize>,
-) -> PostAction {
-    match op {
+) -> Result<PostAction> {
+    let post = match op {
         int_event_op::SET | int_event_op::SET_REAL => {
             apply_named_init(ev, args, chain_pos);
             let value = params.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
@@ -112,8 +112,9 @@ fn run_event_op(
             key_skip: true,
         },
         int_event_op::CHECK => PostAction::Push(Value::Int(if ev.check_event() { 1 } else { 0 })),
-        _ => PostAction::Push(default_for_ret_form(ret_form.unwrap_or(0))),
-    }
+        _ => bail!("unsupported INTEVENT op {}", op),
+    };
+    Ok(post)
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
@@ -141,7 +142,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 list.resize_with(idx + 1, || IntEvent::new(0));
             }
             let ev = &mut list[idx];
-            run_event_op(ev, op, params, ret_form, args, chain_pos, Some(idx))
+            run_event_op(ev, op, params, ret_form, args, chain_pos, Some(idx))?
         } else if chain.len() >= 2 && chain[1] == int_event_list_op::RESIZE {
             let n = params.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
             let list = ctx
@@ -152,7 +153,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             list.resize_with(n, || IntEvent::new(0));
             PostAction::Push(default_for_ret_form(ret_form.unwrap_or(0)))
         } else {
-            PostAction::Push(default_for_ret_form(ret_form.unwrap_or(0)))
+            bail!("unsupported INTEVENTLIST op chain {:?}", chain)
         }
     } else {
         let op = chain.get(1).copied().unwrap_or(0);
@@ -165,14 +166,14 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             *ev = IntEvent::new(v as i32);
             PostAction::Push(default_for_ret_form(ret_form.unwrap_or(0)))
         } else {
-            run_event_op(ev, op, params, ret_form, args, chain_pos, None)
+            run_event_op(ev, op, params, ret_form, args, chain_pos, None)?
         }
     };
 
     match post {
         PostAction::Push(v) => ctx.push(v),
         PostAction::Wait { index, key_skip } => {
-            ctx.wait.wait_generic_int_event(form_id, index, key_skip)
+            ctx.wait.wait_generic_int_event(form_id, index, key_skip, key_skip)
         }
     }
     Ok(true)

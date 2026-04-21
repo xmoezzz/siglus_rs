@@ -165,10 +165,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                 ready_only,
                 0,
             )?;
-            if let Some(cur) = ctx.bgm.current_name() {
-                ctx.globals
-                    .bgm_table_listened
-                    .insert(cur.to_ascii_lowercase(), true);
+            if let Some(cur) = ctx.bgm.current_name().map(|s| s.to_string()) {
+                let _ = super::bgm_table::mark_listened_by_name(ctx, &cur, true);
             }
             if wait_flag {
                 ctx.wait

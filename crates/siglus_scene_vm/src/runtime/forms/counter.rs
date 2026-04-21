@@ -256,11 +256,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         CounterOp::Wait => {
             ctx.wait
-                .wait_counter(form_id, idx, arg_int(params, 0), false);
+                .wait_counter(form_id, idx, arg_int(params, 0), false, false);
         }
         CounterOp::WaitKey => {
             ctx.wait
-                .wait_counter(form_id, idx, arg_int(params, 0), true);
+                .wait_counter(form_id, idx, arg_int(params, 0), true, true);
         }
         CounterOp::CheckValue => {
             let cur = ctx

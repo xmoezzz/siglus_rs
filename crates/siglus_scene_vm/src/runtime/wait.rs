@@ -78,6 +78,24 @@ fn find_object_by_runtime_slot<'a>(objects: &'a [ObjectState], runtime_slot: usi
     None
 }
 
+fn find_object_by_runtime_slot_mut<'a>(
+    mut objects: &'a mut [ObjectState],
+    runtime_slot: usize,
+) -> Option<&'a mut ObjectState> {
+    let mut idx = 0usize;
+    while let Some((obj, tail)) = objects.split_first_mut() {
+        if object_runtime_slot(idx, obj) == runtime_slot {
+            return Some(obj);
+        }
+        if let Some(found) = find_object_by_runtime_slot_mut(&mut obj.runtime.child_objects, runtime_slot) {
+            return Some(found);
+        }
+        objects = tail;
+        idx += 1;
+    }
+    None
+}
+
 fn object_active_by_runtime_slot(
     globals: &GlobalState,
     stage_form_id: u32,
@@ -89,6 +107,93 @@ fn object_active_by_runtime_slot(
         .get(&stage_form_id)
         .and_then(|st| st.object_lists.get(&stage_idx))
         .and_then(|list| find_object_by_runtime_slot(list, runtime_slot))
+}
+
+fn object_active_by_runtime_slot_mut(
+    globals: &mut GlobalState,
+    stage_form_id: u32,
+    stage_idx: i64,
+    runtime_slot: usize,
+) -> Option<&mut ObjectState> {
+    globals
+        .stage_forms
+        .get_mut(&stage_form_id)
+        .and_then(|st| st.object_lists.get_mut(&stage_idx))
+        .and_then(|list| find_object_by_runtime_slot_mut(list, runtime_slot))
+}
+
+fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &RuntimeConstants) {
+    match w {
+        EventWait::ObjectAll {
+            stage_form_id,
+            stage_idx,
+            runtime_slot,
+        } => {
+            if let Some(obj) = object_active_by_runtime_slot_mut(
+                globals,
+                *stage_form_id,
+                *stage_idx,
+                *runtime_slot,
+            ) {
+                obj.end_all_events();
+            }
+        }
+        EventWait::ObjectOne {
+            stage_form_id,
+            stage_idx,
+            runtime_slot,
+            op,
+        } => {
+            if let Some(obj) = object_active_by_runtime_slot_mut(
+                globals,
+                *stage_form_id,
+                *stage_idx,
+                *runtime_slot,
+            ) {
+                if let Some(ev) = obj.int_event_by_op_mut(ids, *op) {
+                    ev.end_event();
+                }
+            }
+        }
+        EventWait::ObjectList {
+            stage_form_id,
+            stage_idx,
+            runtime_slot,
+            list_op,
+            list_idx,
+        } => {
+            if let Some(obj) = object_active_by_runtime_slot_mut(
+                globals,
+                *stage_form_id,
+                *stage_idx,
+                *runtime_slot,
+            ) {
+                if let Some(ev) = obj
+                    .int_event_list_by_op_mut(ids, *list_op)
+                    .and_then(|v| v.get_mut(*list_idx))
+                {
+                    ev.end_event();
+                }
+            }
+        }
+        EventWait::GenericIntEvent { form_id, index } => match index {
+            Some(i) => {
+                if let Some(ev) = globals
+                    .int_event_lists
+                    .get_mut(form_id)
+                    .and_then(|v| v.get_mut(*i))
+                {
+                    ev.end_event();
+                }
+            }
+            None => {
+                if let Some(ev) = globals.int_event_roots.get_mut(form_id) {
+                    ev.end_event();
+                }
+            }
+        },
+        EventWait::CounterThreshold { .. } => {}
+    }
 }
 
 #[derive(Debug, Default, Clone)]
@@ -104,12 +209,16 @@ pub struct VmWait {
 
     event: Option<EventWait>,
     event_key_skip: bool,
+    event_return_value: bool,
 
     movie: Option<MovieWait>,
     movie_key_skip: bool,
 
     movie_skip_info: Option<MovieWait>,
     pending_value: Option<Value>,
+
+    /// Blocks VM execution until a runtime modal UI supplies a return value.
+    system_modal: bool,
 
     wipe: bool,
     wipe_key_skip: bool,
@@ -175,8 +284,8 @@ impl VmWait {
         }
 
         // Auto-clear event waits when the predicate is satisfied.
-        if let Some(w) = &self.event {
-            let done = match w {
+        let event_done = if let Some(w) = self.event.as_ref() {
+            match w {
                 EventWait::ObjectAll {
                     stage_form_id,
                     stage_idx,
@@ -237,11 +346,17 @@ impl VmWait {
                     .and_then(|v| v.get(*index))
                     .map(|c| c.get_count() - *target >= 0)
                     .unwrap_or(true),
-            };
-            if done {
-                self.event = None;
-                self.event_key_skip = false;
             }
+        } else {
+            false
+        };
+        if event_done {
+            self.event = None;
+            self.event_key_skip = false;
+            if self.event_return_value {
+                self.pending_value = Some(Value::Int(0));
+            }
+            self.event_return_value = false;
         }
 
         // Auto-clear movie waits when playback ends.
@@ -278,7 +393,23 @@ impl VmWait {
             || self.audio.is_some()
             || self.event.is_some()
             || self.movie.is_some()
+            || self.system_modal
             || self.wipe
+    }
+
+    pub fn wait_system_modal(&mut self) {
+        self.system_modal = true;
+    }
+
+    pub fn finish_system_modal(&mut self, value: Value) {
+        if self.system_modal {
+            self.system_modal = false;
+            self.pending_value = Some(value);
+        }
+    }
+
+    pub fn system_modal_active(&self) -> bool {
+        self.system_modal
     }
 
     pub fn wait_ms(&mut self, ms: u64) {
@@ -332,6 +463,7 @@ impl VmWait {
             runtime_slot,
         });
         self.event_key_skip = key_skip;
+        self.event_return_value = false;
         if key_skip {
             self.waiting_for_key = true;
         }
@@ -344,6 +476,7 @@ impl VmWait {
         runtime_slot: usize,
         op: i32,
         key_skip: bool,
+        return_value_flag: bool,
     ) {
         self.event = Some(EventWait::ObjectOne {
             stage_form_id,
@@ -352,6 +485,7 @@ impl VmWait {
             op,
         });
         self.event_key_skip = key_skip;
+        self.event_return_value = return_value_flag;
         if key_skip {
             self.waiting_for_key = true;
         }
@@ -365,6 +499,7 @@ impl VmWait {
         list_op: i32,
         list_idx: usize,
         key_skip: bool,
+        return_value_flag: bool,
     ) {
         self.event = Some(EventWait::ObjectList {
             stage_form_id,
@@ -374,6 +509,7 @@ impl VmWait {
             list_idx,
         });
         self.event_key_skip = key_skip;
+        self.event_return_value = return_value_flag;
         if key_skip {
             self.waiting_for_key = true;
         }
@@ -399,21 +535,36 @@ impl VmWait {
         }
     }
 
-    pub fn wait_generic_int_event(&mut self, form_id: u32, index: Option<usize>, key_skip: bool) {
+    pub fn wait_generic_int_event(
+        &mut self,
+        form_id: u32,
+        index: Option<usize>,
+        key_skip: bool,
+        return_value_flag: bool,
+    ) {
         self.event = Some(EventWait::GenericIntEvent { form_id, index });
         self.event_key_skip = key_skip;
+        self.event_return_value = return_value_flag;
         if key_skip {
             self.waiting_for_key = true;
         }
     }
 
-    pub fn wait_counter(&mut self, form_id: u32, index: usize, target: i64, key_skip: bool) {
+    pub fn wait_counter(
+        &mut self,
+        form_id: u32,
+        index: usize,
+        target: i64,
+        key_skip: bool,
+        return_value_flag: bool,
+    ) {
         self.event = Some(EventWait::CounterThreshold {
             form_id,
             index,
             target,
         });
         self.event_key_skip = key_skip;
+        self.event_return_value = return_value_flag;
         if key_skip {
             self.waiting_for_key = true;
         }
@@ -430,7 +581,7 @@ impl VmWait {
     /// Notify the wait system that a key/mouse input happened.
     ///
     /// Returns true if the input is interpreted as a wipe-skip (used by WIPE/WAIT_WIPE).
-    pub fn notify_key(&mut self) -> bool {
+    pub fn notify_key(&mut self, globals: &mut GlobalState, ids: &RuntimeConstants) -> bool {
         let wipe_skipped = self.wipe && self.wipe_key_skip;
         self.waiting_for_key = false;
         if self.audio.is_some() && self.audio_return_value {
@@ -439,8 +590,14 @@ impl VmWait {
         self.audio = None;
         self.audio_return_value = false;
         if self.event_key_skip {
-            self.event = None;
+            if let Some(w) = self.event.take() {
+                finish_event_wait_by_key(&w, globals, ids);
+                if self.event_return_value {
+                    self.pending_value = Some(Value::Int(1));
+                }
+            }
             self.event_key_skip = false;
+            self.event_return_value = false;
         }
         if self.movie_key_skip {
             if let Some(w) = self.movie.take() {
@@ -477,10 +634,12 @@ impl VmWait {
         self.audio_return_value = false;
         self.event = None;
         self.event_key_skip = false;
+        self.event_return_value = false;
         self.movie = None;
         self.movie_key_skip = false;
         self.movie_skip_info = None;
         self.pending_value = None;
+        self.system_modal = false;
         self.wipe = false;
         self.wipe_key_skip = false;
     }

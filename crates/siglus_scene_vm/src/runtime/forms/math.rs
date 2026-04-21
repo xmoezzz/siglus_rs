@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use crate::runtime::forms::prop_access;
+use crate::runtime::forms::codes::elm_value;
 use crate::runtime::{CommandContext, Value};
 
 const TNM_ANGLE_UNIT: f64 = 10.0;
@@ -53,6 +54,81 @@ fn tostr_pad(num: i64, len: i64, fill: char) -> String {
     out.push_str(&repeat_char(fill, len - total_digits));
     out.push_str(&abs);
     out
+}
+
+fn to_zenkaku_ascii(s: &str) -> String {
+    s.chars()
+        .map(|ch| match ch {
+            '0'..='9' => char::from_u32('０' as u32 + (ch as u32 - '0' as u32)).unwrap(),
+            'A'..='Z' => char::from_u32('Ａ' as u32 + (ch as u32 - 'A' as u32)).unwrap(),
+            'a'..='z' => char::from_u32('ａ' as u32 + (ch as u32 - 'a' as u32)).unwrap(),
+            ' ' => '　',
+            '-' => '－',
+            '+' => '＋',
+            '.' => '．',
+            ',' => '，',
+            ':' => '：',
+            ';' => '；',
+            '/' => '／',
+            '\\' => '＼',
+            '(' => '（',
+            ')' => '）',
+            '[' => '［',
+            ']' => '］',
+            _ => ch,
+        })
+        .collect()
+}
+
+fn timetable_arg(v: &Value) -> Option<(f64, f64, f64, i64)> {
+    let Value::List(items) = v.unwrap_named() else {
+        return None;
+    };
+    if items.len() < 3 {
+        return None;
+    }
+    let start_time = items.first().and_then(Value::as_i64)? as f64;
+    let end_time = items.get(1).and_then(Value::as_i64)? as f64;
+    let end_value = items.get(2).and_then(Value::as_i64)? as f64;
+    let speed_type = items.get(3).and_then(Value::as_i64).unwrap_or(0);
+    Some((start_time, end_time, end_value, speed_type))
+}
+
+fn timetable_value(params: &[Value]) -> i64 {
+    let now_time = params.first().and_then(Value::as_i64).unwrap_or(0) as f64;
+    let rep_time = params.get(1).and_then(Value::as_i64).unwrap_or(0) as f64;
+    let mut start_value = params.get(2).and_then(Value::as_i64).unwrap_or(0) as f64;
+    let mut ret_value = start_value;
+    let now_time = now_time - rep_time;
+
+    for arg in params.iter().skip(3) {
+        let Some((start_time, end_time, end_value, speed_type)) = timetable_arg(arg) else {
+            continue;
+        };
+        if now_time < start_time {
+            ret_value = start_value;
+            break;
+        } else if now_time >= end_time {
+            ret_value = end_value;
+        } else {
+            let duration = end_time - start_time;
+            if duration == 0.0 {
+                ret_value = end_value;
+            } else if speed_type == 1 {
+                let t = now_time - start_time;
+                ret_value = (end_value - start_value) * t * t / duration / duration + start_value;
+            } else if speed_type == 2 {
+                let t = now_time - end_time;
+                ret_value = -(end_value - start_value) * t * t / duration / duration + end_value;
+            } else {
+                ret_value = (end_value - start_value) * (now_time - start_time) / duration + start_value;
+            }
+            break;
+        }
+        start_value = end_value;
+    }
+
+    round_half_away_from_zero(ret_value)
 }
 
 fn xorshift32(state: &mut u32) -> u32 {
@@ -118,12 +194,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         ctx.push(Value::Int(a.min(b)));
         return Ok(true);
     }
-    // LIMIT (clamp)
+    // LIMIT(min, value, max)
     if ctx.ids.math_limit != 0 && op == ctx.ids.math_limit {
-        let v = p_int(0);
-        let lo = p_int(1);
-        let hi = p_int(2);
-        ctx.push(Value::Int(v.clamp(lo.min(hi), lo.max(hi))));
+        let a = p_int(0);
+        let v = p_int(1);
+        let b = p_int(2);
+        ctx.push(Value::Int(v.clamp(a.min(b), a.max(b))));
         return Ok(true);
     }
     // ABS
@@ -149,7 +225,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
     // SQRT(num, scale)
     if ctx.ids.math_sqrt != 0 && op == ctx.ids.math_sqrt {
-        let num = p_int(0) as f64;
+        let num = p_int(0).max(0) as f64;
         let scale = p_int(1) as f64;
         let v = (num.sqrt() * scale) as i64;
         ctx.push(Value::Int(v));
@@ -157,7 +233,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
     // LOG(num, scale)
     if ctx.ids.math_log != 0 && op == ctx.ids.math_log {
-        let num = p_int(0) as f64;
+        let num = p_int(0).max(1) as f64;
         let scale = p_int(1) as f64;
         let v = (num.ln() * scale) as i64;
         ctx.push(Value::Int(v));
@@ -165,7 +241,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
     // LOG2
     if ctx.ids.math_log2 != 0 && op == ctx.ids.math_log2 {
-        let num = p_int(0) as f64;
+        let num = p_int(0).max(1) as f64;
         let scale = p_int(1) as f64;
         let v = (num.log2() * scale) as i64;
         ctx.push(Value::Int(v));
@@ -173,7 +249,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
     // LOG10
     if ctx.ids.math_log10 != 0 && op == ctx.ids.math_log10 {
-        let num = p_int(0) as f64;
+        let num = p_int(0).max(1) as f64;
         let scale = p_int(1) as f64;
         let v = (num.log10() * scale) as i64;
         ctx.push(Value::Int(v));
@@ -291,6 +367,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         return Ok(true);
     }
 
+    // TIMETABLE(now_time, rep_time, start_value, [start_time,end_time,end_value,speed_type]...)
+    if op == elm_value::MATH_TIMETABLE {
+        ctx.push(Value::Int(timetable_value(params)));
+        return Ok(true);
+    }
+
     // TOSTR
     if ctx.ids.math_tostr != 0 && op == ctx.ids.math_tostr {
         let s = if matches!(al_id, Some(1)) {
@@ -309,6 +391,35 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         let num = p_int(0);
         let len = p_int(1);
         ctx.push(Value::Str(tostr_pad(num, len, '0')));
+        return Ok(true);
+    }
+
+    // TOSTR_ZEN
+    if op == elm_value::MATH_TOSTR_ZEN {
+        let s = if matches!(al_id, Some(1)) {
+            let num = p_int(0);
+            let len = p_int(1);
+            tostr_pad(num, len, ' ')
+        } else {
+            p_int(0).to_string()
+        };
+        ctx.push(Value::Str(to_zenkaku_ascii(&s)));
+        return Ok(true);
+    }
+
+    // TOSTR_ZEN_ZERO
+    if op == elm_value::MATH_TOSTR_ZEN_ZERO {
+        let num = p_int(0);
+        let len = p_int(1);
+        ctx.push(Value::Str(to_zenkaku_ascii(&tostr_pad(num, len, '0'))));
+        return Ok(true);
+    }
+
+    // TOSTR_BY_CODE
+    if op == elm_value::MATH_TOSTR_BY_CODE {
+        let code = (p_int(0) & 0xffff) as u32;
+        let s = char::from_u32(code).map(|c| c.to_string()).unwrap_or_default();
+        ctx.push(Value::Str(s));
         return Ok(true);
     }
 

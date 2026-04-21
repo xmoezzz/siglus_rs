@@ -150,42 +150,22 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.globals.system.dummy_checks.clear();
             return Ok(true);
         }
-        MESSAGEBOX_OK | MESSAGEBOX_OKCANCEL => {
+        MESSAGEBOX_OK | MESSAGEBOX_OKCANCEL | MESSAGEBOX_YESNO | MESSAGEBOX_YESNOCANCEL => {
             let text = messagebox_text(ctx, call.params);
-            let ret = handle_messagebox(ctx, call.op, false, text, 1, 0);
-            ctx.push(Value::Int(ret));
+            if let Some(ret) = handle_messagebox(ctx, call.op, false, text) {
+                ctx.push(Value::Int(ret));
+            }
             return Ok(true);
         }
-        MESSAGEBOX_YESNO | MESSAGEBOX_YESNOCANCEL => {
+        DEBUG_MESSAGEBOX_OK | DEBUG_MESSAGEBOX_OKCANCEL | DEBUG_MESSAGEBOX_YESNO | DEBUG_MESSAGEBOX_YESNOCANCEL => {
             let text = messagebox_text(ctx, call.params);
-            let max = if call.op == MESSAGEBOX_YESNO { 1 } else { 2 };
-            let ret = handle_messagebox(ctx, call.op, false, text, max, 0);
-            ctx.push(Value::Int(ret));
-            return Ok(true);
-        }
-        DEBUG_MESSAGEBOX_OK | DEBUG_MESSAGEBOX_OKCANCEL => {
-            let text = messagebox_text(ctx, call.params);
-            let ret = if ctx.globals.system.debug_flag {
-                handle_messagebox(ctx, call.op, true, text, 1, 0)
+            if ctx.globals.system.debug_flag {
+                if let Some(ret) = handle_messagebox(ctx, call.op, true, text) {
+                    ctx.push(Value::Int(ret));
+                }
             } else {
-                0
-            };
-            ctx.push(Value::Int(ret));
-            return Ok(true);
-        }
-        DEBUG_MESSAGEBOX_YESNO | DEBUG_MESSAGEBOX_YESNOCANCEL => {
-            let text = messagebox_text(ctx, call.params);
-            let ret = if ctx.globals.system.debug_flag {
-                let max = if call.op == DEBUG_MESSAGEBOX_YESNO {
-                    1
-                } else {
-                    2
-                };
-                handle_messagebox(ctx, call.op, true, text, max, 0)
-            } else {
-                0
-            };
-            ctx.push(Value::Int(ret));
+                ctx.push(Value::Int(0));
+            }
             return Ok(true);
         }
         DEBUG_WRITE_LOG => {
@@ -246,22 +226,52 @@ fn handle_messagebox(
     kind: i32,
     debug_only: bool,
     text: String,
-    max_value: i64,
-    default_value: i64,
-) -> i64 {
+) -> Option<i64> {
     ctx.globals
         .system
         .messagebox_history
         .push(crate::runtime::globals::SystemMessageBoxRecord {
             kind,
-            text,
+            text: text.clone(),
             debug_only,
         });
+
+    let buttons = messagebox_buttons(kind);
+    let max_value = buttons
+        .iter()
+        .map(|b| b.value)
+        .max()
+        .unwrap_or(0);
     if !ctx.globals.system.messagebox_response_queue.is_empty() {
         let v = ctx.globals.system.messagebox_response_queue.remove(0);
-        return v.clamp(0, max_value);
+        return Some(v.clamp(0, max_value));
     }
-    default_value.clamp(0, max_value)
+
+    ctx.globals.system.messagebox_modal = Some(crate::runtime::globals::SystemMessageBoxModalState {
+        kind,
+        text,
+        debug_only,
+        buttons,
+        cursor: 0,
+    });
+    ctx.wait.wait_system_modal();
+    None
+}
+
+fn messagebox_buttons(kind: i32) -> Vec<crate::runtime::globals::SystemMessageBoxButton> {
+    let raw: &[(&str, i64)] = match kind {
+        MESSAGEBOX_OK | DEBUG_MESSAGEBOX_OK => &[("OK", 0)],
+        MESSAGEBOX_OKCANCEL | DEBUG_MESSAGEBOX_OKCANCEL => &[("OK", 0), ("CANCEL", 1)],
+        MESSAGEBOX_YESNO | DEBUG_MESSAGEBOX_YESNO => &[("YES", 0), ("NO", 1)],
+        MESSAGEBOX_YESNOCANCEL | DEBUG_MESSAGEBOX_YESNOCANCEL => &[("YES", 0), ("NO", 1), ("CANCEL", 2)],
+        _ => &[("OK", 0)],
+    };
+    raw.iter()
+        .map(|(label, value)| crate::runtime::globals::SystemMessageBoxButton {
+            label: (*label).to_string(),
+            value: *value,
+        })
+        .collect()
 }
 
 fn local_time_fields() -> (i64, i64, i64, i64, i64, i64, i64, i64) {

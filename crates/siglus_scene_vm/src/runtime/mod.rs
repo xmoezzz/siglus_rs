@@ -21,6 +21,7 @@ pub mod ui;
 pub mod unknown;
 pub mod wait;
 use crate::runtime::forms::syscom as syscom_form;
+use crate::runtime::forms::codes::syscom_op;
 
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -229,6 +230,19 @@ pub struct CommandContext {
 }
 
 impl CommandContext {
+    pub fn notify_wait_key(&mut self) -> bool {
+        let wipe_skipped = {
+            let wait = &mut self.wait;
+            let globals = &mut self.globals;
+            wait.notify_key(globals, &self.ids)
+        };
+        self.finish_skipped_movie_waits();
+        if wipe_skipped {
+            self.globals.finish_wipe();
+        }
+        wipe_skipped
+    }
+
     fn should_wheel_advance_message(&self) -> bool {
         const GET_WHEEL_NEXT_MESSAGE_ONOFF: i32 = 305;
         self.globals
@@ -287,7 +301,7 @@ impl CommandContext {
     }
 
     fn toggle_screen_size_mode_for_editbox(&mut self) {
-        const GET_WINDOW_MODE: i32 = 172;
+        const GET_WINDOW_MODE: i32 = syscom_op::GET_WINDOW_MODE;
         let current = self
             .globals
             .syscom
@@ -470,148 +484,372 @@ impl CommandContext {
         img.rgba.get(idx).copied().unwrap_or(0) != 0
     }
 
+    fn play_button_se_direct(&mut self, se_no: i64) {
+        if se_no < 0 {
+            return;
+        }
+        let candidates = [
+            format!("{:05}", se_no),
+            format!("{:04}", se_no),
+            format!("{:03}", se_no),
+            se_no.to_string(),
+        ];
+        for name in candidates {
+            if self.se.play_file_name(&mut self.audio, &name).is_ok() {
+                return;
+            }
+        }
+        self.unknown
+            .record_note(&format!("button.se.missing:{se_no}"));
+    }
+
     fn update_object_button_hover(&mut self) {
         let mx = self.input.mouse_x;
         let my = self.input.mouse_y;
-
         let form_id = self.ids.form_global_stage;
-        let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
-            return;
-        };
-
-        let images = &mut self.images;
-        let layers = &self.layers;
-        let gfx = &self.gfx;
-        let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
-
-        for objs in object_lists.values_mut() {
-            for obj in objs.iter_mut() {
-                clear_button_hit_recursive(obj);
-            }
+        let mut hit_sounds = Vec::new();
+        if sg_debug_enabled() {
+            eprintln!("[SG_DEBUG][INPUT] hover mouse=({}, {})", mx, my);
         }
 
-        for (stage_idx, groups) in group_lists.iter_mut() {
-            for (group_idx, g) in groups.iter_mut().enumerate() {
-                let Some(objs) = object_lists.get_mut(stage_idx) else {
-                    g.hit_button_no = -1;
-                    continue;
-                };
+        {
+            let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
+                return;
+            };
 
-                let mut best: Option<ButtonHitCandidate> = None;
+            let images = &mut self.images;
+            let layers = &self.layers;
+            let gfx = &self.gfx;
+            let ids = &self.ids;
+            let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
+
+            for objs in object_lists.values_mut() {
+                for obj in objs.iter_mut() {
+                    clear_button_hit_recursive(obj);
+                }
+            }
+
+            for (stage_idx, groups) in group_lists.iter_mut() {
+                for (group_idx, g) in groups.iter_mut().enumerate() {
+                    if !g.started {
+                        g.hit_button_no = -1;
+                        continue;
+                    }
+                    let Some(objs) = object_lists.get_mut(stage_idx) else {
+                        g.hit_button_no = -1;
+                        continue;
+                    };
+
+                    let mut best: Option<ButtonHitCandidate> = None;
+                    let mut tied = false;
+                    for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                        if let Some(hit) = hit_test_object_button_recursive(
+                            images,
+                            layers,
+                            gfx,
+                            ids,
+                            *stage_idx,
+                            group_idx,
+                            mx,
+                            my,
+                            obj_idx,
+                            obj,
+                        ) {
+                            merge_button_hit(&mut best, &mut tied, hit);
+                        }
+                    }
+
+                    if !tied {
+                        if let Some(hit) = best {
+                            g.hit_button_no = hit.button_no;
+                            if sg_debug_enabled() {
+                                eprintln!(
+                                    "[SG_DEBUG][INPUT] group stage={} group={} hit_button={} slot={} order={} started={} pushed={} decided={}",
+                                    stage_idx, group_idx, hit.button_no, hit.runtime_slot, hit.draw_order, g.started, g.pushed_button_no, g.decided_button_no
+                                );
+                            }
+                            if !hit.was_hit {
+                                hit_sounds.push(hit.se_no);
+                            }
+                            for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                                set_button_hit_by_runtime_slot_recursive(obj_idx, obj, hit.runtime_slot);
+                            }
+                        } else {
+                            g.hit_button_no = -1;
+                            if sg_debug_enabled() {
+                                eprintln!("[SG_DEBUG][INPUT] group stage={} group={} no_hit started={}", stage_idx, group_idx, g.started);
+                            }
+                        }
+                    } else {
+                        g.hit_button_no = -1;
+                        if sg_debug_enabled() {
+                            eprintln!("[SG_DEBUG][INPUT] group stage={} group={} hit_tie", stage_idx, group_idx);
+                        }
+                    }
+                }
+            }
+
+            let mut standalone_best: Option<ButtonHitCandidate> = None;
+            let mut standalone_tied = false;
+            for (stage_idx, objs) in object_lists.iter_mut() {
                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                    if let Some(hit) = hit_test_object_button_recursive(
+                    if let Some(hit) = hit_test_standalone_action_button_recursive(
                         images,
                         layers,
                         gfx,
+                        ids,
                         *stage_idx,
-                        group_idx,
                         mx,
                         my,
                         obj_idx,
                         obj,
                     ) {
-                        match best {
-                            None => best = Some(hit),
-                            Some(prev) if hit.draw_order > prev.draw_order => best = Some(hit),
-                            _ => {}
+                        merge_button_hit(&mut standalone_best, &mut standalone_tied, hit);
+                    }
+                }
+            }
+            if !standalone_tied {
+                if let Some(hit) = standalone_best {
+                    if !hit.was_hit {
+                        hit_sounds.push(hit.se_no);
+                    }
+                    for objs in object_lists.values_mut() {
+                        for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                            set_button_hit_by_runtime_slot_recursive(obj_idx, obj, hit.runtime_slot);
                         }
                     }
                 }
-
-                if let Some(hit) = best {
-                    g.hit_button_no = hit.button_no;
-                    for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                        set_button_hit_by_runtime_slot_recursive(obj_idx, obj, hit.runtime_slot);
-                    }
-                } else {
-                    g.hit_button_no = -1;
-                }
             }
+        }
+
+        for se_no in hit_sounds {
+            self.play_button_se_direct(se_no);
         }
     }
 
     fn handle_object_button_mouse_down(&mut self, b: input::VmMouseButton) {
-        // Ensure hover state is up-to-date.
+
+        // The original button manager separates pushed_this_frame from decided_this_frame.
+        // Press starts the push state; release inside the same button decides it.
         self.update_object_button_hover();
 
         let form_id = self.ids.form_global_stage;
-        let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
-            return;
-        };
+        let mut sounds = Vec::new();
 
-        let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
+        {
+            let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
+                return;
+            };
 
-        for (stage_idx, groups) in group_lists.iter_mut() {
-            for (group_idx, g) in groups.iter_mut().enumerate() {
-                let hit = g.hit_button_no;
-                if hit < 0 {
-                    continue;
-                }
+            let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
 
-                match b {
-                    input::VmMouseButton::Left => {
-                        g.pushed_button_no = hit;
-                        // If selection is waiting, decide immediately.
-                        if g.wait_flag {
-                            g.result = 1;
-                            g.result_button_no = hit;
-                            g.decided_button_no = hit;
-                            g.wait_flag = false;
-                            g.started = false;
-                            self.globals.focused_stage_group = None;
-                        }
-
-                        // Mark pushed on every owning object, including nested CHILD objects.
-                        if let Some(objs) = object_lists.get_mut(stage_idx) {
-                            for obj in objs.iter_mut() {
-                                set_button_pushed_recursive(obj, group_idx, hit);
+            match b {
+                input::VmMouseButton::Left => {
+                    for (stage_idx, groups) in group_lists.iter_mut() {
+                        for (group_idx, g) in groups.iter_mut().enumerate() {
+                            if !g.started {
+                                continue;
+                            }
+                            let hit = g.hit_button_no;
+                            if hit < 0 {
+                                continue;
+                            }
+                            if g.pushed_button_no != hit {
+                                if let Some(objs) = object_lists.get(stage_idx) {
+                                    if let Some(se_no) = find_button_se_no_recursive(objs, group_idx, hit) {
+                                        sounds.push(se_no);
+                                    }
+                                }
+                            }
+                            g.pushed_button_no = hit;
+                            if let Some(objs) = object_lists.get_mut(stage_idx) {
+                                for obj in objs.iter_mut() {
+                                    set_button_pushed_recursive(obj, group_idx, hit);
+                                }
                             }
                         }
                     }
-                    input::VmMouseButton::Right => {
-                        if g.wait_flag && g.cancel_flag {
-                            g.result = -1;
-                            g.result_button_no = -1;
-                            g.decided_button_no = -1;
-                            g.wait_flag = false;
-                            g.started = false;
-                            self.globals.focused_stage_group = None;
+
+                    for objs in object_lists.values_mut() {
+                        for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                            if let Some(se_no) = mark_standalone_button_pushed_from_hit_recursive(obj_idx, obj) {
+                                sounds.push(se_no);
+                            }
                         }
                     }
-                    _ => {}
                 }
+                input::VmMouseButton::Right => {
+                    let mut winner: Option<(i64, i64, usize)> = None;
+                    let mut tied = false;
+                    for (stage_idx, groups) in group_lists.iter() {
+                        for (group_idx, g) in groups.iter().enumerate() {
+                            if !g.started || !g.wait_flag || !g.cancel_flag {
+                                continue;
+                            }
+                            let pri = g.cancel_priority;
+                            match winner {
+                                None => {
+                                    winner = Some((*stage_idx, pri, group_idx));
+                                    tied = false;
+                                }
+                                Some((_, best_pri, _)) if pri > best_pri => {
+                                    winner = Some((*stage_idx, pri, group_idx));
+                                    tied = false;
+                                }
+                                Some((_, best_pri, _)) if pri == best_pri => {
+                                    tied = true;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    if !tied {
+                        if let Some((stage_idx, _pri, group_idx)) = winner {
+                            if let Some(groups) = group_lists.get_mut(&stage_idx) {
+                                if let Some(g) = groups.get_mut(group_idx) {
+                                    g.result = -1;
+                                    g.result_button_no = -1;
+                                    g.decided_button_no = -1;
+                                    if g.wait_flag {
+                                        self.stack.push(Value::Int(-1));
+                                    }
+                                    g.wait_flag = false;
+                                    g.started = false;
+                                    sounds.push(g.cancel_se_no);
+                                    if self.globals.focused_stage_group == Some((form_id, stage_idx, group_idx)) {
+                                        self.globals.focused_stage_group = None;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                _ => {}
             }
+        }
+
+        for se_no in sounds {
+            self.play_button_se_direct(se_no);
         }
     }
 
     fn handle_object_button_mouse_up(&mut self, b: input::VmMouseButton) {
-        let form_id = self.ids.form_global_stage;
-        let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
+        if !matches!(b, input::VmMouseButton::Left) {
             return;
-        };
+        }
 
-        let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
+        self.update_object_button_hover();
 
-        if matches!(b, input::VmMouseButton::Left) {
-            // Conservative: clear pushed flag unless a script keeps it.
-            for (_stage_idx, groups) in group_lists.iter_mut() {
-                for g in groups.iter_mut() {
-                    g.pushed_button_no = -1;
+        let form_id = self.ids.form_global_stage;
+        let mut pending_button_actions = Vec::new();
+        let mut sounds = Vec::new();
+
+        {
+            let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
+                return;
+            };
+
+            let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
+
+            for (stage_idx, groups) in group_lists.iter_mut() {
+                for (group_idx, g) in groups.iter_mut().enumerate() {
+                    if !g.started {
+                        continue;
+                    }
+                    let pushed = g.pushed_button_no;
+                    let released_on_same_button = pushed >= 0 && g.hit_button_no == pushed;
+                    if released_on_same_button {
+                        g.result = 1;
+                        g.result_button_no = pushed;
+                        g.decided_button_no = pushed;
+                        if let Some(objs) = object_lists.get(stage_idx) {
+                            if let Some(se_no) = find_button_se_no_recursive(objs, group_idx, pushed) {
+                                sounds.push(se_no);
+                            }
+                            for obj in objs {
+                                collect_button_decided_actions_recursive(
+                                    obj,
+                                    group_idx,
+                                    pushed,
+                                    &mut pending_button_actions,
+                                );
+                            }
+                        }
+                        if g.wait_flag {
+                            self.stack.push(Value::Int(pushed));
+                            g.wait_flag = false;
+                            g.started = false;
+                            if self.globals.focused_stage_group == Some((form_id, *stage_idx, group_idx)) {
+                                self.globals.focused_stage_group = None;
+                            }
+                        }
+                    } else if !g.wait_flag {
+                        g.decided_button_no = -1;
+                    }
+
+                    let keep_push = object_lists
+                        .get(stage_idx)
+                        .map(|objs| {
+                            objs.iter()
+                                .any(|obj| object_button_push_keep_recursive(obj, group_idx, pushed))
+                        })
+                        .unwrap_or(false);
+                    if !keep_push {
+                        g.pushed_button_no = -1;
+                    }
                 }
             }
+
+            for objs in object_lists.values() {
+                for obj in objs.iter() {
+                    collect_standalone_button_decided_actions_recursive(
+                        obj,
+                        &mut pending_button_actions,
+                        &mut sounds,
+                    );
+                }
+            }
+
             for objs in object_lists.values_mut() {
                 for obj in objs.iter_mut() {
                     clear_button_pushed_recursive(obj);
                 }
             }
         }
+
+        self.globals.pending_button_actions.extend(pending_button_actions);
+        for se_no in sounds {
+            self.play_button_se_direct(se_no);
+        }
     }
     // ------------------------------------------------------------------
     // Input bridge (platform event -> VM state)
     // ------------------------------------------------------------------
 
+    pub fn platform_shortcuts_blocked(&self) -> bool {
+        self.globals.system.messagebox_modal.is_some()
+            || self.globals.syscom.menu_open
+            || self.globals.selbtn.started
+            || self.globals.focused_editbox.is_some()
+    }
+
+    fn is_vm_key_disabled(&self, k: input::VmKey) -> bool {
+        input::vmkey_to_vk_code(k)
+            .map(|vk| self.globals.script.key_disable.contains(&vk))
+            .unwrap_or(false)
+    }
+
     pub fn on_key_down(&mut self, k: input::VmKey) {
+        if self.handle_system_messagebox_key(k) {
+            return;
+        }
         if self.handle_syscom_menu_key(k) {
+            return;
+        }
+        if self.handle_selbtn_key(k) {
+            return;
+        }
+        if self.is_vm_key_disabled(k) {
             return;
         }
         self.input.on_key_down(k);
@@ -632,9 +870,13 @@ impl CommandContext {
                         if let Some(g) = list.get_mut(group_idx) {
                             match k {
                                 input::VmKey::Enter => {
+                                    let button_no = if g.hit_button_no >= 0 { g.hit_button_no } else { 0 };
                                     g.result = 1;
-                                    g.result_button_no = 0;
-                                    g.decided_button_no = 0;
+                                    g.result_button_no = button_no;
+                                    g.decided_button_no = button_no;
+                                    if g.wait_flag {
+                                        self.stack.push(Value::Int(button_no));
+                                    }
                                     g.wait_flag = false;
                                     g.started = false;
                                     self.globals.focused_stage_group = None;
@@ -643,6 +885,9 @@ impl CommandContext {
                                     g.result = -1;
                                     g.result_button_no = -1;
                                     g.decided_button_no = -1;
+                                    if g.wait_flag {
+                                        self.stack.push(Value::Int(-1));
+                                    }
                                     g.wait_flag = false;
                                     g.started = false;
                                     self.globals.focused_stage_group = None;
@@ -656,18 +901,20 @@ impl CommandContext {
         }
 
         self.advance_message_wait(true);
-        let wipe_skipped = self.wait.notify_key();
-        self.finish_skipped_movie_waits();
-        if wipe_skipped {
-            self.globals.finish_wipe();
-        }
+        self.notify_wait_key();
     }
 
     pub fn on_key_up(&mut self, k: input::VmKey) {
+        if self.is_vm_key_disabled(k) {
+            return;
+        }
         self.input.on_key_up(k);
     }
 
     pub fn on_text_input(&mut self, text: &str) {
+        if self.globals.system.messagebox_modal.is_some() {
+            return;
+        }
         let Some((form_id, idx)) = self.globals.focused_editbox else {
             return;
         };
@@ -691,7 +938,16 @@ impl CommandContext {
     }
 
     pub fn on_mouse_down(&mut self, b: input::VmMouseButton) {
+        if sg_debug_enabled() {
+            eprintln!("[SG_DEBUG][INPUT] mouse_down {:?} at=({}, {})", b, self.input.mouse_x, self.input.mouse_y);
+        }
+        if self.handle_system_messagebox_click(b) {
+            return;
+        }
         if self.handle_syscom_menu_click() {
+            return;
+        }
+        if self.handle_selbtn_mouse_click(b) {
             return;
         }
         let handled_mwnd_selection = self.handle_mwnd_selection_click(b);
@@ -701,11 +957,7 @@ impl CommandContext {
             self.handle_object_button_mouse_down(b);
         }
         self.advance_message_wait(true);
-        let wipe_skipped = self.wait.notify_key();
-        self.finish_skipped_movie_waits();
-        if wipe_skipped {
-            self.globals.finish_wipe();
-        }
+        self.notify_wait_key();
     }
 
     fn update_editbox_focus_from_mouse_down(&mut self, b: input::VmMouseButton) {
@@ -732,18 +984,18 @@ impl CommandContext {
     }
 
     pub fn on_mouse_up(&mut self, b: input::VmMouseButton) {
+        if sg_debug_enabled() {
+            eprintln!("[SG_DEBUG][INPUT] mouse_up {:?} at=({}, {})", b, self.input.mouse_x, self.input.mouse_y);
+        }
         self.input.on_mouse_up(b);
         self.handle_object_button_mouse_up(b);
+        self.notify_wait_key();
     }
 
     pub fn on_mouse_wheel(&mut self, delta_y: i32) {
         self.input.on_mouse_wheel(delta_y);
         self.advance_message_wait(self.should_wheel_advance_message());
-        let wipe_skipped = self.wait.notify_key();
-        self.finish_skipped_movie_waits();
-        if wipe_skipped {
-            self.globals.finish_wipe();
-        }
+        self.notify_wait_key();
     }
 
 
@@ -889,6 +1141,8 @@ impl CommandContext {
             self.screen_h,
             &self.globals.script,
             &self.globals.syscom,
+            &self.globals.editbox_lists,
+            self.globals.focused_editbox,
         );
         // Apply syscom flags that should skip visual transitions immediately.
         self.apply_syscom_skip_flags();
@@ -920,6 +1174,14 @@ impl CommandContext {
         if trace {
             eprintln!("[SG_CTX_TICK] after globals.tick_frame");
         }
+        self.apply_object_event_animations();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after apply_object_event_animations");
+        }
+        self.sync_weather_objects(game_delta_ms, real_delta_ms);
+        if trace {
+            eprintln!("[SG_CTX_TICK] after sync_weather_objects");
+        }
         let _ = self.bgm.tick(&mut self.audio);
         if trace {
             eprintln!("[SG_CTX_TICK] after bgm.tick");
@@ -928,9 +1190,9 @@ impl CommandContext {
         if trace {
             eprintln!("[SG_CTX_TICK] after sync_movie_objects");
         }
-        self.apply_object_event_animations();
+        self.sync_global_movie();
         if trace {
-            eprintln!("[SG_CTX_TICK] after apply_object_event_animations");
+            eprintln!("[SG_CTX_TICK] after sync_global_movie");
         }
         self.apply_object_disp_override();
         if trace {
@@ -1155,6 +1417,10 @@ impl CommandContext {
                     globals::ObjectBackend::Number {
                         layer_id,
                         sprite_ids,
+                    }
+                    | globals::ObjectBackend::Weather {
+                        layer_id,
+                        sprite_ids,
                     } => {
                         if Some(*layer_id) == ui_layer {
                             continue;
@@ -1187,13 +1453,113 @@ impl CommandContext {
         }
     }
 
+    fn handle_system_messagebox_key(&mut self, k: input::VmKey) -> bool {
+        let Some(modal) = self.globals.system.messagebox_modal.as_mut() else {
+            return false;
+        };
+        let mut finish_value: Option<i64> = None;
+        match k {
+            input::VmKey::ArrowLeft | input::VmKey::ArrowUp => {
+                let len = modal.buttons.len();
+                if len > 0 {
+                    modal.cursor = if modal.cursor == 0 { len - 1 } else { modal.cursor - 1 };
+                }
+            }
+            input::VmKey::ArrowRight | input::VmKey::ArrowDown | input::VmKey::Tab => {
+                let len = modal.buttons.len();
+                if len > 0 {
+                    modal.cursor = (modal.cursor + 1) % len;
+                }
+            }
+            input::VmKey::Enter | input::VmKey::Space => {
+                finish_value = Some(modal.selected_value());
+            }
+            input::VmKey::Escape => {
+                finish_value = Some(modal.cancel_value());
+            }
+            input::VmKey::Digit(d) => {
+                let idx = d.saturating_sub(1) as usize;
+                if idx < modal.buttons.len() {
+                    modal.cursor = idx;
+                    finish_value = Some(modal.selected_value());
+                }
+            }
+            _ => {}
+        }
+        if let Some(value) = finish_value {
+            self.finish_system_messagebox(value);
+        }
+        true
+    }
+
+    fn handle_system_messagebox_click(&mut self, b: input::VmMouseButton) -> bool {
+        let Some(modal) = self.globals.system.messagebox_modal.as_mut() else {
+            return false;
+        };
+        match b {
+            input::VmMouseButton::Left => {
+                let len = modal.buttons.len().max(1);
+                let bw = (self.screen_w as i32 / len as i32).max(1);
+                let mut idx = (self.input.mouse_x.max(0) / bw) as usize;
+                if idx >= len {
+                    idx = len - 1;
+                }
+                modal.cursor = idx;
+                let value = modal.selected_value();
+                self.finish_system_messagebox(value);
+            }
+            input::VmMouseButton::Right => {
+                let value = modal.cancel_value();
+                self.finish_system_messagebox(value);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn finish_system_messagebox(&mut self, value: i64) {
+        self.globals.system.messagebox_modal = None;
+        self.wait.finish_system_modal(Value::Int(value));
+        self.ui.set_sys_overlay(false, String::new());
+    }
+
+    fn sync_system_messagebox_ui(&mut self) -> bool {
+        let Some(modal) = self.globals.system.messagebox_modal.as_ref() else {
+            return false;
+        };
+        let mut text = String::new();
+        if modal.debug_only {
+            text.push_str("[DEBUG]\n");
+        }
+        text.push_str(&modal.text);
+        text.push_str("\n\n");
+        for (i, button) in modal.buttons.iter().enumerate() {
+            if i == modal.cursor {
+                text.push_str("> ");
+            } else {
+                text.push_str("  ");
+            }
+            text.push_str(&(i + 1).to_string());
+            text.push_str(": ");
+            text.push_str(&button.label);
+            text.push_str("\n");
+        }
+        text.push_str("\nEnter/Space: decide  Esc/Right click: cancel");
+        self.ui.set_sys_overlay(true, text);
+        true
+    }
+
     fn handle_syscom_menu_key(&mut self, k: input::VmKey) -> bool {
         if !self.globals.syscom.menu_open {
             return false;
         }
         match k {
-            input::VmKey::Escape | input::VmKey::Enter => {
+            input::VmKey::Escape => {
                 self.close_syscom_menu();
+                return true;
+            }
+            input::VmKey::Enter => {
+                self.activate_syscom_menu_item();
                 return true;
             }
             input::VmKey::ArrowUp => {
@@ -1234,7 +1600,7 @@ impl CommandContext {
         if !self.globals.syscom.menu_open {
             return false;
         }
-        self.close_syscom_menu();
+        self.activate_syscom_menu_item();
         true
     }
 
@@ -1243,19 +1609,93 @@ impl CommandContext {
         self.globals.syscom.menu_kind = None;
     }
 
+    fn activate_syscom_menu_item(&mut self) {
+        if !self.globals.syscom.menu_open {
+            return;
+        }
+        let items = self.menu_items();
+        if items.is_empty() {
+            self.close_syscom_menu();
+            return;
+        }
+        let idx = self.globals.syscom.menu_cursor.min(items.len() - 1);
+        match &items[idx] {
+            MenuItem::Action { kind, .. } => self.activate_syscom_action(*kind),
+            MenuItem::Int { .. } | MenuItem::Bool { .. } | MenuItem::FontName => self.menu_adjust(1),
+        }
+    }
+
+    fn activate_syscom_action(&mut self, kind: i32) {
+        match kind {
+            syscom_op::CALL_SAVE_MENU
+            | syscom_op::CALL_LOAD_MENU
+            | syscom_op::CALL_CONFIG_MENU
+            | syscom_op::CALL_CONFIG_WINDOW_MODE_MENU
+            | syscom_op::CALL_CONFIG_VOLUME_MENU
+            | syscom_op::CALL_CONFIG_BGMFADE_MENU
+            | syscom_op::CALL_CONFIG_KOEMODE_MENU
+            | syscom_op::CALL_CONFIG_CHARAKOE_MENU
+            | syscom_op::CALL_CONFIG_JITAN_MENU
+            | syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU
+            | syscom_op::CALL_CONFIG_AUTO_MODE_MENU
+            | syscom_op::CALL_CONFIG_FONT_MENU
+            | syscom_op::CALL_CONFIG_FILTER_COLOR_MENU
+            | syscom_op::CALL_CONFIG_SYSTEM_MENU
+            | syscom_op::CALL_CONFIG_MOVIE_MENU => {
+                self.globals.syscom.menu_kind = Some(kind);
+                self.globals.syscom.menu_cursor = 0;
+                self.globals.syscom.last_menu_call = kind;
+            }
+            syscom_op::OPEN_MSG_BACK => {
+                self.globals.syscom.msg_back_open = true;
+                self.globals.syscom.last_menu_call = kind;
+                self.close_syscom_menu();
+            }
+            syscom_op::RETURN_TO_SEL => {
+                self.globals.syscom.pending_proc = Some(globals::SyscomPendingProc {
+                    kind: globals::SyscomPendingProcKind::ReturnToSel,
+                    warning: false,
+                    se_play: false,
+                    fade_out: false,
+                    leave_msgbk: false,
+                    save_id: 0,
+                });
+                self.globals.syscom.last_menu_call = kind;
+                self.close_syscom_menu();
+            }
+            syscom_op::RETURN_TO_MENU => {
+                self.globals.syscom.pending_proc = Some(globals::SyscomPendingProc {
+                    kind: globals::SyscomPendingProcKind::ReturnToMenu,
+                    warning: false,
+                    se_play: false,
+                    fade_out: false,
+                    leave_msgbk: false,
+                    save_id: 0,
+                });
+                self.globals.syscom.last_menu_call = kind;
+                self.close_syscom_menu();
+            }
+            syscom_op::END_GAME => {
+                self.globals.syscom.last_menu_call = kind;
+                self.globals.system.active_flag = false;
+                self.close_syscom_menu();
+            }
+            _ => {
+                self.globals.syscom.last_menu_call = kind;
+                self.close_syscom_menu();
+            }
+        }
+    }
+
     fn handle_save_load_digit(&mut self, idx: usize) -> bool {
         if let Some(kind) = self.globals.syscom.menu_kind {
-            const CALL_SAVE_MENU: i32 = 86;
-            const CALL_LOAD_MENU: i32 = 92;
-            const QUICK_SAVE: i32 = 100;
-            const QUICK_LOAD: i32 = 101;
-            if kind == CALL_SAVE_MENU {
+            if kind == syscom_op::CALL_SAVE_MENU {
                 syscom_form::menu_save_slot(self, false, idx);
-            } else if kind == CALL_LOAD_MENU {
+            } else if kind == syscom_op::CALL_LOAD_MENU {
                 syscom_form::menu_load_slot(self, false, idx);
-            } else if kind == QUICK_SAVE {
+            } else if kind == syscom_op::QUICK_SAVE {
                 syscom_form::menu_save_slot(self, true, idx);
-            } else if kind == QUICK_LOAD {
+            } else if kind == syscom_op::QUICK_LOAD {
                 syscom_form::menu_load_slot(self, true, idx);
             } else {
                 return false;
@@ -1301,6 +1741,7 @@ impl CommandContext {
                     || *key == GET_PCM_VOLUME
                     || *key == GET_SE_VOLUME
                     || *key == GET_MOV_VOLUME
+                    || *key == GET_BGMFADE_VOLUME
                 {
                     syscom_form::apply_audio_config(self);
                 }
@@ -1321,9 +1762,13 @@ impl CommandContext {
                     || *key == GET_PCM_ONOFF
                     || *key == GET_SE_ONOFF
                     || *key == GET_MOV_ONOFF
+                    || *key == GET_BGMFADE_ONOFF
                 {
                     syscom_form::apply_audio_config(self);
                 }
+            }
+            Some(MenuItem::Action { kind, .. }) => {
+                self.activate_syscom_action(*kind);
             }
             Some(MenuItem::FontName) => {
                 let list = self.globals.syscom.font_list.clone();
@@ -1353,8 +1798,16 @@ impl CommandContext {
     }
 
     fn sync_syscom_menu_ui(&mut self) {
+        if self.sync_system_messagebox_ui() {
+            return;
+        }
         if !self.globals.syscom.menu_open {
-            self.ui.set_sys_overlay(false, String::new());
+            if self.globals.selbtn.started {
+                let text = build_selbtn_menu_text(&self.globals.selbtn);
+                self.ui.set_sys_overlay(true, text);
+            } else {
+                self.ui.set_sys_overlay(false, String::new());
+            }
             return;
         }
         let len = self.menu_items().len();
@@ -1365,6 +1818,67 @@ impl CommandContext {
         self.ui.set_sys_overlay(true, text);
     }
 
+    fn handle_selbtn_key(&mut self, k: input::VmKey) -> bool {
+        if !self.globals.selbtn.started {
+            return false;
+        }
+        match k {
+            input::VmKey::ArrowUp => {
+                if !self.globals.selbtn.choices.is_empty() {
+                    let c = self.globals.selbtn.cursor;
+                    self.globals.selbtn.cursor = if c == 0 { self.globals.selbtn.choices.len() - 1 } else { c - 1 };
+                }
+                true
+            }
+            input::VmKey::ArrowDown => {
+                if !self.globals.selbtn.choices.is_empty() {
+                    self.globals.selbtn.cursor = (self.globals.selbtn.cursor + 1) % self.globals.selbtn.choices.len();
+                }
+                true
+            }
+            input::VmKey::Enter => {
+                let result = (self.globals.selbtn.cursor as i64) + 1;
+                self.finish_selbtn(result);
+                true
+            }
+            input::VmKey::Escape if self.globals.selbtn.cancel_enable => {
+                self.finish_selbtn(-1);
+                true
+            }
+            _ => true,
+        }
+    }
+
+    fn handle_selbtn_mouse_click(&mut self, b: input::VmMouseButton) -> bool {
+        if !self.globals.selbtn.started {
+            return false;
+        }
+        match b {
+            input::VmMouseButton::Left => {
+                let result = (self.globals.selbtn.cursor as i64) + 1;
+                self.finish_selbtn(result);
+                true
+            }
+            input::VmMouseButton::Right if self.globals.selbtn.cancel_enable => {
+                self.finish_selbtn(-1);
+                true
+            }
+            _ => true,
+        }
+    }
+
+    fn finish_selbtn(&mut self, result: i64) {
+        self.globals.selbtn.result = result;
+        self.globals.selbtn.started = false;
+        if result > 0 {
+            if let Some(choice) = self.globals.selbtn.choices.get((result - 1) as usize) {
+                self.globals.syscom.system_extra_str_value = choice.text.clone();
+            }
+        }
+        self.stack.push(Value::Int(result));
+        self.notify_wait_key();
+    }
+
     fn handle_mwnd_selection_key(&mut self, k: input::VmKey) -> bool {
         let Some((form_id, stage_idx, mwnd_idx)) = self.globals.focused_stage_mwnd else {
             return false;
@@ -1372,6 +1886,7 @@ impl CommandContext {
         let mut clear_focus = false;
         let mut handled = false;
         let mut close_anim: Option<(i64, i64)> = None;
+        let mut result_to_push: Option<i64> = None;
         if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
             if let Some(list) = st.mwnd_lists.get_mut(&stage_idx) {
                 if let Some(m) = list.get_mut(mwnd_idx) {
@@ -1399,6 +1914,7 @@ impl CommandContext {
                             }
                             input::VmKey::Enter => {
                                 sel.result = (sel.cursor as i64) + 1;
+                                result_to_push = Some(sel.result);
                                 close_after = sel.close_mwnd;
                                 clear_selection = true;
                                 clear_focus = true;
@@ -1406,6 +1922,7 @@ impl CommandContext {
                             }
                             input::VmKey::Escape if sel.cancel_enable => {
                                 sel.result = -1;
+                                result_to_push = Some(sel.result);
                                 close_after = sel.close_mwnd;
                                 clear_selection = true;
                                 clear_focus = true;
@@ -1434,6 +1951,9 @@ impl CommandContext {
         }
         if clear_focus {
             self.globals.focused_stage_mwnd = None;
+        }
+        if let Some(v) = result_to_push {
+            self.stack.push(Value::Int(v));
         }
         if let Some((ty, ms)) = close_anim {
             self.ui.begin_mwnd_close(ty, ms);
@@ -1448,6 +1968,7 @@ impl CommandContext {
         let mut clear_focus = false;
         let mut handled = false;
         let mut close_anim: Option<(i64, i64)> = None;
+        let mut result_to_push: Option<i64> = None;
         if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
             if let Some(list) = st.mwnd_lists.get_mut(&stage_idx) {
                 if let Some(m) = list.get_mut(mwnd_idx) {
@@ -1459,6 +1980,7 @@ impl CommandContext {
                         handled = match b {
                             input::VmMouseButton::Left => {
                                 sel.result = (sel.cursor as i64) + 1;
+                                result_to_push = Some(sel.result);
                                 close_after = sel.close_mwnd;
                                 clear_selection = true;
                                 clear_focus = true;
@@ -1466,6 +1988,7 @@ impl CommandContext {
                             }
                             input::VmMouseButton::Right if sel.cancel_enable => {
                                 sel.result = -1;
+                                result_to_push = Some(sel.result);
                                 close_after = sel.close_mwnd;
                                 clear_selection = true;
                                 clear_focus = true;
@@ -1494,6 +2017,9 @@ impl CommandContext {
         }
         if clear_focus {
             self.globals.focused_stage_mwnd = None;
+        }
+        if let Some(v) = result_to_push {
+            self.stack.push(Value::Int(v));
         }
         if let Some((ty, ms)) = close_anim {
             self.ui.begin_mwnd_close(ty, ms);
@@ -1616,6 +2142,260 @@ impl CommandContext {
         }
     }
 
+    fn sync_global_movie(&mut self) {
+        let trace = std::env::var_os("SG_MOVIE_TRACE").is_some();
+        let file_name = match self.globals.mov.file_name.clone() {
+            Some(name) if !name.is_empty() => name,
+            _ => return,
+        };
+
+        if !self.globals.mov.playing {
+            if let Some(id) = self.globals.mov.audio_id.take() {
+                self.movie.stop_audio(id);
+            }
+            if let (Some(layer_id), Some(sprite_id)) = (self.globals.mov.layer_id, self.globals.mov.sprite_id) {
+                if let Some(sprite) = self.layers.layer_mut(layer_id).and_then(|l| l.sprite_mut(sprite_id)) {
+                    sprite.visible = false;
+                    sprite.image_id = None;
+                }
+            }
+            return;
+        }
+
+        let (x, y, width, height, timer_ms, last_frame_idx, image_id, need_audio) = {
+            let m = &self.globals.mov;
+            (
+                m.x,
+                m.y,
+                m.width.max(1),
+                m.height.max(1),
+                m.timer_ms,
+                m.last_frame_idx,
+                m.image_id,
+                m.audio_id.is_none(),
+            )
+        };
+
+        let (layer_id, sprite_id) = match (self.globals.mov.layer_id, self.globals.mov.sprite_id) {
+            (Some(layer_id), Some(sprite_id))
+                if self
+                    .layers
+                    .layer(layer_id)
+                    .and_then(|l| l.sprite(sprite_id))
+                    .is_some() =>
+            {
+                (layer_id, sprite_id)
+            }
+            _ => {
+                let layer_id = self.layers.create_layer();
+                let sprite_id = self
+                    .layers
+                    .layer_mut(layer_id)
+                    .expect("newly created global movie layer")
+                    .create_sprite();
+                self.globals.mov.layer_id = Some(layer_id);
+                self.globals.mov.sprite_id = Some(sprite_id);
+                (layer_id, sprite_id)
+            }
+        };
+
+        let (frame, frame_idx, audio_track, asset_total_ms) = {
+            let asset = match self.movie.ensure_asset(&file_name) {
+                Ok((asset, _)) => asset,
+                Err(err) => {
+                    if trace || std::env::var_os("SG_DEBUG").is_some() {
+                        eprintln!(
+                            "[SG_DEBUG][MOV] ensure_asset failed file={} err={:#}",
+                            file_name, err
+                        );
+                    }
+                    return;
+                }
+            };
+            if asset.frames.is_empty() {
+                if trace || std::env::var_os("SG_DEBUG").is_some() {
+                    eprintln!("[SG_DEBUG][MOV] asset has no video frames file={}", file_name);
+                }
+                return;
+            }
+            let fps = asset.info.fps.unwrap_or_else(|| {
+                asset
+                    .info
+                    .duration_ms()
+                    .filter(|ms| *ms > 0)
+                    .map(|ms| (asset.frames.len() as f32) * 1000.0 / (ms as f32))
+                    .unwrap_or(0.0)
+            });
+            let mut idx = if fps > 0.0 {
+                ((timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize
+            } else {
+                0
+            };
+            if idx >= asset.frames.len() {
+                idx = asset.frames.len() - 1;
+            }
+            (
+                asset.frames[idx].clone(),
+                idx,
+                asset.audio.clone(),
+                asset.info.duration_ms(),
+            )
+        };
+
+        if self.globals.mov.total_ms.is_none() {
+            self.globals.mov.total_ms = asset_total_ms;
+        }
+
+        if need_audio {
+            if let Some(track) = audio_track.as_ref() {
+                if let Ok(id) = self.movie.start_audio(&mut self.audio, track, timer_ms) {
+                    self.globals.mov.audio_id = Some(id);
+                }
+            }
+        }
+
+        let img_id = if image_id.is_some() && last_frame_idx != Some(frame_idx) {
+            let id = image_id.unwrap();
+            let _ = self.images.replace_image_arc(id, frame.clone());
+            id
+        } else if let Some(id) = image_id {
+            id
+        } else {
+            self.images.insert_image_arc(frame.clone())
+        };
+        self.globals.mov.image_id = Some(img_id);
+        self.globals.mov.last_frame_idx = Some(frame_idx);
+
+        if let Some(sprite) = self.layers.layer_mut(layer_id).and_then(|l| l.sprite_mut(sprite_id)) {
+            sprite.visible = true;
+            sprite.image_id = Some(img_id);
+            sprite.fit = SpriteFit::PixelRect;
+            sprite.size_mode = SpriteSizeMode::Explicit { width, height };
+            sprite.x = x;
+            sprite.y = y;
+            sprite.alpha = 255;
+            sprite.tr = 255;
+            sprite.alpha_blend = true;
+            sprite.order = i32::MAX - 16;
+        }
+
+        if trace {
+            eprintln!(
+                "[SG_MOVIE_TRACE] global MOV frame file={} idx={} timer={} pos=({}, {}) size={}x{} layer={} sprite={}",
+                file_name, frame_idx, timer_ms, x, y, width, height, layer_id, sprite_id
+            );
+        }
+    }
+
+    fn sync_weather_objects(&mut self, game_delta_ms: i32, real_delta_ms: i32) {
+        let screen_w = self.screen_w.max(1) as i64;
+        let screen_h = self.screen_h.max(1) as i64;
+        let (globals, layers, images, ids) = (
+            &mut self.globals,
+            &mut self.layers,
+            &mut self.images,
+            &self.ids,
+        );
+        for st in globals.stage_forms.values_mut() {
+            for (_stage_idx, objs) in st.object_lists.iter_mut() {
+                for obj in objs.iter_mut() {
+                    sync_weather_object_recursive(
+                        ids,
+                        layers,
+                        images,
+                        screen_w,
+                        screen_h,
+                        game_delta_ms,
+                        real_delta_ms,
+                        obj,
+                    );
+                }
+            }
+        }
+    }
+
+    fn repair_missing_gfx_leaf_images(&mut self) {
+        fn collect(
+            ids: &crate::runtime::constants::RuntimeConstants,
+            stage_idx: i64,
+            objs: &[globals::ObjectState],
+            out: &mut Vec<(i64, usize, String, i64)>,
+        ) {
+            for (idx, obj) in objs.iter().enumerate() {
+                if obj.used && matches!(obj.backend, globals::ObjectBackend::Gfx) {
+                    let slot = object_runtime_slot(idx, obj);
+                    let file = obj.file_name.clone();
+                    if let Some(file) = file {
+                        if !file.is_empty() {
+                            let patno = obj.lookup_int_prop(ids, ids.obj_patno).unwrap_or(0);
+                            out.push((stage_idx, slot, file, patno));
+                        }
+                    }
+                }
+                if !obj.runtime.child_objects.is_empty() {
+                    collect(ids, stage_idx, &obj.runtime.child_objects, out);
+                }
+            }
+        }
+
+        let mut tasks: Vec<(i64, usize, String, i64)> = Vec::new();
+        for st in self.globals.stage_forms.values() {
+            for (stage_idx, objs) in st.object_lists.iter() {
+                collect(&self.ids, *stage_idx, objs, &mut tasks);
+            }
+        }
+
+        for (stage_idx, runtime_slot, state_file, state_patno) in tasks {
+            let Some((layer_id, sprite_id)) = self
+                .gfx
+                .object_sprite_binding(stage_idx, runtime_slot as i64)
+            else {
+                continue;
+            };
+            let needs_image = self
+                .layers
+                .layer(layer_id)
+                .and_then(|layer| layer.sprite(sprite_id))
+                .map(|sprite| sprite.image_id.is_none())
+                .unwrap_or(false);
+            if !needs_image {
+                continue;
+            }
+
+            let file = self
+                .gfx
+                .object_peek_file(stage_idx, runtime_slot as i64)
+                .unwrap_or_else(|| state_file.clone());
+            if file.is_empty() {
+                continue;
+            }
+            let patno = self
+                .gfx
+                .object_peek_patno(stage_idx, runtime_slot as i64)
+                .unwrap_or(state_patno)
+                .max(0) as u32;
+
+            let img_id = match self.images.load_g00(&file, patno) {
+                Ok(id) => Ok(id),
+                Err(_) => self.images.load_bg_frame(&file, patno as usize),
+            };
+            match img_id {
+                Ok(img_id) => {
+                    if let Some(layer) = self.layers.layer_mut(layer_id) {
+                        if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                            sprite.image_id = Some(img_id);
+                        }
+                    }
+                }
+                Err(err) => {
+                    self.unknown.record_note(&format!(
+                        "gfx.image.repair.failed:stage={stage_idx}:slot={runtime_slot}:file={file}:patno={patno}:{err}"
+                    ));
+                }
+            }
+        }
+    }
+
     /// Build a render list and apply screen/wipe effects.
     ///
     /// Original Siglus does not render from a flat layer list. It first builds a
@@ -1624,6 +2404,7 @@ impl CommandContext {
     /// submission order from stage -> top-level object -> child objects.
     fn build_render_list_pre_wipe(&mut self) -> (Vec<RenderSprite>, Vec<String>) {
         self.layers.reset_runtime_effects();
+        self.repair_missing_gfx_leaf_images();
         self.apply_object_masks();
         self.apply_object_tonecurves();
         let base = self.layers.render_list();
@@ -1760,6 +2541,19 @@ impl CommandContext {
         let sprites = self.render_list_with_effects();
         soft_render::render_to_image(&self.images, &sprites, self.screen_w, self.screen_h)
     }
+
+    /// Capture only sprites up to the original engine order/layer cut line.
+    pub fn capture_frame_rgba_until(&mut self, end_order: i64, end_layer: i64) -> RgbaImage {
+        let order = end_order.clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024);
+        let layer = end_layer.clamp(-1023, 1023);
+        let limit = order
+            .saturating_mul(1024)
+            .saturating_add(layer)
+            .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        let mut sprites = self.render_list_with_effects();
+        sprites.retain(|rs| rs.sprite.order <= limit);
+        soft_render::render_to_image(&self.images, &sprites, self.screen_w, self.screen_h)
+    }
 }
 
 fn collect_debug_active_textures_from_object(
@@ -1860,6 +2654,7 @@ fn debug_object_backend_name(obj: &globals::ObjectState) -> &'static str {
         globals::ObjectBackend::Rect { .. } => "Rect",
         globals::ObjectBackend::String { .. } => "String",
         globals::ObjectBackend::Number { .. } => "Number",
+        globals::ObjectBackend::Weather { .. } => "Weather",
         globals::ObjectBackend::Movie { .. } => "Movie",
     }
 }
@@ -1972,10 +2767,60 @@ struct ButtonHitCandidate {
     button_no: i64,
     draw_order: i64,
     runtime_slot: usize,
+    se_no: i64,
+    was_hit: bool,
 }
+
+fn collect_button_decided_actions_recursive(
+    obj: &globals::ObjectState,
+    group_idx: usize,
+    button_no: i64,
+    out: &mut Vec<globals::PendingButtonAction>,
+) {
+    if obj.used
+        && obj.button.enabled
+        && obj.button.group_idx() == Some(group_idx)
+        && obj.button.button_no == button_no
+        && obj.button.action_no >= 0
+        && obj.button.hit
+        && !obj.button.decided_action_scn_name.is_empty()
+    {
+        out.push(globals::PendingButtonAction {
+            scn_name: obj.button.decided_action_scn_name.clone(),
+            cmd_name: obj.button.decided_action_cmd_name.clone(),
+            z_no: obj.button.decided_action_z_no,
+        });
+    }
+    for child in &obj.runtime.child_objects {
+        collect_button_decided_actions_recursive(child, group_idx, button_no, out);
+    }
+}
+
+fn find_button_se_no_recursive(
+    objs: &[globals::ObjectState],
+    group_idx: usize,
+    button_no: i64,
+) -> Option<i64> {
+    for obj in objs {
+        if obj.used
+            && obj.button.enabled
+            && obj.button.group_idx() == Some(group_idx)
+            && obj.button.button_no == button_no
+            && obj.button.action_no >= 0
+        {
+            return Some(obj.button.se_no);
+        }
+        if let Some(se_no) = find_button_se_no_recursive(&obj.runtime.child_objects, group_idx, button_no) {
+            return Some(se_no);
+        }
+    }
+    None
+}
+
 
 fn clear_button_hit_recursive(obj: &mut globals::ObjectState) {
     if obj.button.enabled {
+        obj.button.last_hit = obj.button.hit;
         obj.button.hit = false;
     }
     for child in &mut obj.runtime.child_objects {
@@ -2005,6 +2850,7 @@ fn set_button_pushed_recursive(obj: &mut globals::ObjectState, group_idx: usize,
         && obj.button.group_idx() == Some(group_idx)
         && obj.button.button_no == button_no
     {
+        obj.button.last_pushed = obj.button.pushed;
         obj.button.pushed = true;
     }
     for child in &mut obj.runtime.child_objects {
@@ -2012,19 +2858,329 @@ fn set_button_pushed_recursive(obj: &mut globals::ObjectState, group_idx: usize,
     }
 }
 
+fn mark_standalone_button_pushed_from_hit_recursive(
+    _obj_idx: usize,
+    obj: &mut globals::ObjectState,
+) -> Option<i64> {
+    if has_standalone_button_action(obj) && obj.button.hit {
+        let was_pushed = obj.button.pushed;
+        obj.button.last_pushed = obj.button.pushed;
+        obj.button.pushed = true;
+        if !was_pushed {
+            return Some(obj.button.se_no);
+        }
+    }
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        if let Some(se_no) = mark_standalone_button_pushed_from_hit_recursive(child_idx, child) {
+            return Some(se_no);
+        }
+    }
+    None
+}
+
 fn clear_button_pushed_recursive(obj: &mut globals::ObjectState) {
-    if obj.button.enabled && !obj.button.push_keep {
-        obj.button.pushed = false;
+    if obj.button.enabled {
+        obj.button.last_pushed = obj.button.pushed;
+        if !obj.button.push_keep {
+            obj.button.pushed = false;
+        }
     }
     for child in &mut obj.runtime.child_objects {
         clear_button_pushed_recursive(child);
     }
 }
 
+fn object_button_push_keep_recursive(
+    obj: &globals::ObjectState,
+    group_idx: usize,
+    button_no: i64,
+) -> bool {
+    if obj.button.enabled
+        && obj.button.group_idx() == Some(group_idx)
+        && obj.button.button_no == button_no
+        && obj.button.push_keep
+    {
+        return true;
+    }
+    obj.runtime
+        .child_objects
+        .iter()
+        .any(|child| object_button_push_keep_recursive(child, group_idx, button_no))
+}
+
+fn hit_test_layer_sprite(
+    images: &mut ImageManager,
+    layers: &LayerManager,
+    layer_id: LayerId,
+    sprite_id: SpriteId,
+    mx: i32,
+    my: i32,
+    alpha_test: bool,
+) -> Option<i64> {
+    let spr = layers.layer(layer_id).and_then(|l| l.sprite(sprite_id))?;
+    if !spr.visible {
+        return None;
+    }
+    let img_id = spr.image_id?;
+    let img = images.get(img_id).map(|a| a.as_ref())?;
+    if !CommandContext::hit_test_sprite_rect(spr.x, spr.y, img.width, img.height, mx, my) {
+        return None;
+    }
+    if alpha_test && !CommandContext::alpha_test_image(img, mx - spr.x, my - spr.y) {
+        return None;
+    }
+    Some(spr.order as i64)
+}
+
+fn has_standalone_button_action(obj: &globals::ObjectState) -> bool {
+    obj.used
+        && obj.button.enabled
+        && !obj.button.is_disabled()
+        && obj.button.group_idx().is_none()
+        && obj.button.action_no >= 0
+        && !obj.button.decided_action_scn_name.is_empty()
+}
+
+fn merge_button_hit(
+    best: &mut Option<ButtonHitCandidate>,
+    tied: &mut bool,
+    hit: ButtonHitCandidate,
+) {
+    match *best {
+        None => {
+            *best = Some(hit);
+            *tied = false;
+        }
+        Some(prev) if hit.draw_order > prev.draw_order => {
+            *best = Some(hit);
+            *tied = false;
+        }
+        Some(prev) if hit.draw_order == prev.draw_order => {
+            *tied = true;
+        }
+        _ => {}
+    }
+}
+
+fn object_event_value(
+    ids: &constants::RuntimeConstants,
+    obj: &globals::ObjectState,
+    event_op: i32,
+    current: i64,
+) -> i64 {
+    if event_op != 0 {
+        obj.int_event_by_op(ids, event_op)
+            .map(|ev| ev.get_total_value() as i64)
+            .unwrap_or(current)
+    } else {
+        current
+    }
+}
+
+fn object_button_effective_gfx_hit(
+    images: &mut ImageManager,
+    layers: &LayerManager,
+    gfx: &graphics::GfxRuntime,
+    ids: &constants::RuntimeConstants,
+    stage_idx: i64,
+    runtime_slot: usize,
+    obj: &globals::ObjectState,
+    mx: i32,
+    my: i32,
+) -> Option<i64> {
+    if let Some((layer_id, sprite_id)) = gfx.object_sprite_binding(stage_idx, runtime_slot as i64) {
+        return hit_test_layer_sprite(images, layers, layer_id, sprite_id, mx, my, obj.button.alpha_test);
+    }
+
+    let disp = obj
+        .lookup_int_prop(ids, ids.obj_disp)
+        .or_else(|| gfx.object_peek_disp(stage_idx, runtime_slot as i64))
+        .unwrap_or(0);
+    if disp == 0 {
+        return None;
+    }
+
+    let (base_x, base_y) = gfx
+        .object_peek_pos(stage_idx, runtime_slot as i64)
+        .unwrap_or((0, 0));
+    let mut x = obj.lookup_int_prop(ids, ids.obj_x).unwrap_or(base_x);
+    let mut y = obj.lookup_int_prop(ids, ids.obj_y).unwrap_or(base_y);
+    x = object_event_value(ids, obj, ids.obj_x_eve, x);
+    y = object_event_value(ids, obj, ids.obj_y_eve, y);
+    x += obj
+        .runtime
+        .prop_event_lists
+        .x_rep
+        .iter()
+        .map(|ev| ev.get_total_value() as i64)
+        .sum::<i64>();
+    y += obj
+        .runtime
+        .prop_event_lists
+        .y_rep
+        .iter()
+        .map(|ev| ev.get_total_value() as i64)
+        .sum::<i64>();
+
+    let mut tr = obj.lookup_int_prop(ids, ids.obj_tr).unwrap_or(255);
+    tr = object_event_value(ids, obj, ids.obj_tr_eve, tr);
+    tr = obj
+        .runtime
+        .prop_event_lists
+        .tr_rep
+        .iter()
+        .fold(tr, |acc, ev| {
+            acc.saturating_mul(ev.get_total_value() as i64)
+                .div_euclid(255)
+        });
+    if tr <= 0 {
+        return None;
+    }
+
+    let mut scale_x = obj.lookup_int_prop(ids, ids.obj_scale_x).unwrap_or(1000);
+    let mut scale_y = obj.lookup_int_prop(ids, ids.obj_scale_y).unwrap_or(1000);
+    scale_x = object_event_value(ids, obj, ids.obj_scale_x_eve, scale_x);
+    scale_y = object_event_value(ids, obj, ids.obj_scale_y_eve, scale_y);
+    if scale_x == 0 || scale_y == 0 {
+        return None;
+    }
+
+    let mut patno = obj
+        .lookup_int_prop(ids, ids.obj_patno)
+        .or_else(|| gfx.object_peek_patno(stage_idx, runtime_slot as i64))
+        .unwrap_or(0);
+    patno = object_event_value(ids, obj, ids.obj_patno_eve, patno);
+
+    let file_name = obj.file_name.as_ref()?;
+    let img_id = CommandContext::load_any_image_for_hit(images, file_name.as_str(), patno)?;
+    let img = images.get(img_id).map(|a| a.as_ref())?;
+
+    let sx = scale_x as f32 / 1000.0;
+    let sy = scale_y as f32 / 1000.0;
+    let local_x = ((mx as f32 - x as f32) / sx).floor() as i32;
+    let local_y = ((my as f32 - y as f32) / sy).floor() as i32;
+    if local_x < 0 || local_y < 0 || local_x >= img.width as i32 || local_y >= img.height as i32 {
+        return None;
+    }
+    if obj.button.alpha_test && !CommandContext::alpha_test_image(img, local_x, local_y) {
+        return None;
+    }
+
+    let layer_no = obj
+        .lookup_int_prop(ids, ids.obj_layer)
+        .or_else(|| gfx.object_peek_layer(stage_idx, runtime_slot as i64))
+        .unwrap_or(0);
+    let order = obj
+        .lookup_int_prop(ids, ids.obj_order)
+        .or_else(|| gfx.object_peek_order(stage_idx, runtime_slot as i64))
+        .unwrap_or(0);
+    Some(layer_no.saturating_mul(1000).saturating_add(order))
+}
+
+fn collect_standalone_button_decided_actions_recursive(
+    obj: &globals::ObjectState,
+    out: &mut Vec<globals::PendingButtonAction>,
+    sounds: &mut Vec<i64>,
+) {
+    if has_standalone_button_action(obj) && obj.button.hit && obj.button.pushed {
+        out.push(globals::PendingButtonAction {
+            scn_name: obj.button.decided_action_scn_name.clone(),
+            cmd_name: obj.button.decided_action_cmd_name.clone(),
+            z_no: obj.button.decided_action_z_no,
+        });
+        sounds.push(obj.button.se_no);
+    }
+    for child in &obj.runtime.child_objects {
+        collect_standalone_button_decided_actions_recursive(child, out, sounds);
+    }
+}
+
+fn hit_test_standalone_action_button_recursive(
+    images: &mut ImageManager,
+    layers: &LayerManager,
+    gfx: &graphics::GfxRuntime,
+    ids: &constants::RuntimeConstants,
+    stage_idx: i64,
+    mx: i32,
+    my: i32,
+    obj_idx: usize,
+    obj: &mut globals::ObjectState,
+) -> Option<ButtonHitCandidate> {
+    let runtime_slot = object_runtime_slot(obj_idx, obj);
+    let mut best = None;
+    let mut tied = false;
+
+    if has_standalone_button_action(obj) && !obj.base.no_event_hint {
+        let draw_order = match &obj.backend {
+            globals::ObjectBackend::Gfx => object_button_effective_gfx_hit(
+                images,
+                layers,
+                gfx,
+                ids,
+                stage_idx,
+                runtime_slot,
+                obj,
+                mx,
+                my,
+            ),
+            globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
+            | globals::ObjectBackend::String { layer_id, sprite_id, .. }
+            | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => hit_test_layer_sprite(
+                images,
+                layers,
+                *layer_id,
+                *sprite_id,
+                mx,
+                my,
+                obj.button.alpha_test,
+            ),
+            globals::ObjectBackend::Number { layer_id, sprite_ids }
+            | globals::ObjectBackend::Weather { layer_id, sprite_ids } => {
+                let mut order = None;
+                for sid in sprite_ids {
+                    if let Some(o) = hit_test_layer_sprite(images, layers, *layer_id, *sid, mx, my, obj.button.alpha_test) {
+                        order = Some(order.map_or(o, |prev: i64| prev.max(o)));
+                    }
+                }
+                order
+            }
+            globals::ObjectBackend::None => None,
+        };
+        if let Some(draw_order) = draw_order {
+            best = Some(ButtonHitCandidate {
+                button_no: obj.button.button_no,
+                draw_order,
+                runtime_slot,
+                se_no: obj.button.se_no,
+                was_hit: obj.button.last_hit,
+            });
+        }
+    }
+
+    for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
+        if let Some(hit) = hit_test_standalone_action_button_recursive(
+            images,
+            layers,
+            gfx,
+            ids,
+            stage_idx,
+            mx,
+            my,
+            child_idx,
+            child,
+        ) {
+            merge_button_hit(&mut best, &mut tied, hit);
+        }
+    }
+
+    if tied { None } else { best }
+}
+
 fn hit_test_object_button_recursive(
     images: &mut ImageManager,
     layers: &LayerManager,
     gfx: &graphics::GfxRuntime,
+    ids: &constants::RuntimeConstants,
     stage_idx: i64,
     group_idx: usize,
     mx: i32,
@@ -2034,118 +3190,59 @@ fn hit_test_object_button_recursive(
 ) -> Option<ButtonHitCandidate> {
     let runtime_slot = object_runtime_slot(obj_idx, obj);
     let mut best = None;
+    let mut tied = false;
 
-    if obj.used && obj.button.enabled && !obj.button.is_disabled() {
-        if obj.button.group_idx() == Some(group_idx) {
-            let visible = match &obj.backend {
-                globals::ObjectBackend::Rect {
-                    layer_id,
-                    sprite_id,
-                    ..
-                } => layers
-                    .layer(*layer_id)
-                    .and_then(|l| l.sprite(*sprite_id))
-                    .map(|spr| spr.visible)
-                    .unwrap_or(false),
-                globals::ObjectBackend::Gfx => gfx
-                    .object_peek_disp(stage_idx, runtime_slot as i64)
-                    .unwrap_or(0)
-                    != 0,
-                _ => false,
-            };
-
-            if visible {
-                let mut hit = false;
-                match &obj.backend {
-                    globals::ObjectBackend::Rect {
-                        layer_id,
-                        sprite_id,
-                        width,
-                        height,
-                    } => {
-                        if let Some(spr) = layers.layer(*layer_id).and_then(|l| l.sprite(*sprite_id))
-                        {
-                            hit = CommandContext::hit_test_sprite_rect(
-                                spr.x, spr.y, *width, *height, mx, my,
-                            );
-                            if hit && obj.button.alpha_test {
-                                if let Some(img_id) = spr.image_id {
-                                    if let Some(img) = images.get(img_id).map(|a| a.as_ref()) {
-                                        hit = CommandContext::alpha_test_image(
-                                            img,
-                                            mx - spr.x,
-                                            my - spr.y,
-                                        );
-                                    }
-                                }
-                            }
-                        }
+    if obj.used
+        && obj.button.enabled
+        && !obj.button.is_disabled()
+        && !obj.base.no_event_hint
+        && obj.button.action_no >= 0
+        && obj.button.group_idx() == Some(group_idx)
+    {
+        let draw_order = match &obj.backend {
+            globals::ObjectBackend::Gfx => object_button_effective_gfx_hit(
+                images,
+                layers,
+                gfx,
+                ids,
+                stage_idx,
+                runtime_slot,
+                obj,
+                mx,
+                my,
+            ),
+            globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
+            | globals::ObjectBackend::String { layer_id, sprite_id, .. }
+            | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => hit_test_layer_sprite(
+                images,
+                layers,
+                *layer_id,
+                *sprite_id,
+                mx,
+                my,
+                obj.button.alpha_test,
+            ),
+            globals::ObjectBackend::Number { layer_id, sprite_ids }
+            | globals::ObjectBackend::Weather { layer_id, sprite_ids } => {
+                let mut order = None;
+                for sid in sprite_ids {
+                    if let Some(o) = hit_test_layer_sprite(images, layers, *layer_id, *sid, mx, my, obj.button.alpha_test) {
+                        order = Some(order.map_or(o, |prev: i64| prev.max(o)));
                     }
-                    globals::ObjectBackend::Gfx => {
-                        let (x, y) = gfx
-                            .object_peek_pos(stage_idx, runtime_slot as i64)
-                            .unwrap_or((0, 0));
-                        let patno = gfx
-                            .object_peek_patno(stage_idx, runtime_slot as i64)
-                            .unwrap_or(0);
-                        if let Some(file_name) = obj.file_name.as_ref() {
-                            if let Some(img_id) = CommandContext::load_any_image_for_hit(
-                                images,
-                                file_name.as_str(),
-                                patno,
-                            ) {
-                                if let Some(img) = images.get(img_id).map(|a| a.as_ref()) {
-                                    hit = CommandContext::hit_test_sprite_rect(
-                                        x as i32,
-                                        y as i32,
-                                        img.width,
-                                        img.height,
-                                        mx,
-                                        my,
-                                    );
-                                    if hit && obj.button.alpha_test {
-                                        hit = CommandContext::alpha_test_image(
-                                            img,
-                                            mx - x as i32,
-                                            my - y as i32,
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    _ => {}
                 }
-
-                if hit {
-                    let draw_order = match &obj.backend {
-                        globals::ObjectBackend::Rect {
-                            layer_id,
-                            sprite_id,
-                            ..
-                        } => layers
-                            .layer(*layer_id)
-                            .and_then(|l| l.sprite(*sprite_id))
-                            .map(|spr| spr.order as i64)
-                            .unwrap_or(0),
-                        globals::ObjectBackend::Gfx => {
-                            let layer_no = gfx
-                                .object_peek_layer(stage_idx, runtime_slot as i64)
-                                .unwrap_or(0);
-                            let order = gfx
-                                .object_peek_order(stage_idx, runtime_slot as i64)
-                                .unwrap_or(0);
-                            layer_no.saturating_mul(1000).saturating_add(order)
-                        }
-                        _ => 0,
-                    };
-                    best = Some(ButtonHitCandidate {
-                        button_no: obj.button.button_no,
-                        draw_order,
-                        runtime_slot,
-                    });
-                }
+                order
             }
+            globals::ObjectBackend::None => None,
+        };
+
+        if let Some(draw_order) = draw_order {
+            best = Some(ButtonHitCandidate {
+                button_no: obj.button.button_no,
+                draw_order,
+                runtime_slot,
+                se_no: obj.button.se_no,
+                was_hit: obj.button.last_hit,
+            });
         }
     }
 
@@ -2154,6 +3251,7 @@ fn hit_test_object_button_recursive(
             images,
             layers,
             gfx,
+            ids,
             stage_idx,
             group_idx,
             mx,
@@ -2161,15 +3259,11 @@ fn hit_test_object_button_recursive(
             child_idx,
             child,
         ) {
-            match best {
-                None => best = Some(hit),
-                Some(prev) if hit.draw_order > prev.draw_order => best = Some(hit),
-                _ => {}
-            }
+            merge_button_hit(&mut best, &mut tied, hit);
         }
     }
 
-    best
+    if tied { None } else { best }
 }
 
 fn find_object_by_runtime_slot_mut(
@@ -2351,9 +3445,9 @@ fn apply_object_event_animations_recursive(
         };
         set_extra_prop(ids.obj_x, x);
         set_extra_prop(ids.obj_y, y);
-        set_extra_prop(ids.obj_x_rep, x_rep);
-        set_extra_prop(ids.obj_y_rep, y_rep);
-        set_extra_prop(ids.obj_z_rep, z_rep);
+        // REP event lists are consumed directly by ObjectRenderInfo and hit testing.
+        // Do not write animated totals back through obj_x_rep/obj_y_rep/obj_z_rep,
+        // because those properties alias the same event-list storage.
         set_extra_prop(ids.obj_alpha, alpha);
         set_extra_prop(ids.obj_patno, patno);
         set_extra_prop(ids.obj_order, order);
@@ -2380,7 +3474,7 @@ fn apply_object_event_animations_recursive(
         set_extra_prop(ids.obj_src_clip_right, src_clip_right);
         set_extra_prop(ids.obj_src_clip_bottom, src_clip_bottom);
         set_extra_prop(ids.obj_tr, tr);
-        set_extra_prop(ids.obj_tr_rep, tr_rep);
+        // obj_tr_rep also aliases prop_event_lists.tr_rep and must not be overwritten here.
         set_extra_prop(ids.obj_mono, mono);
         set_extra_prop(ids.obj_reverse, reverse);
         set_extra_prop(ids.obj_bright, bright);
@@ -2680,6 +3774,7 @@ fn apply_object_event_animations_recursive(
                     }
                 }
                 globals::ObjectBackend::Number { .. }
+                | globals::ObjectBackend::Weather { .. }
                 | globals::ObjectBackend::Movie { .. }
                 | globals::ObjectBackend::None => {}
             }
@@ -2694,6 +3789,273 @@ fn apply_object_event_animations_recursive(
             layers,
             stage_i64,
             object_runtime_slot(child_idx, child) as i64,
+            child,
+        );
+    }
+}
+
+
+const WEATHER_APPEAR_MS: i64 = 1000;
+const WEATHER_DISAPPEAR_MS: i64 = 1000;
+const WEATHER_ANGLE_FULL: f64 = 3600.0;
+
+fn weather_alpha_for_state(state: i64, cur: i64, len: i64) -> u8 {
+    match state {
+        1 => ((cur.clamp(0, WEATHER_APPEAR_MS) * 255) / WEATHER_APPEAR_MS).clamp(0, 255) as u8,
+        2 => 255,
+        3 => {
+            let len = if len <= 0 { WEATHER_DISAPPEAR_MS } else { len };
+            ((len.saturating_sub(cur).clamp(0, len) * 255) / len).clamp(0, 255) as u8
+        }
+        _ => 0,
+    }
+}
+
+fn weather_wave(time: i64, period: i64, power: i64) -> i64 {
+    if period == 0 || power == 0 {
+        return 0;
+    }
+    let rad = (time as f64 / period.abs() as f64) * std::f64::consts::TAU;
+    (rad.sin() * power as f64).round() as i64
+}
+
+fn weather_pattern(obj: &mut globals::ObjectState, idx: usize) -> i64 {
+    let p = obj.weather_param.clone();
+    let first = p.pat_no_00.min(p.pat_no_01);
+    let last = p.pat_no_00.max(p.pat_no_01);
+    let span = (last - first + 1).max(1);
+    match p.pat_mode {
+        1 => {
+            let pat_time = p.pat_time.max(1);
+            let t = obj
+                .weather_work
+                .sub
+                .get(idx)
+                .map(|s| s.move_cur_time.max(0))
+                .unwrap_or(0);
+            first + ((t / pat_time) % span)
+        }
+        2 => first + obj.weather_work.rand_mod(span),
+        _ => p.pat_no_00,
+    }
+}
+
+fn ensure_weather_sprites(
+    layers: &mut LayerManager,
+    obj: &mut globals::ObjectState,
+) -> Option<(LayerId, Vec<SpriteId>)> {
+    let required = obj.weather_sprite_count();
+    let (layer_id, sprite_ids) = match &mut obj.backend {
+        globals::ObjectBackend::Weather {
+            layer_id,
+            sprite_ids,
+        } => (*layer_id, sprite_ids),
+        _ => return None,
+    };
+    if let Some(layer) = layers.layer_mut(layer_id) {
+        while sprite_ids.len() < required {
+            let sid = layer.create_sprite();
+            if let Some(sprite) = layer.sprite_mut(sid) {
+                sprite.fit = SpriteFit::PixelRect;
+                sprite.size_mode = SpriteSizeMode::Intrinsic;
+                sprite.visible = false;
+                sprite.image_id = None;
+            }
+            sprite_ids.push(sid);
+        }
+    }
+    Some((layer_id, sprite_ids.clone()))
+}
+
+fn set_weather_sprite(
+    ids: &constants::RuntimeConstants,
+    layers: &mut LayerManager,
+    images: &mut ImageManager,
+    obj: &globals::ObjectState,
+    layer_id: LayerId,
+    sprite_id: SpriteId,
+    image_id: Option<ImageId>,
+    x: i64,
+    y: i64,
+    alpha: u8,
+    scale_x: i64,
+    scale_y: i64,
+) {
+    let Some(layer) = layers.layer_mut(layer_id) else {
+        return;
+    };
+    let Some(sprite) = layer.sprite_mut(sprite_id) else {
+        return;
+    };
+    sprite.image_id = image_id;
+    sprite.visible = image_id.is_some()
+        && obj.get_int_prop(ids, ids.obj_disp) != 0
+        && alpha > 0;
+    sprite.fit = SpriteFit::PixelRect;
+    sprite.size_mode = SpriteSizeMode::Intrinsic;
+    sprite.x = obj
+        .lookup_int_prop(ids, ids.obj_x)
+        .unwrap_or(0)
+        .saturating_add(x) as i32;
+    sprite.y = obj
+        .lookup_int_prop(ids, ids.obj_y)
+        .unwrap_or(0)
+        .saturating_add(y) as i32;
+    sprite.alpha = obj
+        .lookup_int_prop(ids, ids.obj_alpha)
+        .unwrap_or(255)
+        .clamp(0, 255) as u8;
+    sprite.tr = ((obj.lookup_int_prop(ids, ids.obj_tr).unwrap_or(255).clamp(0, 255)
+        * alpha as i64)
+        / 255)
+        .clamp(0, 255) as u8;
+    sprite.order = obj.lookup_int_prop(ids, ids.obj_order).unwrap_or(0) as i32;
+    sprite.scale_x = (scale_x as f32) / 1000.0;
+    sprite.scale_y = (scale_y as f32) / 1000.0;
+    sprite.blend = crate::layer::SpriteBlend::from_i64(
+        obj.lookup_int_prop(ids, ids.obj_blend).unwrap_or(0),
+    );
+    if let Some(img) = image_id.and_then(|id| images.get(id)) {
+        if matches!(sprite.size_mode, SpriteSizeMode::Intrinsic) {
+            let _ = (img.width, img.height);
+        }
+    }
+}
+
+fn sync_weather_object_recursive(
+    ids: &constants::RuntimeConstants,
+    layers: &mut LayerManager,
+    images: &mut ImageManager,
+    screen_w: i64,
+    screen_h: i64,
+    game_delta_ms: i32,
+    real_delta_ms: i32,
+    obj: &mut globals::ObjectState,
+) {
+    if obj.used && obj.object_type == 4 && matches!(obj.weather_param.weather_type, 1 | 2) {
+        obj.update_weather_time(game_delta_ms, real_delta_ms, screen_w, screen_h);
+        let Some((layer_id, sprite_ids)) = ensure_weather_sprites(layers, obj) else {
+            return;
+        };
+
+        let file_name = obj.file_name.clone().unwrap_or_default();
+        let cnt_max = obj.weather_work.cnt_max.min(obj.weather_work.sub.len());
+        let mut used = 0usize;
+        for idx in 0..cnt_max {
+            let sub = obj.weather_work.sub[idx].clone();
+            if sub.state == 0 {
+                continue;
+            }
+            let pat_no = weather_pattern(obj, idx).max(0) as u32;
+            let image_id = if file_name.is_empty() {
+                None
+            } else {
+                images.load_g00(&file_name, pat_no).ok()
+            };
+            let alpha = weather_alpha_for_state(sub.state, sub.state_cur_time, sub.state_time_len);
+
+            if obj.weather_param.weather_type == 1 {
+                let move_x = if sub.move_time_x == 0 {
+                    0
+                } else {
+                    1000i64.saturating_mul(sub.move_cur_time) / sub.move_time_x
+                };
+                let move_y = if sub.move_time_y == 0 {
+                    0
+                } else {
+                    1000i64.saturating_mul(sub.move_cur_time) / sub.move_time_y
+                };
+                let mut x = sub.move_start_pos_x + move_x + weather_wave(sub.sin_cur_time, sub.sin_time_x, sub.sin_power_x);
+                let mut y = sub.move_start_pos_y + move_y + weather_wave(sub.sin_cur_time, sub.sin_time_y, sub.sin_power_y);
+                x = ((x % screen_w) + screen_w) % screen_w;
+                y = ((y % screen_h) + screen_h) % screen_h;
+                let offsets = [(0, 0), (-screen_w, 0), (0, -screen_h), (-screen_w, -screen_h)];
+                for (ox, oy) in offsets {
+                    if let Some(&sid) = sprite_ids.get(used) {
+                        set_weather_sprite(
+                            ids,
+                            layers,
+                            images,
+                            obj,
+                            layer_id,
+                            sid,
+                            image_id,
+                            x + ox,
+                            y + oy,
+                            alpha,
+                            sub.scale_x,
+                            sub.scale_y,
+                        );
+                    }
+                    used += 1;
+                }
+            } else {
+                let mt = sub.move_time_x.max(1);
+                let t = sub.move_cur_time.max(0);
+                let distance = sub
+                    .move_start_distance
+                    .saturating_add(1000i64.saturating_mul(t).saturating_mul(t) / mt.saturating_mul(mt));
+                let degree = sub.move_start_degree
+                    + if sub.center_rotate == 0 {
+                        0
+                    } else {
+                        sub.center_rotate.saturating_mul(t) / 1000
+                    };
+                let rad = degree as f64 / WEATHER_ANGLE_FULL * std::f64::consts::TAU;
+                let wave_x = weather_wave(sub.sin_cur_time, sub.sin_time_x, sub.sin_power_x);
+                let wave_y = weather_wave(sub.sin_cur_time, sub.sin_time_y, sub.sin_power_y);
+                let x = obj.weather_param.center_x
+                    + (rad.cos() * distance as f64).round() as i64
+                    + wave_x;
+                let y = obj.weather_param.center_y
+                    + (rad.sin() * distance as f64).round() as i64
+                    + wave_y;
+                let zoom_span = sub.zoom_max.saturating_sub(sub.zoom_min);
+                let zoom = if sub.active_time_len <= 0 {
+                    sub.zoom_min
+                } else {
+                    sub.zoom_min
+                        + zoom_span.saturating_mul(t.min(sub.active_time_len)) / sub.active_time_len
+                };
+                if let Some(&sid) = sprite_ids.get(used) {
+                    set_weather_sprite(
+                        ids,
+                        layers,
+                        images,
+                        obj,
+                        layer_id,
+                        sid,
+                        image_id,
+                        x,
+                        y,
+                        alpha,
+                        sub.scale_x.saturating_mul(zoom) / 1000,
+                        sub.scale_y.saturating_mul(zoom) / 1000,
+                    );
+                }
+                used += 1;
+            }
+        }
+
+        if let Some(layer) = layers.layer_mut(layer_id) {
+            for sid in sprite_ids.into_iter().skip(used) {
+                if let Some(sprite) = layer.sprite_mut(sid) {
+                    sprite.visible = false;
+                    sprite.image_id = None;
+                }
+            }
+        }
+    }
+
+    for child in &mut obj.runtime.child_objects {
+        sync_weather_object_recursive(
+            ids,
+            layers,
+            images,
+            screen_w,
+            screen_h,
+            game_delta_ms,
+            real_delta_ms,
             child,
         );
     }
@@ -3047,6 +4409,10 @@ fn apply_object_masks_recursive(
                     globals::ObjectBackend::Number {
                         layer_id,
                         sprite_ids,
+                    }
+                    | globals::ObjectBackend::Weather {
+                        layer_id,
+                        sprite_ids,
                     } => sprite_ids.iter().map(|sid| (*layer_id, *sid)).collect(),
                     globals::ObjectBackend::Gfx => gfx
                         .object_sprite_binding(stage_i64, obj_i64)
@@ -3156,6 +4522,10 @@ fn apply_object_tonecurves_recursive(
                     ..
                 } => vec![(*layer_id, *sprite_id)],
                 globals::ObjectBackend::Number {
+                    layer_id,
+                    sprite_ids,
+                }
+                | globals::ObjectBackend::Weather {
                     layer_id,
                     sprite_ids,
                 } => sprite_ids.iter().map(|sid| (*layer_id, *sid)).collect(),
@@ -3546,6 +4916,10 @@ fn fetch_bound_render_sprites_impl(
         globals::ObjectBackend::Number {
             layer_id,
             sprite_ids,
+        }
+        | globals::ObjectBackend::Weather {
+            layer_id,
+            sprite_ids,
         } => {
             for sid in sprite_ids {
                 push_one(ctx, *layer_id, *sid, visible_only, &mut out);
@@ -3732,6 +5106,10 @@ fn effective_object_info(
         globals::ObjectBackend::Number {
             layer_id,
             sprite_ids,
+        }
+        | globals::ObjectBackend::Weather {
+            layer_id,
+            sprite_ids,
         } => {
             if let Some(&sid) = sprite_ids.first() {
                 if let Some(layer) = ctx.layers.layer(*layer_id) {
@@ -3753,6 +5131,53 @@ fn effective_object_info(
                 info.disp = true;
             }
         }
+    }
+
+    let event_total = |event_op: i32, current: i64| -> i64 {
+        if event_op != 0 {
+            obj.int_event_by_op(ids, event_op)
+                .map(|ev| ev.get_total_value() as i64)
+                .unwrap_or(current)
+        } else {
+            current
+        }
+    };
+
+    info.x = event_total(ids.obj_x_eve, info.x);
+    info.y = event_total(ids.obj_y_eve, info.y);
+    info.z = event_total(ids.obj_z_eve, info.z);
+    info.tr = event_total(ids.obj_tr_eve, info.tr);
+    info.mono = event_total(ids.obj_mono_eve, info.mono);
+    info.reverse = event_total(ids.obj_reverse_eve, info.reverse);
+    info.bright = event_total(ids.obj_bright_eve, info.bright);
+    info.dark = event_total(ids.obj_dark_eve, info.dark);
+    info.color_rate = event_total(ids.obj_color_rate_eve, info.color_rate);
+    info.color_add_r = event_total(ids.obj_color_add_r_eve, info.color_add_r);
+    info.color_add_g = event_total(ids.obj_color_add_g_eve, info.color_add_g);
+    info.color_add_b = event_total(ids.obj_color_add_b_eve, info.color_add_b);
+    info.color_r = event_total(ids.obj_color_r_eve, info.color_r);
+    info.color_g = event_total(ids.obj_color_g_eve, info.color_g);
+    info.color_b = event_total(ids.obj_color_b_eve, info.color_b);
+    info.center_x = event_total(ids.obj_center_x_eve, info.center_x);
+    info.center_y = event_total(ids.obj_center_y_eve, info.center_y);
+    info.center_z = event_total(ids.obj_center_z_eve, info.center_z);
+    info.center_rep_x = event_total(ids.obj_center_rep_x_eve, info.center_rep_x);
+    info.center_rep_y = event_total(ids.obj_center_rep_y_eve, info.center_rep_y);
+    info.center_rep_z = event_total(ids.obj_center_rep_z_eve, info.center_rep_z);
+    info.scale_x = event_total(ids.obj_scale_x_eve, info.scale_x);
+    info.scale_y = event_total(ids.obj_scale_y_eve, info.scale_y);
+    info.scale_z = event_total(ids.obj_scale_z_eve, info.scale_z);
+    info.rotate_x = event_total(ids.obj_rotate_x_eve, info.rotate_x);
+    info.rotate_y = event_total(ids.obj_rotate_y_eve, info.rotate_y);
+    info.rotate_z = event_total(ids.obj_rotate_z_eve, info.rotate_z);
+
+    if extra(ids.obj_clip_use, 0) != 0 {
+        info.dst_clip = Some(ClipRect {
+            left: event_total(ids.obj_clip_left_eve, extra(ids.obj_clip_left, 0)) as i32,
+            top: event_total(ids.obj_clip_top_eve, extra(ids.obj_clip_top, 0)) as i32,
+            right: event_total(ids.obj_clip_right_eve, extra(ids.obj_clip_right, 0)) as i32,
+            bottom: event_total(ids.obj_clip_bottom_eve, extra(ids.obj_clip_bottom, 0)) as i32,
+        });
     }
 
     info
@@ -3777,18 +5202,12 @@ fn configure_sprite_3d(
     sprite.light_no = info.light_no as i32;
     sprite.world_no = info.world_no as i32;
     sprite.billboard = info.billboard;
-    sprite.mesh_file_name = if matches!(info.object_type, 6 | 7) {
+    sprite.mesh_file_name = if info.object_type == 6 {
         info.file_name.clone()
     } else {
         None
     };
-    sprite.mesh_kind = if info.object_type == 6 {
-        1
-    } else if info.billboard {
-        2
-    } else {
-        0
-    };
+    sprite.mesh_kind = if info.object_type == 6 { 1 } else { 0 };
     sprite.shadow_cast = sprite.mesh_kind != 0;
     sprite.shadow_receive = sprite.mesh_kind != 0;
     sprite.mesh_animation = info.mesh_animation.clone();
@@ -3881,6 +5300,10 @@ fn append_object_tree_sprites(
         globals::ObjectBackend::Number {
             layer_id,
             sprite_ids,
+        }
+        | globals::ObjectBackend::Weather {
+            layer_id,
+            sprite_ids,
         } => sprite_ids.first().copied().map(|sid| (*layer_id, sid)),
         globals::ObjectBackend::None => None,
     };
@@ -3902,6 +5325,23 @@ fn append_object_tree_sprites(
         info.child_sort_type,
         bind_dbg,
     ));
+    if obj.button.enabled {
+        debug_lines.push(format!(
+            "[SG_DEBUG]       button enabled=true no={} group_no={} group_idx={:?} action={} se={} state={} hit={} pushed={} alpha_test={} call={}::{}/{}",
+            obj.button.button_no,
+            obj.button.group_no,
+            obj.button.group_idx(),
+            obj.button.action_no,
+            obj.button.se_no,
+            obj.button.state,
+            obj.button.hit,
+            obj.button.pushed,
+            obj.button.alpha_test,
+            obj.button.decided_action_scn_name,
+            obj.button.decided_action_cmd_name,
+            obj.button.decided_action_z_no,
+        ));
+    }
 
     let mut bound = fetch_bound_render_sprites(ctx, stage_idx, info.runtime_slot, obj);
     for rs in &bound {
@@ -4444,6 +5884,10 @@ fn collect_button_visuals_recursive(
                 map.insert((*layer_id, *sprite_id), state);
             }
             ObjectBackend::Number {
+                layer_id,
+                sprite_ids,
+            }
+            | ObjectBackend::Weather {
                 layer_id,
                 sprite_ids,
             } => {
@@ -5665,48 +7109,76 @@ fn apply_wipe_mask_image(base: &RgbaImage, mask: &RgbaImage, threshold: f32) -> 
     out
 }
 
-fn build_syscom_menu_text(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path) -> String {
-    let kind = syscom.menu_kind.unwrap_or(0);
-    match kind {
-        1 => "SYSCOM MENU\n(Press Esc/Enter/Click to close)".to_string(),
-        86 => {
-            let mut s = String::from(
-                "SAVE MENU\nPress 0-9 to save slot\n(Press Esc/Enter/Click to close)\n",
-            );
-            for i in 0..10 {
-                let exist = syscom.save_slots.get(i).map(|v| v.exist).unwrap_or(false);
-                s.push_str(&format!(
-                    "  Slot {}: {}\n",
-                    i,
-                    if exist { "USED" } else { "EMPTY" }
-                ));
-            }
-            s
-        }
-        92 => {
-            let mut s = String::from(
-                "LOAD MENU\nPress 0-9 to load slot\n(Press Esc/Enter/Click to close)\n",
-            );
-            for i in 0..10 {
-                let exist = syscom.save_slots.get(i).map(|v| v.exist).unwrap_or(false);
-                s.push_str(&format!(
-                    "  Slot {}: {}\n",
-                    i,
-                    if exist { "USED" } else { "EMPTY" }
-                ));
-            }
-            s
-        }
-        157 | 158 | 159 | 160 | 161 | 162 | 163 | 164 | 165 | 166 | 167 | 168 | 169 => {
-            ensure_font_list(syscom, project_dir);
-            build_config_menu_text(syscom)
-        }
-        _ => "MENU\n(Press Esc/Enter/Click to close)".to_string(),
+fn build_selbtn_menu_text(sel: &globals::BtnSelectRuntimeState) -> String {
+    let mut s = String::from("SELBTN
+Esc: cancel  Enter/Click: decide
+");
+    for (i, choice) in sel.choices.iter().enumerate() {
+        let mark = if i == sel.cursor { ">" } else { " " };
+        s.push_str(&format!("{} {}
+", mark, choice.text));
     }
+    if sel.choices.is_empty() {
+        s.push_str("  No choices
+");
+    }
+    s
+}
+
+fn build_syscom_menu_text(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path) -> String {
+    let kind = syscom.menu_kind.unwrap_or(syscom_op::CALL_SYSCOM_MENU);
+    match kind {
+        syscom_op::CALL_SAVE_MENU => build_save_slot_menu_text("SAVE MENU", &syscom.save_slots, false),
+        syscom_op::CALL_LOAD_MENU => build_save_slot_menu_text("LOAD MENU", &syscom.save_slots, true),
+        syscom_op::QUICK_SAVE => build_save_slot_menu_text("QUICK SAVE MENU", &syscom.quick_save_slots, false),
+        syscom_op::QUICK_LOAD => build_save_slot_menu_text("QUICK LOAD MENU", &syscom.quick_save_slots, true),
+        _ => {
+            ensure_font_list(syscom, project_dir);
+            let title = match kind {
+                syscom_op::CALL_SYSCOM_MENU => "SYSCOM MENU",
+                syscom_op::CALL_CONFIG_MENU => "CONFIG MENU",
+                syscom_op::CALL_CONFIG_WINDOW_MODE_MENU => "WINDOW MODE CONFIG",
+                syscom_op::CALL_CONFIG_VOLUME_MENU => "VOLUME CONFIG",
+                syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU => "MESSAGE SPEED CONFIG",
+                syscom_op::CALL_CONFIG_AUTO_MODE_MENU => "AUTO MODE CONFIG",
+                syscom_op::CALL_CONFIG_FILTER_COLOR_MENU => "FILTER COLOR CONFIG",
+                syscom_op::CALL_CONFIG_FONT_MENU => "FONT CONFIG",
+                syscom_op::CALL_CONFIG_MOVIE_MENU => "MOVIE CONFIG",
+                syscom_op::CALL_CONFIG_SYSTEM_MENU => "SYSTEM CONFIG",
+                syscom_op::CALL_CONFIG_BGMFADE_MENU => "BGM FADE CONFIG",
+                syscom_op::CALL_CONFIG_KOEMODE_MENU => "KOE MODE CONFIG",
+                syscom_op::CALL_CONFIG_CHARAKOE_MENU => "CHARA KOE CONFIG",
+                syscom_op::CALL_CONFIG_JITAN_MENU => "JITAN CONFIG",
+                _ => "MENU",
+            };
+            let items = syscom_menu_items(syscom, project_dir);
+            build_menu_text_from_items(title, syscom, &items)
+        }
+    }
+}
+
+fn build_save_slot_menu_text(title: &str, slots: &[globals::SaveSlotState], load: bool) -> String {
+    let action = if load { "load" } else { "save" };
+    let mut s = format!("{}\nPress 0-9 to {} slot\nEsc: close  Enter/Click: activate selected item\n", title, action);
+    for i in 0..10 {
+        let exist = slots.get(i).map(|v| v.exist).unwrap_or(false);
+        let slot_title = slots.get(i).map(|v| v.title.as_str()).unwrap_or("");
+        let used = if exist { "USED" } else { "EMPTY" };
+        if slot_title.is_empty() {
+            s.push_str(&format!("  Slot {}: {}\n", i, used));
+        } else {
+            s.push_str(&format!("  Slot {}: {} {}\n", i, used, slot_title));
+        }
+    }
+    s
 }
 
 #[derive(Clone)]
 enum MenuItem {
+    Action {
+        label: &'static str,
+        kind: i32,
+    },
     Int {
         label: &'static str,
         key: i32,
@@ -5721,189 +7193,169 @@ enum MenuItem {
     FontName,
 }
 
-const GET_WINDOW_MODE: i32 = 172;
-const GET_WINDOW_MODE_SIZE: i32 = 175;
-const GET_ALL_VOLUME: i32 = 188;
-const GET_BGM_VOLUME: i32 = 191;
-const GET_KOE_VOLUME: i32 = 194;
-const GET_PCM_VOLUME: i32 = 197;
-const GET_SE_VOLUME: i32 = 200;
-const GET_MOV_VOLUME: i32 = 210;
-const GET_MOV_ONOFF: i32 = 217;
-const GET_ALL_ONOFF: i32 = 224;
-const GET_BGM_ONOFF: i32 = 227;
-const GET_KOE_ONOFF: i32 = 230;
-const GET_PCM_ONOFF: i32 = 233;
-const GET_SE_ONOFF: i32 = 236;
-const GET_MESSAGE_SPEED: i32 = 248;
-const GET_AUTO_MODE_MOJI_WAIT: i32 = 254;
-const GET_AUTO_MODE_MIN_WAIT: i32 = 257;
-const GET_FILTER_COLOR_R: i32 = 272;
-const GET_FILTER_COLOR_G: i32 = 273;
-const GET_FILTER_COLOR_B: i32 = 274;
-const GET_FILTER_COLOR_A: i32 = 275;
-const GET_NO_WIPE_ANIME_ONOFF: i32 = 296;
-const GET_SKIP_WIPE_ANIME_ONOFF: i32 = 299;
-const GET_WHEEL_NEXT_MESSAGE_ONOFF: i32 = 305;
-const GET_KOE_DONT_STOP_ONOFF: i32 = 308;
-const GET_SKIP_UNREAD_MESSAGE_ONOFF: i32 = 311;
-const GET_PLAY_SILENT_SOUND_ONOFF: i32 = 314;
-const GET_FONT_NAME: i32 = 318;
+const GET_WINDOW_MODE: i32 = syscom_op::GET_WINDOW_MODE;
+const GET_WINDOW_MODE_SIZE: i32 = syscom_op::GET_WINDOW_MODE_SIZE;
+const GET_ALL_VOLUME: i32 = syscom_op::GET_ALL_VOLUME;
+const GET_BGM_VOLUME: i32 = syscom_op::GET_BGM_VOLUME;
+const GET_KOE_VOLUME: i32 = syscom_op::GET_KOE_VOLUME;
+const GET_PCM_VOLUME: i32 = syscom_op::GET_PCM_VOLUME;
+const GET_SE_VOLUME: i32 = syscom_op::GET_SE_VOLUME;
+const GET_MOV_VOLUME: i32 = syscom_op::GET_MOV_VOLUME;
+const GET_MOV_ONOFF: i32 = syscom_op::GET_MOV_ONOFF;
+const GET_ALL_ONOFF: i32 = syscom_op::GET_ALL_ONOFF;
+const GET_BGM_ONOFF: i32 = syscom_op::GET_BGM_ONOFF;
+const GET_KOE_ONOFF: i32 = syscom_op::GET_KOE_ONOFF;
+const GET_PCM_ONOFF: i32 = syscom_op::GET_PCM_ONOFF;
+const GET_SE_ONOFF: i32 = syscom_op::GET_SE_ONOFF;
+const GET_MESSAGE_SPEED: i32 = syscom_op::GET_MESSAGE_SPEED;
+const GET_AUTO_MODE_MOJI_WAIT: i32 = syscom_op::GET_AUTO_MODE_MOJI_WAIT;
+const GET_AUTO_MODE_MIN_WAIT: i32 = syscom_op::GET_AUTO_MODE_MIN_WAIT;
+const GET_FILTER_COLOR_R: i32 = syscom_op::GET_FILTER_COLOR_R;
+const GET_FILTER_COLOR_G: i32 = syscom_op::GET_FILTER_COLOR_G;
+const GET_FILTER_COLOR_B: i32 = syscom_op::GET_FILTER_COLOR_B;
+const GET_FILTER_COLOR_A: i32 = syscom_op::GET_FILTER_COLOR_A;
+const GET_NO_WIPE_ANIME_ONOFF: i32 = syscom_op::GET_NO_WIPE_ANIME_ONOFF;
+const GET_SKIP_WIPE_ANIME_ONOFF: i32 = syscom_op::GET_SKIP_WIPE_ANIME_ONOFF;
+const GET_WHEEL_NEXT_MESSAGE_ONOFF: i32 = syscom_op::GET_WHEEL_NEXT_MESSAGE_ONOFF;
+const GET_KOE_DONT_STOP_ONOFF: i32 = syscom_op::GET_KOE_DONT_STOP_ONOFF;
+const GET_SKIP_UNREAD_MESSAGE_ONOFF: i32 = syscom_op::GET_SKIP_UNREAD_MESSAGE_ONOFF;
+const GET_PLAY_SILENT_SOUND_ONOFF: i32 = syscom_op::GET_PLAY_SILENT_SOUND_ONOFF;
+const GET_FONT_NAME: i32 = syscom_op::GET_FONT_NAME;
+const GET_BGMFADE_VOLUME: i32 = syscom_op::GET_BGMFADE_VOLUME;
+const GET_BGMFADE_ONOFF: i32 = syscom_op::GET_BGMFADE_ONOFF;
+const GET_KOEMODE: i32 = syscom_op::GET_KOEMODE;
+const GET_CHARAKOE_ONOFF: i32 = syscom_op::GET_CHARAKOE_ONOFF;
+const GET_CHARAKOE_VOLUME: i32 = syscom_op::GET_CHARAKOE_VOLUME;
+const GET_JITAN_NORMAL_ONOFF: i32 = syscom_op::GET_JITAN_NORMAL_ONOFF;
+const GET_JITAN_AUTO_MODE_ONOFF: i32 = syscom_op::GET_JITAN_AUTO_MODE_ONOFF;
+const GET_JITAN_KOE_REPLAY_ONOFF: i32 = syscom_op::GET_JITAN_KOE_REPLAY_ONOFF;
+const GET_JITAN_SPEED: i32 = syscom_op::GET_JITAN_SPEED;
 
 fn syscom_menu_items(
     syscom: &mut globals::SyscomRuntimeState,
     project_dir: &Path,
 ) -> Vec<MenuItem> {
-    let kind = syscom.menu_kind.unwrap_or(0);
+    let kind = syscom.menu_kind.unwrap_or(syscom_op::CALL_SYSCOM_MENU);
     match kind {
-        158 => vec![
-            MenuItem::Bool {
-                label: "WINDOW_MODE",
-                key: GET_WINDOW_MODE,
-            },
-            MenuItem::Int {
-                label: "WINDOW_SIZE",
-                key: GET_WINDOW_MODE_SIZE,
-                min: 0,
-                max: 7,
-                step: 1,
-            },
+        syscom_op::CALL_SYSCOM_MENU => vec![
+            MenuItem::Action { label: "SAVE", kind: syscom_op::CALL_SAVE_MENU },
+            MenuItem::Action { label: "LOAD", kind: syscom_op::CALL_LOAD_MENU },
+            MenuItem::Action { label: "CONFIG", kind: syscom_op::CALL_CONFIG_MENU },
+            MenuItem::Action { label: "MESSAGE BACK", kind: syscom_op::OPEN_MSG_BACK },
+            MenuItem::Action { label: "RETURN TO SELECT", kind: syscom_op::RETURN_TO_SEL },
+            MenuItem::Action { label: "RETURN TO MENU", kind: syscom_op::RETURN_TO_MENU },
+            MenuItem::Action { label: "END GAME", kind: syscom_op::END_GAME },
         ],
-        159 => vec![
-            MenuItem::Int {
-                label: "ALL_VOL",
-                key: GET_ALL_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "BGM_VOL",
-                key: GET_BGM_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "KOE_VOL",
-                key: GET_KOE_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "PCM_VOL",
-                key: GET_PCM_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "SE_VOL",
-                key: GET_SE_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
+        syscom_op::CALL_CONFIG_MENU => vec![
+            MenuItem::Action { label: "WINDOW MODE", kind: syscom_op::CALL_CONFIG_WINDOW_MODE_MENU },
+            MenuItem::Action { label: "VOLUME", kind: syscom_op::CALL_CONFIG_VOLUME_MENU },
+            MenuItem::Action { label: "BGM FADE", kind: syscom_op::CALL_CONFIG_BGMFADE_MENU },
+            MenuItem::Action { label: "KOE MODE", kind: syscom_op::CALL_CONFIG_KOEMODE_MENU },
+            MenuItem::Action { label: "CHARA KOE", kind: syscom_op::CALL_CONFIG_CHARAKOE_MENU },
+            MenuItem::Action { label: "JITAN", kind: syscom_op::CALL_CONFIG_JITAN_MENU },
+            MenuItem::Action { label: "MESSAGE SPEED", kind: syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU },
+            MenuItem::Action { label: "AUTO MODE", kind: syscom_op::CALL_CONFIG_AUTO_MODE_MENU },
+            MenuItem::Action { label: "FILTER COLOR", kind: syscom_op::CALL_CONFIG_FILTER_COLOR_MENU },
+            MenuItem::Action { label: "FONT", kind: syscom_op::CALL_CONFIG_FONT_MENU },
+            MenuItem::Action { label: "MOVIE", kind: syscom_op::CALL_CONFIG_MOVIE_MENU },
+            MenuItem::Action { label: "SYSTEM", kind: syscom_op::CALL_CONFIG_SYSTEM_MENU },
         ],
-        164 => vec![MenuItem::Int {
-            label: "MSG_SPEED",
-            key: GET_MESSAGE_SPEED,
-            min: 0,
-            max: 100,
-            step: 5,
-        }],
-        166 => vec![
-            MenuItem::Int {
-                label: "AUTO_MOJI_WAIT",
-                key: GET_AUTO_MODE_MOJI_WAIT,
-                min: 0,
-                max: 300,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "AUTO_MIN_WAIT",
-                key: GET_AUTO_MODE_MIN_WAIT,
-                min: 0,
-                max: 10000,
-                step: 100,
-            },
+        syscom_op::CALL_CONFIG_WINDOW_MODE_MENU => vec![
+            MenuItem::Bool { label: "WINDOW_MODE", key: GET_WINDOW_MODE },
+            MenuItem::Int { label: "WINDOW_SIZE", key: GET_WINDOW_MODE_SIZE, min: 0, max: 7, step: 1 },
         ],
-        165 => vec![
-            MenuItem::Int {
-                label: "FILTER_R",
-                key: GET_FILTER_COLOR_R,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_G",
-                key: GET_FILTER_COLOR_G,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_B",
-                key: GET_FILTER_COLOR_B,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_A",
-                key: GET_FILTER_COLOR_A,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
+        syscom_op::CALL_CONFIG_VOLUME_MENU => vec![
+            MenuItem::Int { label: "ALL_VOL", key: GET_ALL_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Int { label: "BGM_VOL", key: GET_BGM_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Int { label: "KOE_VOL", key: GET_KOE_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Int { label: "PCM_VOL", key: GET_PCM_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Int { label: "SE_VOL", key: GET_SE_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Bool { label: "ALL_ONOFF", key: GET_ALL_ONOFF },
+            MenuItem::Bool { label: "BGM_ONOFF", key: GET_BGM_ONOFF },
+            MenuItem::Bool { label: "KOE_ONOFF", key: GET_KOE_ONOFF },
+            MenuItem::Bool { label: "PCM_ONOFF", key: GET_PCM_ONOFF },
+            MenuItem::Bool { label: "SE_ONOFF", key: GET_SE_ONOFF },
         ],
-        167 => {
+        syscom_op::CALL_CONFIG_BGMFADE_MENU => vec![
+            MenuItem::Int { label: "BGMFADE_VOL", key: GET_BGMFADE_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Bool { label: "BGMFADE_ONOFF", key: GET_BGMFADE_ONOFF },
+        ],
+        syscom_op::CALL_CONFIG_KOEMODE_MENU => vec![
+            MenuItem::Int { label: "KOEMODE", key: GET_KOEMODE, min: 0, max: 2, step: 1 },
+        ],
+        syscom_op::CALL_CONFIG_CHARAKOE_MENU => vec![
+            MenuItem::Bool { label: "CHARAKOE_ONOFF", key: GET_CHARAKOE_ONOFF },
+            MenuItem::Int { label: "CHARAKOE_VOL", key: GET_CHARAKOE_VOLUME, min: 0, max: 100, step: 5 },
+        ],
+        syscom_op::CALL_CONFIG_JITAN_MENU => vec![
+            MenuItem::Bool { label: "JITAN_NORMAL", key: GET_JITAN_NORMAL_ONOFF },
+            MenuItem::Bool { label: "JITAN_AUTO", key: GET_JITAN_AUTO_MODE_ONOFF },
+            MenuItem::Bool { label: "JITAN_KOE_REPLAY", key: GET_JITAN_KOE_REPLAY_ONOFF },
+            MenuItem::Int { label: "JITAN_SPEED", key: GET_JITAN_SPEED, min: 0, max: 100, step: 5 },
+        ],
+        syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU => vec![
+            MenuItem::Int { label: "MSG_SPEED", key: GET_MESSAGE_SPEED, min: 0, max: 100, step: 5 },
+        ],
+        syscom_op::CALL_CONFIG_AUTO_MODE_MENU => vec![
+            MenuItem::Int { label: "AUTO_MOJI_WAIT", key: GET_AUTO_MODE_MOJI_WAIT, min: 0, max: 300, step: 5 },
+            MenuItem::Int { label: "AUTO_MIN_WAIT", key: GET_AUTO_MODE_MIN_WAIT, min: 0, max: 10000, step: 100 },
+        ],
+        syscom_op::CALL_CONFIG_FILTER_COLOR_MENU => vec![
+            MenuItem::Int { label: "FILTER_R", key: GET_FILTER_COLOR_R, min: 0, max: 255, step: 5 },
+            MenuItem::Int { label: "FILTER_G", key: GET_FILTER_COLOR_G, min: 0, max: 255, step: 5 },
+            MenuItem::Int { label: "FILTER_B", key: GET_FILTER_COLOR_B, min: 0, max: 255, step: 5 },
+            MenuItem::Int { label: "FILTER_A", key: GET_FILTER_COLOR_A, min: 0, max: 255, step: 5 },
+        ],
+        syscom_op::CALL_CONFIG_FONT_MENU => {
             ensure_font_list(syscom, project_dir);
             vec![MenuItem::FontName]
         }
-        169 => vec![
-            MenuItem::Int {
-                label: "MOV_VOL",
-                key: GET_MOV_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Bool {
-                label: "MOV_ONOFF",
-                key: GET_MOV_ONOFF,
-            },
+        syscom_op::CALL_CONFIG_MOVIE_MENU => vec![
+            MenuItem::Int { label: "MOV_VOL", key: GET_MOV_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Bool { label: "MOV_ONOFF", key: GET_MOV_ONOFF },
         ],
-        168 => vec![
-            MenuItem::Bool {
-                label: "NO_WIPE",
-                key: GET_NO_WIPE_ANIME_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "SKIP_WIPE",
-                key: GET_SKIP_WIPE_ANIME_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "WHEEL_NEXT",
-                key: GET_WHEEL_NEXT_MESSAGE_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "KOE_DONT_STOP",
-                key: GET_KOE_DONT_STOP_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "SKIP_UNREAD",
-                key: GET_SKIP_UNREAD_MESSAGE_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "PLAY_SILENT",
-                key: GET_PLAY_SILENT_SOUND_ONOFF,
-            },
+        syscom_op::CALL_CONFIG_SYSTEM_MENU => vec![
+            MenuItem::Bool { label: "NO_WIPE", key: GET_NO_WIPE_ANIME_ONOFF },
+            MenuItem::Bool { label: "SKIP_WIPE", key: GET_SKIP_WIPE_ANIME_ONOFF },
+            MenuItem::Bool { label: "WHEEL_NEXT", key: GET_WHEEL_NEXT_MESSAGE_ONOFF },
+            MenuItem::Bool { label: "KOE_DONT_STOP", key: GET_KOE_DONT_STOP_ONOFF },
+            MenuItem::Bool { label: "SKIP_UNREAD", key: GET_SKIP_UNREAD_MESSAGE_ONOFF },
+            MenuItem::Bool { label: "PLAY_SILENT", key: GET_PLAY_SILENT_SOUND_ONOFF },
         ],
         _ => Vec::new(),
     }
+}
+
+fn build_menu_text_from_items(
+    title: &str,
+    syscom: &globals::SyscomRuntimeState,
+    items: &[MenuItem],
+) -> String {
+    let mut s = format!("{}\nEsc: close  Enter/Click: activate  Left/Right: change\n", title);
+    for (i, item) in items.iter().enumerate() {
+        let mark = if i == syscom.menu_cursor { ">" } else { " " };
+        match item {
+            MenuItem::Action { label, .. } => {
+                s.push_str(&format!("{} {}\n", mark, label));
+            }
+            MenuItem::Int { label, key, .. } => {
+                let v = syscom.config_int.get(key).copied().unwrap_or(0);
+                s.push_str(&format!("{} {} = {}\n", mark, label, v));
+            }
+            MenuItem::Bool { label, key } => {
+                let v = syscom.config_int.get(key).copied().unwrap_or(0);
+                s.push_str(&format!("{} {} = {}\n", mark, label, if v == 0 { "OFF" } else { "ON" }));
+            }
+            MenuItem::FontName => {
+                let v = syscom.config_str.get(&GET_FONT_NAME).map(|s| s.as_str()).unwrap_or("");
+                s.push_str(&format!("{} FONT = {}\n", mark, v));
+            }
+        }
+    }
+    if items.is_empty() {
+        s.push_str("  No in-engine menu items are available for this system page.\n");
+    }
+    s
 }
 
 fn ensure_font_list(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path) {
@@ -5933,182 +7385,3 @@ fn ensure_font_list(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path
     syscom.font_list.sort();
 }
 
-fn build_config_menu_text(syscom: &globals::SyscomRuntimeState) -> String {
-    let items = match syscom.menu_kind.unwrap_or(0) {
-        158 => vec![
-            MenuItem::Bool {
-                label: "WINDOW_MODE",
-                key: GET_WINDOW_MODE,
-            },
-            MenuItem::Int {
-                label: "WINDOW_SIZE",
-                key: GET_WINDOW_MODE_SIZE,
-                min: 0,
-                max: 7,
-                step: 1,
-            },
-        ],
-        159 => vec![
-            MenuItem::Int {
-                label: "ALL_VOL",
-                key: GET_ALL_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "BGM_VOL",
-                key: GET_BGM_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "KOE_VOL",
-                key: GET_KOE_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "PCM_VOL",
-                key: GET_PCM_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "SE_VOL",
-                key: GET_SE_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-        ],
-        164 => vec![MenuItem::Int {
-            label: "MSG_SPEED",
-            key: GET_MESSAGE_SPEED,
-            min: 0,
-            max: 100,
-            step: 5,
-        }],
-        166 => vec![
-            MenuItem::Int {
-                label: "AUTO_MOJI_WAIT",
-                key: GET_AUTO_MODE_MOJI_WAIT,
-                min: 0,
-                max: 300,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "AUTO_MIN_WAIT",
-                key: GET_AUTO_MODE_MIN_WAIT,
-                min: 0,
-                max: 10000,
-                step: 100,
-            },
-        ],
-        165 => vec![
-            MenuItem::Int {
-                label: "FILTER_R",
-                key: GET_FILTER_COLOR_R,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_G",
-                key: GET_FILTER_COLOR_G,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_B",
-                key: GET_FILTER_COLOR_B,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_A",
-                key: GET_FILTER_COLOR_A,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-        ],
-        167 => vec![MenuItem::FontName],
-        169 => vec![
-            MenuItem::Int {
-                label: "MOV_VOL",
-                key: GET_MOV_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Bool {
-                label: "MOV_ONOFF",
-                key: GET_MOV_ONOFF,
-            },
-        ],
-        168 => vec![
-            MenuItem::Bool {
-                label: "NO_WIPE",
-                key: GET_NO_WIPE_ANIME_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "SKIP_WIPE",
-                key: GET_SKIP_WIPE_ANIME_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "WHEEL_NEXT",
-                key: GET_WHEEL_NEXT_MESSAGE_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "KOE_DONT_STOP",
-                key: GET_KOE_DONT_STOP_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "SKIP_UNREAD",
-                key: GET_SKIP_UNREAD_MESSAGE_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "PLAY_SILENT",
-                key: GET_PLAY_SILENT_SOUND_ONOFF,
-            },
-        ],
-        _ => Vec::new(),
-    };
-    if items.is_empty() {
-        return "CONFIG MENU\n(Press Esc/Enter/Click to close)".to_string();
-    }
-    let mut s = String::from(
-        "CONFIG MENU\nUse Up/Down + Left/Right to edit\n(Press Esc/Enter/Click to close)\n",
-    );
-    for (i, item) in items.iter().enumerate() {
-        let cursor = if i == syscom.menu_cursor { ">" } else { " " };
-        match item {
-            MenuItem::Int { label, key, .. } => {
-                let v = syscom.config_int.get(key).copied().unwrap_or(0);
-                s.push_str(&format!("{cursor} {label}: {v}\n"));
-            }
-            MenuItem::Bool { label, key } => {
-                let v = syscom.config_int.get(key).copied().unwrap_or(0);
-                s.push_str(&format!(
-                    "{cursor} {label}: {}\n",
-                    if v != 0 { "ON" } else { "OFF" }
-                ));
-            }
-            MenuItem::FontName => {
-                let v = syscom
-                    .config_str
-                    .get(&GET_FONT_NAME)
-                    .cloned()
-                    .unwrap_or_default();
-                s.push_str(&format!("{cursor} FONT: {v}\n"));
-            }
-        }
-    }
-    s
-}

@@ -777,8 +777,8 @@ pub mod elm_value {
     pub const OBJECT_GET_BUTTON_ALPHA_TEST: i32 = crate::runtime::forms::codes::elm_value::OBJECT_GET_BUTTON_ALPHA_TEST;
     pub const OBJECT_CLEAR_BUTTON_CALL: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLEAR_BUTTON_CALL;
     pub const OBJECT_SET_BUTTON_CALL: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_BUTTON_CALL;
-    pub const OBJECT_LOAD_GAN: i32 = crate::runtime::forms::codes::elm_value::OBJECT_LOAD_GAN;
-    pub const OBJECT_START_GAN: i32 = crate::runtime::forms::codes::elm_value::OBJECT_START_GAN;
+    pub const OBJECT_LOAD_GAN: i32 = crate::runtime::forms::codes::ELM_OBJECT_LOAD_GAN;
+    pub const OBJECT_START_GAN: i32 = crate::runtime::forms::codes::ELM_OBJECT_START_GAN;
     pub const OBJECT_ADD_HINTS: i32 = crate::runtime::forms::codes::elm_value::OBJECT_ADD_HINTS;
     pub const OBJECT_CLEAR_HINTS: i32 = crate::runtime::forms::codes::elm_value::OBJECT_CLEAR_HINTS;
     pub const OBJECT_SET_CHILD_SORT_TYPE_DEFAULT: i32 = crate::runtime::forms::codes::elm_value::OBJECT_SET_CHILD_SORT_TYPE_DEFAULT;
@@ -1812,6 +1812,7 @@ pub struct RuntimeConstants {
     pub database_list_get_size: i32,
     pub database_get_num: i32,
     pub database_get_str: i32,
+    pub database_get_data: i32,
     pub database_check_item: i32,
     pub database_check_column: i32,
     pub database_find_num: i32,
@@ -2226,8 +2227,8 @@ impl Default for RuntimeConstants {
             mouse_op_y: 1,
             mouse_op_clear: 4,
             mouse_op_wheel: 5,
-            mouse_op_left: 6,
-            mouse_op_right: 7,
+            mouse_op_left: crate::runtime::forms::codes::elm_value::MOUSE_LEFT,
+            mouse_op_right: crate::runtime::forms::codes::elm_value::MOUSE_RIGHT,
             mouse_op_next: 8,
             mouse_op_get_pos: 9,
             mouse_op_set_pos: 10,
@@ -2239,7 +2240,7 @@ impl Default for RuntimeConstants {
             keylist_op_next: 5,
 
             // KEY sub-ops.
-            key_op_dir: 0,
+            key_op_dir: -9999,
             key_op_on_down: 1,
             key_op_on_up: 4,
             key_op_on_down_up: 5,
@@ -2247,7 +2248,7 @@ impl Default for RuntimeConstants {
             key_op_is_up: 7,
             key_op_on_flick: 10,
             key_op_flick: 14,
-            key_op_flick_angle: 15,
+            key_op_flick_angle: crate::runtime::forms::codes::elm_value::KEY_GET_FLICK_ANGLE,
 
             // MATH element codes (disabled by default).
             math_max: 0,
@@ -2271,28 +2272,29 @@ impl Default for RuntimeConstants {
             math_tostr: 0,
             math_tostr_zero: 0,
 
-            // CGTABLE element codes (disabled by default).
-            cgtable_flag: 0,
-            cgtable_set_disable: 0,
-            cgtable_set_enable: 0,
-            cgtable_set_all_flag: 0,
-            cgtable_get_cg_cnt: 0,
-            cgtable_get_look_cnt: 0,
-            cgtable_get_look_percent: 0,
-            cgtable_get_flag_no_by_name: 0,
-            cgtable_get_look_by_name: 0,
-            cgtable_set_look_by_name: 0,
-            cgtable_get_name_by_flag_no: 0,
+            // CGTABLE element codes.
+            cgtable_flag: elm_value::CGTABLE_FLAG,
+            cgtable_set_disable: elm_value::CGTABLE_SET_DISABLE,
+            cgtable_set_enable: elm_value::CGTABLE_SET_ENABLE,
+            cgtable_set_all_flag: elm_value::CGTABLE_SET_ALL_FLAG,
+            cgtable_get_cg_cnt: elm_value::CGTABLE_GET_CG_CNT,
+            cgtable_get_look_cnt: elm_value::CGTABLE_GET_LOOK_CNT,
+            cgtable_get_look_percent: elm_value::CGTABLE_GET_LOOK_PERCENT,
+            cgtable_get_flag_no_by_name: elm_value::CGTABLE_GET_FLAG_NO_BY_NAME,
+            cgtable_get_look_by_name: elm_value::CGTABLE_GET_LOOK_BY_NAME,
+            cgtable_set_look_by_name: elm_value::CGTABLE_SET_LOOK_BY_NAME,
+            cgtable_get_name_by_flag_no: elm_value::CGTABLE_GET_NAME_BY_FLAG_NO,
 
-            // DATABASE element codes (disabled by default).
-            database_list_get_size: 0,
-            database_get_num: 0,
-            database_get_str: 0,
-            database_check_item: 0,
-            database_check_column: 0,
-            database_find_num: 0,
-            database_find_str: 0,
-            database_find_str_real: 0,
+            // DATABASE element codes.
+            database_list_get_size: elm_value::DATABASELIST_GET_SIZE,
+            database_get_num: elm_value::DATABASE_GET_NUM,
+            database_get_str: elm_value::DATABASE_GET_STR,
+            database_get_data: elm_value::DATABASE_GET_DATA,
+            database_check_item: elm_value::DATABASE_CHECK_ITEM,
+            database_check_column: elm_value::DATABASE_CHECK_COLUMN,
+            database_find_num: elm_value::DATABASE_FIND_NUM,
+            database_find_str: elm_value::DATABASE_FIND_STR,
+            database_find_str_real: elm_value::DATABASE_FIND_STR_REAL,
 
             // G00BUF element codes (disabled by default).
             g00buf_list_get_size: 0,
@@ -2381,7 +2383,7 @@ impl Default for RuntimeConstants {
             obj_check_movie: elm_value::OBJECT_CHECK_MOVIE,
             obj_wait_movie: elm_value::OBJECT_WAIT_MOVIE,
             obj_wait_movie_key: elm_value::OBJECT_WAIT_MOVIE_KEY,
-            obj_end_movie_loop: 0,
+            obj_end_movie_loop: elm_value::OBJECT_END_MOVIE_LOOP,
             obj_set_movie_auto_free: elm_value::OBJECT_SET_MOVIE_AUTO_FREE,
             obj_clear_button: elm_value::OBJECT_CLEAR_BUTTON,
             obj_set_button: elm_value::OBJECT_SET_BUTTON,
@@ -2400,8 +2402,8 @@ impl Default for RuntimeConstants {
             obj_clear_button_call: elm_value::OBJECT_CLEAR_BUTTON_CALL,
             obj_frame_action: elm_value::OBJECT_FRAME_ACTION,
             obj_frame_action_ch: elm_value::OBJECT_FRAME_ACTION_CH,
-            obj_load_gan: elm_value::OBJECT_LOAD_GAN,
-            obj_start_gan: elm_value::OBJECT_START_GAN,
+            obj_load_gan: crate::runtime::forms::codes::ELM_OBJECT_LOAD_GAN,
+            obj_start_gan: crate::runtime::forms::codes::ELM_OBJECT_START_GAN,
 
             obj_wipe_copy: elm_value::OBJECT_WIPE_COPY,
             obj_wipe_erase: elm_value::OBJECT_WIPE_ERASE,

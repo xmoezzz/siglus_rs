@@ -14,11 +14,49 @@ fn ensure_cg_flags_size(ctx: &mut CommandContext, size: usize) {
     }
 }
 
+fn get_cg_flag(ctx: &CommandContext, flag_no: i32) -> i64 {
+    if flag_no < 0 {
+        return 0;
+    }
+    ctx.tables
+        .cg_flags
+        .get(flag_no as usize)
+        .copied()
+        .unwrap_or(0) as i64
+}
+
+fn set_cg_flag(ctx: &mut CommandContext, flag_no: i32, value: i64) {
+    if flag_no < 0 {
+        return;
+    }
+    let idx = flag_no as usize;
+    ensure_cg_flags_size(ctx, idx + 1);
+    ctx.tables.cg_flags[idx] = if value != 0 { 1 } else { 0 };
+}
+
 fn cgtable_look_cnt(ctx: &CommandContext) -> i64 {
+    let Some(table) = ctx.tables.cgtable.as_ref() else {
+        return 0;
+    };
+    table
+        .entries
+        .iter()
+        .filter(|e| e.flag_no >= 0 && get_cg_flag(ctx, e.flag_no) != 0)
+        .count() as i64
+}
+
+pub(crate) fn mark_look_by_name(ctx: &mut CommandContext, name: &str) {
     if ctx.globals.cg_table_off {
-        0
-    } else {
-        ctx.tables.cg_flags.iter().filter(|&&v| v != 0).count() as i64
+        return;
+    }
+    let flag_no = ctx
+        .tables
+        .cgtable
+        .as_ref()
+        .and_then(|t| t.get_sub_from_name(name))
+        .map(|e| e.flag_no);
+    if let Some(flag_no) = flag_no {
+        set_cg_flag(ctx, flag_no, 1);
     }
 }
 
@@ -32,7 +70,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     if let Some(chain) = chain {
         let op = chain[1];
 
-        if ctx.ids.cgtable_flag != 0 && op == ctx.ids.cgtable_flag {
+        if op == ctx.ids.cgtable_flag {
             let rest = &chain[2..];
             if rest.len() >= 2 && rest[0] == ctx.ids.elm_array {
                 let idx_i32 = rest[1];
@@ -53,12 +91,8 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 let rhs = rhs_value.as_ref().and_then(Value::as_i64);
 
                 if al_id == Some(1) {
-                    if !ctx.globals.cg_table_off {
-                        let v = rhs.unwrap_or(0);
-                        ctx.tables.cg_flags[idx] = if v != 0 { 1 } else { 0 };
-                    }
-                    ctx.push(Value::Int(0));
-                } else if ctx.globals.cg_table_off {
+                    let v = rhs.unwrap_or(0);
+                    ctx.tables.cg_flags[idx] = if v != 0 { 1 } else { 0 };
                     ctx.push(Value::Int(0));
                 } else {
                     ctx.push(Value::Int(ctx.tables.cg_flags[idx] as i64));
@@ -90,9 +124,14 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         if ctx.ids.cgtable_set_all_flag != 0 && op == ctx.ids.cgtable_set_all_flag {
             let v = p_int(0);
-            let b: u8 = if v != 0 { 1 } else { 0 };
-            for x in &mut ctx.tables.cg_flags {
-                *x = b;
+            let flag_nos: Vec<i32> = ctx
+                .tables
+                .cgtable
+                .as_ref()
+                .map(|t| t.entries.iter().map(|e| e.flag_no).collect())
+                .unwrap_or_default();
+            for flag_no in flag_nos {
+                set_cg_flag(ctx, flag_no, v);
             }
             ctx.push(Value::Int(0));
             return Ok(true);
@@ -121,12 +160,14 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .as_ref()
                 .map(|t| t.get_cg_cnt())
                 .unwrap_or(0) as i64;
-            if total <= 0 {
-                ctx.push(Value::Int(0));
+            let looked = cgtable_look_cnt(ctx);
+            let percent = if total <= 0 || looked <= 0 {
+                0
             } else {
-                let looked = cgtable_look_cnt(ctx);
-                ctx.push(Value::Int(looked * 100 / total));
-            }
+                let raw = looked * 100 / total;
+                if raw <= 0 { 1 } else { raw }
+            };
+            ctx.push(Value::Int(percent));
             return Ok(true);
         }
 
@@ -145,27 +186,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
         if ctx.ids.cgtable_get_look_by_name != 0 && op == ctx.ids.cgtable_get_look_by_name {
             let name = p_str(0);
-            if ctx.globals.cg_table_off {
-                ctx.push(Value::Int(0));
-                return Ok(true);
-            }
             let res = if let Some(e) = ctx
                 .tables
                 .cgtable
                 .as_ref()
                 .and_then(|t| t.get_sub_from_name(name))
             {
-                let idx = e.flag_no;
-                if idx >= 0 {
-                    let idx = idx as usize;
-                    if idx < ctx.tables.cg_flags.len() {
-                        ctx.tables.cg_flags[idx] as i64
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                }
+                get_cg_flag(ctx, e.flag_no)
             } else {
                 -1
             };
@@ -176,19 +203,14 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         if ctx.ids.cgtable_set_look_by_name != 0 && op == ctx.ids.cgtable_set_look_by_name {
             let name = p_str(0);
             let v = p_int(1);
-            if !ctx.globals.cg_table_off {
-                if let Some(e) = ctx
-                    .tables
-                    .cgtable
-                    .as_ref()
-                    .and_then(|t| t.get_sub_from_name(name))
-                {
-                    if e.flag_no >= 0 {
-                        let idx = e.flag_no as usize;
-                        ensure_cg_flags_size(ctx, idx + 1);
-                        ctx.tables.cg_flags[idx] = if v != 0 { 1 } else { 0 };
-                    }
-                }
+            let flag_no = ctx
+                .tables
+                .cgtable
+                .as_ref()
+                .and_then(|t| t.get_sub_from_name(name))
+                .map(|e| e.flag_no);
+            if let Some(flag_no) = flag_no {
+                set_cg_flag(ctx, flag_no, v);
             }
             ctx.push(Value::Int(0));
             return Ok(true);

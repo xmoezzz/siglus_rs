@@ -209,18 +209,24 @@ impl GameexeConfig {
     }
 
     pub fn get_indexed_entry(&self, prefix: &str, index: usize) -> Option<&GameexeEntry> {
-        let key = format!("{}.{}", normalize_key(prefix), index);
-        self.get_entry(&key)
+        // Original Gameexe keys are usually zero-padded (for example BGM.000).
+        // Match by parsed key index instead of formatting the index back as a
+        // non-padded decimal string, otherwise table-backed subsystems silently
+        // miss registered rows. Keep reverse iteration to preserve get_entry
+        // "last definition wins" behavior.
+        self.entries
+            .iter()
+            .rev()
+            .find(|e| e.key_index(prefix) == Some(index))
     }
 
     pub fn get_indexed_field(&self, prefix: &str, index: usize, field: &str) -> Option<&str> {
-        let key = format!(
-            "{}.{}.{}",
-            normalize_key(prefix),
-            index,
-            normalize_key(field)
-        );
-        self.get(&key)
+        let nf = normalize_key(field);
+        self.entries
+            .iter()
+            .rev()
+            .find(|e| e.key_index(prefix) == Some(index) && e.key_field_after_index(prefix) == Some(nf.as_str()))
+            .map(|e| e.value.as_str())
     }
 
     pub fn get_indexed_field_unquoted(
@@ -229,13 +235,12 @@ impl GameexeConfig {
         index: usize,
         field: &str,
     ) -> Option<&str> {
-        let key = format!(
-            "{}.{}.{}",
-            normalize_key(prefix),
-            index,
-            normalize_key(field)
-        );
-        self.get_unquoted(&key)
+        let nf = normalize_key(field);
+        self.entries
+            .iter()
+            .rev()
+            .find(|e| e.key_index(prefix) == Some(index) && e.key_field_after_index(prefix) == Some(nf.as_str()))
+            .map(|e| e.scalar_unquoted())
     }
 
     pub fn get_prefix<'a>(&'a self, prefix: &str) -> impl Iterator<Item = &'a GameexeEntry> + 'a {

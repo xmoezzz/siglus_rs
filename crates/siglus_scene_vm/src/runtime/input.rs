@@ -382,6 +382,10 @@ impl InputState {
     }
 }
 
+pub(crate) fn vmkey_to_vk_code(k: VmKey) -> Option<u8> {
+    vmkey_to_vk(k)
+}
+
 fn vmkey_to_vk(k: VmKey) -> Option<u8> {
     match k {
         VmKey::Escape => Some(0x1B),

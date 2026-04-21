@@ -2,8 +2,9 @@
 
 use crate::image_manager::ImageId;
 use crate::layer::{LayerId, SpriteFit, SpriteId, SpriteSizeMode};
-use crate::runtime::globals::{ScriptRuntimeState, SyscomRuntimeState};
+use crate::runtime::globals::{EditBoxListState, ScriptRuntimeState, SyscomRuntimeState};
 use crate::text_render::FontCache;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -125,6 +126,26 @@ pub struct SysOverlayRuntime {
     pub text_dirty: bool,
 }
 
+#[derive(Debug, Default)]
+pub struct EditBoxOverlayEntry {
+    pub bg_sprite: Option<SpriteId>,
+    pub text_sprite: Option<SpriteId>,
+    pub text_image: Option<ImageId>,
+    pub last_text: String,
+    pub last_w: u32,
+    pub last_h: u32,
+    pub last_font_px: u32,
+    pub last_focused: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct EditBoxOverlayRuntime {
+    pub layer: Option<LayerId>,
+    pub bg_image: Option<ImageId>,
+    pub focused_bg_image: Option<ImageId>,
+    pub entries: HashMap<(u32, usize), EditBoxOverlayEntry>,
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct MwndProjectionState {
     pub bg_file: Option<String>,
@@ -147,6 +168,7 @@ pub struct MwndProjectionState {
 pub struct UiRuntime {
     pub mwnd: MwndRuntime,
     pub sys: SysOverlayRuntime,
+    pub editbox: EditBoxOverlayRuntime,
     font_paths: Vec<PathBuf>,
     font_scanned: bool,
     font_cache: FontCache,
@@ -977,6 +999,8 @@ impl UiRuntime {
         h: u32,
         script: &ScriptRuntimeState,
         syscom: &SyscomRuntimeState,
+        editbox_lists: &HashMap<u32, EditBoxListState>,
+        focused_editbox: Option<(u32, usize)>,
     ) {
         self.update_message_window_anim();
         self.scan_font_dir(project_dir);
@@ -991,6 +1015,7 @@ impl UiRuntime {
         self.update_message_reveal(script, syscom);
         self.refresh_text_images(images, w, h);
         self.sync_sys_overlay(layers, images, w, h);
+        self.sync_editbox_overlay(layers, images, editbox_lists, focused_editbox);
 
         let Some(ui_layer) = self.mwnd.layer else {
             return;
@@ -1564,6 +1589,101 @@ impl UiRuntime {
         }
     }
 
+    fn sync_editbox_overlay(
+        &mut self,
+        layers: &mut crate::layer::LayerManager,
+        images: &mut crate::image_manager::ImageManager,
+        editbox_lists: &HashMap<u32, EditBoxListState>,
+        focused_editbox: Option<(u32, usize)>,
+    ) {
+        let ui_layer = Self::ensure_layer(layers, &mut self.editbox.layer);
+        if self.editbox.bg_image.is_none() {
+            self.editbox.bg_image = Some(images.solid_rgba((255, 255, 255, 230)));
+        }
+        if self.editbox.focused_bg_image.is_none() {
+            self.editbox.focused_bg_image = Some(images.solid_rgba((255, 255, 220, 245)));
+        }
+
+        let normal_bg_image = self.editbox.bg_image;
+        let focused_bg_image = self.editbox.focused_bg_image;
+        let mut active_keys: Vec<(u32, usize)> = Vec::new();
+        for (form_id, list) in editbox_lists.iter() {
+            for (idx, eb) in list.boxes.iter().enumerate() {
+                let key = (*form_id, idx);
+                if !eb.created || !eb.visible || eb.window_w <= 0 || eb.window_h <= 0 {
+                    continue;
+                }
+                active_keys.push(key);
+                let focused = focused_editbox == Some(key);
+                let entry = self.editbox.entries.entry(key).or_default();
+                let bg_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut entry.bg_sprite);
+                let text_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut entry.text_sprite);
+                let w = eb.window_w.max(1) as u32;
+                let h = eb.window_h.max(1) as u32;
+                let font_px = eb.window_moji_size.max(12) as u32;
+                let display_text = editbox_display_text(&eb.text, eb.cursor_pos, focused);
+
+                if entry.text_image.is_none()
+                    || entry.last_text != display_text
+                    || entry.last_w != w
+                    || entry.last_h != h
+                    || entry.last_font_px != font_px
+                    || entry.last_focused != focused
+                {
+                    entry.text_image = self.font_cache.render_text(
+                        images,
+                        &display_text,
+                        font_px as f32,
+                        w.saturating_sub(8).max(1),
+                        h.max(1),
+                    );
+                    entry.last_text = display_text;
+                    entry.last_w = w;
+                    entry.last_h = h;
+                    entry.last_font_px = font_px;
+                    entry.last_focused = focused;
+                }
+
+                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(bg_sprite)) {
+                    s.visible = true;
+                    s.image_id = if focused { focused_bg_image } else { normal_bg_image };
+                    s.fit = SpriteFit::PixelRect;
+                    s.size_mode = SpriteSizeMode::Explicit { width: w, height: h };
+                    s.x = eb.window_x;
+                    s.y = eb.window_y;
+                    s.order = 1_950_000 + idx as i32 * 2;
+                    s.alpha = 255;
+                }
+                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(text_sprite)) {
+                    s.visible = entry.text_image.is_some();
+                    s.image_id = entry.text_image;
+                    s.fit = SpriteFit::PixelRect;
+                    s.size_mode = SpriteSizeMode::Explicit { width: w.saturating_sub(8).max(1), height: h };
+                    s.x = eb.window_x.saturating_add(4);
+                    s.y = eb.window_y;
+                    s.order = 1_950_001 + idx as i32 * 2;
+                    s.alpha = 255;
+                }
+            }
+        }
+
+        for (key, entry) in self.editbox.entries.iter_mut() {
+            if active_keys.iter().any(|x| x == key) {
+                continue;
+            }
+            if let Some(sprite_id) = entry.bg_sprite {
+                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                    s.visible = false;
+                }
+            }
+            if let Some(sprite_id) = entry.text_sprite {
+                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                    s.visible = false;
+                }
+            }
+        }
+    }
+
     fn sync_sys_overlay(
         &mut self,
         layers: &mut crate::layer::LayerManager,
@@ -1572,6 +1692,18 @@ impl UiRuntime {
         h: u32,
     ) {
         if !self.sys.active {
+            if let Some(ui_layer) = self.mwnd.layer {
+                if let Some(sprite_id) = self.sys.bg_sprite {
+                    if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                        s.visible = false;
+                    }
+                }
+                if let Some(sprite_id) = self.sys.text_sprite {
+                    if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                        s.visible = false;
+                    }
+                }
+            }
             return;
         }
         let ui_layer = Self::ensure_layer(layers, &mut self.mwnd.layer);
@@ -1583,6 +1715,8 @@ impl UiRuntime {
         }
 
         if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(bg)) {
+            s.visible = self.sys.active;
+            s.image_id = self.sys.bg_image;
             s.fit = SpriteFit::PixelRect;
             s.size_mode = SpriteSizeMode::Explicit {
                 width: w,
@@ -1594,6 +1728,8 @@ impl UiRuntime {
         }
 
         if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(text)) {
+            s.visible = self.sys.active && self.sys.text_image.is_some();
+            s.image_id = self.sys.text_image;
             s.fit = SpriteFit::PixelRect;
             s.size_mode = SpriteSizeMode::Explicit {
                 width: w.saturating_sub(80),
@@ -1614,6 +1750,10 @@ impl UiRuntime {
             );
             self.sys.text_dirty = false;
         }
+        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(text)) {
+            s.visible = self.sys.active && self.sys.text_image.is_some();
+            s.image_id = self.sys.text_image;
+        }
     }
 
     fn ensure_sys_bg_sprite(
@@ -1633,6 +1773,26 @@ impl UiRuntime {
         self.sys.bg_sprite = Some(sprite_id);
         sprite_id
     }
+}
+
+fn editbox_display_text(text: &str, cursor_pos: usize, focused: bool) -> String {
+    if !focused {
+        return text.to_string();
+    }
+    let pos = if text.is_char_boundary(cursor_pos.min(text.len())) {
+        cursor_pos.min(text.len())
+    } else {
+        text.char_indices()
+            .map(|(i, _)| i)
+            .take_while(|i| *i < cursor_pos)
+            .last()
+            .unwrap_or(0)
+    };
+    let mut out = String::with_capacity(text.len() + 1);
+    out.push_str(&text[..pos]);
+    out.push('|');
+    out.push_str(&text[pos..]);
+    out
 }
 
 fn auto_mode_timing(script: &ScriptRuntimeState, syscom: &SyscomRuntimeState) -> (i64, i64) {

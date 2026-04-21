@@ -3,64 +3,56 @@ use anyhow::Result;
 use crate::runtime::forms::prop_access;
 use crate::runtime::{CommandContext, Value};
 
-fn find_num_from(
-    db: &siglus_assets::dbs::DbsDatabase,
-    start_idx: i32,
-    col_call_no: i32,
-    needle: i32,
-) -> i64 {
-    let start = if start_idx < 0 { 0 } else { start_idx as usize };
-    let rows = db.rows();
-    if start >= rows.len() {
-        return -1;
-    }
-    for (i, r) in rows.iter().enumerate().skip(start) {
-        if let Ok(Some(v)) = db.get_data_int(r.call_no, col_call_no) {
-            if v == needle {
-                return i as i64;
-            }
-        }
-    }
-    -1
-}
-
-fn find_str_from(
-    db: &siglus_assets::dbs::DbsDatabase,
-    start_idx: i32,
-    col_call_no: i32,
-    needle: &str,
-    case_sensitive: bool,
-) -> i64 {
-    let start = if start_idx < 0 { 0 } else { start_idx as usize };
-    let rows = db.rows();
-    if start >= rows.len() {
-        return -1;
-    }
-
-    if case_sensitive {
-        for (i, r) in rows.iter().enumerate().skip(start) {
-            if let Ok(Some(v)) = db.get_data_str(r.call_no, col_call_no) {
-                if v == needle {
-                    return i as i64;
-                }
-            }
-        }
-        return -1;
-    }
-
-    let needle_lc = needle.to_ascii_lowercase();
-    for (i, r) in rows.iter().enumerate().skip(start) {
-        if let Ok(Some(v)) = db.get_data_str(r.call_no, col_call_no) {
-            if v.to_ascii_lowercase() == needle_lc {
-                return i as i64;
-            }
-        }
-    }
-    -1
-}
-
 fn composite_db_op_key(db_no: i32, op: i32) -> i32 {
     ((db_no & 0x7fff) << 16) ^ (op & 0xffff)
+}
+
+fn ref_chain_from_value(v: &Value) -> Option<(Option<i32>, &[i32])> {
+    match v {
+        Value::Element(chain) => Some((None, chain.as_slice())),
+        Value::NamedArg { id, value } => match value.as_ref() {
+            Value::Element(chain) => Some((Some(*id), chain.as_slice())),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn database_get_data(
+    ctx: &mut CommandContext,
+    db: &siglus_assets::dbs::DbsDatabase,
+    item_call_no: i32,
+    refs: &[Value],
+) {
+    let mut positional_column_no = 0i32;
+    for arg in refs {
+        let Some((explicit_column_no, chain)) = ref_chain_from_value(arg) else {
+            positional_column_no += 1;
+            continue;
+        };
+        let column_call_no = explicit_column_no.unwrap_or(positional_column_no);
+        positional_column_no += 1;
+
+        match db.check_column_no(column_call_no) {
+            1 => {
+                if let Ok(Some(v)) = db.get_data_int(item_call_no, column_call_no) {
+                    prop_access::assign_to_chain(ctx, chain, Value::Int(v as i64));
+                } else {
+                    prop_access::assign_to_chain(ctx, chain, Value::Int(0));
+                }
+            }
+            2 => {
+                if let Ok(Some(v)) = db.get_data_str(item_call_no, column_call_no) {
+                    prop_access::assign_to_chain(ctx, chain, Value::Str(v));
+                } else {
+                    prop_access::assign_to_chain(ctx, chain, Value::Str(String::new()));
+                }
+            }
+            _ => {
+                prop_access::assign_to_chain(ctx, chain, Value::Int(0));
+            }
+        }
+    }
 }
 
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
@@ -77,8 +69,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         } else {
             &[]
         };
-        let p_i32 =
-            |i: usize| -> i32 { params.get(i).and_then(|v| v.as_i64()).unwrap_or(0) as i32 };
+        let p_i32 = |i: usize| -> i32 {
+            params
+                .get(i)
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0) as i32
+        };
         let p_str = |i: usize| -> &str { params.get(i).and_then(|v| v.as_str()).unwrap_or("") };
 
         if ctx.ids.database_list_get_size != 0 && op == ctx.ids.database_list_get_size {
@@ -112,7 +108,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 return Ok(true);
             }
 
-            let db = match ctx.tables.databases.get(db_no as usize) {
+            let db = match ctx.tables.databases.get(db_no as usize).cloned() {
                 Some(db) => db,
                 None => {
                     ctx.push(Value::Int(0));
@@ -122,7 +118,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
             let db_op = chain[3];
 
-            if ctx.ids.database_get_num != 0 && db_op == ctx.ids.database_get_num {
+            if db_op == ctx.ids.database_get_num {
                 let item_call_no = p_i32(0);
                 let col_call_no = p_i32(1);
                 let mut out: i64 = 0;
@@ -144,6 +140,14 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 return Ok(true);
             }
 
+            if ctx.ids.database_get_data != 0 && db_op == ctx.ids.database_get_data {
+                let item_call_no = p_i32(0);
+                let refs = if params.len() > 1 { &params[1..] } else { &[] };
+                database_get_data(ctx, &db, item_call_no, refs);
+                ctx.push(Value::Int(0));
+                return Ok(true);
+            }
+
             if ctx.ids.database_check_item != 0 && db_op == ctx.ids.database_check_item {
                 let item_call_no = p_i32(0);
                 ctx.push(Value::Int(db.check_item_no(item_call_no) as i64));
@@ -157,38 +161,26 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             }
 
             if ctx.ids.database_find_num != 0 && db_op == ctx.ids.database_find_num {
-                let start_idx = p_i32(0);
-                let col_call_no = p_i32(1);
-                let value = p_i32(2);
-                ctx.push(Value::Int(find_num_from(db, start_idx, col_call_no, value)));
+                let col_call_no = p_i32(0);
+                let value = p_i32(1);
+                let out = db.find_num(col_call_no, value).unwrap_or(-1);
+                ctx.push(Value::Int(out as i64));
                 return Ok(true);
             }
 
             if ctx.ids.database_find_str != 0 && db_op == ctx.ids.database_find_str {
-                let start_idx = p_i32(0);
-                let col_call_no = p_i32(1);
-                let needle = p_str(2);
-                ctx.push(Value::Int(find_str_from(
-                    db,
-                    start_idx,
-                    col_call_no,
-                    needle,
-                    false,
-                )));
+                let col_call_no = p_i32(0);
+                let needle = p_str(1);
+                let out = db.find_str(col_call_no, needle).unwrap_or(-1);
+                ctx.push(Value::Int(out as i64));
                 return Ok(true);
             }
 
             if ctx.ids.database_find_str_real != 0 && db_op == ctx.ids.database_find_str_real {
-                let start_idx = p_i32(0);
-                let col_call_no = p_i32(1);
-                let needle = p_str(2);
-                ctx.push(Value::Int(find_str_from(
-                    db,
-                    start_idx,
-                    col_call_no,
-                    needle,
-                    true,
-                )));
+                let col_call_no = p_i32(0);
+                let needle = p_str(1);
+                let out = db.find_str_real(col_call_no, needle).unwrap_or(-1);
+                ctx.push(Value::Int(out as i64));
                 return Ok(true);
             }
 

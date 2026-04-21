@@ -171,9 +171,9 @@ impl DbsDatabase {
         }
     }
 
-    /// Return the row index for a call number, or -1.
+    /// Return 1 if the item call number exists, otherwise 0.
     pub fn check_item_no(&self, item_call_no: i32) -> i32 {
-        self.get_item_no(item_call_no)
+        if self.get_item_no(item_call_no) >= 0 { 1 } else { 0 }
     }
 
     /// Mimics `C_elm_database::find_num`.
@@ -189,7 +189,7 @@ impl DbsDatabase {
         for row in 0..self.rows.len() {
             let idx = row * self.cols.len() + col_no;
             if (self.data[idx] as i32) == num {
-                return Ok(row as i32);
+                return Ok(self.rows[row].call_no);
             }
         }
         Ok(-1)
@@ -211,7 +211,7 @@ impl DbsDatabase {
             let off = self.data[idx] as usize;
             let got = self.get_str(off)?;
             if got.to_ascii_lowercase() == needle {
-                return Ok(row as i32);
+                return Ok(self.rows[row].call_no);
             }
         }
         Ok(-1)
@@ -232,7 +232,7 @@ impl DbsDatabase {
             let off = self.data[idx] as usize;
             let got = self.get_str(off)?;
             if got == s {
-                return Ok(row as i32);
+                return Ok(self.rows[row].call_no);
             }
         }
         Ok(-1)

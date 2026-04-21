@@ -22,6 +22,7 @@ use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDeco
 use siglus_scene_vm::image_manager::ImageId;
 use siglus_scene_vm::render::Renderer;
 use siglus_scene_vm::runtime::input::{VmKey, VmMouseButton};
+use siglus_scene_vm::runtime::globals::SyscomPendingProcKind;
 use siglus_scene_vm::runtime::CommandContext;
 use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::{SceneVm, VmConfig};
@@ -534,6 +535,10 @@ impl App {
                 siglus_scene_vm::runtime::globals::ObjectBackend::Number {
                     layer_id,
                     sprite_ids,
+                }
+                | siglus_scene_vm::runtime::globals::ObjectBackend::Weather {
+                    layer_id,
+                    sprite_ids,
                 } => {
                     if let Some(&sid) = sprite_ids.first() {
                         if let Some(layer) = vm.ctx.layers.layer(*layer_id) {
@@ -557,6 +562,7 @@ impl App {
                 siglus_scene_vm::runtime::globals::ObjectBackend::Rect { .. } => "Rect",
                 siglus_scene_vm::runtime::globals::ObjectBackend::String { .. } => "String",
                 siglus_scene_vm::runtime::globals::ObjectBackend::Number { .. } => "Number",
+                siglus_scene_vm::runtime::globals::ObjectBackend::Weather { .. } => "Weather",
                 siglus_scene_vm::runtime::globals::ObjectBackend::Movie { .. } => "Movie",
             }
             .to_string();
@@ -1275,10 +1281,79 @@ impl App {
         Ok(vm)
     }
 
-    fn pump_vm(&mut self) -> Result<()> {
+    fn consume_syscom_pending_proc(&mut self) -> Result<bool> {
         let Some(vm) = self.vm.as_mut() else {
-            return Ok(());
+            return Ok(false);
         };
+        let Some(proc) = vm.ctx.globals.syscom.pending_proc.take() else {
+            return Ok(false);
+        };
+
+        vm.ctx.globals.syscom.menu_open = false;
+        vm.ctx.globals.syscom.menu_kind = None;
+        vm.ctx.globals.syscom.msg_back_open = false;
+
+        match proc.kind {
+            SyscomPendingProcKind::ReturnToMenu => {
+                let target_scene = self
+                    .boot
+                    .menu_scene
+                    .as_deref()
+                    .unwrap_or(self.boot.start_scene.as_str());
+                let target_z = if self.boot.menu_scene.is_some() {
+                    self.boot.menu_z
+                } else {
+                    self.boot.start_z
+                };
+                let saved_msgbk = if proc.leave_msgbk {
+                    Some(vm.ctx.globals.msgbk_forms.clone())
+                } else {
+                    None
+                };
+                vm.restart_scene_name(target_scene, target_z)?;
+                if let Some(msgbk) = saved_msgbk {
+                    vm.ctx.globals.msgbk_forms = msgbk;
+                }
+                self.flow.stack.clear();
+                self.flow.booted_menu = true;
+                self.flow.push(ProcType::GameTimerStart, 0);
+                self.flow.push(ProcType::Script, 0);
+                Ok(true)
+            }
+            SyscomPendingProcKind::ReturnToSel => {
+                if vm.restore_last_sel_point() {
+                    self.flow.stack.clear();
+                    self.flow.push(ProcType::GameTimerStart, 0);
+                    self.flow.push(ProcType::Script, 0);
+                    Ok(true)
+                } else {
+                    vm.ctx.unknown.record_note(
+                        "SYSCOM.RETURN_TO_SEL requested without an in-memory SELPOINT snapshot",
+                    );
+                    Ok(false)
+                }
+            }
+            SyscomPendingProcKind::BacklogLoad => {
+                if vm.restore_last_sel_point() {
+                    self.flow.stack.clear();
+                    self.flow.push(ProcType::GameTimerStart, 0);
+                    self.flow.push(ProcType::Script, 0);
+                    Ok(true)
+                } else {
+                    vm.ctx.unknown.record_note(&format!(
+                        "SYSCOM.MSG_BACK_LOAD requested but backlog save {} is not materialized without SAVE/LOAD support",
+                        proc.save_id
+                    ));
+                    Ok(false)
+                }
+            }
+        }
+    }
+
+    fn pump_vm(&mut self) -> Result<()> {
+        if self.vm.is_none() {
+            return Ok(());
+        }
 
         if self.paused && !self.step_once {
             return Ok(());
@@ -1292,13 +1367,20 @@ impl App {
 
             match proc.ty {
                 ProcType::Script => {
-                    let running = vm.step()?;
-                    if !running || vm.is_halted() {
-                        self.flow.pop();
+                    let (running, halted, cur_scene, pending, blocked) = {
+                        let vm = self.vm.as_mut().expect("vm checked");
+                        let running = vm.step()?;
+                        let halted = vm.is_halted();
                         let cur_scene = vm
                             .current_scene_name()
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| self.boot.start_scene.clone());
+                        let pending = vm.ctx.globals.syscom.pending_proc.is_some();
+                        let blocked = if pending { false } else { vm.is_blocked() };
+                        (running, halted, cur_scene, pending, blocked)
+                    };
+                    if !running || halted {
+                        self.flow.pop();
                         if !self.flow.booted_menu
                             && cur_scene == self.boot.start_scene
                             && self.boot.menu_scene.is_some()
@@ -1307,27 +1389,39 @@ impl App {
                         }
                         continue;
                     }
-                    if vm.is_blocked() {
+                    if pending {
+                        if self.consume_syscom_pending_proc()? {
+                            continue;
+                        }
+                        let blocked = self
+                            .vm
+                            .as_mut()
+                            .map(|vm| vm.is_blocked())
+                            .unwrap_or(false);
+                        if blocked {
+                            break;
+                        }
+                    } else if blocked {
                         break;
                     }
                 }
                 ProcType::StartWarning => {
-                    // Mirror the original startup proc conservatively:
-                    // if the warning assets are absent, this proc ends immediately.
-                    let warning_exists = vm
-                        .ctx
-                        .images
-                        .project_dir()
-                        .join("g00")
-                        .join("___SYSEVE_WARNING.g00")
-                        .exists()
-                        || vm
-                            .ctx
+                    let warning_exists = {
+                        let vm = self.vm.as_mut().expect("vm checked");
+                        vm.ctx
                             .images
                             .project_dir()
                             .join("g00")
-                            .join("___SYSEVE_WARNING.g01")
-                            .exists();
+                            .join("___SYSEVE_WARNING.g00")
+                            .exists()
+                            || vm
+                                .ctx
+                                .images
+                                .project_dir()
+                                .join("g00")
+                                .join("___SYSEVE_WARNING.g01")
+                                .exists()
+                    };
                     if !warning_exists {
                         self.flow.pop();
                         continue;
@@ -1350,6 +1444,7 @@ impl App {
                 }
                 ProcType::ReturnToMenu => {
                     if let Some(menu_scene) = self.boot.menu_scene.as_deref() {
+                        let vm = self.vm.as_mut().expect("vm checked");
                         vm.restart_scene_name(menu_scene, self.boot.menu_z)?;
                         self.flow.pop();
                         self.flow.booted_menu = true;
@@ -1493,6 +1588,13 @@ impl App {
 
         let hide_on = Self::syscom_int(&vm.ctx, GET_MOUSE_CURSOR_HIDE_ONOFF, 0);
         let hide_time = Self::syscom_int(&vm.ctx, GET_MOUSE_CURSOR_HIDE_TIME, 0);
+        if vm.ctx.globals.script.cursor_disp_off {
+            w.set_cursor_visible(false);
+            self.cursor_hidden = true;
+            self.last_cursor_hide_on = Some(hide_on);
+            self.last_cursor_hide_time = Some(hide_time);
+            return;
+        }
         if self.last_cursor_hide_on != Some(hide_on)
             || self.last_cursor_hide_time != Some(hide_time)
         {
@@ -1502,6 +1604,10 @@ impl App {
             }
             self.last_cursor_hide_on = Some(hide_on);
             self.last_cursor_hide_time = Some(hide_time);
+        }
+        if hide_on == 0 && self.cursor_hidden {
+            w.set_cursor_visible(true);
+            self.cursor_hidden = false;
         }
 
         if hide_on != 0 && hide_time > 0 {
@@ -1694,33 +1800,14 @@ impl ApplicationHandler for App {
                 if let Some(vm) = self.vm.as_mut() {
                     if let Some(k) = map_keycode(code) {
                         vm.ctx.on_key_down(k);
-                    } else if vm.ctx.wait.notify_key() {
-                        vm.ctx.globals.finish_wipe();
+                    } else {
+                        vm.ctx.notify_wait_key();
                     }
                     if let Some(t) = text.as_ref() {
                         if t.chars().any(|c| !c.is_control()) {
                             vm.ctx.on_text_input(t);
                         }
                     }
-                }
-
-                match code {
-                    KeyCode::Escape => elwt.exit(),
-                    KeyCode::Space => {
-                        self.paused = !self.paused;
-                    }
-                    KeyCode::KeyN => {
-                        self.step_once = true;
-                    }
-                    KeyCode::Equal | KeyCode::NumpadAdd => {
-                        self.steps_per_frame = (self.steps_per_frame + 500).min(200_000);
-                        eprintln!("steps_per_frame={}", self.steps_per_frame);
-                    }
-                    KeyCode::Minus | KeyCode::NumpadSubtract => {
-                        self.steps_per_frame = self.steps_per_frame.saturating_sub(500).max(1);
-                        eprintln!("steps_per_frame={}", self.steps_per_frame);
-                    }
-                    _ => {}
                 }
 
                 if let Some(w) = self.window.as_ref() {
@@ -1787,12 +1874,21 @@ impl ApplicationHandler for App {
                     return;
                 }
                 if let Some(vm) = self.vm.as_mut() {
-                    let x = position.x.round() as i32;
-                    let y = position.y.round() as i32;
+                    let (x, y) = if let Some(w) = self.window.as_ref() {
+                        let p = position.to_logical::<f64>(w.scale_factor());
+                        (p.x.round() as i32, p.y.round() as i32)
+                    } else {
+                        (position.x.round() as i32, position.y.round() as i32)
+                    };
                     vm.ctx.on_mouse_move(x, y);
                 }
                 self.last_mouse_move = Instant::now();
-                if self.cursor_hidden {
+                let force_cursor_hidden = self
+                    .vm
+                    .as_ref()
+                    .map(|vm| vm.ctx.globals.script.cursor_disp_off)
+                    .unwrap_or(false);
+                if self.cursor_hidden && !force_cursor_hidden {
                     if let Some(w) = self.window.as_ref() {
                         w.set_cursor_visible(true);
                     }
@@ -1838,9 +1934,7 @@ impl ApplicationHandler for App {
                             ElementState::Released => vm.ctx.on_mouse_up(b),
                         }
                     } else if state == ElementState::Pressed {
-                        if vm.ctx.wait.notify_key() {
-                            vm.ctx.globals.finish_wipe();
-                        }
+                        vm.ctx.notify_wait_key();
                     }
                 }
             }
@@ -1895,7 +1989,7 @@ fn run_headless_capture(args: Args) -> Result<()> {
         app.pump_vm()?;
         if let Some(vm) = app.vm.as_mut() {
             if vm.is_blocked() {
-                vm.ctx.wait.notify_key();
+                vm.ctx.notify_wait_key();
             }
             vm.tick_frame()?;
         }
