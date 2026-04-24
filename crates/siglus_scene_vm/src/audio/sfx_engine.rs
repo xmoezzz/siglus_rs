@@ -363,7 +363,7 @@ impl PcmEngine {
     pub fn new(project_dir: PathBuf) -> Self {
         // Original engine: TNM_PCM_PLAYER_CNT = 16.
         Self {
-            inner: SfxEngine::new(project_dir, "pcm", TrackKind::Pcm, 16),
+            inner: SfxEngine::new(project_dir, "wav", TrackKind::Pcm, 16),
         }
     }
 
@@ -456,7 +456,7 @@ impl SeEngine {
     pub fn new(project_dir: PathBuf) -> Self {
         // Original engine: TNM_SE_PLAYER_CNT = 16.
         Self {
-            inner: SfxEngine::new(project_dir, "se", TrackKind::Se, 16),
+            inner: SfxEngine::new(project_dir, "wav", TrackKind::Se, 16),
         }
     }
 

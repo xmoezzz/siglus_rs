@@ -44,7 +44,10 @@ struct KeyState {
     down: bool,
     down_stock: bool,
     up_stock: bool,
-    down_up_stock: bool,
+    // Mirrors tona3 C_input_state::BUTTON::down_up_stock:
+    // 0 = no down/up sequence pending; 1 = down happened; 2 = down+up completed.
+    // NEXT/frame clears only state 2, so state 1 survives until the matching up event.
+    down_up_stock: u8,
     flick_stock: bool,
     flick_angle: f32,
     flick_pixel: f32,
@@ -58,7 +61,7 @@ impl KeyState {
             down: false,
             down_stock: false,
             up_stock: false,
-            down_up_stock: false,
+            down_up_stock: 0,
             flick_stock: false,
             flick_angle: 0.0,
             flick_pixel: 0.0,
@@ -71,7 +74,7 @@ impl KeyState {
         self.down = false;
         self.down_stock = false;
         self.up_stock = false;
-        self.down_up_stock = false;
+        self.down_up_stock = 0;
         self.flick_stock = false;
         self.flick_angle = 0.0;
         self.flick_pixel = 0.0;
@@ -82,7 +85,18 @@ impl KeyState {
     fn clear_stocks(&mut self) {
         self.down_stock = false;
         self.up_stock = false;
-        self.down_up_stock = false;
+        // tona3 BUTTON::frame() only clears completed down-up stock.
+        // The intermediate state (1) must persist across NEXT/frame until set_up().
+        if self.down_up_stock == 2 {
+            self.down_up_stock = 0;
+        }
+        self.flick_stock = false;
+    }
+
+    fn use_stocks(&mut self) {
+        self.down_stock = false;
+        self.up_stock = false;
+        self.down_up_stock = 0;
         self.flick_stock = false;
     }
 }
@@ -93,6 +107,7 @@ pub struct InputState {
 
     pub mouse_x: i32,
     pub mouse_y: i32,
+    mouse_position_valid: bool,
 
     wheel_delta: i32,
 
@@ -106,8 +121,9 @@ impl Default for InputState {
     fn default() -> Self {
         Self {
             keys: [KeyState::new(); 256],
-            mouse_x: 0,
-            mouse_y: 0,
+            mouse_x: -1,
+            mouse_y: -1,
+            mouse_position_valid: false,
             wheel_delta: 0,
             last_key_down: None,
             last_mouse_down: None,
@@ -137,7 +153,7 @@ impl InputState {
 
     /// Returns true if a down+up pair happened since the last `next_frame`.
     pub fn vk_down_up_stock(&self, vk: u8) -> bool {
-        self.keys[vk as usize].down_up_stock
+        self.keys[vk as usize].down_up_stock == 2
     }
 
     /// Returns true if a flick was detected since the last `next_frame`.
@@ -166,9 +182,12 @@ impl InputState {
             st.down = true;
             st.down_stock = true;
         }
-        // If both edges happen within the same frame, mark down_up_stock.
+        if st.down_up_stock == 0 {
+            st.down_up_stock = 1;
+        }
+        // If both edges happen within the same frame, mark the completed down-up stock.
         if st.down_stock && st.up_stock {
-            st.down_up_stock = true;
+            st.down_up_stock = 2;
         }
     }
 
@@ -177,8 +196,8 @@ impl InputState {
         if st.down {
             st.down = false;
             st.up_stock = true;
-            if st.down_stock {
-                st.down_up_stock = true;
+            if st.down_up_stock == 1 {
+                st.down_up_stock = 2;
             }
         }
     }
@@ -223,6 +242,10 @@ impl InputState {
         self.last_mouse_down = None;
     }
 
+    pub fn has_mouse_position(&self) -> bool {
+        self.mouse_position_valid
+    }
+
     /// Clears only keyboard-visible state and leaves mouse state intact.
     pub fn clear_keyboard(&mut self) {
         for (idx, st) in self.keys.iter_mut().enumerate() {
@@ -240,6 +263,19 @@ impl InputState {
             self.keys[vk].clear_all();
         }
         self.wheel_delta = 0;
+        self.last_mouse_down = None;
+    }
+
+    /// Consumes current input edges while preserving held-down state.
+    ///
+    /// Mirrors tona3 C_input_state::use(): clear down/up/down_up/flick stocks
+    /// for mouse and keyboard plus wheel, but do not release held keys.
+    pub fn use_current(&mut self) {
+        for st in &mut self.keys {
+            st.use_stocks();
+        }
+        self.wheel_delta = 0;
+        self.last_key_down = None;
         self.last_mouse_down = None;
     }
 
@@ -358,6 +394,7 @@ impl InputState {
     pub fn on_mouse_move(&mut self, x: i32, y: i32) {
         self.mouse_x = x;
         self.mouse_y = y;
+        self.mouse_position_valid = true;
     }
 
     /// Returns a direction bitmask based on arrow keys.

@@ -12,6 +12,7 @@ use crate::audio::{BgmEngine, PcmEngine, SeEngine};
 
 use super::constants::RuntimeConstants;
 use super::globals::{GlobalState, ObjectState};
+use super::int_event::IntEvent;
 use super::Value;
 
 #[derive(Debug, Clone, Copy)]
@@ -96,6 +97,42 @@ fn find_object_by_runtime_slot_mut<'a>(
     None
 }
 
+
+fn object_event_list_for_wait<'a>(
+    obj: &'a ObjectState,
+    ids: &RuntimeConstants,
+    op: i32,
+) -> Option<&'a Vec<IntEvent>> {
+    obj.int_event_list_by_op(ids, op)
+        .or_else(|| obj.rep_int_event_list_by_rep_op(ids, op))
+}
+
+fn object_event_list_for_wait_mut<'a>(
+    obj: &'a mut ObjectState,
+    ids: &RuntimeConstants,
+    op: i32,
+) -> Option<&'a mut Vec<IntEvent>> {
+    if ids.obj_x_rep_eve != 0 && op == ids.obj_x_rep_eve {
+        Some(&mut obj.runtime.prop_event_lists.x_rep)
+    } else if ids.obj_y_rep_eve != 0 && op == ids.obj_y_rep_eve {
+        Some(&mut obj.runtime.prop_event_lists.y_rep)
+    } else if ids.obj_z_rep_eve != 0 && op == ids.obj_z_rep_eve {
+        Some(&mut obj.runtime.prop_event_lists.z_rep)
+    } else if ids.obj_tr_rep_eve != 0 && op == ids.obj_tr_rep_eve {
+        Some(&mut obj.runtime.prop_event_lists.tr_rep)
+    } else if ids.obj_x_rep != 0 && op == ids.obj_x_rep {
+        Some(&mut obj.runtime.prop_event_lists.x_rep)
+    } else if ids.obj_y_rep != 0 && op == ids.obj_y_rep {
+        Some(&mut obj.runtime.prop_event_lists.y_rep)
+    } else if ids.obj_z_rep != 0 && op == ids.obj_z_rep {
+        Some(&mut obj.runtime.prop_event_lists.z_rep)
+    } else if ids.obj_tr_rep != 0 && op == ids.obj_tr_rep {
+        Some(&mut obj.runtime.prop_event_lists.tr_rep)
+    } else {
+        None
+    }
+}
+
 fn object_active_by_runtime_slot(
     globals: &GlobalState,
     stage_form_id: u32,
@@ -168,8 +205,7 @@ fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &Runt
                 *stage_idx,
                 *runtime_slot,
             ) {
-                if let Some(ev) = obj
-                    .int_event_list_by_op_mut(ids, *list_op)
+                if let Some(ev) = object_event_list_for_wait_mut(obj, ids, *list_op)
                     .and_then(|v| v.get_mut(*list_idx))
                 {
                     ev.end_event();
@@ -214,6 +250,10 @@ pub struct VmWait {
     movie: Option<MovieWait>,
     movie_key_skip: bool,
 
+    global_movie: bool,
+    global_movie_key_skip: bool,
+    global_movie_return_value: bool,
+
     movie_skip_info: Option<MovieWait>,
     pending_value: Option<Value>,
 
@@ -222,9 +262,19 @@ pub struct VmWait {
 
     wipe: bool,
     wipe_key_skip: bool,
+
+    block_generation: u64,
 }
 
 impl VmWait {
+    pub fn block_generation(&self) -> u64 {
+        self.block_generation
+    }
+
+    fn mark_block_request(&mut self) {
+        self.block_generation = self.block_generation.wrapping_add(1);
+    }
+
     pub fn poll(
         &mut self,
         stack: &mut Vec<Value>,
@@ -315,8 +365,7 @@ impl VmWait {
                     list_idx,
                 } => object_active_by_runtime_slot(globals, *stage_form_id, *stage_idx, *runtime_slot)
                     .map(|obj| {
-                        let active = obj
-                            .int_event_list_by_op(ids, *list_op)
+                        let active = object_event_list_for_wait(obj, ids, *list_op)
                             .and_then(|v| v.get(*list_idx))
                             .map(|e| e.check_event())
                             .unwrap_or(false);
@@ -351,15 +400,31 @@ impl VmWait {
             false
         };
         if event_done {
+            let was_event_key_skip = self.event_key_skip;
             self.event = None;
             self.event_key_skip = false;
+            if was_event_key_skip {
+                self.waiting_for_key = false;
+            }
             if self.event_return_value {
                 self.pending_value = Some(Value::Int(0));
             }
             self.event_return_value = false;
         }
 
-        // Auto-clear movie waits when playback ends.
+        // Auto-clear GLOBAL.MOV waits when playback ends.
+        if self.global_movie {
+            if !globals.mov.playing {
+                if self.global_movie_return_value {
+                    self.pending_value = Some(Value::Int(0));
+                }
+                self.global_movie = false;
+                self.global_movie_key_skip = false;
+                self.global_movie_return_value = false;
+            }
+        }
+
+        // Auto-clear OBJECT movie waits when playback ends.
         if let Some(w) = self.movie {
             let done = object_active_by_runtime_slot(
                 globals,
@@ -393,11 +458,13 @@ impl VmWait {
             || self.audio.is_some()
             || self.event.is_some()
             || self.movie.is_some()
+            || self.global_movie
             || self.system_modal
             || self.wipe
     }
 
     pub fn wait_system_modal(&mut self) {
+        self.mark_block_request();
         self.system_modal = true;
     }
 
@@ -416,11 +483,13 @@ impl VmWait {
         if ms == 0 {
             return;
         }
+        self.mark_block_request();
         self.until = Some(Instant::now() + Duration::from_millis(ms));
         self.skip_time_on_key = false;
     }
 
     pub fn wait_next_frame(&mut self, current_frame: u64) {
+        self.mark_block_request();
         self.until_frame = Some(current_frame.saturating_add(1));
         self.skip_time_on_key = false;
     }
@@ -430,11 +499,13 @@ impl VmWait {
         if ms == 0 {
             return;
         }
+        self.mark_block_request();
         self.until = Some(Instant::now() + Duration::from_millis(ms));
         self.skip_time_on_key = true;
     }
 
     pub fn wait_key(&mut self) {
+        self.mark_block_request();
         self.waiting_for_key = true;
     }
 
@@ -443,6 +514,7 @@ impl VmWait {
     }
 
     pub fn wait_audio_with_return(&mut self, w: AudioWait, key: bool, return_value_flag: bool) {
+        self.mark_block_request();
         self.audio = Some(w);
         self.audio_return_value = return_value_flag;
         if key {
@@ -457,6 +529,7 @@ impl VmWait {
         runtime_slot: usize,
         key_skip: bool,
     ) {
+        self.mark_block_request();
         self.event = Some(EventWait::ObjectAll {
             stage_form_id,
             stage_idx,
@@ -478,6 +551,7 @@ impl VmWait {
         key_skip: bool,
         return_value_flag: bool,
     ) {
+        self.mark_block_request();
         self.event = Some(EventWait::ObjectOne {
             stage_form_id,
             stage_idx,
@@ -501,6 +575,7 @@ impl VmWait {
         key_skip: bool,
         return_value_flag: bool,
     ) {
+        self.mark_block_request();
         self.event = Some(EventWait::ObjectList {
             stage_form_id,
             stage_idx,
@@ -515,6 +590,16 @@ impl VmWait {
         }
     }
 
+    pub fn wait_global_movie(&mut self, key_skip: bool, return_value_flag: bool) {
+        self.mark_block_request();
+        self.global_movie = true;
+        self.global_movie_key_skip = key_skip;
+        self.global_movie_return_value = return_value_flag;
+        if key_skip {
+            self.waiting_for_key = true;
+        }
+    }
+
     pub fn wait_object_movie(
         &mut self,
         stage_form_id: u32,
@@ -523,6 +608,7 @@ impl VmWait {
         key_skip: bool,
         return_value_flag: bool,
     ) {
+        self.mark_block_request();
         self.movie = Some(MovieWait {
             stage_form_id,
             stage_idx,
@@ -542,6 +628,7 @@ impl VmWait {
         key_skip: bool,
         return_value_flag: bool,
     ) {
+        self.mark_block_request();
         self.event = Some(EventWait::GenericIntEvent { form_id, index });
         self.event_key_skip = key_skip;
         self.event_return_value = return_value_flag;
@@ -558,6 +645,7 @@ impl VmWait {
         key_skip: bool,
         return_value_flag: bool,
     ) {
+        self.mark_block_request();
         self.event = Some(EventWait::CounterThreshold {
             form_id,
             index,
@@ -571,6 +659,7 @@ impl VmWait {
     }
 
     pub fn wait_wipe(&mut self, key_skip: bool) {
+        self.mark_block_request();
         self.wipe = true;
         self.wipe_key_skip = key_skip;
         if key_skip {
@@ -581,7 +670,7 @@ impl VmWait {
     /// Notify the wait system that a key/mouse input happened.
     ///
     /// Returns true if the input is interpreted as a wipe-skip (used by WIPE/WAIT_WIPE).
-    pub fn notify_key(&mut self, globals: &mut GlobalState, ids: &RuntimeConstants) -> bool {
+    pub fn notify_key(&mut self, _globals: &mut GlobalState, _ids: &RuntimeConstants) -> bool {
         let wipe_skipped = self.wipe && self.wipe_key_skip;
         self.waiting_for_key = false;
         if self.audio.is_some() && self.audio_return_value {
@@ -589,25 +678,10 @@ impl VmWait {
         }
         self.audio = None;
         self.audio_return_value = false;
-        if self.event_key_skip {
-            if let Some(w) = self.event.take() {
-                finish_event_wait_by_key(&w, globals, ids);
-                if self.event_return_value {
-                    self.pending_value = Some(Value::Int(1));
-                }
-            }
-            self.event_key_skip = false;
-            self.event_return_value = false;
-        }
-        if self.movie_key_skip {
-            if let Some(w) = self.movie.take() {
-                if w.return_value_flag {
-                    self.pending_value = Some(Value::Int(1));
-                }
-                self.movie_skip_info = Some(w);
-            }
-            self.movie_key_skip = false;
-        }
+        // C++ event WAIT_KEY is not skipped by arbitrary input here.
+        // It is skipped only by DECIDE down-up in notify_movie_down_up().
+        // C++ MOV/OBJECT movie waits are not skipped by arbitrary input here.
+        // They are skipped only by DECIDE/CANCEL down-up in notify_movie_down_up().
         if self.skip_time_on_key {
             self.until = None;
             self.skip_time_on_key = false;
@@ -619,6 +693,58 @@ impl VmWait {
         }
 
         wipe_skipped
+    }
+
+
+    /// Notify MOV/OBJECT movie waits that DECIDE/CANCEL completed a down-up pair.
+    ///
+    /// This matches C++ `tnm_mov_wait_proc` / `tnm_obj_mov_wait_proc`:
+    /// MOV_WAIT_KEY consumes only VK_EX_DECIDE or VK_EX_CANCEL down-up, returning
+    /// 1 or -1 respectively. Generic key/mouse events must not skip movie waits.
+    pub fn notify_movie_down_up(
+        &mut self,
+        globals: &mut GlobalState,
+        ids: &RuntimeConstants,
+        result: i64,
+    ) -> bool {
+        let mut skipped = false;
+        if result == 1 && self.event_key_skip {
+            if let Some(w) = self.event.take() {
+                finish_event_wait_by_key(&w, globals, ids);
+                if self.event_return_value {
+                    self.pending_value = Some(Value::Int(1));
+                }
+                skipped = true;
+            }
+            self.event_key_skip = false;
+            self.event_return_value = false;
+        }
+        if self.global_movie && self.global_movie_key_skip {
+            globals.mov.stop();
+            if self.global_movie_return_value {
+                self.pending_value = Some(Value::Int(result));
+            }
+            self.global_movie = false;
+            self.global_movie_key_skip = false;
+            self.global_movie_return_value = false;
+            skipped = true;
+        }
+        // OBJECT movie wait in C++ only consumes VK_EX_DECIDE down-up.
+        // VK_EX_CANCEL is handled only by GLOBAL MOV_WAIT_KEY.
+        if self.movie_key_skip && result == 1 {
+            if let Some(w) = self.movie.take() {
+                if w.return_value_flag {
+                    self.pending_value = Some(Value::Int(1));
+                }
+                self.movie_skip_info = Some(w);
+                skipped = true;
+            }
+            self.movie_key_skip = false;
+        }
+        if skipped {
+            self.waiting_for_key = false;
+        }
+        skipped
     }
 
     /// If the current wait was skipped via key input, returns the skipped movie wait info.
@@ -637,6 +763,9 @@ impl VmWait {
         self.event_return_value = false;
         self.movie = None;
         self.movie_key_skip = false;
+        self.global_movie = false;
+        self.global_movie_key_skip = false;
+        self.global_movie_return_value = false;
         self.movie_skip_info = None;
         self.pending_value = None;
         self.system_modal = false;

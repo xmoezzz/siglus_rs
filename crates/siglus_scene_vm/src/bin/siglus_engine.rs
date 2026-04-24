@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use egui_wgpu::{Renderer as EguiRenderer, ScreenDescriptor};
@@ -11,7 +11,7 @@ use image::ColorType;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Fullscreen;
 use winit::window::{Window, WindowAttributes, WindowId};
@@ -181,6 +181,7 @@ struct App {
     cursor_hidden: bool,
     last_mouse_move: Instant,
     redraw_count: u32,
+    next_frame_at: Instant,
     captured: bool,
     pending_exit: bool,
 
@@ -299,6 +300,7 @@ impl App {
             cursor_hidden: false,
             last_mouse_move: Instant::now(),
             redraw_count: 0,
+            next_frame_at: Instant::now(),
             captured: false,
             pending_exit: false,
             hud_show_active_textures: false,
@@ -1350,7 +1352,22 @@ impl App {
         }
     }
 
+    fn ensure_requested_script_proc(&mut self) {
+        let requested = self
+            .vm
+            .as_mut()
+            .map(|vm| vm.take_script_proc_request())
+            .unwrap_or(false);
+        if requested {
+            if std::env::var_os("SG_DEBUG").is_some() {
+                eprintln!("[SG_DEBUG][EXCALL] push SCRIPT proc requested by button/frame action");
+            }
+            self.flow.push(ProcType::Script, 0);
+        }
+    }
+
     fn pump_vm(&mut self) -> Result<()> {
+        self.ensure_requested_script_proc();
         if self.vm.is_none() {
             return Ok(());
         }
@@ -1367,9 +1384,10 @@ impl App {
 
             match proc.ty {
                 ProcType::Script => {
-                    let (running, halted, cur_scene, pending, blocked) = {
+                    let (running, halted, cur_scene, pending, blocked, pop_script_proc) = {
                         let vm = self.vm.as_mut().expect("vm checked");
                         let running = vm.step()?;
+                        let pop_script_proc = vm.take_script_proc_pop_request();
                         let halted = vm.is_halted();
                         let cur_scene = vm
                             .current_scene_name()
@@ -1377,8 +1395,15 @@ impl App {
                             .unwrap_or_else(|| self.boot.start_scene.clone());
                         let pending = vm.ctx.globals.syscom.pending_proc.is_some();
                         let blocked = if pending { false } else { vm.is_blocked() };
-                        (running, halted, cur_scene, pending, blocked)
+                        (running, halted, cur_scene, pending, blocked, pop_script_proc)
                     };
+                    if pop_script_proc {
+                        if std::env::var_os("SG_DEBUG").is_some() {
+                            eprintln!("[SG_DEBUG][EXCALL] pop SCRIPT proc requested by ex-call return");
+                        }
+                        self.flow.pop();
+                        continue;
+                    }
                     if !running || halted {
                         self.flow.pop();
                         if !self.flow.booted_menu
@@ -1474,11 +1499,16 @@ impl App {
     }
 
     fn redraw(&mut self) -> Result<()> {
+        {
+            let Some(vm) = self.vm.as_mut() else {
+                return Ok(());
+            };
+            vm.tick_frame()?;
+        }
+        self.ensure_requested_script_proc();
         let Some(vm) = self.vm.as_mut() else {
             return Ok(());
         };
-
-        vm.tick_frame()?;
         let list = vm.ctx.render_list_with_effects();
 
         {
@@ -1618,6 +1648,13 @@ impl App {
             }
         }
     }
+    fn wake_for_input(&mut self) {
+        self.next_frame_at = Instant::now();
+        if let Some(w) = self.window.as_ref() {
+            w.request_redraw();
+        }
+    }
+
 }
 
 impl ApplicationHandler for App {
@@ -1810,9 +1847,7 @@ impl ApplicationHandler for App {
                     }
                 }
 
-                if let Some(w) = self.window.as_ref() {
-                    w.request_redraw();
-                }
+                self.wake_for_input();
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -1847,6 +1882,7 @@ impl ApplicationHandler for App {
                         vm.ctx.on_key_up(k);
                     }
                 }
+                self.wake_for_input();
             }
             WindowEvent::Ime(Ime::Commit(text)) => {
                 if !is_main {
@@ -1855,9 +1891,7 @@ impl ApplicationHandler for App {
                 if let Some(vm) = self.vm.as_mut() {
                     vm.ctx.on_text_input(&text);
                 }
-                if let Some(w) = self.window.as_ref() {
-                    w.request_redraw();
-                }
+                self.wake_for_input();
             }
             WindowEvent::RedrawRequested => {
                 let res = if is_hud {
@@ -1883,6 +1917,7 @@ impl ApplicationHandler for App {
                     vm.ctx.on_mouse_move(x, y);
                 }
                 self.last_mouse_move = Instant::now();
+                self.wake_for_input();
                 let force_cursor_hidden = self
                     .vm
                     .as_ref()
@@ -1922,6 +1957,7 @@ impl ApplicationHandler for App {
                 if let Some(vm) = self.vm.as_mut() {
                     vm.ctx.on_mouse_wheel(dy);
                 }
+                self.wake_for_input();
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if !is_main {
@@ -1937,6 +1973,7 @@ impl ApplicationHandler for App {
                         vm.ctx.notify_wait_key();
                     }
                 }
+                self.wake_for_input();
             }
             _ => {}
         }
@@ -1947,21 +1984,52 @@ impl ApplicationHandler for App {
             elwt.exit();
             return;
         }
-        if let Err(e) = self.pump_vm() {
-            eprintln!("vm error: {e:?}");
-        }
-        if let Err(e) = self.maybe_capture_current_frame() {
-            eprintln!("capture error: {e:?}");
-        }
-        self.apply_syscom_window_config();
-        if let Some(w) = self.window.as_ref() {
-            w.request_redraw();
-        }
-        if self.hud_show_active_textures {
-            if let Some(w) = self.hud_window.as_ref() {
+
+        // The original engine is frame-driven.  Do not request redraw unconditionally
+        // from AboutToWait, because winit will spin as fast as possible and peg one
+        // CPU core.  Pump the VM and request one redraw at the frame cadence instead.
+        let now = Instant::now();
+        if now >= self.next_frame_at {
+            if let Err(e) = self.pump_vm() {
+                let scene_name = self
+                    .vm
+                    .as_ref()
+                    .and_then(|vm| vm.current_scene_name())
+                    .unwrap_or("<none>");
+                let scene_no = self
+                    .vm
+                    .as_ref()
+                    .and_then(|vm| vm.current_scene_no())
+                    .map(|v: usize| v.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+                let line_no = self
+                    .vm
+                    .as_ref()
+                    .map(|vm| vm.current_line_no())
+                    .unwrap_or(-1);
+                eprintln!(
+                    "vm error: scene={} scene_no={} line={} {e:?}",
+                    scene_name,
+                    scene_no,
+                    line_no
+                );
+            }
+            if let Err(e) = self.maybe_capture_current_frame() {
+                eprintln!("capture error: {e:?}");
+            }
+            self.apply_syscom_window_config();
+            if let Some(w) = self.window.as_ref() {
                 w.request_redraw();
             }
+            if self.hud_show_active_textures {
+                if let Some(w) = self.hud_window.as_ref() {
+                    w.request_redraw();
+                }
+            }
+            self.next_frame_at = now + Duration::from_micros(16_667);
         }
+
+        elwt.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
     }
 }
 
@@ -1993,6 +2061,7 @@ fn run_headless_capture(args: Args) -> Result<()> {
             }
             vm.tick_frame()?;
         }
+        app.ensure_requested_script_proc();
         app.redraw_count = app.redraw_count.saturating_add(1);
         app.maybe_capture_current_frame()?;
         if app.pending_exit || app.captured {

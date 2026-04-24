@@ -383,8 +383,18 @@ pub(crate) fn thumb_candidate_paths(dir: &Path, idx: i64) -> [PathBuf; 2] {
 
 fn pick_thumb_source_name(ctx: &CommandContext) -> Option<String> {
     let table = ctx.tables.thumb_table.as_ref()?;
-    for stage in ctx.globals.stage_forms.values() {
-        for objs in stage.object_lists.values() {
+    let mut form_ids: Vec<u32> = ctx.globals.stage_forms.keys().copied().collect();
+    form_ids.sort_unstable();
+    for form_id in form_ids {
+        let Some(stage) = ctx.globals.stage_forms.get(&form_id) else {
+            continue;
+        };
+        let mut stage_ids: Vec<i64> = stage.object_lists.keys().copied().collect();
+        stage_ids.sort_unstable();
+        for stage_idx in stage_ids {
+            let Some(objs) = stage.object_lists.get(&stage_idx) else {
+                continue;
+            };
             for obj in objs.iter().rev() {
                 if let Some(file) = obj.file_name.as_deref() {
                     if let Some(mapped) = table.get_by_file_stem(file) {

@@ -106,6 +106,30 @@ fn handle_load_txt(ctx: &mut CommandContext, params: &[Value]) -> Result<bool> {
     Ok(true)
 }
 
+fn preload_omv(ctx: &mut CommandContext, name: &str) {
+    if name.is_empty() {
+        return;
+    }
+    match crate::resource::find_omv_path_with_append_dir(&ctx.project_dir, &ctx.globals.append_dir, name) {
+        Ok(path) => match fs::File::open(&path) {
+            Ok(mut file) => {
+                use std::io::Read;
+                let mut buf = vec![0u8; 1024 * 1024];
+                let _ = file.read(&mut buf);
+            }
+            Err(e) => {
+                ctx.unknown.record_note(&format!(
+                    "FILE.PRELOAD_OMV open failed:{}:{e}",
+                    path.display()
+                ));
+            }
+        },
+        Err(e) => {
+            ctx.unknown.record_note(&format!("FILE.PRELOAD_OMV failed:{name}:{e}"));
+        }
+    }
+}
+
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
     let parsed = prop_access::parse_element_chain_ctx(ctx, form_id, args);
     let (chain_pos, chain) = match parsed {
@@ -127,12 +151,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
 
         if op == constants::elm_value::FILE_PRELOAD_OMV {
-            let name = p_str(0);
-            if !name.is_empty() {
-                if let Err(e) = ctx.movie.ensure_asset(name) {
-                    ctx.unknown.record_note(&format!("FILE.PRELOAD_OMV failed:{name}:{e}"));
-                }
-            }
+            preload_omv(ctx, p_str(0));
             ctx.push(Value::Int(0));
             return Ok(true);
         }
@@ -146,11 +165,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         if op == constants::elm_value::FILE_PRELOAD_OMV as i64 {
             let name = args.get(1).and_then(|v| v.as_str()).unwrap_or("");
-            if !name.is_empty() {
-                if let Err(e) = ctx.movie.ensure_asset(name) {
-                    ctx.unknown.record_note(&format!("FILE.PRELOAD_OMV failed:{name}:{e}"));
-                }
-            }
+            preload_omv(ctx, name);
             ctx.push(Value::Int(0));
             return Ok(true);
         }

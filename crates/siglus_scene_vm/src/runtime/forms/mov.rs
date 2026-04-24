@@ -89,22 +89,22 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                 ctx.movie.stop_audio(id);
             }
             let info = ctx.movie.play(name, wait, key_skip)?;
-            let total_ms = info.duration_ms();
-            ctx.globals.mov.start(name.to_string(), x, y, w, h, total_ms, key_skip);
+            // C++ C_elm_mov::play starts native playback immediately and MOV_WAIT observes
+            // is_playing().  Do not synchronously decode the whole movie here: doing so makes
+            // the next frame delta include decode/setup time and can finish MOV_WAIT before the
+            // first frame is shown.  The renderer-side sync path decodes and then installs the
+            // exact asset duration once the first frame is available.
+            ctx.globals.mov.start(name.to_string(), x, y, w, h, None, key_skip);
             if std::env::var_os("SG_DEBUG").is_some() || std::env::var_os("SG_MOVIE_TRACE").is_some() {
                 eprintln!(
                     "[SG_DEBUG][MOV] PLAY file={} pos=({}, {}) size={}x{} wait={} key_skip={} total_ms={:?} path={}",
-                    name, x, y, w, h, wait, key_skip, total_ms, info.path.display()
+                    name, x, y, w, h, wait, key_skip, info.duration_ms(), info.path.display()
                 );
             }
             if wait {
-                if let Some(ms) = info.duration_ms() {
-                    if key_skip {
-                        ctx.wait.wait_ms_key(ms);
-                    } else {
-                        ctx.wait.wait_ms(ms);
-                    }
-                }
+                let ret_form = crate::runtime::forms::prop_access::current_vm_meta(ctx).1.unwrap_or(0);
+                let return_value_flag = ret_form != super::codes::FM_VOID as i64;
+                ctx.wait.wait_global_movie(key_skip, return_value_flag);
             }
             Ok(true)
         }

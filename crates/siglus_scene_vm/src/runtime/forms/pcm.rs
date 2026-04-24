@@ -75,8 +75,13 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     return Ok(true);
                 }
             };
-            let (pcm, audio) = (&mut ctx.pcm, &mut ctx.audio);
-            let _ = pcm.play_file_name(audio, name)?;
+            let ok = {
+                let (pcm, audio) = (&mut ctx.pcm, &mut ctx.audio);
+                pcm.play_file_name(audio, name).is_ok()
+            };
+            if !ok {
+                ctx.unknown.record_note(&format!("pcm.play.failed:{name}"));
+            }
             Ok(true)
         }
         pcm_op::STOP => {

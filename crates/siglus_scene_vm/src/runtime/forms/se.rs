@@ -65,17 +65,15 @@ fn arg_int(args: &[Value], idx: usize) -> Option<i64> {
     }
 }
 
-fn resolve_numeric_candidates(n: i64) -> Vec<String> {
-    if n < 0 {
-        return vec![n.to_string()];
+fn resolve_se_file_name(ctx: &CommandContext, se_no: i64) -> Option<&str> {
+    if se_no < 0 {
+        return None;
     }
-    // Common patterns across titles.
-    vec![
-        format!("{:05}", n),
-        format!("{:04}", n),
-        format!("{:03}", n),
-        n.to_string(),
-    ]
+    ctx.tables
+        .se_file_names
+        .get(se_no as usize)
+        .and_then(|v| v.as_deref())
+        .filter(|s| !s.is_empty())
 }
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
@@ -96,8 +94,13 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     return Ok(true);
                 }
             };
-            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-            let _ = se.play_file_name(audio, name)?;
+            let ok = {
+                let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+                se.play_file_name(audio, name).is_ok()
+            };
+            if !ok {
+                ctx.unknown.record_note(&format!("se.play_file.failed:{name}"));
+            }
             Ok(true)
         }
         se_op::STOP => {
@@ -165,13 +168,17 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     return Ok(true);
                 }
             };
-            let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-            for cand in resolve_numeric_candidates(se_no) {
-                if se.play_file_name(audio, &cand).is_ok() {
-                    return Ok(true);
+            if let Some(name) = resolve_se_file_name(ctx, se_no).map(|s| s.to_string()) {
+                let ok = {
+                    let (se, audio) = (&mut ctx.se, &mut ctx.audio);
+                    se.play_file_name(audio, &name).is_ok()
+                };
+                if !ok {
+                    ctx.unknown.record_note(&format!("se.play.failed:{se_no}:{name}"));
                 }
+            } else {
+                ctx.unknown.record_note(&format!("se.table.missing:{se_no}"));
             }
-            store_or_push_se_prop(ctx, op, args);
             Ok(true)
         }
 

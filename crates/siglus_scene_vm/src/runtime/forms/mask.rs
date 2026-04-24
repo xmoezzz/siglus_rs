@@ -23,10 +23,9 @@ fn mask_cnt(ctx: &CommandContext) -> usize {
 }
 
 fn is_array_code(elm_array: i32, code: i32) -> bool {
-    if elm_array < 0 {
-        return code != 0;
-    }
     code == elm_array
+        || code == crate::runtime::forms::codes::ELM_ARRAY
+        || code == constants::elm_value::MASKLIST_ARRAY
 }
 
 fn is_mask_like_chain(ctx: &CommandContext, form_id: u32, chain: &[i32]) -> bool {
@@ -154,7 +153,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             .mask_lists
             .entry(form_id)
             .or_insert_with(|| MaskListState::new(cnt));
-        ml.ensure_size(cnt);
+        if cnt > 0 {
+            ml.ensure_size(cnt);
+        }
 
         if chain.len() == 2 && !is_array_code(elm_array, chain[1]) {
             if chain[1] == constants::elm_value::MASKLIST_GET_SIZE && ret_form != 0 {
@@ -177,14 +178,8 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
 
         let idx = chain.get(2).copied().unwrap_or(0).max(0) as usize;
-        let Some(mask) = ml.masks.get_mut(idx) else {
-            let r = if ret_form != 0 {
-                Some(default_for_ret_form(ret_form))
-            } else {
-                None
-            };
-            break 'blk (true, r, MaskPostAction::None);
-        };
+        ml.ensure_size(cnt.max(idx + 1));
+        let mask = &mut ml.masks[idx];
 
         let op = chain[3];
         if chain.len() >= 5 {

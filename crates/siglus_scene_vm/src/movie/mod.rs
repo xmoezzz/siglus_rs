@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{mpsc::{self, Receiver, TryRecvError}, Arc};
+use std::thread;
 
 use anyhow::{anyhow, Context, Result};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
@@ -27,7 +28,7 @@ impl MovieInfo {
         }
         let fps = self.fps?;
         let frames = self.decoded_frames?;
-        if fps <= 0.0 {
+        if fps <= 0.0 || frames == 0 {
             return None;
         }
         Some(((frames as f64) * 1000.0 / (fps as f64)).round() as u64)
@@ -40,15 +41,29 @@ impl MovieInfo {
 /// Here we provide a deterministic, cross-platform metadata path:
 /// - MPEG2 (`.mpg` / `.mpeg`) via `siglus_assets::mpeg2`
 /// - OMV (`.omv`) via `siglus_assets::omv`
-#[derive(Debug)]
 pub struct MovieManager {
     project_dir: PathBuf,
     current_append_dir: String,
     current: Option<MovieInfo>,
     cache: HashMap<PathBuf, MovieAsset>,
     preview_cache: HashMap<PathBuf, Arc<RgbaImage>>,
+    decode_tasks: HashMap<PathBuf, Receiver<Result<MovieAsset, String>>>,
     playbacks: HashMap<u64, MoviePlayback>,
     next_playback_id: u64,
+}
+
+impl std::fmt::Debug for MovieManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MovieManager")
+            .field("project_dir", &self.project_dir)
+            .field("current_append_dir", &self.current_append_dir)
+            .field("current", &self.current)
+            .field("cache_len", &self.cache.len())
+            .field("preview_cache_len", &self.preview_cache.len())
+            .field("decode_tasks_len", &self.decode_tasks.len())
+            .field("playbacks_len", &self.playbacks.len())
+            .finish()
+    }
 }
 
 impl MovieManager {
@@ -59,6 +74,7 @@ impl MovieManager {
             current: None,
             cache: HashMap::new(),
             preview_cache: HashMap::new(),
+            decode_tasks: HashMap::new(),
             playbacks: HashMap::new(),
             next_playback_id: 1,
         }
@@ -78,6 +94,34 @@ impl MovieManager {
 
     pub fn prepare(&mut self, file_name: &str) -> Result<MovieInfo> {
         self.play(file_name, false, false)
+    }
+
+    pub fn prepare_omv(&mut self, file_name: &str) -> Result<MovieInfo> {
+        let path = crate::resource::find_omv_path_with_append_dir(
+            &self.project_dir,
+            &self.current_append_dir,
+            file_name,
+        )?;
+        let omv = siglus_assets::omv::OmvFile::open(&path)
+            .with_context(|| format!("open OMV: {}", path.display()))?;
+        let w = omv.header.display_width;
+        let h = omv.header.display_height;
+        let fps = if omv.header.frame_time_us != 0 {
+            Some(1_000_000.0 / (omv.header.frame_time_us as f32))
+        } else {
+            None
+        };
+        let info = MovieInfo {
+            path,
+            width: (w > 0).then_some(w),
+            height: (h > 0).then_some(h),
+            fps,
+            decoded_frames: (omv.header.packet_count_hint > 0)
+                .then_some(omv.header.packet_count_hint as usize),
+            audio_duration_ms: None,
+        };
+        self.current = Some(info.clone());
+        Ok(info)
     }
 
     pub fn play(&mut self, file_name: &str, _wait: bool, _key_skip: bool) -> Result<MovieInfo> {
@@ -140,27 +184,98 @@ impl MovieManager {
     /// Resolve and decode a movie asset into RGBA frames (cached).
     pub fn ensure_asset(&mut self, file_name: &str) -> Result<(&MovieAsset, bool)> {
         let path = resolve_mov_path(&self.project_dir, &self.current_append_dir, file_name)?;
+        self.ensure_asset_for_path(path)
+    }
+
+    pub fn ensure_omv_asset(&mut self, file_name: &str) -> Result<(&MovieAsset, bool)> {
+        let path = crate::resource::find_omv_path_with_append_dir(
+            &self.project_dir,
+            &self.current_append_dir,
+            file_name,
+        )?;
+        self.ensure_asset_for_path(path)
+    }
+
+    fn ensure_asset_for_path(&mut self, path: PathBuf) -> Result<(&MovieAsset, bool)> {
         let existed = self.cache.contains_key(&path);
         if !existed {
-            let ext = path
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-
-            let asset = if ext == "omv" {
-                decode_omv_asset(&path)?
-            } else {
-                decode_mpeg2_asset(&path)?
-            };
+            let asset = decode_asset_for_path(&path)?;
             self.cache.insert(path.clone(), asset);
         }
         let asset = self.cache.get(&path).expect("asset cached");
         Ok((asset, !existed))
     }
 
+    pub fn poll_asset(&mut self, file_name: &str) -> Result<Option<(&MovieAsset, bool)>> {
+        let path = resolve_mov_path(&self.project_dir, &self.current_append_dir, file_name)?;
+        self.poll_asset_for_path(path)
+    }
+
+    pub fn poll_omv_asset(&mut self, file_name: &str) -> Result<Option<(&MovieAsset, bool)>> {
+        let path = crate::resource::find_omv_path_with_append_dir(
+            &self.project_dir,
+            &self.current_append_dir,
+            file_name,
+        )?;
+        self.poll_asset_for_path(path)
+    }
+
+    fn poll_asset_for_path(&mut self, path: PathBuf) -> Result<Option<(&MovieAsset, bool)>> {
+        if self.cache.contains_key(&path) {
+            let asset = self.cache.get(&path).expect("asset cached");
+            return Ok(Some((asset, false)));
+        }
+
+        let mut completed = None;
+        let mut failed = None;
+        if let Some(rx) = self.decode_tasks.get(&path) {
+            match rx.try_recv() {
+                Ok(Ok(asset)) => completed = Some(asset),
+                Ok(Err(err)) => failed = Some(err),
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    failed = Some(format!("movie decode worker disconnected: {}", path.display()));
+                }
+            }
+        } else {
+            let (tx, rx) = mpsc::channel();
+            let worker_path = path.clone();
+            thread::spawn(move || {
+                let result = decode_asset_for_path(&worker_path).map_err(|e| format!("{:#}", e));
+                let _ = tx.send(result);
+            });
+            self.decode_tasks.insert(path.clone(), rx);
+        }
+
+        if let Some(err) = failed {
+            self.decode_tasks.remove(&path);
+            return Err(anyhow!(err));
+        }
+        if let Some(asset) = completed {
+            self.decode_tasks.remove(&path);
+            self.cache.insert(path.clone(), asset);
+            let asset = self.cache.get(&path).expect("asset cached");
+            return Ok(Some((asset, true)));
+        }
+
+        Ok(None)
+    }
+
     pub fn ensure_preview_frame(&mut self, file_name: &str) -> Result<Arc<RgbaImage>> {
         let path = resolve_mov_path(&self.project_dir, &self.current_append_dir, file_name)?;
+        self.ensure_preview_frame_for_path(path)
+    }
+
+    pub fn ensure_omv_preview_frame(&mut self, file_name: &str) -> Result<Arc<RgbaImage>> {
+        let path = crate::resource::find_omv_path_with_append_dir(
+            &self.project_dir,
+            &self.current_append_dir,
+            file_name,
+        )?;
+        self.ensure_preview_frame_for_path(path)
+    }
+
+    fn ensure_preview_frame_for_path(&mut self, path: PathBuf) -> Result<Arc<RgbaImage>> {
         if let Some(frame) = self.preview_cache.get(&path) {
             return Ok(frame.clone());
         }
@@ -287,6 +402,19 @@ pub struct MovieAudio {
 struct MoviePlayback {
     handle: StaticSoundHandle,
     duration_ms: Option<u64>,
+}
+
+fn decode_asset_for_path(path: &Path) -> Result<MovieAsset> {
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if ext == "omv" {
+        decode_omv_asset(path)
+    } else {
+        decode_mpeg2_asset(path)
+    }
 }
 
 fn decode_mpeg2_preview_frame(path: &Path) -> Result<Arc<RgbaImage>> {
@@ -482,7 +610,11 @@ fn decode_omv_asset(path: &Path) -> Result<MovieAsset> {
     }
 
     let frame_ms = omv_frame_duration_ms(omv.as_ref().map(|m| &m.header), fps);
-    let decoded_duration_ms = frame_ms.map(|ms| ((frames.len() as f64) * ms).round().max(1.0) as u64);
+    let decoded_duration_ms = if frames.is_empty() {
+        None
+    } else {
+        frame_ms.map(|ms| ((frames.len() as f64) * ms).round().max(1.0) as u64)
+    };
 
     let info = MovieInfo {
         path: path.to_path_buf(),

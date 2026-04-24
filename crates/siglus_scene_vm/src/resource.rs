@@ -179,6 +179,48 @@ pub fn find_mov_path(project_dir: &Path, file_name: &str) -> Result<(PathBuf, Mo
     find_mov_path_with_append_dir(project_dir, "", file_name)
 }
 
+pub fn find_omv_path_with_append_dir(
+    project_dir: &Path,
+    current_append_dir: &str,
+    file_name: &str,
+) -> Result<PathBuf> {
+    if file_name.is_empty() {
+        bail!("empty movie name");
+    }
+
+    let p = Path::new(file_name);
+    if p.is_absolute() {
+        if p.is_file() && movie_type_from_path(p)? == MovieType::Omv {
+            return Ok(p.to_path_buf());
+        }
+        bail!("omv movie not found: {file_name}");
+    }
+
+    if p.components().count() > 1 {
+        let candidate = project_dir.join(p);
+        if candidate.is_file() && movie_type_from_path(&candidate)? == MovieType::Omv {
+            return Ok(candidate);
+        }
+    }
+
+    let (stem, explicit_ext) = split_name_ext(file_name);
+    if let Some(ext) = explicit_ext {
+        if !ext.eq_ignore_ascii_case("omv") {
+            bail!("object movie requires .omv: {file_name}");
+        }
+    }
+
+    for append_dir in ordered_append_dirs(project_dir, current_append_dir) {
+        let base = base_in_append(project_dir, &append_dir, "mov");
+        let p = base.join(format!("{stem}.omv"));
+        if p.is_file() {
+            return Ok(p);
+        }
+    }
+
+    bail!("omv movie not found: {file_name}");
+}
+
 pub fn find_mov_path_with_append_dir(
     project_dir: &Path,
     current_append_dir: &str,

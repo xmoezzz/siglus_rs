@@ -28,23 +28,23 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, _args: &[Value]) -> Resu
             Ok(true)
         }
         o if o == ctx.ids.input_op_decide as i64 => {
-            let subop = chain
-                .get(2)
-                .copied()
-                .map(|v| v as i64)
-                .unwrap_or(ctx.ids.key_op_on_down as i64);
-            let v = key::query(ctx, ctx.ids.exkey_decide as i64, subop);
-            ctx.push(Value::Int(v));
+            if chain.len() == 2 {
+                ctx.push(Value::Element(chain.to_vec()));
+            } else {
+                let subop = chain[2] as i64;
+                let v = key::query(ctx, ctx.ids.exkey_decide as i64, subop);
+                ctx.push(Value::Int(v));
+            }
             Ok(true)
         }
         o if o == ctx.ids.input_op_cancel as i64 => {
-            let subop = chain
-                .get(2)
-                .copied()
-                .map(|v| v as i64)
-                .unwrap_or(ctx.ids.key_op_on_down as i64);
-            let v = key::query(ctx, ctx.ids.exkey_cancel as i64, subop);
-            ctx.push(Value::Int(v));
+            if chain.len() == 2 {
+                ctx.push(Value::Element(chain.to_vec()));
+            } else {
+                let subop = chain[2] as i64;
+                let v = key::query(ctx, ctx.ids.exkey_cancel as i64, subop);
+                ctx.push(Value::Int(v));
+            }
             Ok(true)
         }
         _ => Ok(false),

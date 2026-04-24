@@ -264,7 +264,8 @@ fn as_str(v: &Value) -> Option<&str> {
 }
 
 fn sg_debug_enabled_local() -> bool {
-    std::env::var_os("SG_DEBUG").is_some()
+    std::env::var_os("SG_STAGE_TRACE").is_some()
+        || std::env::var_os("SG_DEBUG_STAGE").is_some()
 }
 
 fn sg_debug_stage(msg: impl AsRef<str>) {
@@ -340,6 +341,102 @@ fn apply_named_event_start(ev: &mut IntEvent, script_args: &[Value]) {
     }
 }
 
+fn is_element_array_marker(ctx: &CommandContext, code: i32) -> bool {
+    code == ctx.ids.elm_array || code == super::codes::ELM_ARRAY || code == -1
+}
+
+fn split_property_list_tail<'a>(
+    ctx: &CommandContext,
+    tail: &'a [i32],
+    al_id: Option<i64>,
+    ret_form: Option<i64>,
+    rhs: Option<&Value>,
+    script_args: &[Value],
+) -> (Option<i64>, &'a [i32]) {
+    if tail.len() >= 2 && is_element_array_marker(ctx, tail[0]) {
+        return (Some(tail[1] as i64), &tail[2..]);
+    }
+
+    // Some recovered Siglus scripts use a compact element chain for list
+    // properties under OBJECT/CHILD, e.g. OBJECT.X_REP[2] appears as
+    // [..., OBJECT_X_REP, 2] instead of [..., OBJECT_X_REP, ELM_ARRAY, 2].
+    // Treat the compact form as an index access for assignments, reads, or
+    // nested sub-operations. Plain void calls with one script argument stay as
+    // list commands such as RESIZE.
+    if let Some(&first) = tail.first() {
+        let looks_like_index_access = first >= 0
+            && (al_id == Some(1)
+                || rhs.is_some()
+                || matches!(ret_form, Some(rf) if rf != 0)
+                || tail.len() >= 2
+                || script_args.is_empty());
+        if looks_like_index_access {
+            return (Some(first as i64), &tail[1..]);
+        }
+    }
+
+    (None, tail)
+}
+
+fn int_event_command_arg_slot_tail(ctx: &CommandContext, tail: &[i32]) -> Option<(i32, i32)> {
+    if tail.len() >= 3 && is_element_array_marker(ctx, tail[1]) {
+        Some((tail[0], tail[2]))
+    } else {
+        None
+    }
+}
+
+fn int_event_arg_slot_value<'a>(
+    rhs: Option<&'a Value>,
+    script_args: &'a [Value],
+    al_id: Option<i64>,
+) -> Option<&'a Value> {
+    rhs.or_else(|| {
+        if al_id == Some(1) && script_args.len() == 1 {
+            script_args.first()
+        } else {
+            None
+        }
+    })
+}
+
+fn dispatch_int_event_arg_slot(
+    ctx: &mut CommandContext,
+    ev: &mut IntEvent,
+    tail: &[i32],
+    script_args: &[Value],
+    rhs: Option<&Value>,
+    al_id: Option<i64>,
+    ret_form: Option<i64>,
+) -> Option<()> {
+    let (subop, arg_slot) = int_event_command_arg_slot_tail(ctx, tail)?;
+
+    if let Some(v) = int_event_arg_slot_value(rhs, script_args, al_id).and_then(as_i64) {
+        // C++ handles INTEVENT.SET named argument id 0 as "start": it changes
+        // the current/base event value before set_event() uses it.
+        if (subop == int_event_op::SET || subop == int_event_op::SET_REAL) && arg_slot == 0 {
+            ev.set_value(v as i32);
+            sg_debug_stage(format!(
+                "INTEVENT.SET named start={} applied through arg slot tail={:?}",
+                v, tail
+            ));
+        } else {
+            sg_debug_stage(format!(
+                "INTEVENT arg slot assignment ignored subop={} slot={} value={} tail={:?}",
+                subop, arg_slot, v, tail
+            ));
+        }
+        push_ok(ctx, ret_form);
+    } else if matches!(ret_form, Some(rf) if rf == 0) {
+        // A void access to a command argument slot is bookkeeping, not an event command.
+        push_ok(ctx, ret_form);
+    } else {
+        // Property-style reads of a command argument slot must not execute SET/LOOP/TURN.
+        ctx.stack.push(Value::Int(ev.get_value() as i64));
+    }
+    Some(())
+}
+
 fn dispatch_int_event_subop(
     ev: &mut IntEvent,
     subop: i32,
@@ -354,8 +451,28 @@ fn dispatch_int_event_subop(
                 let total_time = script_args.get(1).and_then(as_i64).unwrap_or(0) as i32;
                 let delay_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
                 let speed_type = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
+
                 let real_flag = if subop == int_event_op::SET_REAL { 1 } else { 0 };
                 ev.set_event(value, total_time, delay_time, speed_type, real_flag);
+                sg_debug_stage(format!(
+                    "INTEVENT.SET subop={} value={} total_time={} delay_time={} speed_type={} real={} start={} cur={} active={}",
+                    subop,
+                    value,
+                    total_time,
+                    delay_time,
+                    speed_type,
+                    real_flag,
+                    ev.start_value,
+                    ev.cur_value,
+                    ev.check_event(),
+                ));
+            } else {
+                sg_debug_stage(format!(
+                    "INTEVENT.SET subop={} ignored: argc={} args={:?}",
+                    subop,
+                    script_args.len(),
+                    script_args,
+                ));
             }
             Some(IntEventDispatchAction::Done)
         }
@@ -366,8 +483,27 @@ fn dispatch_int_event_subop(
                 let loop_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
                 let delay_time = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
                 let speed_type = script_args.get(4).and_then(as_i64).unwrap_or(0) as i32;
+
                 let real_flag = if subop == int_event_op::LOOP_REAL { 1 } else { 0 };
                 ev.loop_event(start_value, end_value, loop_time, delay_time, speed_type, real_flag);
+                sg_debug_stage(format!(
+                    "INTEVENT.LOOP subop={} start={} end={} loop_time={} delay_time={} speed_type={} real={} active={}",
+                    subop,
+                    start_value,
+                    end_value,
+                    loop_time,
+                    delay_time,
+                    speed_type,
+                    real_flag,
+                    ev.check_event(),
+                ));
+            } else {
+                sg_debug_stage(format!(
+                    "INTEVENT.LOOP subop={} ignored: argc={} args={:?}",
+                    subop,
+                    script_args.len(),
+                    script_args,
+                ));
             }
             Some(IntEventDispatchAction::Done)
         }
@@ -378,8 +514,27 @@ fn dispatch_int_event_subop(
                 let loop_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
                 let delay_time = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
                 let speed_type = script_args.get(4).and_then(as_i64).unwrap_or(0) as i32;
+
                 let real_flag = if subop == int_event_op::TURN_REAL { 1 } else { 0 };
                 ev.turn_event(start_value, end_value, loop_time, delay_time, speed_type, real_flag);
+                sg_debug_stage(format!(
+                    "INTEVENT.TURN subop={} start={} end={} loop_time={} delay_time={} speed_type={} real={} active={}",
+                    subop,
+                    start_value,
+                    end_value,
+                    loop_time,
+                    delay_time,
+                    speed_type,
+                    real_flag,
+                    ev.check_event(),
+                ));
+            } else {
+                sg_debug_stage(format!(
+                    "INTEVENT.TURN subop={} ignored: argc={} args={:?}",
+                    subop,
+                    script_args.len(),
+                    script_args,
+                ));
             }
             Some(IntEventDispatchAction::Done)
         }
@@ -629,6 +784,7 @@ fn dispatch_object_list_op(
 
 fn dispatch_embedded_object_list_op(
     ctx: &mut CommandContext,
+    stage_idx: i64,
     list: &mut Vec<ObjectState>,
     strict: &mut bool,
     op: i32,
@@ -642,6 +798,7 @@ fn dispatch_embedded_object_list_op(
     if op == crate::runtime::forms::codes::OBJECTLIST_RESIZE {
         let n = script_args.first().and_then(as_i64).unwrap_or(0).max(0) as usize;
         if n < list.len() {
+            clear_embedded_object_list_tail(ctx, list, stage_idx, n);
             list.truncate(n);
         } else if n > list.len() {
             list.resize_with(n, ObjectState::default);
@@ -941,10 +1098,8 @@ fn object_event_list_default(ids: &crate::runtime::constants::RuntimeConstants, 
     }
 }
 
-fn resolve_movie_path(project_dir: &Path, append_dir: &str, file_name: &str) -> Option<PathBuf> {
-    crate::resource::find_mov_path_with_append_dir(project_dir, append_dir, file_name)
-        .ok()
-        .map(|(path, _ty)| path)
+fn resolve_object_omv_path(project_dir: &Path, append_dir: &str, file_name: &str) -> Option<PathBuf> {
+    crate::resource::find_omv_path_with_append_dir(project_dir, append_dir, file_name).ok()
 }
 
 fn resolve_filter_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
@@ -969,14 +1124,7 @@ fn resolve_filter_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
 }
 
 fn movie_total_time_ms(ctx: &mut CommandContext, file: &str) -> Option<u64> {
-    // Original Siglus creates/restructures the movie player before playback and
-    // the lifetime follows the actual decoded stream.  Do not use OMV packet
-    // hints here because they include non-frame packets for some files and can
-    // make auto_free fire before the first visible frame.
-    ctx.movie
-        .ensure_asset(file)
-        .ok()
-        .and_then(|(asset, _)| asset.info.duration_ms())
+    ctx.movie.prepare_omv(file).ok().and_then(|info| info.duration_ms())
 }
 
 fn digits_most_significant(mut n: u64) -> Vec<i64> {
@@ -1417,6 +1565,19 @@ fn object_clear_backend_recursive(
         } else if !matches!(child.backend, ObjectBackend::Gfx) {
             object_clear_backend_recursive(ctx, child, stage_idx, obj_idx);
         }
+    }
+}
+
+
+fn clear_embedded_object_list_tail(
+    ctx: &mut CommandContext,
+    list: &mut [ObjectState],
+    stage_idx: i64,
+    from_idx: usize,
+) {
+    for (idx, obj) in list.iter_mut().enumerate().skip(from_idx) {
+        let slot = obj.runtime_slot_or(idx);
+        object_clear_backend_recursive(ctx, obj, stage_idx, slot);
     }
 }
 
@@ -2117,9 +2278,20 @@ fn dispatch_object_op(
                 4 => {
                     if let Some(n0) = script_args.first().and_then(as_i64) {
                         let n = n0.max(0) as usize;
-                        obj.runtime
-                            .child_objects
-                            .resize_with(n, ObjectState::default);
+                        let old_len = obj.runtime.child_objects.len();
+                        if n < old_len {
+                            clear_embedded_object_list_tail(
+                                ctx,
+                                &mut obj.runtime.child_objects,
+                                stage_idx,
+                                n,
+                            );
+                            obj.runtime.child_objects.truncate(n);
+                        } else if n > old_len {
+                            obj.runtime
+                                .child_objects
+                                .resize_with(n, ObjectState::default);
+                        }
                         obj.used = true;
                     }
                     push_ok(ctx, ret_form);
@@ -2131,12 +2303,7 @@ fn dispatch_object_op(
     }
 
     if let Some(rep_list) = obj.rep_int_event_list_by_rep_op_mut(&ctx.ids, op) {
-        let mut arr_idx: Option<i64> = None;
-        let mut t = tail;
-        if t.len() >= 2 && (t[0] == ctx.ids.elm_array || t[0] == -1) {
-            arr_idx = Some(t[1] as i64);
-            t = &t[2..];
-        }
+        let (arr_idx, t) = split_property_list_tail(ctx, tail, al_id, ret_form, rhs, script_args);
 
         if let Some(rep_idx) = arr_idx {
             if rep_idx < 0 {
@@ -2155,6 +2322,9 @@ fn dispatch_object_op(
                 } else {
                     ctx.stack.push(Value::Int(ev.get_value() as i64));
                 }
+                return true;
+            }
+            if dispatch_int_event_arg_slot(ctx, ev, t, script_args, rhs, al_id, ret_form).is_some() {
                 return true;
             }
             if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
@@ -2224,12 +2394,16 @@ fn dispatch_object_op(
     let is_obj_int_event_list = obj.int_event_list_by_op(&ctx.ids, op).is_some();
 
     if is_obj_int_list || is_obj_int_event || is_obj_int_event_list {
-        let mut arr_idx: Option<i64> = None;
-        let mut t = tail;
-        if t.len() >= 2 && (t[0] == ctx.ids.elm_array || t[0] == -1) {
-            arr_idx = Some(t[1] as i64);
-            t = &t[2..];
-        }
+        // Plain OBJECT.*_EVE properties are INTEVENT objects, not lists.
+        // Their tail begins with the INTEVENT sub-operation, e.g.
+        //   OBJECT.COLOR_RATE_EVE.SET(..., start := 10)
+        // appears as tail [0, -1, 10]. Do not run the compact-list-index
+        // heuristic here, otherwise sub-op 0 is misread as array index 0.
+        let (arr_idx, t) = if is_obj_int_event && !is_obj_int_list && !is_obj_int_event_list {
+            (None, tail)
+        } else {
+            split_property_list_tail(ctx, tail, al_id, ret_form, rhs, script_args)
+        };
 
         if is_obj_int_list && arr_idx.is_none() && t.len() == 1 {
             match t[0] {
@@ -2295,6 +2469,9 @@ fn dispatch_object_op(
                     }
                     return true;
                 }
+                if dispatch_int_event_arg_slot(ctx, ev, t, script_args, rhs, al_id, ret_form).is_some() {
+                    return true;
+                }
                 if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
                     match t[0] {
                         int_event_op::CHECK => {
@@ -2357,6 +2534,9 @@ fn dispatch_object_op(
                 } else {
                     ctx.stack.push(Value::Int(ev.get_value() as i64));
                 }
+                return true;
+            }
+            if dispatch_int_event_arg_slot(ctx, ev, t, script_args, rhs, al_id, ret_form).is_some() {
                 return true;
             }
             if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
@@ -3629,7 +3809,7 @@ fn dispatch_object_op(
             obj.button.clear();
             obj.clear_runtime_only();
 
-            let movie_path = resolve_movie_path(&ctx.project_dir, &ctx.globals.append_dir, file);
+            let movie_path = resolve_object_omv_path(&ctx.project_dir, &ctx.globals.append_dir, file);
             let total_ms = movie_path.as_ref().and_then(|_| movie_total_time_ms(ctx, file));
             sg_debug_stage(format!(
                 "CREATE_MOVIE stage={} obj={} file={} resolved={:?} loop={} wait={} key_skip={} auto_free={} real_time={} ready_only={} total_ms={:?}",
@@ -4115,10 +4295,10 @@ fn dispatch_object_op(
                 if let Some(gl) = st.group_lists.get(&stage_idx).and_then(|v| v.get(gidx)) {
                     if gl.decided_button_no == obj.button.button_no {
                         stt = TNM_BTN_STATE_PUSH;
-                    } else if gl.pushed_button_no == obj.button.button_no {
-                        stt = TNM_BTN_STATE_PUSH;
                     } else if gl.hit_button_no == obj.button.button_no {
                         stt = TNM_BTN_STATE_HIT;
+                    } else if gl.pushed_button_no == obj.button.button_no {
+                        stt = TNM_BTN_STATE_PUSH;
                     }
                 }
             } else if obj.button.pushed {
@@ -4136,6 +4316,17 @@ fn dispatch_object_op(
         obj.button.decided_action_scn_name = ctx.current_scene_name.clone().unwrap_or_default();
         obj.button.decided_action_cmd_name = cmd.to_string();
         obj.button.decided_action_z_no = -1;
+        if sg_debug_enabled_local() {
+            eprintln!(
+                "[SG_DEBUG][BUTTON] SET_BUTTON_CALL scene={} cmd={} slot={} button_no={} group_no={} action_no={}",
+                obj.button.decided_action_scn_name,
+                obj.button.decided_action_cmd_name,
+                obj_runtime_slot,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.action_no
+            );
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -6267,9 +6458,7 @@ fn dispatch_group_item_op(
             true
         }
         GroupOpKind::Init => {
-            g.init_sel();
-            g.wait_flag = false;
-            g.started = false;
+            g.reinit();
             if let Some(rf) = ret_form {
                 if rf != 0 {
                     ctx.stack.push(default_for_ret_form(rf));
@@ -6280,8 +6469,12 @@ fn dispatch_group_item_op(
             true
         }
         GroupOpKind::Start | GroupOpKind::StartCancel => {
+            ctx.input.use_current();
             g.init_sel();
-            g.cancel_flag = (k == GroupOpKind::StartCancel);
+            if k == GroupOpKind::StartCancel {
+                g.cancel_flag = true;
+                g.cancel_se_no = script_args.iter().find_map(as_i64).unwrap_or(-1);
+            }
             g.start();
             if let Some(rf) = ret_form {
                 if rf != 0 {
@@ -6294,9 +6487,11 @@ fn dispatch_group_item_op(
         }
         GroupOpKind::Sel | GroupOpKind::SelCancel => {
             // Mirror group_sel(_cancel) behavior:
+            // - consume current input edges
             // - reset selection state
             // - start selection
             // - set wait flag and focus so Enter/Esc can drive it
+            ctx.input.use_current();
             g.init_sel();
             g.cancel_flag = (k == GroupOpKind::SelCancel);
             if k == GroupOpKind::SelCancel {
@@ -6503,6 +6698,7 @@ fn dispatch_mwnd_item_op(
         } else if tail.len() == 1 {
             dispatch_embedded_object_list_op(
                 ctx,
+                stage_idx,
                 &mut child_list,
                 &mut strict,
                 tail[0],
@@ -7114,6 +7310,7 @@ fn dispatch_btnselitem_item_op(
     } else if tail.len() == 1 {
         dispatch_embedded_object_list_op(
             ctx,
+            stage_idx,
             &mut child_list,
             &mut strict,
             tail[0],
@@ -7168,9 +7365,11 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let (mut al_id, mut ret_form) = crate::runtime::forms::prop_access::current_vm_meta(ctx);
 
     let rhs: Option<&Value> = if al_id == Some(1) {
-        if chain_pos == args.len() {
-            args.get(1)
-        } else if chain_pos >= 3 && as_i64(&args[1]).is_some() {
+        if args.len() == 1 {
+            args.first()
+        } else if chain_pos == args.len() {
+            args.last()
+        } else if chain_pos >= 3 && args.get(1).and_then(as_i64).is_some() {
             args.get(2)
         } else {
             args.first()
@@ -7185,12 +7384,23 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         }
         return Ok(false);
     };
-    if sg_debug_enabled_local() {
-        sg_debug_stage(format!("chain={:?} target={:?}", chain, tgt));
-    }
 
     // Command arguments are the original script arguments preceding the element chain.
     let script_args = crate::runtime::forms::prop_access::script_args(args, chain_pos);
+
+    if sg_debug_enabled_local() {
+        sg_debug_stage(format!(
+            "chain={:?} target={:?} al_id={:?} ret_form={:?} chain_pos={} argc={} script_args={:?} rhs={:?}",
+            chain,
+            tgt,
+            al_id,
+            ret_form,
+            chain_pos,
+            script_args.len(),
+            script_args,
+            rhs,
+        ));
+    }
 
     match tgt {
         StageTarget::StageCount => {

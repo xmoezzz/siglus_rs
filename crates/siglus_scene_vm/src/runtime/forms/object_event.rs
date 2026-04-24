@@ -2,7 +2,6 @@ use anyhow::{bail, Result};
 
 use crate::runtime::forms::codes::{elm_value, FM_OBJECTEVENT, FM_OBJECTEVENTLIST, ELM_ARRAY};
 use crate::runtime::globals::{ObjectEventTarget, ObjectState, StageFormState};
-use crate::runtime::int_event::IntEvent;
 use crate::runtime::{CommandContext, Value};
 
 use super::prop_access;
@@ -201,19 +200,13 @@ fn is_wait_op(op: i32) -> bool {
     )
 }
 
-pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
-    let Some((chain_pos, chain)) = parse_chain(ctx, args) else {
-        return Ok(false);
-    };
-    if chain.len() < 2 {
-        return Ok(false);
-    }
-    let op = chain[1];
-    let script_args = prop_access::script_args(args, chain_pos);
-    let Some((stage_idx, runtime_slot)) = ctx.globals.current_stage_object else {
-        return Ok(false);
-    };
-
+fn dispatch_object_event_on_runtime_slot(
+    ctx: &mut CommandContext,
+    stage_idx: i64,
+    runtime_slot: usize,
+    op: i32,
+    script_args: &[Value],
+) -> Result<bool> {
     if op == elm_value::OBJECTEVENT_WAIT_ALL {
         let active = {
             let stage_form = ctx.ids.form_global_stage;
@@ -254,9 +247,11 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     if is_wait_op(op) {
         let active = {
             let stage_form = ctx.ids.form_global_stage;
-            let st: &mut StageFormState = ctx.globals.stage_forms.entry(stage_form).or_default();
-            object_by_runtime_slot_mut(st, stage_idx, runtime_slot)
-                .and_then(|obj| obj.runtime.prop_events.get_mut(target))
+            ctx.globals
+                .stage_forms
+                .get(&stage_form)
+                .and_then(|st| object_by_runtime_slot(st, stage_idx, runtime_slot))
+                .and_then(|obj| obj.runtime.prop_events.get(target))
                 .map(|ev| ev.check_event())
                 .unwrap_or(false)
         };
@@ -322,6 +317,33 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     bail!("unsupported OBJECTEVENT op {}", op)
 }
 
+fn object_runtime_slot_by_stage_index(
+    st: &StageFormState,
+    stage_idx: i64,
+    object_idx: usize,
+) -> Option<usize> {
+    st.object_lists
+        .get(&stage_idx)
+        .and_then(|list| list.get(object_idx))
+        .map(|obj| obj.runtime_slot_or(object_idx))
+}
+
+pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
+    let Some((chain_pos, chain)) = parse_chain(ctx, args) else {
+        return Ok(false);
+    };
+    if chain.len() < 2 {
+        return Ok(false);
+    }
+    let op = chain[1];
+    let script_args = prop_access::script_args(args, chain_pos);
+    let Some((stage_idx, runtime_slot)) = ctx.globals.current_stage_object else {
+        return Ok(false);
+    };
+
+    dispatch_object_event_on_runtime_slot(ctx, stage_idx, runtime_slot, op, script_args)
+}
+
 pub fn dispatch_list(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let Some((chain_pos, chain)) = prop_access::parse_element_chain_ctx(ctx, FM_OBJECTEVENTLIST as u32, args) else {
         return Ok(false);
@@ -333,17 +355,36 @@ pub fn dispatch_list(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         bail!("unsupported OBJECTEVENTLIST op {}", chain[1]);
     }
 
-    let mut forwarded = vec![FM_OBJECTEVENT];
-    if chain.len() > 3 {
-        forwarded.extend_from_slice(&chain[3..]);
-    }
-    if forwarded.len() == 1 {
-        ctx.push(Value::Element(forwarded));
+    if chain.len() == 3 {
+        ctx.push(Value::Element(chain.to_vec()));
         return Ok(true);
     }
 
-    let mut forwarded_args = Vec::with_capacity(args.len().saturating_sub(chain_pos) + 1);
-    forwarded_args.push(Value::Element(forwarded));
-    forwarded_args.extend(prop_access::script_args(args, chain_pos).iter().cloned());
-    dispatch(ctx, &forwarded_args)
+    if chain[2] < 0 {
+        bail!("OBJECTEVENTLIST.ARRAY index must be non-negative: {}", chain[2]);
+    }
+
+    let Some((stage_idx, _ambient_runtime_slot)) = ctx.globals.current_stage_object else {
+        return Ok(false);
+    };
+    let object_idx = chain[2] as usize;
+    let op = chain[3];
+    let script_args = prop_access::script_args(args, chain_pos);
+
+    let runtime_slot = {
+        let stage_form = ctx.ids.form_global_stage;
+        let Some(st) = ctx.globals.stage_forms.get(&stage_form) else {
+            return Ok(false);
+        };
+        let Some(runtime_slot) = object_runtime_slot_by_stage_index(st, stage_idx, object_idx) else {
+            bail!(
+                "OBJECTEVENTLIST.ARRAY[{}] has no object in stage {}",
+                object_idx,
+                stage_idx
+            );
+        };
+        runtime_slot
+    };
+
+    dispatch_object_event_on_runtime_slot(ctx, stage_idx, runtime_slot, op, script_args)
 }

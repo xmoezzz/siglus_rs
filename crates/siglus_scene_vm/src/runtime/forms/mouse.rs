@@ -73,23 +73,23 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_left as i64 => {
-            let subop = chain
-                .get(2)
-                .copied()
-                .map(|v| v as i64)
-                .unwrap_or(ctx.ids.key_op_is_down as i64);
-            let v = key::query(ctx, 0x01, subop);
-            ctx.push(Value::Int(v));
+            if chain.len() == 2 {
+                ctx.push(Value::Element(chain.to_vec()));
+            } else {
+                let subop = chain[2] as i64;
+                let v = key::query(ctx, 0x01, subop);
+                ctx.push(Value::Int(v));
+            }
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_right as i64 => {
-            let subop = chain
-                .get(2)
-                .copied()
-                .map(|v| v as i64)
-                .unwrap_or(ctx.ids.key_op_is_down as i64);
-            let v = key::query(ctx, 0x02, subop);
-            ctx.push(Value::Int(v));
+            if chain.len() == 2 {
+                ctx.push(Value::Element(chain.to_vec()));
+            } else {
+                let subop = chain[2] as i64;
+                let v = key::query(ctx, 0x02, subop);
+                ctx.push(Value::Int(v));
+            }
             Ok(true)
         }
         _ => Ok(false),

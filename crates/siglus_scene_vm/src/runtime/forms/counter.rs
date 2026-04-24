@@ -263,14 +263,21 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .wait_counter(form_id, idx, arg_int(params, 0), true, true);
         }
         CounterOp::CheckValue => {
+            let target = arg_int(params, 0);
             let cur = ctx
                 .globals
                 .counter_lists
                 .get(&form_id)
                 .and_then(|v| v.get(idx))
                 .map(|c| c.get_count())
-                .unwrap_or(arg_int(params, 0));
-            let ok = cur - arg_int(params, 0) >= 0;
+                .unwrap_or(target);
+            let ok = cur - target >= 0;
+            if std::env::var_os("SG_COUNTER_TRACE").is_some() {
+                eprintln!(
+                    "[SG_DEBUG][COUNTER] CHECK_VALUE form={} idx={} cur={} target={} ok={}",
+                    form_id, idx, cur, target, ok
+                );
+            }
             ctx.push(Value::Int(if ok { 1 } else { 0 }));
         }
         CounterOp::CheckActive => {

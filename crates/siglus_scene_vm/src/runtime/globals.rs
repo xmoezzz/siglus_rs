@@ -696,11 +696,21 @@ pub struct PendingFrameActionFinish {
     pub args: Vec<crate::runtime::Value>,
 }
 
+#[derive(Debug, Clone)]
+pub enum PendingButtonActionKind {
+    UserCall { scn_name: String, cmd_name: String, z_no: i64 },
+    Syscom { sys_type: i64, sys_type_opt: i64, mode: i64 },
+}
+
+impl Default for PendingButtonActionKind {
+    fn default() -> Self {
+        Self::UserCall { scn_name: String::new(), cmd_name: String::new(), z_no: -1 }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct PendingButtonAction {
-    pub scn_name: String,
-    pub cmd_name: String,
-    pub z_no: i64,
+    pub kind: PendingButtonActionKind,
 }
 
 /// Runtime state for the GLOBAL.MOV player.
@@ -1670,6 +1680,9 @@ pub struct ObjectButtonState {
     pub group_idx_override: Option<usize>,
     pub action_no: i64,
     pub se_no: i64,
+    pub sys_type: i64,
+    pub sys_type_opt: i64,
+    pub mode: i64,
     pub push_keep: bool,
     pub alpha_test: bool,
     /// Button state constants: 0=normal, 1=hit, 2=push, 3=select, 4=disable.
@@ -1696,6 +1709,9 @@ impl Default for ObjectButtonState {
             group_idx_override: None,
             action_no: -1,
             se_no: -1,
+            sys_type: 0,
+            sys_type_opt: 0,
+            mode: 0,
             push_keep: false,
             alpha_test: false,
             state: 0,
@@ -3427,69 +3443,80 @@ impl ObjectState {
         ids: &crate::runtime::constants::RuntimeConstants,
         op: i32,
     ) -> Option<i64> {
-        macro_rules! get_if {
+        macro_rules! get_base_if {
             ($id:expr, $field:ident) => {
                 if $id != 0 && op == $id {
                     return Some(self.base.$field);
                 }
             };
         }
+        macro_rules! get_event_total_if {
+            ($id:expr, $target:expr) => {
+                if $id != 0 && op == $id {
+                    return self
+                        .runtime
+                        .prop_events
+                        .get($target)
+                        .map(|ev| ev.get_total_value() as i64);
+                }
+            };
+        }
         if op == ids.obj_disp {
             return Some(self.base.disp);
         }
-        get_if!(ids.obj_wipe_copy, wipe_copy);
-        get_if!(ids.obj_wipe_erase, wipe_erase);
-        get_if!(ids.obj_click_disable, click_disable);
-        get_if!(ids.obj_patno, patno);
-        get_if!(ids.obj_world, world);
-        get_if!(ids.obj_order, order);
-        get_if!(ids.obj_layer, layer);
-        get_if!(ids.obj_x, x);
-        get_if!(ids.obj_y, y);
-        get_if!(ids.obj_z, z);
-        get_if!(ids.obj_center_x, center_x);
-        get_if!(ids.obj_center_y, center_y);
-        get_if!(ids.obj_center_z, center_z);
-        get_if!(ids.obj_center_rep_x, center_rep_x);
-        get_if!(ids.obj_center_rep_y, center_rep_y);
-        get_if!(ids.obj_center_rep_z, center_rep_z);
-        get_if!(ids.obj_scale_x, scale_x);
-        get_if!(ids.obj_scale_y, scale_y);
-        get_if!(ids.obj_scale_z, scale_z);
-        get_if!(ids.obj_rotate_x, rotate_x);
-        get_if!(ids.obj_rotate_y, rotate_y);
-        get_if!(ids.obj_rotate_z, rotate_z);
-        get_if!(ids.obj_clip_use, clip_use);
-        get_if!(ids.obj_clip_left, clip_left);
-        get_if!(ids.obj_clip_top, clip_top);
-        get_if!(ids.obj_clip_right, clip_right);
-        get_if!(ids.obj_clip_bottom, clip_bottom);
-        get_if!(ids.obj_src_clip_use, src_clip_use);
-        get_if!(ids.obj_src_clip_left, src_clip_left);
-        get_if!(ids.obj_src_clip_top, src_clip_top);
-        get_if!(ids.obj_src_clip_right, src_clip_right);
-        get_if!(ids.obj_src_clip_bottom, src_clip_bottom);
-        get_if!(ids.obj_alpha, alpha);
-        get_if!(ids.obj_tr, tr);
-        get_if!(ids.obj_mono, mono);
-        get_if!(ids.obj_reverse, reverse);
-        get_if!(ids.obj_bright, bright);
-        get_if!(ids.obj_dark, dark);
-        get_if!(ids.obj_color_r, color_r);
-        get_if!(ids.obj_color_g, color_g);
-        get_if!(ids.obj_color_b, color_b);
-        get_if!(ids.obj_color_rate, color_rate);
-        get_if!(ids.obj_color_add_r, color_add_r);
-        get_if!(ids.obj_color_add_g, color_add_g);
-        get_if!(ids.obj_color_add_b, color_add_b);
-        get_if!(ids.obj_mask_no, mask_no);
-        get_if!(ids.obj_tonecurve_no, tonecurve_no);
-        get_if!(ids.obj_light_no, light_no);
-        get_if!(ids.obj_fog_use, fog_use);
-        get_if!(ids.obj_culling, culling);
-        get_if!(ids.obj_alpha_test, alpha_test);
-        get_if!(ids.obj_alpha_blend, alpha_blend);
-        get_if!(ids.obj_blend, blend);
+        get_base_if!(ids.obj_wipe_copy, wipe_copy);
+        get_base_if!(ids.obj_wipe_erase, wipe_erase);
+        get_base_if!(ids.obj_click_disable, click_disable);
+        get_event_total_if!(ids.obj_patno, ObjectEventTarget::Patno);
+        get_base_if!(ids.obj_world, world);
+        get_base_if!(ids.obj_order, order);
+        get_base_if!(ids.obj_layer, layer);
+        get_event_total_if!(ids.obj_x, ObjectEventTarget::X);
+        get_event_total_if!(ids.obj_y, ObjectEventTarget::Y);
+        get_event_total_if!(ids.obj_z, ObjectEventTarget::Z);
+        get_event_total_if!(ids.obj_center_x, ObjectEventTarget::CenterX);
+        get_event_total_if!(ids.obj_center_y, ObjectEventTarget::CenterY);
+        get_event_total_if!(ids.obj_center_z, ObjectEventTarget::CenterZ);
+        get_event_total_if!(ids.obj_center_rep_x, ObjectEventTarget::CenterRepX);
+        get_event_total_if!(ids.obj_center_rep_y, ObjectEventTarget::CenterRepY);
+        get_event_total_if!(ids.obj_center_rep_z, ObjectEventTarget::CenterRepZ);
+        get_event_total_if!(ids.obj_scale_x, ObjectEventTarget::ScaleX);
+        get_event_total_if!(ids.obj_scale_y, ObjectEventTarget::ScaleY);
+        get_event_total_if!(ids.obj_scale_z, ObjectEventTarget::ScaleZ);
+        get_event_total_if!(ids.obj_rotate_x, ObjectEventTarget::RotateX);
+        get_event_total_if!(ids.obj_rotate_y, ObjectEventTarget::RotateY);
+        get_event_total_if!(ids.obj_rotate_z, ObjectEventTarget::RotateZ);
+        get_base_if!(ids.obj_clip_use, clip_use);
+        get_event_total_if!(ids.obj_clip_left, ObjectEventTarget::ClipLeft);
+        get_event_total_if!(ids.obj_clip_top, ObjectEventTarget::ClipTop);
+        get_event_total_if!(ids.obj_clip_right, ObjectEventTarget::ClipRight);
+        get_event_total_if!(ids.obj_clip_bottom, ObjectEventTarget::ClipBottom);
+        get_base_if!(ids.obj_src_clip_use, src_clip_use);
+        get_event_total_if!(ids.obj_src_clip_left, ObjectEventTarget::SrcClipLeft);
+        get_event_total_if!(ids.obj_src_clip_top, ObjectEventTarget::SrcClipTop);
+        get_event_total_if!(ids.obj_src_clip_right, ObjectEventTarget::SrcClipRight);
+        get_event_total_if!(ids.obj_src_clip_bottom, ObjectEventTarget::SrcClipBottom);
+        get_base_if!(ids.obj_alpha, alpha);
+        get_event_total_if!(ids.obj_tr, ObjectEventTarget::Tr);
+        get_event_total_if!(ids.obj_mono, ObjectEventTarget::Mono);
+        get_event_total_if!(ids.obj_reverse, ObjectEventTarget::Reverse);
+        get_event_total_if!(ids.obj_bright, ObjectEventTarget::Bright);
+        get_event_total_if!(ids.obj_dark, ObjectEventTarget::Dark);
+        get_event_total_if!(ids.obj_color_r, ObjectEventTarget::ColorR);
+        get_event_total_if!(ids.obj_color_g, ObjectEventTarget::ColorG);
+        get_event_total_if!(ids.obj_color_b, ObjectEventTarget::ColorB);
+        get_event_total_if!(ids.obj_color_rate, ObjectEventTarget::ColorRate);
+        get_event_total_if!(ids.obj_color_add_r, ObjectEventTarget::ColorAddR);
+        get_event_total_if!(ids.obj_color_add_g, ObjectEventTarget::ColorAddG);
+        get_event_total_if!(ids.obj_color_add_b, ObjectEventTarget::ColorAddB);
+        get_base_if!(ids.obj_mask_no, mask_no);
+        get_base_if!(ids.obj_tonecurve_no, tonecurve_no);
+        get_base_if!(ids.obj_light_no, light_no);
+        get_base_if!(ids.obj_fog_use, fog_use);
+        get_base_if!(ids.obj_culling, culling);
+        get_base_if!(ids.obj_alpha_test, alpha_test);
+        get_base_if!(ids.obj_alpha_blend, alpha_blend);
+        get_base_if!(ids.obj_blend, blend);
         None
     }
 
@@ -3854,7 +3881,7 @@ pub enum GroupOpKind {
     Unknown,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct GroupState {
     pub wait_flag: bool,
     pub cancel_flag: bool,
@@ -3864,6 +3891,8 @@ pub struct GroupState {
     pub hit_button_no: i64,
     pub pushed_button_no: i64,
     pub decided_button_no: i64,
+    pub hit_runtime_slot: Option<usize>,
+    pub pushed_runtime_slot: Option<usize>,
 
     pub result: i64,
     pub result_button_no: i64,
@@ -3875,24 +3904,109 @@ pub struct GroupState {
     pub aux_str_props: HashMap<i32, String>,
 }
 
+impl Default for GroupState {
+    fn default() -> Self {
+        let mut state = Self {
+            wait_flag: false,
+            cancel_flag: false,
+            cancel_se_no: -1,
+            started: false,
+            hit_button_no: -1,
+            pushed_button_no: -1,
+            decided_button_no: TNM_GROUP_NOT_DECIDED,
+            hit_runtime_slot: None,
+            pushed_runtime_slot: None,
+            result: TNM_GROUP_RESULT_NONE,
+            result_button_no: 0,
+            order: 0,
+            layer: 0,
+            cancel_priority: 0,
+            props: HashMap::new(),
+            aux_str_props: HashMap::new(),
+        };
+        state.reinit();
+        state
+    }
+}
+
+pub const TNM_GROUP_NOT_DECIDED: i64 = -2;
+pub const TNM_GROUP_CANCELED: i64 = -1;
+pub const TNM_GROUP_RESULT_DECIDED: i64 = 1;
+pub const TNM_GROUP_RESULT_NONE: i64 = 0;
+pub const TNM_GROUP_RESULT_CANCELLED: i64 = -1;
+
 impl GroupState {
-    pub fn init_sel(&mut self) {
+    pub fn reinit(&mut self) {
+        self.order = 0;
+        self.layer = 0;
+        self.cancel_priority = 0;
+        self.cancel_se_no = -1;
+        self.decided_button_no = TNM_GROUP_NOT_DECIDED;
+        self.result = TNM_GROUP_RESULT_NONE;
+        self.result_button_no = 0;
+        self.started = false;
+        self.wait_flag = false;
+        self.cancel_flag = false;
         self.hit_button_no = -1;
         self.pushed_button_no = -1;
-        self.decided_button_no = -1;
-        self.result = 0;
-        self.result_button_no = -1;
-        self.cancel_flag = false;
+        self.hit_runtime_slot = None;
+        self.pushed_runtime_slot = None;
+    }
+
+    pub fn init_sel(&mut self) {
+        self.cancel_priority = 0;
         self.cancel_se_no = -1;
+        self.decided_button_no = TNM_GROUP_NOT_DECIDED;
+        self.result = TNM_GROUP_RESULT_NONE;
+        self.result_button_no = 0;
+        self.started = false;
+        self.wait_flag = false;
+        self.cancel_flag = false;
+        self.hit_button_no = -1;
+        self.pushed_button_no = -1;
+        self.hit_runtime_slot = None;
+        self.pushed_runtime_slot = None;
     }
 
     pub fn start(&mut self) {
         self.started = true;
+        self.decided_button_no = TNM_GROUP_NOT_DECIDED;
     }
 
     pub fn end(&mut self) {
-        self.wait_flag = false;
         self.started = false;
+        self.decided_button_no = TNM_GROUP_NOT_DECIDED;
+    }
+
+    pub fn decide(&mut self, button_no: i64) -> bool {
+        if !self.started {
+            return false;
+        }
+        self.started = false;
+        self.decided_button_no = button_no;
+        self.result = TNM_GROUP_RESULT_DECIDED;
+        self.result_button_no = button_no;
+        self.hit_button_no = -1;
+        self.pushed_button_no = -1;
+        self.hit_runtime_slot = None;
+        self.pushed_runtime_slot = None;
+        true
+    }
+
+    pub fn cancel(&mut self) -> Option<i64> {
+        if !self.started {
+            return None;
+        }
+        let hit_button_no = self.hit_button_no;
+        self.started = false;
+        self.decided_button_no = TNM_GROUP_CANCELED;
+        self.result = TNM_GROUP_RESULT_CANCELLED;
+        self.result_button_no = hit_button_no;
+        self.hit_button_no = -1;
+        self.pushed_button_no = -1;
+        self.hit_runtime_slot = None;
+        self.pushed_runtime_slot = None;
+        Some(hit_button_no)
     }
 }
 
@@ -4584,7 +4698,12 @@ impl GlobalState {
         self.mov.tick(past_real_time);
 
         if !self.script.counter_time_stop_flag {
-            for counters in self.counter_lists.values_mut() {
+            let mut counter_ids: Vec<u32> = self.counter_lists.keys().copied().collect();
+            counter_ids.sort_unstable();
+            for counter_id in counter_ids {
+                let Some(counters) = self.counter_lists.get_mut(&counter_id) else {
+                    continue;
+                };
                 for counter in counters {
                     counter.update_time(past_game_time, past_real_time);
                 }
@@ -4592,42 +4711,87 @@ impl GlobalState {
         }
 
         if !self.script.frame_action_time_stop_flag {
-            for fa in self.frame_actions.values_mut() {
+            let mut frame_action_ids: Vec<u32> = self.frame_actions.keys().copied().collect();
+            frame_action_ids.sort_unstable();
+            for frame_action_id in frame_action_ids {
+                let Some(fa) = self.frame_actions.get_mut(&frame_action_id) else {
+                    continue;
+                };
                 fa.counter.update_time(past_game_time, past_real_time);
             }
-            for list in self.frame_action_lists.values_mut() {
+            let mut frame_action_list_ids: Vec<u32> = self.frame_action_lists.keys().copied().collect();
+            frame_action_list_ids.sort_unstable();
+            for frame_action_list_id in frame_action_list_ids {
+                let Some(list) = self.frame_action_lists.get_mut(&frame_action_list_id) else {
+                    continue;
+                };
                 for fa in list {
                     fa.counter.update_time(past_game_time, past_real_time);
                 }
             }
         }
 
-        for ml in self.mask_lists.values_mut() {
+        let mut mask_list_ids: Vec<u32> = self.mask_lists.keys().copied().collect();
+        mask_list_ids.sort_unstable();
+        for mask_list_id in mask_list_ids {
+            let Some(ml) = self.mask_lists.get_mut(&mask_list_id) else {
+                continue;
+            };
             ml.tick_frame(past_game_time.max(0));
         }
 
-        for sc in self.screen_forms.values_mut() {
+        let mut screen_form_ids: Vec<u32> = self.screen_forms.keys().copied().collect();
+        screen_form_ids.sort_unstable();
+        for screen_form_id in screen_form_ids {
+            let Some(sc) = self.screen_forms.get_mut(&screen_form_id) else {
+                continue;
+            };
             sc.tick(past_game_time.max(0));
         }
 
-        for ev in self.int_event_roots.values_mut() {
+        let mut int_event_root_ids: Vec<u32> = self.int_event_roots.keys().copied().collect();
+        int_event_root_ids.sort_unstable();
+        for int_event_root_id in int_event_root_ids {
+            let Some(ev) = self.int_event_roots.get_mut(&int_event_root_id) else {
+                continue;
+            };
             ev.update_time(past_game_time, past_real_time);
             ev.frame();
         }
-        for events in self.int_event_lists.values_mut() {
+        let mut int_event_list_ids: Vec<u32> = self.int_event_lists.keys().copied().collect();
+        int_event_list_ids.sort_unstable();
+        for int_event_list_id in int_event_list_ids {
+            let Some(events) = self.int_event_lists.get_mut(&int_event_list_id) else {
+                continue;
+            };
             for ev in events {
                 ev.update_time(past_game_time, past_real_time);
                 ev.frame();
             }
         }
 
-        for st in self.stage_forms.values_mut() {
-            for objs in st.object_lists.values_mut() {
+        let mut stage_form_ids: Vec<u32> = self.stage_forms.keys().copied().collect();
+        stage_form_ids.sort_unstable();
+        for stage_form_id in stage_form_ids {
+            let Some(st) = self.stage_forms.get_mut(&stage_form_id) else {
+                continue;
+            };
+            let mut object_stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
+            object_stage_ids.sort_unstable();
+            for object_stage_id in object_stage_ids {
+                let Some(objs) = st.object_lists.get_mut(&object_stage_id) else {
+                    continue;
+                };
                 for obj in objs {
                     obj.tick(past_game_time, past_real_time);
                 }
             }
-            for worlds in st.world_lists.values_mut() {
+            let mut world_stage_ids: Vec<i64> = st.world_lists.keys().copied().collect();
+            world_stage_ids.sort_unstable();
+            for world_stage_id in world_stage_ids {
+                let Some(worlds) = st.world_lists.get_mut(&world_stage_id) else {
+                    continue;
+                };
                 for w in worlds {
                     w.update_time(past_game_time, past_real_time);
                     w.frame();

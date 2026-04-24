@@ -21,6 +21,10 @@ pub fn dispatch(ctx: &mut CommandContext, _args: &[Value]) -> Result<bool> {
         // testcase startup still uses compact keylist alias 24 with -1 as the
         // array/index marker instead of the canonical ELM_ARRAY id.
         o if o == ctx.ids.elm_array as i64 || o == -1 => {
+            if chain.len() == 3 {
+                ctx.push(Value::Element(chain.to_vec()));
+                return Ok(true);
+            }
             if chain.len() < 4 {
                 return Ok(false);
             }
