@@ -4794,4 +4794,3 @@ pub const OBJECT_EMOTE_KOE_CHARA_NO: i32 = 186;
 
 pub const GLOBAL_INT_LIST_FORMS: &[u32] = &[25, 26, 27, 28, 29, 30, 31, 32, 137];
 pub const GLOBAL_STR_LIST_FORMS: &[u32] = &[34, 35, 106, 107];
-

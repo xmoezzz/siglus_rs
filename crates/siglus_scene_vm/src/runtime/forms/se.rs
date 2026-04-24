@@ -78,8 +78,7 @@ fn resolve_se_file_name(ctx: &CommandContext, se_no: i64) -> Option<&str> {
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let ret_form: Option<i64> = crate::runtime::forms::prop_access::current_vm_meta(ctx).1;
-    let Some(op) =
-        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
+    let Some(op) = crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
     else {
         bail!("SE form expects an element opcode");
     };
@@ -99,7 +98,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                 se.play_file_name(audio, name).is_ok()
             };
             if !ok {
-                ctx.unknown.record_note(&format!("se.play_file.failed:{name}"));
+                ctx.unknown
+                    .record_note(&format!("se.play_file.failed:{name}"));
             }
             Ok(true)
         }
@@ -174,10 +174,12 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     se.play_file_name(audio, &name).is_ok()
                 };
                 if !ok {
-                    ctx.unknown.record_note(&format!("se.play.failed:{se_no}:{name}"));
+                    ctx.unknown
+                        .record_note(&format!("se.play.failed:{se_no}:{name}"));
                 }
             } else {
-                ctx.unknown.record_note(&format!("se.table.missing:{se_no}"));
+                ctx.unknown
+                    .record_note(&format!("se.table.missing:{se_no}"));
             }
             Ok(true)
         }

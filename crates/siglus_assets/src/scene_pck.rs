@@ -495,9 +495,13 @@ impl ScenePck {
     }
 
     pub fn find_scene_name(&self, scn_no: usize) -> Option<&str> {
-        self.scn_name_map
-            .iter()
-            .find_map(|(name, no)| if *no == scn_no { Some(name.as_str()) } else { None })
+        self.scn_name_map.iter().find_map(|(name, no)| {
+            if *no == scn_no {
+                Some(name.as_str())
+            } else {
+                None
+            }
+        })
     }
 
     pub fn find_inc_cmd_no(&self, cmd_name: &str) -> Option<usize> {

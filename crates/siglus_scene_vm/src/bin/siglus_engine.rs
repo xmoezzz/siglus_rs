@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use egui_wgpu::{Renderer as EguiRenderer, ScreenDescriptor};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use image::ColorType;
 use winit::application::ApplicationHandler;
@@ -21,8 +21,8 @@ use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDeco
 
 use siglus_scene_vm::image_manager::ImageId;
 use siglus_scene_vm::render::Renderer;
-use siglus_scene_vm::runtime::input::{VmKey, VmMouseButton};
 use siglus_scene_vm::runtime::globals::SyscomPendingProcKind;
+use siglus_scene_vm::runtime::input::{VmKey, VmMouseButton};
 use siglus_scene_vm::runtime::CommandContext;
 use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::{SceneVm, VmConfig};
@@ -469,25 +469,13 @@ impl App {
 
             let bind = match &obj.backend {
                 siglus_scene_vm::runtime::globals::ObjectBackend::Gfx => {
-                    if let Some(v) = vm
-                        .ctx
-                        .gfx
-                        .object_peek_disp(stage_idx, runtime_slot as i64)
-                    {
+                    if let Some(v) = vm.ctx.gfx.object_peek_disp(stage_idx, runtime_slot as i64) {
                         disp = v != 0;
                     }
-                    if let Some(v) = vm
-                        .ctx
-                        .gfx
-                        .object_peek_alpha(stage_idx, runtime_slot as i64)
-                    {
+                    if let Some(v) = vm.ctx.gfx.object_peek_alpha(stage_idx, runtime_slot as i64) {
                         alpha = v;
                     }
-                    if let Some(v) = vm
-                        .ctx
-                        .gfx
-                        .object_peek_patno(stage_idx, runtime_slot as i64)
-                    {
+                    if let Some(v) = vm.ctx.gfx.object_peek_patno(stage_idx, runtime_slot as i64) {
                         patno = v;
                     }
                     match vm
@@ -816,7 +804,8 @@ impl App {
     ) -> Option<egui::TextureId> {
         let image_id = tile.image_id?;
         let (img, version) = vm.ctx.images.get_entry(image_id)?;
-        let (color, debug_hash) = Self::hud_debug_rgb_preview(img.rgba.as_slice(), img.width, img.height);
+        let (color, debug_hash) =
+            Self::hud_debug_rgb_preview(img.rgba.as_slice(), img.width, img.height);
         if let Some(entry) = gui.texture_cache.get_mut(&image_id) {
             if entry.version != version
                 || entry.width != img.width
@@ -1376,7 +1365,13 @@ impl App {
             return Ok(());
         }
 
-        for _ in 0..self.steps_per_frame {
+        // Keep `steps_per_frame` as the script-slice budget, not as "run the
+        // entire proc stack N times per display frame". The latter advances the
+        // title flow far too aggressively and swallows hover/click animation
+        // feedback that the original engine presents frame-by-frame.
+        let mut proc_chain_budget = 64usize;
+        while proc_chain_budget > 0 {
+            proc_chain_budget -= 1;
             let Some(proc) = self.flow.top().cloned() else {
                 self.paused = true;
                 break;
@@ -1386,7 +1381,8 @@ impl App {
                 ProcType::Script => {
                     let (running, halted, cur_scene, pending, blocked, pop_script_proc) = {
                         let vm = self.vm.as_mut().expect("vm checked");
-                        let running = vm.step()?;
+                        let running =
+                            vm.run_script_proc_slice(self.steps_per_frame.max(1) as usize)?;
                         let pop_script_proc = vm.take_script_proc_pop_request();
                         let halted = vm.is_halted();
                         let cur_scene = vm
@@ -1395,11 +1391,20 @@ impl App {
                             .unwrap_or_else(|| self.boot.start_scene.clone());
                         let pending = vm.ctx.globals.syscom.pending_proc.is_some();
                         let blocked = if pending { false } else { vm.is_blocked() };
-                        (running, halted, cur_scene, pending, blocked, pop_script_proc)
+                        (
+                            running,
+                            halted,
+                            cur_scene,
+                            pending,
+                            blocked,
+                            pop_script_proc,
+                        )
                     };
                     if pop_script_proc {
                         if std::env::var_os("SG_DEBUG").is_some() {
-                            eprintln!("[SG_DEBUG][EXCALL] pop SCRIPT proc requested by ex-call return");
+                            eprintln!(
+                                "[SG_DEBUG][EXCALL] pop SCRIPT proc requested by ex-call return"
+                            );
                         }
                         self.flow.pop();
                         continue;
@@ -1418,11 +1423,7 @@ impl App {
                         if self.consume_syscom_pending_proc()? {
                             continue;
                         }
-                        let blocked = self
-                            .vm
-                            .as_mut()
-                            .map(|vm| vm.is_blocked())
-                            .unwrap_or(false);
+                        let blocked = self.vm.as_mut().map(|vm| vm.is_blocked()).unwrap_or(false);
                         if blocked {
                             break;
                         }
@@ -1492,6 +1493,11 @@ impl App {
                     break;
                 }
             }
+            break;
+        }
+
+        if proc_chain_budget == 0 {
+            bail!("proc flow did not settle within one frame");
         }
 
         self.step_once = false;
@@ -1553,8 +1559,7 @@ impl App {
             );
             Self::write_rgba_png(path, &img.rgba, img.width, img.height)?;
             if self.args.exit_after_capture {
-                let report_path = PathBuf::from("siglus_unknown_report.txt");
-                let _ = vm.ctx.unknown.write_report(&report_path);
+                eprintln!("[SG_UNKNOWN]\n{}", vm.ctx.unknown.summary_string(2048));
             }
             eprintln!("[INFO] capture written to {}", path.display());
             self.captured = true;
@@ -1654,7 +1659,6 @@ impl App {
             w.request_redraw();
         }
     }
-
 }
 
 impl ApplicationHandler for App {
@@ -1736,29 +1740,35 @@ impl ApplicationHandler for App {
                     return;
                 }
                 if let Some(vm) = self.vm.as_ref() {
-                    let report_path = PathBuf::from("siglus_unknown_report.txt");
-                    if let Err(e) = vm.ctx.unknown.write_report(&report_path) {
-                        eprintln!(
-                            "[WARN] failed to write unknown report to {}: {e}",
-                            report_path.display()
-                        );
-                    } else {
-                        eprintln!("[INFO] unknown report written to {}", report_path.display());
-                    }
+                    eprintln!("[SG_UNKNOWN]\n{}", vm.ctx.unknown.summary_string(2048));
                 }
                 elwt.exit();
             }
             WindowEvent::Resized(size) => {
                 if is_hud {
                     if let Some(renderer) = self.hud_renderer.as_mut() {
-                        renderer.resize_with_scale(size.width, size.height, self.hud_window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0));
+                        renderer.resize_with_scale(
+                            size.width,
+                            size.height,
+                            self.hud_window
+                                .as_ref()
+                                .map(|w| w.scale_factor() as f32)
+                                .unwrap_or(1.0),
+                        );
                     }
                     if let Some(w) = self.hud_window.as_ref() {
                         w.request_redraw();
                     }
                 } else {
                     if let Some(renderer) = self.renderer.as_mut() {
-                        renderer.resize_with_scale(size.width, size.height, self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0));
+                        renderer.resize_with_scale(
+                            size.width,
+                            size.height,
+                            self.window
+                                .as_ref()
+                                .map(|w| w.scale_factor() as f32)
+                                .unwrap_or(1.0),
+                        );
                     }
                     if let Some(w) = self.window.as_ref() {
                         w.request_redraw();
@@ -2009,9 +2019,7 @@ impl ApplicationHandler for App {
                     .unwrap_or(-1);
                 eprintln!(
                     "vm error: scene={} scene_no={} line={} {e:?}",
-                    scene_name,
-                    scene_no,
-                    line_no
+                    scene_name, scene_no, line_no
                 );
             }
             if let Err(e) = self.maybe_capture_current_frame() {

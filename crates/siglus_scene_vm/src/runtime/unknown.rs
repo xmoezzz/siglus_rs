@@ -4,11 +4,8 @@
 //! numeric form codes that are not mapped to a known handler yet.
 //! We also keep non-fatal load-time notes here so the runtime can continue.
 
-use std::collections::BTreeMap;
-use std::io::Write;
-use std::path::Path;
-
 use super::opcode::OpCode;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Default)]
 pub struct UnknownOpRecorder {
@@ -106,17 +103,5 @@ impl UnknownOpRecorder {
         }
 
         out
-    }
-
-    pub fn write_report<P: AsRef<Path>>(&self, path: P) -> std::io::Result<()> {
-        let path = path.as_ref();
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
-        }
-        let mut f = std::fs::File::create(path)?;
-        f.write_all(self.summary_string(2048).as_bytes())?;
-        Ok(())
     }
 }

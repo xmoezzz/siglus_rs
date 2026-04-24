@@ -47,7 +47,8 @@ fn run() -> Result<()> {
 
     let bytes = fs::read(&scene_pck)?;
     let header = read_pack_header_for_key_check(&bytes)?;
-    let requires_exe_key = header.original_source_header_size > 0 && header.scn_data_exe_angou_mod != 0;
+    let requires_exe_key =
+        header.original_source_header_size > 0 && header.scn_data_exe_angou_mod != 0;
     let exe_key = resolve_exe_key(&args, &project_dir, &scene_pck, requires_exe_key)?;
     let pck = load_scene_pck(&scene_pck, exe_key)?;
     let scenes = parse_scenes_from_pck(&pck)?;
@@ -89,7 +90,6 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-
 fn read_pack_header_for_key_check(bytes: &[u8]) -> Result<PackScnHeader> {
     let has_signature = bytes.len() >= 8 && &bytes[..8] == b"pack_scn";
     PackScnHeader::read(bytes, 0, has_signature).map_err(|e| Error::new(e.to_string()))
@@ -104,22 +104,32 @@ fn load_scene_pck(scene_pck: &Path, exe_key: Option<[u8; 16]>) -> Result<ScenePc
 }
 
 fn parse_scenes_from_pck(pck: &ScenePck) -> Result<Vec<Scene>> {
-    let count = pck.header.scn_data_cnt.max(pck.header.scn_data_index_cnt).max(0) as usize;
+    let count = pck
+        .header
+        .scn_data_cnt
+        .max(pck.header.scn_data_index_cnt)
+        .max(0) as usize;
     let names = scene_names_by_index(pck);
     let pack_inc_prop_cnt = pck.header.inc_prop_cnt.max(0) as usize;
     let pack_inc_cmd_cnt = pck.header.inc_cmd_cnt.max(0) as usize;
-    let pack_inc_prop_names = indexed_name_vec(&pck.inc_prop_name_map, pack_inc_prop_cnt, "inc_prop");
+    let pack_inc_prop_names =
+        indexed_name_vec(&pck.inc_prop_name_map, pack_inc_prop_cnt, "inc_prop");
     let pack_inc_cmd_names = indexed_name_vec(&pck.inc_cmd_name_map, pack_inc_cmd_cnt, "inc_cmd");
     let pack_inc_props = pck
         .inc_props
         .iter()
-        .map(|p| ScnProp { form: p.form, size: p.size })
+        .map(|p| ScnProp {
+            form: p.form,
+            size: p.size,
+        })
         .collect::<Vec<_>>();
 
     let mut scenes = Vec::new();
     let mut scene_index_to_output_index = vec![None; count];
     for i in 0..count {
-        let payload = pck.scn_data_slice(i).map_err(|e| Error::new(e.to_string()))?;
+        let payload = pck
+            .scn_data_slice(i)
+            .map_err(|e| Error::new(e.to_string()))?;
         if payload.is_empty() {
             continue;
         }
@@ -156,14 +166,20 @@ fn parse_scenes_from_pck(pck: &ScenePck) -> Result<Vec<Scene>> {
             .get(&(inc_cmd_no as u32))
             .cloned()
             .unwrap_or_else(|| format!("__inc_cmd_{inc_cmd_no}"));
-        scene.scn_cmds.push(ScnCmd { offset: inc_cmd.offset });
+        scene.scn_cmds.push(ScnCmd {
+            offset: inc_cmd.offset,
+        });
         scene.scn_cmd_names.push(format!("inc::{name}"));
     }
 
     Ok(scenes)
 }
 
-fn indexed_name_vec(map: &std::collections::HashMap<u32, String>, count: usize, fallback_prefix: &str) -> Vec<String> {
+fn indexed_name_vec(
+    map: &std::collections::HashMap<u32, String>,
+    count: usize,
+    fallback_prefix: &str,
+) -> Vec<String> {
     let mut out = Vec::with_capacity(count);
     for i in 0..count {
         out.push(
@@ -176,7 +192,11 @@ fn indexed_name_vec(map: &std::collections::HashMap<u32, String>, count: usize, 
 }
 
 fn scene_names_by_index(pck: &ScenePck) -> Vec<Option<String>> {
-    let count = pck.header.scn_data_cnt.max(pck.header.scn_data_index_cnt).max(0) as usize;
+    let count = pck
+        .header
+        .scn_data_cnt
+        .max(pck.header.scn_data_index_cnt)
+        .max(0) as usize;
     let mut names = vec![None; count];
     for (name, index) in &pck.scn_name_map {
         if *index < names.len() {
@@ -227,10 +247,14 @@ fn parse_args() -> Result<Args> {
                 print_usage();
                 std::process::exit(0);
             }
-            other if other.starts_with('-') => return Err(Error::new(format!("unknown argument: {other}"))),
+            other if other.starts_with('-') => {
+                return Err(Error::new(format!("unknown argument: {other}")))
+            }
             other => {
                 if out.scene_pck.is_some() {
-                    return Err(Error::new(format!("unexpected positional argument: {other}")));
+                    return Err(Error::new(format!(
+                        "unexpected positional argument: {other}"
+                    )));
                 }
                 out.scene_pck = Some(PathBuf::from(other));
             }
@@ -239,7 +263,12 @@ fn parse_args() -> Result<Args> {
     Ok(out)
 }
 
-fn resolve_exe_key(args: &Args, project_dir: &Path, scene_pck: &Path, required: bool) -> Result<Option<[u8; 16]>> {
+fn resolve_exe_key(
+    args: &Args,
+    project_dir: &Path,
+    scene_pck: &Path,
+    required: bool,
+) -> Result<Option<[u8; 16]>> {
     if let Some(hex) = args.key_hex.as_deref() {
         return parse_key16(hex).map(Some);
     }
@@ -306,10 +335,15 @@ fn parse_hex(s: &str) -> Result<Vec<u8>> {
         }
         if ch.is_ascii_hexdigit() {
             filtered.push(ch);
-        } else if matches!(ch, ',' | ' ' | '_' | '-' | ':' | '[' | ']' | '\n' | '\r' | '\t') {
+        } else if matches!(
+            ch,
+            ',' | ' ' | '_' | '-' | ':' | '[' | ']' | '\n' | '\r' | '\t'
+        ) {
             continue;
         } else {
-            return Err(Error::new(format!("invalid hex character in --key: {ch:?}")));
+            return Err(Error::new(format!(
+                "invalid hex character in --key: {ch:?}"
+            )));
         }
     }
     if filtered.len() % 2 != 0 {
@@ -318,7 +352,8 @@ fn parse_hex(s: &str) -> Result<Vec<u8>> {
     let mut out = Vec::with_capacity(filtered.len() / 2);
     for chunk in filtered.as_bytes().chunks(2) {
         let pair = std::str::from_utf8(chunk).map_err(|e| Error::new(e.to_string()))?;
-        let byte = u8::from_str_radix(pair, 16).map_err(|_| Error::new(format!("invalid hex byte: {pair}")))?;
+        let byte = u8::from_str_radix(pair, 16)
+            .map_err(|_| Error::new(format!("invalid hex byte: {pair}")))?;
         out.push(byte);
     }
     Ok(out)
@@ -371,7 +406,8 @@ fn next_path(it: &mut impl Iterator<Item = String>, flag: &str) -> Result<PathBu
 }
 
 fn next_value(it: &mut impl Iterator<Item = String>, flag: &str) -> Result<String> {
-    it.next().ok_or_else(|| Error::new(format!("{flag} requires a value")))
+    it.next()
+        .ok_or_else(|| Error::new(format!("{flag} requires a value")))
 }
 
 fn sanitize_file_name(s: &str) -> String {

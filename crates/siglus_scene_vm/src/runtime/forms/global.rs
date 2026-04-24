@@ -96,7 +96,6 @@ fn canonical_global_form_id(ctx: &CommandContext, form_id: u32) -> u32 {
     form_id
 }
 
-
 fn named_i64(args: &[Value], id: i32) -> Option<i64> {
     args.iter().find_map(|v| match v {
         Value::NamedArg { id: got, value } if *got == id => value.as_i64(),
@@ -104,7 +103,9 @@ fn named_i64(args: &[Value], id: i32) -> Option<i64> {
     })
 }
 
-fn parse_selbtn_choices(args: &[Value]) -> (i64, Vec<crate::runtime::globals::BtnSelectChoiceState>) {
+fn parse_selbtn_choices(
+    args: &[Value],
+) -> (i64, Vec<crate::runtime::globals::BtnSelectChoiceState>) {
     let mut template_no = 0i64;
     let mut start = 0usize;
     if args.first().and_then(Value::as_i64).is_some() {
@@ -165,7 +166,11 @@ fn dispatch_selbtn_command(ctx: &mut CommandContext, form_id: u32, args: &[Value
         ctx.globals.selbtn.cancel_enable = op == constants::elm_value::GLOBAL_SELBTN_CANCEL
             || op == constants::elm_value::GLOBAL_SELBTN_CANCEL_READY;
         ctx.globals.selbtn.capture_flag = if ready { false } else { capture_flag };
-        ctx.globals.selbtn.sel_start_call_scn = if ready { String::new() } else { sel_start_call_scn };
+        ctx.globals.selbtn.sel_start_call_scn = if ready {
+            String::new()
+        } else {
+            sel_start_call_scn
+        };
         ctx.globals.selbtn.sel_start_call_z_no = if ready { 0 } else { sel_start_call_z_no };
         ctx.globals.selbtn.result = 0;
     }
@@ -190,8 +195,14 @@ fn remember_global_koe(ctx: &mut CommandContext, koe_no: i64, chara_no: i64, is_
     let key = global_koe_state_key(ctx);
     let props = ctx.globals.int_props.entry(key).or_default();
     props.insert(constants::elm_value::GLOBAL_KOE_CHECK_GET_KOE_NO, koe_no);
-    props.insert(constants::elm_value::GLOBAL_KOE_CHECK_GET_CHARA_NO, chara_no);
-    props.insert(constants::elm_value::GLOBAL_KOE_CHECK_IS_EX_KOE, if is_ex { 1 } else { 0 });
+    props.insert(
+        constants::elm_value::GLOBAL_KOE_CHECK_GET_CHARA_NO,
+        chara_no,
+    );
+    props.insert(
+        constants::elm_value::GLOBAL_KOE_CHECK_IS_EX_KOE,
+        if is_ex { 1 } else { 0 },
+    );
 }
 
 fn remembered_global_koe(ctx: &CommandContext, op: i32) -> i64 {
@@ -203,7 +214,11 @@ fn remembered_global_koe(ctx: &CommandContext, op: i32) -> i64 {
         .unwrap_or(0)
 }
 
-fn dispatch_global_koe_command(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+fn dispatch_global_koe_command(
+    ctx: &mut CommandContext,
+    form_id: u32,
+    args: &[Value],
+) -> Result<bool> {
     let op = form_id as i32;
     let ret_form: Option<i64> = crate::runtime::forms::prop_access::current_vm_meta(ctx).1;
     match op {
@@ -269,7 +284,11 @@ fn dispatch_global_koe_command(ctx: &mut CommandContext, form_id: u32, args: &[V
             Ok(true)
         }
         constants::elm_value::GLOBAL_KOE_SET_VOLUME => {
-            let vol = args.get(0).and_then(Value::as_i64).unwrap_or(255).clamp(0, 255) as u8;
+            let vol = args
+                .get(0)
+                .and_then(Value::as_i64)
+                .unwrap_or(255)
+                .clamp(0, 255) as u8;
             let fade = args.get(1).and_then(Value::as_i64).unwrap_or(0);
             let _ = ctx.se.set_volume_raw_fade(&mut ctx.audio, vol, fade);
             Ok(true)
@@ -292,8 +311,11 @@ fn dispatch_global_koe_command(ctx: &mut CommandContext, form_id: u32, args: &[V
     }
 }
 
-
-fn dispatch_capture_command(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+fn dispatch_capture_command(
+    ctx: &mut CommandContext,
+    form_id: u32,
+    args: &[Value],
+) -> Result<bool> {
     match form_id as i32 {
         constants::elm_value::GLOBAL_CAPTURE => {
             let img = ctx.capture_frame_rgba();
@@ -310,18 +332,27 @@ fn dispatch_capture_command(ctx: &mut CommandContext, form_id: u32, args: &[Valu
             let Some(file) = args.get(0).and_then(|v| v.as_str()) else {
                 panic!("GLOBAL.CAPTURE_FROM_FILE requires file name");
             };
-            let Some(path) = stage::resolve_capture_file_path(&ctx.project_dir, &ctx.globals.append_dir, file) else {
+            let Some(path) =
+                stage::resolve_capture_file_path(&ctx.project_dir, &ctx.globals.append_dir, file)
+            else {
                 panic!("GLOBAL.CAPTURE_FROM_FILE cannot resolve file: {file}");
             };
-            let img_id = ctx
-                .images
-                .load_file(&path, 0)
-                .unwrap_or_else(|e| panic!("GLOBAL.CAPTURE_FROM_FILE failed to load {}: {e}", path.display()));
+            let img_id = ctx.images.load_file(&path, 0).unwrap_or_else(|e| {
+                panic!(
+                    "GLOBAL.CAPTURE_FROM_FILE failed to load {}: {e}",
+                    path.display()
+                )
+            });
             let img = ctx
                 .images
                 .get(img_id)
                 .map(|img| img.as_ref().clone())
-                .unwrap_or_else(|| panic!("GLOBAL.CAPTURE_FROM_FILE image disappeared: {}", path.display()));
+                .unwrap_or_else(|| {
+                    panic!(
+                        "GLOBAL.CAPTURE_FROM_FILE image disappeared: {}",
+                        path.display()
+                    )
+                });
             ctx.globals.capture_image = Some(img);
             ctx.push(Value::Int(0));
             Ok(true)

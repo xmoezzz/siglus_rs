@@ -2,7 +2,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc::{self, Receiver, TryRecvError}, Arc};
+use std::sync::{
+    mpsc::{self, Receiver, TryRecvError},
+    Arc,
+};
 use std::thread;
 
 use anyhow::{anyhow, Context, Result};
@@ -234,7 +237,10 @@ impl MovieManager {
                 Ok(Err(err)) => failed = Some(err),
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => {
-                    failed = Some(format!("movie decode worker disconnected: {}", path.display()));
+                    failed = Some(format!(
+                        "movie decode worker disconnected: {}",
+                        path.display()
+                    ));
                 }
             }
         } else {
@@ -349,7 +355,10 @@ fn decode_frames_if_enabled(_path: &Path) -> Result<Option<usize>> {
     Ok(None)
 }
 
-fn omv_frame_duration_ms(header: Option<&siglus_assets::omv::OmvHeader>, fps: Option<f32>) -> Option<f64> {
+fn omv_frame_duration_ms(
+    header: Option<&siglus_assets::omv::OmvHeader>,
+    fps: Option<f32>,
+) -> Option<f64> {
     if let Some(h) = header {
         if h.frame_time_us != 0 {
             return Some((h.frame_time_us as f64) / 1000.0);
@@ -363,7 +372,12 @@ fn omv_frame_duration_ms(header: Option<&siglus_assets::omv::OmvHeader>, fps: Op
     }
 }
 
-fn omv_plane_layout(width: i32, video_height: i32, theora_type: u32, fmt: i32) -> (usize, usize, usize, usize, usize) {
+fn omv_plane_layout(
+    width: i32,
+    video_height: i32,
+    theora_type: u32,
+    fmt: i32,
+) -> (usize, usize, usize, usize, usize) {
     let w = width.max(1) as usize;
     let vh = video_height.max(1) as usize;
     match theora_type {

@@ -206,7 +206,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .get_mut(&form_id)
                 .and_then(|v| v.get_mut(idx))
             {
-                counter.start_frame_real(arg_int(params, 0), arg_int(params, 1), arg_int(params, 2));
+                counter.start_frame_real(
+                    arg_int(params, 0),
+                    arg_int(params, 1),
+                    arg_int(params, 2),
+                );
             }
             ctx.push(Value::Int(0));
         }
@@ -217,7 +221,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .get_mut(&form_id)
                 .and_then(|v| v.get_mut(idx))
             {
-                counter.start_frame_loop(arg_int(params, 0), arg_int(params, 1), arg_int(params, 2));
+                counter.start_frame_loop(
+                    arg_int(params, 0),
+                    arg_int(params, 1),
+                    arg_int(params, 2),
+                );
             }
             ctx.push(Value::Int(0));
         }
@@ -228,7 +236,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .get_mut(&form_id)
                 .and_then(|v| v.get_mut(idx))
             {
-                counter.start_frame_loop_real(arg_int(params, 0), arg_int(params, 1), arg_int(params, 2));
+                counter.start_frame_loop_real(
+                    arg_int(params, 0),
+                    arg_int(params, 1),
+                    arg_int(params, 2),
+                );
             }
             ctx.push(Value::Int(0));
         }

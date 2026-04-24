@@ -59,8 +59,7 @@ fn arg_str<'a>(args: &'a [Value], idx: usize) -> Option<&'a str> {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
-    let Some(op) =
-        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
+    let Some(op) = crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
     else {
         bail!("PCM form expects an element opcode");
     };

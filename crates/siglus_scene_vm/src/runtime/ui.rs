@@ -1617,7 +1617,8 @@ impl UiRuntime {
                 let focused = focused_editbox == Some(key);
                 let entry = self.editbox.entries.entry(key).or_default();
                 let bg_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut entry.bg_sprite);
-                let text_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut entry.text_sprite);
+                let text_sprite =
+                    Self::ensure_text_sprite(layers, ui_layer, &mut entry.text_sprite);
                 let w = eb.window_w.max(1) as u32;
                 let h = eb.window_h.max(1) as u32;
                 let font_px = eb.window_moji_size.max(12) as u32;
@@ -1644,21 +1645,37 @@ impl UiRuntime {
                     entry.last_focused = focused;
                 }
 
-                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(bg_sprite)) {
+                if let Some(s) = layers
+                    .layer_mut(ui_layer)
+                    .and_then(|l| l.sprite_mut(bg_sprite))
+                {
                     s.visible = true;
-                    s.image_id = if focused { focused_bg_image } else { normal_bg_image };
+                    s.image_id = if focused {
+                        focused_bg_image
+                    } else {
+                        normal_bg_image
+                    };
                     s.fit = SpriteFit::PixelRect;
-                    s.size_mode = SpriteSizeMode::Explicit { width: w, height: h };
+                    s.size_mode = SpriteSizeMode::Explicit {
+                        width: w,
+                        height: h,
+                    };
                     s.x = eb.window_x;
                     s.y = eb.window_y;
                     s.order = 1_950_000 + idx as i32 * 2;
                     s.alpha = 255;
                 }
-                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(text_sprite)) {
+                if let Some(s) = layers
+                    .layer_mut(ui_layer)
+                    .and_then(|l| l.sprite_mut(text_sprite))
+                {
                     s.visible = entry.text_image.is_some();
                     s.image_id = entry.text_image;
                     s.fit = SpriteFit::PixelRect;
-                    s.size_mode = SpriteSizeMode::Explicit { width: w.saturating_sub(8).max(1), height: h };
+                    s.size_mode = SpriteSizeMode::Explicit {
+                        width: w.saturating_sub(8).max(1),
+                        height: h,
+                    };
                     s.x = eb.window_x.saturating_add(4);
                     s.y = eb.window_y;
                     s.order = 1_950_001 + idx as i32 * 2;
@@ -1672,12 +1689,18 @@ impl UiRuntime {
                 continue;
             }
             if let Some(sprite_id) = entry.bg_sprite {
-                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                if let Some(s) = layers
+                    .layer_mut(ui_layer)
+                    .and_then(|l| l.sprite_mut(sprite_id))
+                {
                     s.visible = false;
                 }
             }
             if let Some(sprite_id) = entry.text_sprite {
-                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                if let Some(s) = layers
+                    .layer_mut(ui_layer)
+                    .and_then(|l| l.sprite_mut(sprite_id))
+                {
                     s.visible = false;
                 }
             }
@@ -1694,12 +1717,18 @@ impl UiRuntime {
         if !self.sys.active {
             if let Some(ui_layer) = self.mwnd.layer {
                 if let Some(sprite_id) = self.sys.bg_sprite {
-                    if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                    if let Some(s) = layers
+                        .layer_mut(ui_layer)
+                        .and_then(|l| l.sprite_mut(sprite_id))
+                    {
                         s.visible = false;
                     }
                 }
                 if let Some(sprite_id) = self.sys.text_sprite {
-                    if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                    if let Some(s) = layers
+                        .layer_mut(ui_layer)
+                        .and_then(|l| l.sprite_mut(sprite_id))
+                    {
                         s.visible = false;
                     }
                 }

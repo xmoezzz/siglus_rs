@@ -20,8 +20,8 @@ pub mod tonecurve;
 pub mod ui;
 pub mod unknown;
 pub mod wait;
-use crate::runtime::forms::syscom as syscom_form;
 use crate::runtime::forms::codes::syscom_op;
+use crate::runtime::forms::syscom as syscom_form;
 
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
@@ -180,8 +180,10 @@ pub struct CommandContext {
     /// Shared font cache for stage/object text rendering.
     pub font_cache: FontCache,
 
-    /// VM-visible input state (queried via INPUT/MOUSE/KEYLIST forms).
+    /// Runtime-visible input state (button manager, waits, runtime systems).
     pub input: input::InputState,
+    /// Script-visible input state (`Gp_script_input` in the original engine).
+    pub script_input: input::InputState,
 
     /// Current render target size (used for UI layout).
     pub screen_w: u32,
@@ -233,6 +235,10 @@ pub struct CommandContext {
 }
 
 impl CommandContext {
+    pub fn sync_script_input_from_runtime(&mut self) {
+        self.script_input = self.input.clone();
+    }
+
     pub fn notify_wait_key(&mut self) -> bool {
         let wipe_skipped = {
             let wait = &mut self.wait;
@@ -399,6 +405,7 @@ impl CommandContext {
             ui: ui::UiRuntime::default(),
             font_cache: FontCache::new(),
             input: input::InputState::default(),
+            script_input: input::InputState::default(),
             wait: wait::VmWait::default(),
             net: net::TnmNet::default(),
 
@@ -614,16 +621,7 @@ impl CommandContext {
                     let mut tied = false;
                     for (obj_idx, obj) in objs.iter_mut().enumerate() {
                         if let Some(hit) = hit_test_object_button_recursive(
-                            images,
-                            layers,
-                            gfx,
-                            ids,
-                            stage_idx,
-                            group_idx,
-                            mx,
-                            my,
-                            obj_idx,
-                            obj,
+                            images, layers, gfx, ids, stage_idx, group_idx, mx, my, obj_idx, obj,
                             None,
                         ) {
                             merge_button_hit(&mut best, &mut tied, hit);
@@ -644,20 +642,30 @@ impl CommandContext {
                                 hit_sounds.push(hit.se_no);
                             }
                             for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                                set_button_hit_by_runtime_slot_recursive(obj_idx, obj, hit.runtime_slot);
+                                set_button_hit_by_runtime_slot_recursive(
+                                    obj_idx,
+                                    obj,
+                                    hit.runtime_slot,
+                                );
                             }
                         } else {
                             g.hit_button_no = -1;
                             g.hit_runtime_slot = None;
                             if sg_debug_enabled() {
-                                eprintln!("[SG_DEBUG][INPUT] group stage={} group={} no_hit started={}", stage_idx, group_idx, g.started);
+                                eprintln!(
+                                    "[SG_DEBUG][INPUT] group stage={} group={} no_hit started={}",
+                                    stage_idx, group_idx, g.started
+                                );
                             }
                         }
                     } else {
                         g.hit_button_no = -1;
                         g.hit_runtime_slot = None;
                         if sg_debug_enabled() {
-                            eprintln!("[SG_DEBUG][INPUT] group stage={} group={} hit_tie", stage_idx, group_idx);
+                            eprintln!(
+                                "[SG_DEBUG][INPUT] group stage={} group={} hit_tie",
+                                stage_idx, group_idx
+                            );
                         }
                     }
                 }
@@ -671,16 +679,7 @@ impl CommandContext {
                 };
                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
                     if let Some(hit) = hit_test_standalone_action_button_recursive(
-                        images,
-                        layers,
-                        gfx,
-                        ids,
-                        *stage_idx,
-                        mx,
-                        my,
-                        obj_idx,
-                        obj,
-                        None,
+                        images, layers, gfx, ids, *stage_idx, mx, my, obj_idx, obj, None,
                     ) {
                         merge_button_hit(&mut standalone_best, &mut standalone_tied, hit);
                     }
@@ -696,7 +695,11 @@ impl CommandContext {
                             continue;
                         };
                         for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                            set_button_hit_by_runtime_slot_recursive(obj_idx, obj, hit.runtime_slot);
+                            set_button_hit_by_runtime_slot_recursive(
+                                obj_idx,
+                                obj,
+                                hit.runtime_slot,
+                            );
                         }
                     }
                 }
@@ -709,7 +712,6 @@ impl CommandContext {
     }
 
     fn handle_object_button_mouse_down(&mut self, b: input::VmMouseButton) {
-
         // The original button manager separates pushed_this_frame from decided_this_frame.
         // Press starts the push state; release inside the same button decides it.
         self.update_object_button_hover();
@@ -748,7 +750,9 @@ impl CommandContext {
                             }
                             if g.pushed_runtime_slot != Some(hit_slot) {
                                 if let Some(objs) = object_lists.get(&stage_idx) {
-                                    if let Some(se_no) = find_button_se_no_in_list_by_runtime_slot(objs, hit_slot) {
+                                    if let Some(se_no) =
+                                        find_button_se_no_in_list_by_runtime_slot(objs, hit_slot)
+                                    {
                                         template_sounds.push(se_no);
                                     }
                                 }
@@ -757,7 +761,9 @@ impl CommandContext {
                             g.pushed_runtime_slot = Some(hit_slot);
                             if let Some(objs) = object_lists.get_mut(&stage_idx) {
                                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                                    set_button_pushed_by_runtime_slot_recursive(obj_idx, obj, hit_slot);
+                                    set_button_pushed_by_runtime_slot_recursive(
+                                        obj_idx, obj, hit_slot,
+                                    );
                                 }
                             }
                         }
@@ -770,7 +776,9 @@ impl CommandContext {
                             continue;
                         };
                         for (obj_idx, obj) in objs.iter_mut().enumerate() {
-                            if let Some(se_no) = mark_standalone_button_pushed_from_hit_recursive(obj_idx, obj) {
+                            if let Some(se_no) =
+                                mark_standalone_button_pushed_from_hit_recursive(obj_idx, obj)
+                            {
                                 template_sounds.push(se_no);
                             }
                         }
@@ -808,7 +816,9 @@ impl CommandContext {
                                     }
                                     g.wait_flag = false;
                                     direct_sounds.push(cancel_se_no);
-                                    if self.globals.focused_stage_group == Some((form_id, stage_idx, group_idx)) {
+                                    if self.globals.focused_stage_group
+                                        == Some((form_id, stage_idx, group_idx))
+                                    {
                                         self.globals.focused_stage_group = None;
                                     }
                                 }
@@ -858,13 +868,13 @@ impl CommandContext {
                     if !g.started {
                         continue;
                     }
-                                        let pushed = g.pushed_button_no;
+                    let pushed = g.pushed_button_no;
                     let pushed_slot = g.pushed_runtime_slot;
                     let release_keeps_push = pushed_slot
                         .and_then(|slot| {
-                            object_lists
-                                .get(&stage_idx)
-                                .map(|objs| object_button_push_keep_in_list_by_runtime_slot(objs, slot))
+                            object_lists.get(&stage_idx).map(|objs| {
+                                object_button_push_keep_in_list_by_runtime_slot(objs, slot)
+                            })
                         })
                         .unwrap_or(false);
                     let released_on_same_button = pushed >= 0
@@ -881,7 +891,9 @@ impl CommandContext {
                                 );
                             }
                             if let Some(objs) = object_lists.get(&stage_idx) {
-                                if let Some(se_no) = find_button_se_no_in_list_by_runtime_slot(objs, action_slot) {
+                                if let Some(se_no) =
+                                    find_button_se_no_in_list_by_runtime_slot(objs, action_slot)
+                                {
                                     sounds.push(se_no);
                                 }
                                 for (obj_idx, obj) in objs.iter().enumerate() {
@@ -896,7 +908,9 @@ impl CommandContext {
                             if was_waiting {
                                 self.stack.push(Value::Int(pushed));
                                 g.wait_flag = false;
-                                if self.globals.focused_stage_group == Some((form_id, stage_idx, group_idx)) {
+                                if self.globals.focused_stage_group
+                                    == Some((form_id, stage_idx, group_idx))
+                                {
                                     self.globals.focused_stage_group = None;
                                 }
                             }
@@ -933,7 +947,9 @@ impl CommandContext {
             }
         }
 
-        self.globals.pending_button_actions.extend(pending_button_actions);
+        self.globals
+            .pending_button_actions
+            .extend(pending_button_actions);
         for se_no in sounds {
             self.play_button_template_se(se_no, ButtonSeEvent::Decide);
         }
@@ -986,7 +1002,11 @@ impl CommandContext {
                         if let Some(g) = list.get_mut(group_idx) {
                             match k {
                                 input::VmKey::Enter => {
-                                    let button_no = if g.hit_button_no >= 0 { g.hit_button_no } else { 0 };
+                                    let button_no = if g.hit_button_no >= 0 {
+                                        g.hit_button_no
+                                    } else {
+                                        0
+                                    };
                                     let was_waiting = g.wait_flag;
                                     if g.decide(button_no) {
                                         if sg_debug_enabled() {
@@ -1012,7 +1032,8 @@ impl CommandContext {
                                             );
                                         }
                                         if was_waiting {
-                                            self.stack.push(Value::Int(globals::TNM_GROUP_CANCELED));
+                                            self.stack
+                                                .push(Value::Int(globals::TNM_GROUP_CANCELED));
                                         }
                                         g.wait_flag = false;
                                         self.globals.focused_stage_group = None;
@@ -1078,7 +1099,10 @@ impl CommandContext {
 
     pub fn on_mouse_down(&mut self, b: input::VmMouseButton) {
         if sg_input_trace_enabled() {
-            eprintln!("[SG_DEBUG][INPUT] mouse_down {:?} at=({}, {})", b, self.input.mouse_x, self.input.mouse_y);
+            eprintln!(
+                "[SG_DEBUG][INPUT] mouse_down {:?} at=({}, {})",
+                b, self.input.mouse_x, self.input.mouse_y
+            );
         }
         if self.handle_system_messagebox_click(b) {
             return;
@@ -1124,7 +1148,10 @@ impl CommandContext {
 
     pub fn on_mouse_up(&mut self, b: input::VmMouseButton) {
         if sg_input_trace_enabled() {
-            eprintln!("[SG_DEBUG][INPUT] mouse_up {:?} at=({}, {})", b, self.input.mouse_x, self.input.mouse_y);
+            eprintln!(
+                "[SG_DEBUG][INPUT] mouse_up {:?} at=({}, {})",
+                b, self.input.mouse_x, self.input.mouse_y
+            );
         }
         self.input.on_mouse_up(b);
         let movie_skipped = match b {
@@ -1148,7 +1175,6 @@ impl CommandContext {
         self.advance_message_wait(self.should_wheel_advance_message());
         self.notify_wait_key();
     }
-
 
     fn finish_skipped_movie_waits(&mut self) {
         while let Some(info) = self.wait.take_movie_skip() {
@@ -1344,6 +1370,10 @@ impl CommandContext {
         self.sync_global_movie();
         if trace {
             eprintln!("[SG_CTX_TICK] after sync_global_movie");
+        }
+        self.update_object_button_hover();
+        if trace {
+            eprintln!("[SG_CTX_TICK] after update_object_button_hover");
         }
         self.apply_object_disp_override();
         if trace {
@@ -1653,7 +1683,11 @@ impl CommandContext {
             input::VmKey::ArrowLeft | input::VmKey::ArrowUp => {
                 let len = modal.buttons.len();
                 if len > 0 {
-                    modal.cursor = if modal.cursor == 0 { len - 1 } else { modal.cursor - 1 };
+                    modal.cursor = if modal.cursor == 0 {
+                        len - 1
+                    } else {
+                        modal.cursor - 1
+                    };
                 }
             }
             input::VmKey::ArrowRight | input::VmKey::ArrowDown | input::VmKey::Tab => {
@@ -1812,7 +1846,9 @@ impl CommandContext {
         let idx = self.globals.syscom.menu_cursor.min(items.len() - 1);
         match &items[idx] {
             MenuItem::Action { kind, .. } => self.activate_syscom_action(*kind),
-            MenuItem::Int { .. } | MenuItem::Bool { .. } | MenuItem::FontName => self.menu_adjust(1),
+            MenuItem::Int { .. } | MenuItem::Bool { .. } | MenuItem::FontName => {
+                self.menu_adjust(1)
+            }
         }
     }
 
@@ -2017,13 +2053,18 @@ impl CommandContext {
             input::VmKey::ArrowUp => {
                 if !self.globals.selbtn.choices.is_empty() {
                     let c = self.globals.selbtn.cursor;
-                    self.globals.selbtn.cursor = if c == 0 { self.globals.selbtn.choices.len() - 1 } else { c - 1 };
+                    self.globals.selbtn.cursor = if c == 0 {
+                        self.globals.selbtn.choices.len() - 1
+                    } else {
+                        c - 1
+                    };
                 }
                 true
             }
             input::VmKey::ArrowDown => {
                 if !self.globals.selbtn.choices.is_empty() {
-                    self.globals.selbtn.cursor = (self.globals.selbtn.cursor + 1) % self.globals.selbtn.choices.len();
+                    self.globals.selbtn.cursor =
+                        (self.globals.selbtn.cursor + 1) % self.globals.selbtn.choices.len();
                 }
                 true
             }
@@ -2356,8 +2397,14 @@ impl CommandContext {
             if let Some(id) = self.globals.mov.audio_id.take() {
                 self.movie.stop_audio(id);
             }
-            if let (Some(layer_id), Some(sprite_id)) = (self.globals.mov.layer_id, self.globals.mov.sprite_id) {
-                if let Some(sprite) = self.layers.layer_mut(layer_id).and_then(|l| l.sprite_mut(sprite_id)) {
+            if let (Some(layer_id), Some(sprite_id)) =
+                (self.globals.mov.layer_id, self.globals.mov.sprite_id)
+            {
+                if let Some(sprite) = self
+                    .layers
+                    .layer_mut(layer_id)
+                    .and_then(|l| l.sprite_mut(sprite_id))
+                {
                     sprite.visible = false;
                     sprite.image_id = None;
                 }
@@ -2428,7 +2475,10 @@ impl CommandContext {
             };
             if asset.frames.is_empty() {
                 if trace || std::env::var_os("SG_DEBUG").is_some() {
-                    eprintln!("[SG_DEBUG][MOV] asset has no video frames file={}", file_name);
+                    eprintln!(
+                        "[SG_DEBUG][MOV] asset has no video frames file={}",
+                        file_name
+                    );
                 }
                 return;
             }
@@ -2488,7 +2538,11 @@ impl CommandContext {
         self.globals.mov.image_id = Some(img_id);
         self.globals.mov.last_frame_idx = Some(frame_idx);
 
-        if let Some(sprite) = self.layers.layer_mut(layer_id).and_then(|l| l.sprite_mut(sprite_id)) {
+        if let Some(sprite) = self
+            .layers
+            .layer_mut(layer_id)
+            .and_then(|l| l.sprite_mut(sprite_id))
+        {
             sprite.visible = true;
             sprite.image_id = Some(img_id);
             sprite.fit = SpriteFit::PixelRect;
@@ -2908,7 +2962,6 @@ fn sg_debug_enabled() -> bool {
     )
 }
 
-
 fn sg_input_trace_enabled() -> bool {
     matches!(
         std::env::var("SG_INPUT_TRACE").ok().as_deref(),
@@ -3021,7 +3074,6 @@ fn object_runtime_slot(obj_idx: usize, obj: &globals::ObjectState) -> usize {
     obj.runtime_slot_or(obj_idx)
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ButtonSeEvent {
     Hit,
@@ -3100,7 +3152,12 @@ fn collect_button_decided_action_by_runtime_slot_recursive(
         return true;
     }
     for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
-        if collect_button_decided_action_by_runtime_slot_recursive(child_idx, child, runtime_slot, out) {
+        if collect_button_decided_action_by_runtime_slot_recursive(
+            child_idx,
+            child,
+            runtime_slot,
+            out,
+        ) {
             return true;
         }
     }
@@ -3113,10 +3170,13 @@ fn find_button_se_no_by_runtime_slot_recursive(
     runtime_slot: usize,
 ) -> Option<i64> {
     if object_runtime_slot(obj_idx, obj) == runtime_slot {
-        return (obj.used && obj.button.enabled && obj.button.action_no >= 0).then_some(obj.button.se_no);
+        return (obj.used && obj.button.enabled && obj.button.action_no >= 0)
+            .then_some(obj.button.se_no);
     }
     for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
-        if let Some(se_no) = find_button_se_no_by_runtime_slot_recursive(child_idx, child, runtime_slot) {
+        if let Some(se_no) =
+            find_button_se_no_by_runtime_slot_recursive(child_idx, child, runtime_slot)
+        {
             return Some(se_no);
         }
     }
@@ -3128,7 +3188,8 @@ fn find_button_se_no_in_list_by_runtime_slot(
     runtime_slot: usize,
 ) -> Option<i64> {
     for (obj_idx, obj) in objs.iter().enumerate() {
-        if let Some(se_no) = find_button_se_no_by_runtime_slot_recursive(obj_idx, obj, runtime_slot) {
+        if let Some(se_no) = find_button_se_no_by_runtime_slot_recursive(obj_idx, obj, runtime_slot)
+        {
             return Some(se_no);
         }
     }
@@ -3167,18 +3228,19 @@ fn object_button_push_keep_by_runtime_slot_recursive(
         .child_objects
         .iter()
         .enumerate()
-        .any(|(child_idx, child)| object_button_push_keep_by_runtime_slot_recursive(child_idx, child, runtime_slot))
+        .any(|(child_idx, child)| {
+            object_button_push_keep_by_runtime_slot_recursive(child_idx, child, runtime_slot)
+        })
 }
 
 fn object_button_push_keep_in_list_by_runtime_slot(
     objs: &[globals::ObjectState],
     runtime_slot: usize,
 ) -> bool {
-    objs.iter()
-        .enumerate()
-        .any(|(obj_idx, obj)| object_button_push_keep_by_runtime_slot_recursive(obj_idx, obj, runtime_slot))
+    objs.iter().enumerate().any(|(obj_idx, obj)| {
+        object_button_push_keep_by_runtime_slot_recursive(obj_idx, obj, runtime_slot)
+    })
 }
-
 
 fn clear_button_hit_recursive(obj: &mut globals::ObjectState) {
     if obj.button.enabled {
@@ -3444,8 +3506,22 @@ fn object_button_effective_gfx_hit(
     }
 
     if let Some((layer_id, sprite_id)) = gfx.object_sprite_binding(stage_idx, runtime_slot as i64) {
-        if hit_test_layer_sprite(images, layers, layer_id, sprite_id, mx, my, obj.button.alpha_test) {
-            return Some(object_button_sort_key(ids, gfx, stage_idx, runtime_slot, obj));
+        if hit_test_layer_sprite(
+            images,
+            layers,
+            layer_id,
+            sprite_id,
+            mx,
+            my,
+            obj.button.alpha_test,
+        ) {
+            return Some(object_button_sort_key(
+                ids,
+                gfx,
+                stage_idx,
+                runtime_slot,
+                obj,
+            ));
         }
         return None;
     }
@@ -3472,8 +3548,12 @@ fn object_button_effective_gfx_hit(
         .map(|ev| ev.get_total_value() as i64)
         .sum::<i64>();
 
-    let mut scale_x = obj.lookup_int_prop(ids, ids.obj_scale_x).unwrap_or(obj.base.scale_x);
-    let mut scale_y = obj.lookup_int_prop(ids, ids.obj_scale_y).unwrap_or(obj.base.scale_y);
+    let mut scale_x = obj
+        .lookup_int_prop(ids, ids.obj_scale_x)
+        .unwrap_or(obj.base.scale_x);
+    let mut scale_y = obj
+        .lookup_int_prop(ids, ids.obj_scale_y)
+        .unwrap_or(obj.base.scale_y);
     scale_x = object_event_value(ids, obj, ids.obj_scale_x_eve, scale_x);
     scale_y = object_event_value(ids, obj, ids.obj_scale_y_eve, scale_y);
     if scale_x == 0 || scale_y == 0 {
@@ -3501,7 +3581,13 @@ fn object_button_effective_gfx_hit(
         return None;
     }
 
-    Some(object_button_sort_key(ids, gfx, stage_idx, runtime_slot, obj))
+    Some(object_button_sort_key(
+        ids,
+        gfx,
+        stage_idx,
+        runtime_slot,
+        obj,
+    ))
 }
 
 fn collect_standalone_button_decided_actions_recursive(
@@ -3509,7 +3595,10 @@ fn collect_standalone_button_decided_actions_recursive(
     out: &mut Vec<globals::PendingButtonAction>,
     sounds: &mut Vec<i64>,
 ) {
-    if has_standalone_button_action(obj) && obj.button.pushed && (obj.button.hit || obj.button.push_keep) {
+    if has_standalone_button_action(obj)
+        && obj.button.pushed
+        && (obj.button.hit || obj.button.push_keep)
+    {
         push_object_button_decided_action(obj, out);
         sounds.push(obj.button.se_no);
     }
@@ -3552,16 +3641,21 @@ fn fetch_bound_render_sprites_for_hit(
     runtime_slot: usize,
     obj: &globals::ObjectState,
 ) -> Vec<RenderSprite> {
-    fn push_one(
-        layers: &LayerManager,
-        lid: LayerId,
-        sid: SpriteId,
-        out: &mut Vec<RenderSprite>,
-    ) {
-        let Some(layer) = layers.layer(lid) else { return; };
-        let Some(sprite) = layer.sprite(sid) else { return; };
-        if sprite.image_id.is_none() { return; }
-        out.push(RenderSprite { layer_id: Some(lid), sprite_id: Some(sid), sprite: sprite.clone() });
+    fn push_one(layers: &LayerManager, lid: LayerId, sid: SpriteId, out: &mut Vec<RenderSprite>) {
+        let Some(layer) = layers.layer(lid) else {
+            return;
+        };
+        let Some(sprite) = layer.sprite(sid) else {
+            return;
+        };
+        if sprite.image_id.is_none() {
+            return;
+        }
+        out.push(RenderSprite {
+            layer_id: Some(lid),
+            sprite_id: Some(sid),
+            sprite: sprite.clone(),
+        });
     }
     let mut out = Vec::new();
     match &obj.backend {
@@ -3570,13 +3664,31 @@ fn fetch_bound_render_sprites_for_hit(
                 push_one(layers, lid, sid, &mut out);
             }
         }
-        globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
-        | globals::ObjectBackend::String { layer_id, sprite_id, .. }
-        | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+        globals::ObjectBackend::Rect {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::String {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::Movie {
+            layer_id,
+            sprite_id,
+            ..
+        } => {
             push_one(layers, *layer_id, *sprite_id, &mut out);
         }
-        globals::ObjectBackend::Number { layer_id, sprite_ids }
-        | globals::ObjectBackend::Weather { layer_id, sprite_ids } => {
+        globals::ObjectBackend::Number {
+            layer_id,
+            sprite_ids,
+        }
+        | globals::ObjectBackend::Weather {
+            layer_id,
+            sprite_ids,
+        } => {
             for sid in sprite_ids {
                 push_one(layers, *layer_id, *sid, &mut out);
             }
@@ -3595,12 +3707,42 @@ fn button_object_render_info(
 ) -> ButtonObjectRenderInfo {
     let runtime_slot = object_runtime_slot(obj_idx, obj);
     let extra = |id: i32, default: i64| -> i64 {
-        if id != 0 { obj.lookup_int_prop(ids, id).unwrap_or(default) } else { default }
+        if id == ids.obj_disp || id != 0 {
+            obj.lookup_int_prop(ids, id).unwrap_or(default)
+        } else {
+            default
+        }
     };
-    let x_rep = obj.runtime.prop_event_lists.x_rep.iter().map(|ev| ev.get_total_value() as i64).sum::<i64>();
-    let y_rep = obj.runtime.prop_event_lists.y_rep.iter().map(|ev| ev.get_total_value() as i64).sum::<i64>();
-    let z_rep = obj.runtime.prop_event_lists.z_rep.iter().map(|ev| ev.get_total_value() as i64).sum::<i64>();
-    let tr_rep = obj.runtime.prop_event_lists.tr_rep.iter().fold(255i64, |acc, ev| acc.saturating_mul(ev.get_total_value() as i64).div_euclid(255));
+    let x_rep = obj
+        .runtime
+        .prop_event_lists
+        .x_rep
+        .iter()
+        .map(|ev| ev.get_total_value() as i64)
+        .sum::<i64>();
+    let y_rep = obj
+        .runtime
+        .prop_event_lists
+        .y_rep
+        .iter()
+        .map(|ev| ev.get_total_value() as i64)
+        .sum::<i64>();
+    let z_rep = obj
+        .runtime
+        .prop_event_lists
+        .z_rep
+        .iter()
+        .map(|ev| ev.get_total_value() as i64)
+        .sum::<i64>();
+    let tr_rep = obj
+        .runtime
+        .prop_event_lists
+        .tr_rep
+        .iter()
+        .fold(255i64, |acc, ev| {
+            acc.saturating_mul(ev.get_total_value() as i64)
+                .div_euclid(255)
+        });
     let dst_clip = if extra(ids.obj_clip_use, 0) != 0 {
         Some(ClipRect {
             left: extra(ids.obj_clip_left, 0) as i32,
@@ -3608,27 +3750,98 @@ fn button_object_render_info(
             right: extra(ids.obj_clip_right, 0) as i32,
             bottom: extra(ids.obj_clip_bottom, 0) as i32,
         })
-    } else { None };
+    } else {
+        None
+    };
     ButtonObjectRenderInfo {
-        disp: extra(ids.obj_disp, gfx.object_peek_disp(stage_idx, runtime_slot as i64).unwrap_or(obj.base.disp)) != 0,
-        x: object_event_value(ids, obj, ids.obj_x_eve, extra(ids.obj_x, gfx.object_peek_pos(stage_idx, runtime_slot as i64).map(|v| v.0).unwrap_or(obj.base.x))),
-        y: object_event_value(ids, obj, ids.obj_y_eve, extra(ids.obj_y, gfx.object_peek_pos(stage_idx, runtime_slot as i64).map(|v| v.1).unwrap_or(obj.base.y))),
+        disp: extra(
+            ids.obj_disp,
+            gfx.object_peek_disp(stage_idx, runtime_slot as i64)
+                .unwrap_or(obj.base.disp),
+        ) != 0,
+        x: object_event_value(
+            ids,
+            obj,
+            ids.obj_x_eve,
+            extra(
+                ids.obj_x,
+                gfx.object_peek_pos(stage_idx, runtime_slot as i64)
+                    .map(|v| v.0)
+                    .unwrap_or(obj.base.x),
+            ),
+        ),
+        y: object_event_value(
+            ids,
+            obj,
+            ids.obj_y_eve,
+            extra(
+                ids.obj_y,
+                gfx.object_peek_pos(stage_idx, runtime_slot as i64)
+                    .map(|v| v.1)
+                    .unwrap_or(obj.base.y),
+            ),
+        ),
         z: object_event_value(ids, obj, ids.obj_z_eve, extra(ids.obj_z, obj.base.z)),
         x_rep,
         y_rep,
         z_rep,
-        center_x: object_event_value(ids, obj, ids.obj_center_x_eve, extra(ids.obj_center_x, obj.base.center_x)),
-        center_y: object_event_value(ids, obj, ids.obj_center_y_eve, extra(ids.obj_center_y, obj.base.center_y)),
-        center_z: object_event_value(ids, obj, ids.obj_center_z_eve, extra(ids.obj_center_z, obj.base.center_z)),
+        center_x: object_event_value(
+            ids,
+            obj,
+            ids.obj_center_x_eve,
+            extra(ids.obj_center_x, obj.base.center_x),
+        ),
+        center_y: object_event_value(
+            ids,
+            obj,
+            ids.obj_center_y_eve,
+            extra(ids.obj_center_y, obj.base.center_y),
+        ),
+        center_z: object_event_value(
+            ids,
+            obj,
+            ids.obj_center_z_eve,
+            extra(ids.obj_center_z, obj.base.center_z),
+        ),
         center_rep_x: extra(ids.obj_center_rep_x, obj.base.center_rep_x),
         center_rep_y: extra(ids.obj_center_rep_y, obj.base.center_rep_y),
         center_rep_z: extra(ids.obj_center_rep_z, obj.base.center_rep_z),
-        scale_x: object_event_value(ids, obj, ids.obj_scale_x_eve, extra(ids.obj_scale_x, obj.base.scale_x)),
-        scale_y: object_event_value(ids, obj, ids.obj_scale_y_eve, extra(ids.obj_scale_y, obj.base.scale_y)),
-        scale_z: object_event_value(ids, obj, ids.obj_scale_z_eve, extra(ids.obj_scale_z, obj.base.scale_z)),
-        rotate_x: object_event_value(ids, obj, ids.obj_rotate_x_eve, extra(ids.obj_rotate_x, obj.base.rotate_x)),
-        rotate_y: object_event_value(ids, obj, ids.obj_rotate_y_eve, extra(ids.obj_rotate_y, obj.base.rotate_y)),
-        rotate_z: object_event_value(ids, obj, ids.obj_rotate_z_eve, extra(ids.obj_rotate_z, obj.base.rotate_z)),
+        scale_x: object_event_value(
+            ids,
+            obj,
+            ids.obj_scale_x_eve,
+            extra(ids.obj_scale_x, obj.base.scale_x),
+        ),
+        scale_y: object_event_value(
+            ids,
+            obj,
+            ids.obj_scale_y_eve,
+            extra(ids.obj_scale_y, obj.base.scale_y),
+        ),
+        scale_z: object_event_value(
+            ids,
+            obj,
+            ids.obj_scale_z_eve,
+            extra(ids.obj_scale_z, obj.base.scale_z),
+        ),
+        rotate_x: object_event_value(
+            ids,
+            obj,
+            ids.obj_rotate_x_eve,
+            extra(ids.obj_rotate_x, obj.base.rotate_x),
+        ),
+        rotate_y: object_event_value(
+            ids,
+            obj,
+            ids.obj_rotate_y_eve,
+            extra(ids.obj_rotate_y, obj.base.rotate_y),
+        ),
+        rotate_z: object_event_value(
+            ids,
+            obj,
+            ids.obj_rotate_z_eve,
+            extra(ids.obj_rotate_z, obj.base.rotate_z),
+        ),
         tr: object_event_value(ids, obj, ids.obj_tr_eve, extra(ids.obj_tr, obj.base.tr)),
         tr_rep,
         world_no: extra(ids.obj_world, obj.base.world),
@@ -3650,7 +3863,7 @@ fn apply_button_object_render_info_to_sprite(sprite: &mut Sprite, info: &ButtonO
     sprite.rotate = info.rotate_z as f32 * std::f32::consts::PI / 1800.0;
     sprite.rotate_x = info.rotate_x as f32 * std::f32::consts::PI / 1800.0;
     sprite.rotate_y = info.rotate_y as f32 * std::f32::consts::PI / 1800.0;
-    sprite.tr = ((info.tr.clamp(0, 255) * info.tr_rep.clamp(0, 255)) / 255).clamp(0,255) as u8;
+    sprite.tr = ((info.tr.clamp(0, 255) * info.tr_rep.clamp(0, 255)) / 255).clamp(0, 255) as u8;
     sprite.dst_clip = info.dst_clip;
 }
 
@@ -3676,7 +3889,13 @@ fn object_button_hit_sort_key_from_render(
             apply_parent_render_state_to_sprite(&mut rs.sprite, &dummy, &parent);
         }
         if hit_test_render_sprite(images, &rs.sprite, mx, my, obj.button.alpha_test) {
-            return Some(object_button_sort_key(ids, gfx, stage_idx, runtime_slot, obj));
+            return Some(object_button_sort_key(
+                ids,
+                gfx,
+                stage_idx,
+                runtime_slot,
+                obj,
+            ));
         }
     }
 
@@ -3813,7 +4032,8 @@ fn hit_test_standalone_action_button_recursive(
                 }
             }
         }
-        let cur_parent_state = button_parent_render_state(layers, gfx, ids, stage_idx, obj_idx, obj, parent_state);
+        let cur_parent_state =
+            button_parent_render_state(layers, gfx, ids, stage_idx, obj_idx, obj, parent_state);
         for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
             if let Some(hit) = recurse(
                 images,
@@ -3831,10 +4051,26 @@ fn hit_test_standalone_action_button_recursive(
                 merge_button_hit(&mut best, &mut tied, hit);
             }
         }
-        if tied { None } else { best }
+        if tied {
+            None
+        } else {
+            best
+        }
     }
 
-    recurse(images, layers, gfx, ids, stage_idx, mx, my, obj_idx, obj, parent_state, None)
+    recurse(
+        images,
+        layers,
+        gfx,
+        ids,
+        stage_idx,
+        mx,
+        my,
+        obj_idx,
+        obj,
+        parent_state,
+        None,
+    )
 }
 
 fn hit_test_object_button_recursive(
@@ -3909,7 +4145,8 @@ fn hit_test_object_button_recursive(
                 }
             }
         }
-        let cur_parent_state = button_parent_render_state(layers, gfx, ids, stage_idx, obj_idx, obj, parent_state);
+        let cur_parent_state =
+            button_parent_render_state(layers, gfx, ids, stage_idx, obj_idx, obj, parent_state);
         for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
             if let Some(hit) = recurse(
                 images,
@@ -3928,10 +4165,27 @@ fn hit_test_object_button_recursive(
                 merge_button_hit(&mut best, &mut tied, hit);
             }
         }
-        if tied { None } else { best }
+        if tied {
+            None
+        } else {
+            best
+        }
     }
 
-    recurse(images, layers, gfx, ids, stage_idx, group_idx, mx, my, obj_idx, obj, parent_state, None)
+    recurse(
+        images,
+        layers,
+        gfx,
+        ids,
+        stage_idx,
+        group_idx,
+        mx,
+        my,
+        obj_idx,
+        obj,
+        parent_state,
+        None,
+    )
 }
 
 fn find_object_by_runtime_slot_mut(
@@ -3943,10 +4197,9 @@ fn find_object_by_runtime_slot_mut(
         if obj.runtime_slot_or(idx) == runtime_slot {
             return Some(obj);
         }
-        if let Some(found) = find_object_by_runtime_slot_mut(
-            &mut obj.runtime.child_objects,
-            runtime_slot,
-        ) {
+        if let Some(found) =
+            find_object_by_runtime_slot_mut(&mut obj.runtime.child_objects, runtime_slot)
+        {
             return Some(found);
         }
         objects = tail;
@@ -4462,7 +4715,6 @@ fn apply_object_event_animations_recursive(
     }
 }
 
-
 const WEATHER_APPEAR_MS: i64 = 1000;
 const WEATHER_DISAPPEAR_MS: i64 = 1000;
 const WEATHER_ANGLE_FULL: f64 = 3600.0;
@@ -4556,9 +4808,7 @@ fn set_weather_sprite(
         return;
     };
     sprite.image_id = image_id;
-    sprite.visible = image_id.is_some()
-        && obj.get_int_prop(ids, ids.obj_disp) != 0
-        && alpha > 0;
+    sprite.visible = image_id.is_some() && obj.get_int_prop(ids, ids.obj_disp) != 0 && alpha > 0;
     sprite.fit = SpriteFit::PixelRect;
     sprite.size_mode = SpriteSizeMode::Intrinsic;
     sprite.x = obj
@@ -4573,16 +4823,18 @@ fn set_weather_sprite(
         .lookup_int_prop(ids, ids.obj_alpha)
         .unwrap_or(255)
         .clamp(0, 255) as u8;
-    sprite.tr = ((obj.lookup_int_prop(ids, ids.obj_tr).unwrap_or(255).clamp(0, 255)
+    sprite.tr = ((obj
+        .lookup_int_prop(ids, ids.obj_tr)
+        .unwrap_or(255)
+        .clamp(0, 255)
         * alpha as i64)
         / 255)
         .clamp(0, 255) as u8;
     sprite.order = obj.lookup_int_prop(ids, ids.obj_order).unwrap_or(0) as i32;
     sprite.scale_x = (scale_x as f32) / 1000.0;
     sprite.scale_y = (scale_y as f32) / 1000.0;
-    sprite.blend = crate::layer::SpriteBlend::from_i64(
-        obj.lookup_int_prop(ids, ids.obj_blend).unwrap_or(0),
-    );
+    sprite.blend =
+        crate::layer::SpriteBlend::from_i64(obj.lookup_int_prop(ids, ids.obj_blend).unwrap_or(0));
     if let Some(img) = image_id.and_then(|id| images.get(id)) {
         if matches!(sprite.size_mode, SpriteSizeMode::Intrinsic) {
             let _ = (img.width, img.height);
@@ -4633,11 +4885,20 @@ fn sync_weather_object_recursive(
                 } else {
                     1000i64.saturating_mul(sub.move_cur_time) / sub.move_time_y
                 };
-                let mut x = sub.move_start_pos_x + move_x + weather_wave(sub.sin_cur_time, sub.sin_time_x, sub.sin_power_x);
-                let mut y = sub.move_start_pos_y + move_y + weather_wave(sub.sin_cur_time, sub.sin_time_y, sub.sin_power_y);
+                let mut x = sub.move_start_pos_x
+                    + move_x
+                    + weather_wave(sub.sin_cur_time, sub.sin_time_x, sub.sin_power_x);
+                let mut y = sub.move_start_pos_y
+                    + move_y
+                    + weather_wave(sub.sin_cur_time, sub.sin_time_y, sub.sin_power_y);
                 x = ((x % screen_w) + screen_w) % screen_w;
                 y = ((y % screen_h) + screen_h) % screen_h;
-                let offsets = [(0, 0), (-screen_w, 0), (0, -screen_h), (-screen_w, -screen_h)];
+                let offsets = [
+                    (0, 0),
+                    (-screen_w, 0),
+                    (0, -screen_h),
+                    (-screen_w, -screen_h),
+                ];
                 for (ox, oy) in offsets {
                     if let Some(&sid) = sprite_ids.get(used) {
                         set_weather_sprite(
@@ -4660,9 +4921,9 @@ fn sync_weather_object_recursive(
             } else {
                 let mt = sub.move_time_x.max(1);
                 let t = sub.move_cur_time.max(0);
-                let distance = sub
-                    .move_start_distance
-                    .saturating_add(1000i64.saturating_mul(t).saturating_mul(t) / mt.saturating_mul(mt));
+                let distance = sub.move_start_distance.saturating_add(
+                    1000i64.saturating_mul(t).saturating_mul(t) / mt.saturating_mul(mt),
+                );
                 let degree = sub.move_start_degree
                     + if sub.center_rotate == 0 {
                         0
@@ -5417,9 +5678,15 @@ fn apply_parent_render_state_to_sprite(
         sprite.color_b = blend_color(sprite.color_b, state.color_b, parent_rate);
         sprite.color_rate = combine_lerp(sprite.color_rate, state.color_rate);
     }
-    sprite.color_add_r = sprite.color_add_r.saturating_add(state.color_add_r.clamp(0, 255) as u8);
-    sprite.color_add_g = sprite.color_add_g.saturating_add(state.color_add_g.clamp(0, 255) as u8);
-    sprite.color_add_b = sprite.color_add_b.saturating_add(state.color_add_b.clamp(0, 255) as u8);
+    sprite.color_add_r = sprite
+        .color_add_r
+        .saturating_add(state.color_add_r.clamp(0, 255) as u8);
+    sprite.color_add_g = sprite
+        .color_add_g
+        .saturating_add(state.color_add_g.clamp(0, 255) as u8);
+    sprite.color_add_b = sprite
+        .color_add_b
+        .saturating_add(state.color_add_b.clamp(0, 255) as u8);
     sprite.blend = state.blend;
     sprite.dst_clip = state.dst_clip;
     if sprite.mask_image_id.is_none() {
@@ -5639,7 +5906,7 @@ fn effective_object_info(
     let runtime_slot = object_runtime_slot(obj_idx, obj);
     let ids = &ctx.ids;
     let extra = |id: i32, default: i64| -> i64 {
-        if id != 0 {
+        if id == ids.obj_disp || id != 0 {
             obj.lookup_int_prop(ids, id).unwrap_or(default)
         } else {
             default
@@ -6074,7 +6341,12 @@ fn append_object_tree_sprites(
         }
     }
     let ev = &obj.runtime.prop_events;
-    if debug_enabled && (ev.color_rate.check_event() || ev.tr.check_event() || ev.x.check_event() || ev.y.check_event()) {
+    if debug_enabled
+        && (ev.color_rate.check_event()
+            || ev.tr.check_event()
+            || ev.x.check_event()
+            || ev.y.check_event())
+    {
         debug_lines.push(format!(
             "[SG_DEBUG]       active_events x={}/{} t={}/{} y={}/{} t={}/{} tr={}/{} t={}/{} color_rate={}/{} t={}/{}",
             ev.x.get_total_value(), ev.x.get_value(), ev.x.cur_time, ev.x.end_time,
@@ -6091,8 +6363,22 @@ fn append_object_tree_sprites(
         let fmt_list = |list: &Vec<crate::runtime::int_event::IntEvent>| -> Vec<String> {
             list.iter()
                 .enumerate()
-                .filter(|(_, ev)| ev.check_event() || ev.get_total_value() != ev.def_value || ev.get_value() != ev.def_value)
-                .map(|(idx, ev)| format!("{}:{}/{} t={}/{} active={}", idx, ev.get_total_value(), ev.get_value(), ev.cur_time, ev.end_time, ev.check_event()))
+                .filter(|(_, ev)| {
+                    ev.check_event()
+                        || ev.get_total_value() != ev.def_value
+                        || ev.get_value() != ev.def_value
+                })
+                .map(|(idx, ev)| {
+                    format!(
+                        "{}:{}/{} t={}/{} active={}",
+                        idx,
+                        ev.get_total_value(),
+                        ev.get_value(),
+                        ev.cur_time,
+                        ev.end_time,
+                        ev.check_event()
+                    )
+                })
                 .collect()
         };
         let x_rep = fmt_list(&obj.runtime.prop_event_lists.x_rep);
@@ -6101,9 +6387,7 @@ fn append_object_tree_sprites(
         if !x_rep.is_empty() || !y_rep.is_empty() || !tr_rep.is_empty() {
             debug_lines.push(format!(
                 "[SG_DEBUG]       rep_events x={:?} y={:?} tr={:?}",
-                x_rep,
-                y_rep,
-                tr_rep,
+                x_rep, y_rep, tr_rep,
             ));
         }
     }
@@ -6136,7 +6420,7 @@ fn append_object_tree_sprites(
                 if let Some(parent) = parent_state {
                     apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &parent);
                 }
-                    }
+            }
         } else {
             for mut rs in bound.drain(..) {
                 apply_object_render_info_to_sprite(&mut rs.sprite, &info);
@@ -6149,7 +6433,7 @@ fn append_object_tree_sprites(
                 if let Some(parent) = parent_state {
                     apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &parent);
                 }
-                        apply_runtime_light_and_fog(ctx, &mut rs.sprite);
+                apply_runtime_light_and_fog(ctx, &mut rs.sprite);
                 if rs.sprite.tr > 0 {
                     out.push(rs);
                 }
@@ -6346,15 +6630,10 @@ fn append_weather_sprites(
     }
 }
 
-fn apply_object_render_info_to_sprite(
-    sprite: &mut Sprite,
-    info: &ObjectRenderInfo,
-) {
+fn apply_object_render_info_to_sprite(sprite: &mut Sprite, info: &ObjectRenderInfo) {
     sprite.visible = info.disp;
-    sprite.x = (info.x + info.x_rep)
-        .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-    sprite.y = (info.y + info.y_rep)
-        .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    sprite.x = (info.x + info.x_rep).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    sprite.y = (info.y + info.y_rep).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     sprite.z = (info.z + info.z_rep) as f32;
     sprite.pivot_x = (info.center_x + info.center_rep_x) as f32;
     sprite.pivot_y = (info.center_y + info.center_rep_y) as f32;
@@ -6366,8 +6645,7 @@ fn apply_object_render_info_to_sprite(
     sprite.rotate_x = info.rotate_x as f32 * std::f32::consts::PI / 1800.0;
     sprite.rotate_y = info.rotate_y as f32 * std::f32::consts::PI / 1800.0;
     sprite.alpha = info.alpha.clamp(0, 255) as u8;
-    sprite.tr = ((info.tr.clamp(0, 255) * info.tr_rep.clamp(0, 255)) / 255)
-        .clamp(0, 255) as u8;
+    sprite.tr = ((info.tr.clamp(0, 255) * info.tr_rep.clamp(0, 255)) / 255).clamp(0, 255) as u8;
     sprite.mono = info.mono.clamp(0, 255) as u8;
     sprite.reverse = info.reverse.clamp(0, 255) as u8;
     sprite.bright = info.bright.clamp(0, 255) as u8;
@@ -6641,8 +6919,9 @@ fn collect_button_visuals_recursive(
         let runtime_slot = object_runtime_slot(obj_idx, obj);
         match &obj.backend {
             ObjectBackend::Gfx => {
-                if let Some((lid, sid)) =
-                    ctx.gfx.object_sprite_binding(stage_idx, runtime_slot as i64)
+                if let Some((lid, sid)) = ctx
+                    .gfx
+                    .object_sprite_binding(stage_idx, runtime_slot as i64)
                 {
                     map.insert((lid, sid), visual);
                 }
@@ -6720,7 +6999,6 @@ fn apply_button_state_visual(ctx: &CommandContext, sprite: &mut Sprite, visual: 
     sprite.bright = (sprite.bright as i64 + pat.rep_bright).clamp(0, 255) as u8;
     sprite.dark = (sprite.dark as i64 + pat.rep_dark).clamp(0, 255) as u8;
 }
-
 
 fn apply_quake(globals: &globals::GlobalState, sprites: &mut [RenderSprite]) {
     let mut dx_total: f32 = 0.0;
@@ -7913,17 +8191,24 @@ fn apply_wipe_mask_image(base: &RgbaImage, mask: &RgbaImage, threshold: f32) -> 
 }
 
 fn build_selbtn_menu_text(sel: &globals::BtnSelectRuntimeState) -> String {
-    let mut s = String::from("SELBTN
+    let mut s = String::from(
+        "SELBTN
 Esc: cancel  Enter/Click: decide
-");
+",
+    );
     for (i, choice) in sel.choices.iter().enumerate() {
         let mark = if i == sel.cursor { ">" } else { " " };
-        s.push_str(&format!("{} {}
-", mark, choice.text));
+        s.push_str(&format!(
+            "{} {}
+",
+            mark, choice.text
+        ));
     }
     if sel.choices.is_empty() {
-        s.push_str("  No choices
-");
+        s.push_str(
+            "  No choices
+",
+        );
     }
     s
 }
@@ -7931,10 +8216,18 @@ Esc: cancel  Enter/Click: decide
 fn build_syscom_menu_text(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path) -> String {
     let kind = syscom.menu_kind.unwrap_or(syscom_op::CALL_SYSCOM_MENU);
     match kind {
-        syscom_op::CALL_SAVE_MENU => build_save_slot_menu_text("SAVE MENU", &syscom.save_slots, false),
-        syscom_op::CALL_LOAD_MENU => build_save_slot_menu_text("LOAD MENU", &syscom.save_slots, true),
-        syscom_op::QUICK_SAVE => build_save_slot_menu_text("QUICK SAVE MENU", &syscom.quick_save_slots, false),
-        syscom_op::QUICK_LOAD => build_save_slot_menu_text("QUICK LOAD MENU", &syscom.quick_save_slots, true),
+        syscom_op::CALL_SAVE_MENU => {
+            build_save_slot_menu_text("SAVE MENU", &syscom.save_slots, false)
+        }
+        syscom_op::CALL_LOAD_MENU => {
+            build_save_slot_menu_text("LOAD MENU", &syscom.save_slots, true)
+        }
+        syscom_op::QUICK_SAVE => {
+            build_save_slot_menu_text("QUICK SAVE MENU", &syscom.quick_save_slots, false)
+        }
+        syscom_op::QUICK_LOAD => {
+            build_save_slot_menu_text("QUICK LOAD MENU", &syscom.quick_save_slots, true)
+        }
         _ => {
             ensure_font_list(syscom, project_dir);
             let title = match kind {
@@ -7962,7 +8255,10 @@ fn build_syscom_menu_text(syscom: &mut globals::SyscomRuntimeState, project_dir:
 
 fn build_save_slot_menu_text(title: &str, slots: &[globals::SaveSlotState], load: bool) -> String {
     let action = if load { "load" } else { "save" };
-    let mut s = format!("{}\nPress 0-9 to {} slot\nEsc: close  Enter/Click: activate selected item\n", title, action);
+    let mut s = format!(
+        "{}\nPress 0-9 to {} slot\nEsc: close  Enter/Click: activate selected item\n",
+        title, action
+    );
     for i in 0..10 {
         let exist = slots.get(i).map(|v| v.exist).unwrap_or(false);
         let slot_title = slots.get(i).map(|v| v.title.as_str()).unwrap_or("");
@@ -8041,89 +8337,304 @@ fn syscom_menu_items(
     let kind = syscom.menu_kind.unwrap_or(syscom_op::CALL_SYSCOM_MENU);
     match kind {
         syscom_op::CALL_SYSCOM_MENU => vec![
-            MenuItem::Action { label: "SAVE", kind: syscom_op::CALL_SAVE_MENU },
-            MenuItem::Action { label: "LOAD", kind: syscom_op::CALL_LOAD_MENU },
-            MenuItem::Action { label: "CONFIG", kind: syscom_op::CALL_CONFIG_MENU },
-            MenuItem::Action { label: "MESSAGE BACK", kind: syscom_op::OPEN_MSG_BACK },
-            MenuItem::Action { label: "RETURN TO SELECT", kind: syscom_op::RETURN_TO_SEL },
-            MenuItem::Action { label: "RETURN TO MENU", kind: syscom_op::RETURN_TO_MENU },
-            MenuItem::Action { label: "END GAME", kind: syscom_op::END_GAME },
+            MenuItem::Action {
+                label: "SAVE",
+                kind: syscom_op::CALL_SAVE_MENU,
+            },
+            MenuItem::Action {
+                label: "LOAD",
+                kind: syscom_op::CALL_LOAD_MENU,
+            },
+            MenuItem::Action {
+                label: "CONFIG",
+                kind: syscom_op::CALL_CONFIG_MENU,
+            },
+            MenuItem::Action {
+                label: "MESSAGE BACK",
+                kind: syscom_op::OPEN_MSG_BACK,
+            },
+            MenuItem::Action {
+                label: "RETURN TO SELECT",
+                kind: syscom_op::RETURN_TO_SEL,
+            },
+            MenuItem::Action {
+                label: "RETURN TO MENU",
+                kind: syscom_op::RETURN_TO_MENU,
+            },
+            MenuItem::Action {
+                label: "END GAME",
+                kind: syscom_op::END_GAME,
+            },
         ],
         syscom_op::CALL_CONFIG_MENU => vec![
-            MenuItem::Action { label: "WINDOW MODE", kind: syscom_op::CALL_CONFIG_WINDOW_MODE_MENU },
-            MenuItem::Action { label: "VOLUME", kind: syscom_op::CALL_CONFIG_VOLUME_MENU },
-            MenuItem::Action { label: "BGM FADE", kind: syscom_op::CALL_CONFIG_BGMFADE_MENU },
-            MenuItem::Action { label: "KOE MODE", kind: syscom_op::CALL_CONFIG_KOEMODE_MENU },
-            MenuItem::Action { label: "CHARA KOE", kind: syscom_op::CALL_CONFIG_CHARAKOE_MENU },
-            MenuItem::Action { label: "JITAN", kind: syscom_op::CALL_CONFIG_JITAN_MENU },
-            MenuItem::Action { label: "MESSAGE SPEED", kind: syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU },
-            MenuItem::Action { label: "AUTO MODE", kind: syscom_op::CALL_CONFIG_AUTO_MODE_MENU },
-            MenuItem::Action { label: "FILTER COLOR", kind: syscom_op::CALL_CONFIG_FILTER_COLOR_MENU },
-            MenuItem::Action { label: "FONT", kind: syscom_op::CALL_CONFIG_FONT_MENU },
-            MenuItem::Action { label: "MOVIE", kind: syscom_op::CALL_CONFIG_MOVIE_MENU },
-            MenuItem::Action { label: "SYSTEM", kind: syscom_op::CALL_CONFIG_SYSTEM_MENU },
+            MenuItem::Action {
+                label: "WINDOW MODE",
+                kind: syscom_op::CALL_CONFIG_WINDOW_MODE_MENU,
+            },
+            MenuItem::Action {
+                label: "VOLUME",
+                kind: syscom_op::CALL_CONFIG_VOLUME_MENU,
+            },
+            MenuItem::Action {
+                label: "BGM FADE",
+                kind: syscom_op::CALL_CONFIG_BGMFADE_MENU,
+            },
+            MenuItem::Action {
+                label: "KOE MODE",
+                kind: syscom_op::CALL_CONFIG_KOEMODE_MENU,
+            },
+            MenuItem::Action {
+                label: "CHARA KOE",
+                kind: syscom_op::CALL_CONFIG_CHARAKOE_MENU,
+            },
+            MenuItem::Action {
+                label: "JITAN",
+                kind: syscom_op::CALL_CONFIG_JITAN_MENU,
+            },
+            MenuItem::Action {
+                label: "MESSAGE SPEED",
+                kind: syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU,
+            },
+            MenuItem::Action {
+                label: "AUTO MODE",
+                kind: syscom_op::CALL_CONFIG_AUTO_MODE_MENU,
+            },
+            MenuItem::Action {
+                label: "FILTER COLOR",
+                kind: syscom_op::CALL_CONFIG_FILTER_COLOR_MENU,
+            },
+            MenuItem::Action {
+                label: "FONT",
+                kind: syscom_op::CALL_CONFIG_FONT_MENU,
+            },
+            MenuItem::Action {
+                label: "MOVIE",
+                kind: syscom_op::CALL_CONFIG_MOVIE_MENU,
+            },
+            MenuItem::Action {
+                label: "SYSTEM",
+                kind: syscom_op::CALL_CONFIG_SYSTEM_MENU,
+            },
         ],
         syscom_op::CALL_CONFIG_WINDOW_MODE_MENU => vec![
-            MenuItem::Bool { label: "WINDOW_MODE", key: GET_WINDOW_MODE },
-            MenuItem::Int { label: "WINDOW_SIZE", key: GET_WINDOW_MODE_SIZE, min: 0, max: 7, step: 1 },
+            MenuItem::Bool {
+                label: "WINDOW_MODE",
+                key: GET_WINDOW_MODE,
+            },
+            MenuItem::Int {
+                label: "WINDOW_SIZE",
+                key: GET_WINDOW_MODE_SIZE,
+                min: 0,
+                max: 7,
+                step: 1,
+            },
         ],
         syscom_op::CALL_CONFIG_VOLUME_MENU => vec![
-            MenuItem::Int { label: "ALL_VOL", key: GET_ALL_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "BGM_VOL", key: GET_BGM_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "KOE_VOL", key: GET_KOE_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "PCM_VOL", key: GET_PCM_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Int { label: "SE_VOL", key: GET_SE_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Bool { label: "ALL_ONOFF", key: GET_ALL_ONOFF },
-            MenuItem::Bool { label: "BGM_ONOFF", key: GET_BGM_ONOFF },
-            MenuItem::Bool { label: "KOE_ONOFF", key: GET_KOE_ONOFF },
-            MenuItem::Bool { label: "PCM_ONOFF", key: GET_PCM_ONOFF },
-            MenuItem::Bool { label: "SE_ONOFF", key: GET_SE_ONOFF },
+            MenuItem::Int {
+                label: "ALL_VOL",
+                key: GET_ALL_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "BGM_VOL",
+                key: GET_BGM_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "KOE_VOL",
+                key: GET_KOE_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "PCM_VOL",
+                key: GET_PCM_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "SE_VOL",
+                key: GET_SE_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Bool {
+                label: "ALL_ONOFF",
+                key: GET_ALL_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "BGM_ONOFF",
+                key: GET_BGM_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "KOE_ONOFF",
+                key: GET_KOE_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "PCM_ONOFF",
+                key: GET_PCM_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "SE_ONOFF",
+                key: GET_SE_ONOFF,
+            },
         ],
         syscom_op::CALL_CONFIG_BGMFADE_MENU => vec![
-            MenuItem::Int { label: "BGMFADE_VOL", key: GET_BGMFADE_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Bool { label: "BGMFADE_ONOFF", key: GET_BGMFADE_ONOFF },
+            MenuItem::Int {
+                label: "BGMFADE_VOL",
+                key: GET_BGMFADE_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Bool {
+                label: "BGMFADE_ONOFF",
+                key: GET_BGMFADE_ONOFF,
+            },
         ],
-        syscom_op::CALL_CONFIG_KOEMODE_MENU => vec![
-            MenuItem::Int { label: "KOEMODE", key: GET_KOEMODE, min: 0, max: 2, step: 1 },
-        ],
+        syscom_op::CALL_CONFIG_KOEMODE_MENU => vec![MenuItem::Int {
+            label: "KOEMODE",
+            key: GET_KOEMODE,
+            min: 0,
+            max: 2,
+            step: 1,
+        }],
         syscom_op::CALL_CONFIG_CHARAKOE_MENU => vec![
-            MenuItem::Bool { label: "CHARAKOE_ONOFF", key: GET_CHARAKOE_ONOFF },
-            MenuItem::Int { label: "CHARAKOE_VOL", key: GET_CHARAKOE_VOLUME, min: 0, max: 100, step: 5 },
+            MenuItem::Bool {
+                label: "CHARAKOE_ONOFF",
+                key: GET_CHARAKOE_ONOFF,
+            },
+            MenuItem::Int {
+                label: "CHARAKOE_VOL",
+                key: GET_CHARAKOE_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
         ],
         syscom_op::CALL_CONFIG_JITAN_MENU => vec![
-            MenuItem::Bool { label: "JITAN_NORMAL", key: GET_JITAN_NORMAL_ONOFF },
-            MenuItem::Bool { label: "JITAN_AUTO", key: GET_JITAN_AUTO_MODE_ONOFF },
-            MenuItem::Bool { label: "JITAN_KOE_REPLAY", key: GET_JITAN_KOE_REPLAY_ONOFF },
-            MenuItem::Int { label: "JITAN_SPEED", key: GET_JITAN_SPEED, min: 0, max: 100, step: 5 },
+            MenuItem::Bool {
+                label: "JITAN_NORMAL",
+                key: GET_JITAN_NORMAL_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "JITAN_AUTO",
+                key: GET_JITAN_AUTO_MODE_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "JITAN_KOE_REPLAY",
+                key: GET_JITAN_KOE_REPLAY_ONOFF,
+            },
+            MenuItem::Int {
+                label: "JITAN_SPEED",
+                key: GET_JITAN_SPEED,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
         ],
-        syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU => vec![
-            MenuItem::Int { label: "MSG_SPEED", key: GET_MESSAGE_SPEED, min: 0, max: 100, step: 5 },
-        ],
+        syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU => vec![MenuItem::Int {
+            label: "MSG_SPEED",
+            key: GET_MESSAGE_SPEED,
+            min: 0,
+            max: 100,
+            step: 5,
+        }],
         syscom_op::CALL_CONFIG_AUTO_MODE_MENU => vec![
-            MenuItem::Int { label: "AUTO_MOJI_WAIT", key: GET_AUTO_MODE_MOJI_WAIT, min: 0, max: 300, step: 5 },
-            MenuItem::Int { label: "AUTO_MIN_WAIT", key: GET_AUTO_MODE_MIN_WAIT, min: 0, max: 10000, step: 100 },
+            MenuItem::Int {
+                label: "AUTO_MOJI_WAIT",
+                key: GET_AUTO_MODE_MOJI_WAIT,
+                min: 0,
+                max: 300,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "AUTO_MIN_WAIT",
+                key: GET_AUTO_MODE_MIN_WAIT,
+                min: 0,
+                max: 10000,
+                step: 100,
+            },
         ],
         syscom_op::CALL_CONFIG_FILTER_COLOR_MENU => vec![
-            MenuItem::Int { label: "FILTER_R", key: GET_FILTER_COLOR_R, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_G", key: GET_FILTER_COLOR_G, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_B", key: GET_FILTER_COLOR_B, min: 0, max: 255, step: 5 },
-            MenuItem::Int { label: "FILTER_A", key: GET_FILTER_COLOR_A, min: 0, max: 255, step: 5 },
+            MenuItem::Int {
+                label: "FILTER_R",
+                key: GET_FILTER_COLOR_R,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_G",
+                key: GET_FILTER_COLOR_G,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_B",
+                key: GET_FILTER_COLOR_B,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
+            MenuItem::Int {
+                label: "FILTER_A",
+                key: GET_FILTER_COLOR_A,
+                min: 0,
+                max: 255,
+                step: 5,
+            },
         ],
         syscom_op::CALL_CONFIG_FONT_MENU => {
             ensure_font_list(syscom, project_dir);
             vec![MenuItem::FontName]
         }
         syscom_op::CALL_CONFIG_MOVIE_MENU => vec![
-            MenuItem::Int { label: "MOV_VOL", key: GET_MOV_VOLUME, min: 0, max: 100, step: 5 },
-            MenuItem::Bool { label: "MOV_ONOFF", key: GET_MOV_ONOFF },
+            MenuItem::Int {
+                label: "MOV_VOL",
+                key: GET_MOV_VOLUME,
+                min: 0,
+                max: 100,
+                step: 5,
+            },
+            MenuItem::Bool {
+                label: "MOV_ONOFF",
+                key: GET_MOV_ONOFF,
+            },
         ],
         syscom_op::CALL_CONFIG_SYSTEM_MENU => vec![
-            MenuItem::Bool { label: "NO_WIPE", key: GET_NO_WIPE_ANIME_ONOFF },
-            MenuItem::Bool { label: "SKIP_WIPE", key: GET_SKIP_WIPE_ANIME_ONOFF },
-            MenuItem::Bool { label: "WHEEL_NEXT", key: GET_WHEEL_NEXT_MESSAGE_ONOFF },
-            MenuItem::Bool { label: "KOE_DONT_STOP", key: GET_KOE_DONT_STOP_ONOFF },
-            MenuItem::Bool { label: "SKIP_UNREAD", key: GET_SKIP_UNREAD_MESSAGE_ONOFF },
-            MenuItem::Bool { label: "PLAY_SILENT", key: GET_PLAY_SILENT_SOUND_ONOFF },
+            MenuItem::Bool {
+                label: "NO_WIPE",
+                key: GET_NO_WIPE_ANIME_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "SKIP_WIPE",
+                key: GET_SKIP_WIPE_ANIME_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "WHEEL_NEXT",
+                key: GET_WHEEL_NEXT_MESSAGE_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "KOE_DONT_STOP",
+                key: GET_KOE_DONT_STOP_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "SKIP_UNREAD",
+                key: GET_SKIP_UNREAD_MESSAGE_ONOFF,
+            },
+            MenuItem::Bool {
+                label: "PLAY_SILENT",
+                key: GET_PLAY_SILENT_SOUND_ONOFF,
+            },
         ],
         _ => Vec::new(),
     }
@@ -8134,7 +8645,10 @@ fn build_menu_text_from_items(
     syscom: &globals::SyscomRuntimeState,
     items: &[MenuItem],
 ) -> String {
-    let mut s = format!("{}\nEsc: close  Enter/Click: activate  Left/Right: change\n", title);
+    let mut s = format!(
+        "{}\nEsc: close  Enter/Click: activate  Left/Right: change\n",
+        title
+    );
     for (i, item) in items.iter().enumerate() {
         let mark = if i == syscom.menu_cursor { ">" } else { " " };
         match item {
@@ -8147,10 +8661,19 @@ fn build_menu_text_from_items(
             }
             MenuItem::Bool { label, key } => {
                 let v = syscom.config_int.get(key).copied().unwrap_or(0);
-                s.push_str(&format!("{} {} = {}\n", mark, label, if v == 0 { "OFF" } else { "ON" }));
+                s.push_str(&format!(
+                    "{} {} = {}\n",
+                    mark,
+                    label,
+                    if v == 0 { "OFF" } else { "ON" }
+                ));
             }
             MenuItem::FontName => {
-                let v = syscom.config_str.get(&GET_FONT_NAME).map(|s| s.as_str()).unwrap_or("");
+                let v = syscom
+                    .config_str
+                    .get(&GET_FONT_NAME)
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 s.push_str(&format!("{} FONT = {}\n", mark, v));
             }
         }
@@ -8187,4 +8710,3 @@ fn ensure_font_list(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path
     }
     syscom.font_list.sort();
 }
-

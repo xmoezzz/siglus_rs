@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
+use siglus_scene_vm::runtime::input::VmMouseButton;
 use siglus_scene_vm::runtime::CommandContext;
 use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::{SceneVm, VmConfig};
@@ -24,10 +25,7 @@ fn write_capture(vm: &mut SceneVm<'static>, name: &str) -> Result<()> {
 
 fn capture_nonzero_alpha(vm: &mut SceneVm<'static>) -> usize {
     let img = vm.ctx.capture_frame_rgba();
-    img.rgba
-        .chunks_exact(4)
-        .filter(|px| px[3] != 0)
-        .count()
+    img.rgba.chunks_exact(4).filter(|px| px[3] != 0).count()
 }
 
 fn capture_nonblack_rgb(vm: &mut SceneVm<'static>) -> usize {
@@ -59,19 +57,16 @@ fn make_vm(scene_name: &str, z: i32) -> Result<SceneVm<'static>> {
     Ok(vm)
 }
 
+fn advance_one_frame(vm: &mut SceneVm<'static>) -> Result<()> {
+    let _running = vm.run_script_proc_slice(2000)?;
+    vm.tick_frame()?;
+    Ok(())
+}
+
 fn step_for_frames(vm: &mut SceneVm<'static>, frames: u32) -> Result<Vec<(usize, String, i64)>> {
     let mut last_visible = Vec::new();
     for _ in 0..frames {
-        for _ in 0..2000 {
-            let running = vm.step()?;
-            if !running || vm.is_halted() || vm.is_blocked() {
-                break;
-            }
-        }
-        if vm.is_blocked() {
-            vm.ctx.wait.notify_key();
-        }
-        vm.tick_frame()?;
+        advance_one_frame(vm)?;
         let mut visible = Vec::new();
         if let Some(st) = vm
             .ctx
@@ -105,6 +100,74 @@ fn step_for_frames(vm: &mut SceneVm<'static>, frames: u32) -> Result<Vec<(usize,
     Ok(last_visible)
 }
 
+fn render_rgba(vm: &mut SceneVm<'static>) -> Vec<u8> {
+    vm.ctx.capture_frame_rgba().rgba
+}
+
+fn pixel_delta(a: &[u8], b: &[u8]) -> usize {
+    a.chunks_exact(4)
+        .zip(b.chunks_exact(4))
+        .filter(|(lhs, rhs)| lhs != rhs)
+        .count()
+}
+
+fn dump_button_objects(vm: &SceneVm<'static>, label: &str) {
+    fn recur(
+        vm: &SceneVm<'static>,
+        obj: &siglus_scene_vm::runtime::globals::ObjectState,
+        path: &str,
+    ) {
+        if obj.used && obj.button.enabled {
+            eprintln!(
+                "{path} file={} disp={} runtime_slot={:?} button_no={} group_no={} action_no={} pushed={} hit={} call={}/{}",
+                obj.file_name.clone().unwrap_or_default(),
+                obj.lookup_int_prop(&vm.ctx.ids, vm.ctx.ids.obj_disp).unwrap_or(0),
+                obj.nested_runtime_slot,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.action_no,
+                obj.button.pushed,
+                obj.button.hit,
+                obj.button.decided_action_scn_name,
+                obj.button.decided_action_cmd_name,
+            );
+        }
+        for (idx, child) in obj.runtime.child_objects.iter().enumerate() {
+            recur(vm, child, &format!("{path}/{idx}"));
+        }
+    }
+
+    eprintln!("-- button dump: {label} --");
+    let Some(st) = vm
+        .ctx
+        .globals
+        .stage_forms
+        .get(&vm.ctx.ids.form_global_stage)
+    else {
+        eprintln!("no global stage form");
+        return;
+    };
+    if let Some(groups) = st.group_lists.get(&0) {
+        for (idx, g) in groups.iter().enumerate() {
+            eprintln!(
+                "group[{idx}] started={} wait={} cancel={} hit={} pushed={} decided={} result={}",
+                g.started,
+                g.wait_flag,
+                g.cancel_flag,
+                g.hit_button_no,
+                g.pushed_button_no,
+                g.decided_button_no,
+                g.result_button_no
+            );
+        }
+    }
+    if let Some(objs) = st.object_lists.get(&0) {
+        for (idx, obj) in objs.iter().enumerate() {
+            recur(vm, obj, &format!("top[{idx}]"));
+        }
+    }
+}
+
 #[test]
 fn trace_menu_scene_progress() -> Result<()> {
     let mut vm = make_vm("sys10_tt01", 0)?;
@@ -115,16 +178,7 @@ fn trace_menu_scene_progress() -> Result<()> {
     let mut first_nonzero_frame: Option<u32> = None;
     let mut first_nonzero_alpha = 0usize;
     for frame in 0..700u32 {
-        for _ in 0..2000 {
-            let running = vm.step()?;
-            if !running || vm.is_halted() || vm.is_blocked() {
-                break;
-            }
-        }
-        if vm.is_blocked() {
-            vm.ctx.wait.notify_key();
-        }
-        vm.tick_frame()?;
+        advance_one_frame(&mut vm)?;
         let mut visible = Vec::new();
         let mut playing = Vec::new();
         if let Some(st) = vm
@@ -183,8 +237,8 @@ fn trace_menu_scene_progress() -> Result<()> {
             }
         }
     }
-    let frame = first_visible_frame
-        .context("title/menu objects never became visible within 700 frames")?;
+    let frame =
+        first_visible_frame.context("title/menu objects never became visible within 700 frames")?;
     let render_frame = first_nonzero_frame
         .context("render submission stayed fully transparent within 700 frames")?;
     eprintln!("first visible frame={frame} visible={first_visible:?}");
@@ -224,5 +278,97 @@ fn restart_same_vm_reaches_visible_title() -> Result<()> {
         "restart-to-menu on same VM never reached visible title: {visible:?}"
     );
     assert!(nonblack > 0, "restart-to-menu title frame stayed black");
+    Ok(())
+}
+
+#[test]
+fn title_hover_changes_framebuffer() -> Result<()> {
+    let mut vm = make_vm("sys10_tt01", 0)?;
+    let _ = step_for_frames(&mut vm, 520)?;
+    let baseline = render_rgba(&mut vm);
+
+    // Start button settles near x=405..499, y=619 in testcase title.
+    vm.ctx.on_mouse_move(450, 650);
+    for _ in 0..12 {
+        advance_one_frame(&mut vm)?;
+    }
+
+    let hovered = render_rgba(&mut vm);
+    let delta = pixel_delta(&baseline, &hovered);
+    eprintln!("title-hover pixel-delta={delta}");
+    assert!(
+        delta > 1000,
+        "hovering Start did not visibly change the title framebuffer"
+    );
+    Ok(())
+}
+
+#[test]
+fn title_click_start_leaves_title_scene() -> Result<()> {
+    let mut vm = make_vm("sys10_tt01", 0)?;
+    let _ = step_for_frames(&mut vm, 520)?;
+
+    vm.ctx.on_mouse_move(450, 650);
+    for _ in 0..6 {
+        advance_one_frame(&mut vm)?;
+    }
+    vm.ctx.on_mouse_down(VmMouseButton::Left);
+    advance_one_frame(&mut vm)?;
+    vm.ctx.on_mouse_up(VmMouseButton::Left);
+    advance_one_frame(&mut vm)?;
+
+    let mut scene_names = Vec::new();
+    for _ in 0..360 {
+        advance_one_frame(&mut vm)?;
+        if let Some(name) = vm.current_scene_name() {
+            if scene_names.last().map(String::as_str) != Some(name) {
+                scene_names.push(name.to_string());
+            }
+        }
+    }
+
+    eprintln!("title-click-start scene-trace={scene_names:?}");
+    assert!(
+        scene_names.iter().any(|name| name != "sys10_tt01"),
+        "clicking Start never left sys10_tt01"
+    );
+    Ok(())
+}
+
+#[test]
+fn title_click_config_opens_config_flow() -> Result<()> {
+    let mut vm = make_vm("sys10_tt01", 0)?;
+    let _ = step_for_frames(&mut vm, 520)?;
+
+    // Config/menu button area settles near x=652..762, y=619 in testcase title.
+    vm.ctx.on_mouse_move(705, 650);
+    for _ in 0..6 {
+        advance_one_frame(&mut vm)?;
+    }
+    let baseline_open = vm.ctx.globals.syscom.menu_open;
+    vm.ctx.on_mouse_down(VmMouseButton::Left);
+    advance_one_frame(&mut vm)?;
+    vm.ctx.on_mouse_up(VmMouseButton::Left);
+
+    let mut became_open = baseline_open;
+    let mut scene_names = Vec::new();
+    for _ in 0..180 {
+        advance_one_frame(&mut vm)?;
+        became_open |= vm.ctx.globals.syscom.menu_open;
+        if let Some(name) = vm.current_scene_name() {
+            if scene_names.last().map(String::as_str) != Some(name) {
+                scene_names.push(name.to_string());
+            }
+        }
+    }
+
+    eprintln!(
+        "title-click-config menu_open={} scene-trace={scene_names:?}",
+        became_open
+    );
+    assert!(
+        became_open || scene_names.iter().any(|name| name != "sys10_tt01"),
+        "clicking Config neither opened syscom/config flow nor left title scene"
+    );
     Ok(())
 }

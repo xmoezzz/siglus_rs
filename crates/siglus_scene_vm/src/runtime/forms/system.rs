@@ -157,7 +157,10 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             }
             return Ok(true);
         }
-        DEBUG_MESSAGEBOX_OK | DEBUG_MESSAGEBOX_OKCANCEL | DEBUG_MESSAGEBOX_YESNO | DEBUG_MESSAGEBOX_YESNOCANCEL => {
+        DEBUG_MESSAGEBOX_OK
+        | DEBUG_MESSAGEBOX_OKCANCEL
+        | DEBUG_MESSAGEBOX_YESNO
+        | DEBUG_MESSAGEBOX_YESNOCANCEL => {
             let text = messagebox_text(ctx, call.params);
             if ctx.globals.system.debug_flag {
                 if let Some(ret) = handle_messagebox(ctx, call.op, true, text) {
@@ -237,23 +240,20 @@ fn handle_messagebox(
         });
 
     let buttons = messagebox_buttons(kind);
-    let max_value = buttons
-        .iter()
-        .map(|b| b.value)
-        .max()
-        .unwrap_or(0);
+    let max_value = buttons.iter().map(|b| b.value).max().unwrap_or(0);
     if !ctx.globals.system.messagebox_response_queue.is_empty() {
         let v = ctx.globals.system.messagebox_response_queue.remove(0);
         return Some(v.clamp(0, max_value));
     }
 
-    ctx.globals.system.messagebox_modal = Some(crate::runtime::globals::SystemMessageBoxModalState {
-        kind,
-        text,
-        debug_only,
-        buttons,
-        cursor: 0,
-    });
+    ctx.globals.system.messagebox_modal =
+        Some(crate::runtime::globals::SystemMessageBoxModalState {
+            kind,
+            text,
+            debug_only,
+            buttons,
+            cursor: 0,
+        });
     ctx.wait.wait_system_modal();
     None
 }
@@ -263,14 +263,18 @@ fn messagebox_buttons(kind: i32) -> Vec<crate::runtime::globals::SystemMessageBo
         MESSAGEBOX_OK | DEBUG_MESSAGEBOX_OK => &[("OK", 0)],
         MESSAGEBOX_OKCANCEL | DEBUG_MESSAGEBOX_OKCANCEL => &[("OK", 0), ("CANCEL", 1)],
         MESSAGEBOX_YESNO | DEBUG_MESSAGEBOX_YESNO => &[("YES", 0), ("NO", 1)],
-        MESSAGEBOX_YESNOCANCEL | DEBUG_MESSAGEBOX_YESNOCANCEL => &[("YES", 0), ("NO", 1), ("CANCEL", 2)],
+        MESSAGEBOX_YESNOCANCEL | DEBUG_MESSAGEBOX_YESNOCANCEL => {
+            &[("YES", 0), ("NO", 1), ("CANCEL", 2)]
+        }
         _ => &[("OK", 0)],
     };
     raw.iter()
-        .map(|(label, value)| crate::runtime::globals::SystemMessageBoxButton {
-            label: (*label).to_string(),
-            value: *value,
-        })
+        .map(
+            |(label, value)| crate::runtime::globals::SystemMessageBoxButton {
+                label: (*label).to_string(),
+                value: *value,
+            },
+        )
         .collect()
 }
 

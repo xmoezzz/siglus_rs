@@ -11,10 +11,27 @@ enum Expr {
     ElmCode(i32),
     Chain(Vec<Expr>),
     Property(Vec<Expr>),
-    Command { chain: Vec<Expr>, arg_list_id: i32, args: Vec<Expr>, named_arg_ids: Vec<i32>, ret_form: i32 },
-    Unary { op: u8, expr: Box<Expr> },
-    Binary { op: u8, left: Box<Expr>, right: Box<Expr> },
-    Gosub { label: String, args: Vec<Expr>, ret_form: i32 },
+    Command {
+        chain: Vec<Expr>,
+        arg_list_id: i32,
+        args: Vec<Expr>,
+        named_arg_ids: Vec<i32>,
+        ret_form: i32,
+    },
+    Unary {
+        op: u8,
+        expr: Box<Expr>,
+    },
+    Binary {
+        op: u8,
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
+    Gosub {
+        label: String,
+        args: Vec<Expr>,
+        ret_form: i32,
+    },
 }
 
 impl Expr {
@@ -26,25 +43,62 @@ impl Expr {
             Expr::ElmCode(v) => symbols.elm_name(*v),
             Expr::Chain(items) => format_chain(items, symbols),
             Expr::Property(items) => format!("{}", format_chain(items, symbols)),
-            Expr::Command { chain, arg_list_id, args, named_arg_ids, ret_form } => {
+            Expr::Command {
+                chain,
+                arg_list_id,
+                args,
+                named_arg_ids,
+                ret_form,
+            } => {
                 let mut rendered = Vec::new();
                 let named_start = args.len().saturating_sub(named_arg_ids.len());
                 for (idx, arg) in args.iter().enumerate() {
                     if idx >= named_start {
                         let name_id = named_arg_ids.get(idx - named_start).copied().unwrap_or(-1);
-                        rendered.push(format!("/*named_arg_id={}*/ {}", name_id, arg.to_ss(symbols)));
+                        rendered.push(format!(
+                            "/*named_arg_id={}*/ {}",
+                            name_id,
+                            arg.to_ss(symbols)
+                        ));
                     } else {
                         rendered.push(arg.to_ss(symbols));
                     }
                 }
-                let ret = if *ret_form == FM_VOID { String::new() } else { format!(" /* ret={} */", symbols.form_name(*ret_form)) };
-                format!("{}({}){} /* al_id={} */", format_chain(chain, symbols), rendered.join(", "), ret, arg_list_id)
+                let ret = if *ret_form == FM_VOID {
+                    String::new()
+                } else {
+                    format!(" /* ret={} */", symbols.form_name(*ret_form))
+                };
+                format!(
+                    "{}({}){} /* al_id={} */",
+                    format_chain(chain, symbols),
+                    rendered.join(", "),
+                    ret,
+                    arg_list_id
+                )
             }
             Expr::Unary { op, expr } => format!("({}{})", op_name(*op), expr.to_ss(symbols)),
-            Expr::Binary { op, left, right } => format!("({} {} {})", left.to_ss(symbols), op_name(*op), right.to_ss(symbols)),
-            Expr::Gosub { label, args, ret_form } => {
-                let rendered = args.iter().map(|e| e.to_ss(symbols)).collect::<Vec<_>>().join(", ");
-                let kw = if *ret_form == FM_STR { "gosubstr" } else { "gosub" };
+            Expr::Binary { op, left, right } => format!(
+                "({} {} {})",
+                left.to_ss(symbols),
+                op_name(*op),
+                right.to_ss(symbols)
+            ),
+            Expr::Gosub {
+                label,
+                args,
+                ret_form,
+            } => {
+                let rendered = args
+                    .iter()
+                    .map(|e| e.to_ss(symbols))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let kw = if *ret_form == FM_STR {
+                    "gosubstr"
+                } else {
+                    "gosub"
+                };
                 format!("{}({}) {}", kw, rendered, label)
             }
         }
@@ -59,7 +113,13 @@ struct VmModel {
     sel_depth: usize,
 }
 
-fn handle_instruction(scene: &Scene, symbols: &SymbolTables, labels: &LabelNames, state: &mut VmModel, insn: &Instruction) -> Option<String> {
+fn handle_instruction(
+    scene: &Scene,
+    symbols: &SymbolTables,
+    labels: &LabelNames,
+    state: &mut VmModel,
+    insn: &Instruction,
+) -> Option<String> {
     match &insn.op {
         Op::None => Some(comment(insn, "CD_NONE")),
         Op::Nl { line } => {
@@ -76,13 +136,29 @@ fn handle_instruction(scene: &Scene, symbols: &SymbolTables, labels: &LabelNames
             None
         }
         Op::Pop { form } => {
-            let expr = state.stack.pop().unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
-            Some(format!("{}; // {} pop {}", expr.to_ss(symbols), offset_comment(insn), symbols.form_name(*form)))
+            let expr = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
+            Some(format!(
+                "{}; // {} pop {}",
+                expr.to_ss(symbols),
+                offset_comment(insn),
+                symbols.form_name(*form)
+            ))
         }
         Op::Copy { form } => {
-            let expr = state.stack.last().cloned().unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
+            let expr = state
+                .stack
+                .last()
+                .cloned()
+                .unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
             state.stack.push(expr);
-            Some(format!("// {} copy {}", offset_comment(insn), symbols.form_name(*form)))
+            Some(format!(
+                "// {} copy {}",
+                offset_comment(insn),
+                symbols.form_name(*form)
+            ))
         }
         Op::Property => {
             let chain = pop_element_chain(state);
@@ -96,56 +172,144 @@ fn handle_instruction(scene: &Scene, symbols: &SymbolTables, labels: &LabelNames
             Some(format!("// {} copy element", offset_comment(insn)))
         }
         Op::DecProp { form, prop_id } => {
-            let size = if *form == 11 || *form == 21 { state.stack.pop().map(|e| e.to_ss(symbols)).unwrap_or_else(|| "0".to_string()) } else { "0".to_string() };
-            Some(format!("property {}: {}; // prop_id={} size={} {}", call_prop_name(scene, *prop_id), symbols.form_name(*form), prop_id, size, offset_comment(insn)))
+            let size = if *form == 11 || *form == 21 {
+                state
+                    .stack
+                    .pop()
+                    .map(|e| e.to_ss(symbols))
+                    .unwrap_or_else(|| "0".to_string())
+            } else {
+                "0".to_string()
+            };
+            Some(format!(
+                "property {}: {}; // prop_id={} size={} {}",
+                call_prop_name(scene, *prop_id),
+                symbols.form_name(*form),
+                prop_id,
+                size,
+                offset_comment(insn)
+            ))
         }
         Op::ElmPoint => {
             state.element_points.push(state.stack.len());
             None
         }
         Op::Arg => Some(format!("// {} expand call arguments", offset_comment(insn))),
-        Op::Goto { label } => Some(format!("goto {}; // {}", labels.label(*label), offset_comment(insn))),
+        Op::Goto { label } => Some(format!(
+            "goto {}; // {}",
+            labels.label(*label),
+            offset_comment(insn)
+        )),
         Op::GotoTrue { label } => {
-            let cond = state.stack.pop().unwrap_or_else(|| Expr::Raw("<cond-underflow>".to_string()));
-            Some(format!("if ({}) goto {}; // {}", cond.to_ss(symbols), labels.label(*label), offset_comment(insn)))
+            let cond = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<cond-underflow>".to_string()));
+            Some(format!(
+                "if ({}) goto {}; // {}",
+                cond.to_ss(symbols),
+                labels.label(*label),
+                offset_comment(insn)
+            ))
         }
         Op::GotoFalse { label } => {
-            let cond = state.stack.pop().unwrap_or_else(|| Expr::Raw("<cond-underflow>".to_string()));
-            Some(format!("if (!({})) goto {}; // {}", cond.to_ss(symbols), labels.label(*label), offset_comment(insn)))
+            let cond = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<cond-underflow>".to_string()));
+            Some(format!(
+                "if (!({})) goto {}; // {}",
+                cond.to_ss(symbols),
+                labels.label(*label),
+                offset_comment(insn)
+            ))
         }
         Op::Gosub { label, arg_forms } => {
             let args = pop_n_args(state, arg_forms.len());
-            state.stack.push(Expr::Gosub { label: labels.label(*label), args, ret_form: FM_INT });
+            state.stack.push(Expr::Gosub {
+                label: labels.label(*label),
+                args,
+                ret_form: FM_INT,
+            });
             None
         }
         Op::GosubStr { label, arg_forms } => {
             let args = pop_n_args(state, arg_forms.len());
-            state.stack.push(Expr::Gosub { label: labels.label(*label), args, ret_form: FM_STR });
+            state.stack.push(Expr::Gosub {
+                label: labels.label(*label),
+                args,
+                ret_form: FM_STR,
+            });
             None
         }
         Op::Return { arg_forms } => {
             let args = pop_n_args(state, arg_forms.len());
-            let rendered = args.iter().map(|e| e.to_ss(symbols)).collect::<Vec<_>>().join(", ");
+            let rendered = args
+                .iter()
+                .map(|e| e.to_ss(symbols))
+                .collect::<Vec<_>>()
+                .join(", ");
             Some(format!("return({}); // {}", rendered, offset_comment(insn)))
         }
-        Op::Assign { left_form, right_form, arg_list_id } => {
-            let right = state.stack.pop().unwrap_or_else(|| Expr::Raw("<rhs-underflow>".to_string()));
+        Op::Assign {
+            left_form,
+            right_form,
+            arg_list_id,
+        } => {
+            let right = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<rhs-underflow>".to_string()));
             let left_chain = pop_element_chain(state);
             let left = format_chain(&left_chain, symbols);
-            Some(format!("{} = {}; // {} left={} right={} al_id={}", left, right.to_ss(symbols), offset_comment(insn), symbols.form_name(*left_form), symbols.form_name(*right_form), arg_list_id))
+            Some(format!(
+                "{} = {}; // {} left={} right={} al_id={}",
+                left,
+                right.to_ss(symbols),
+                offset_comment(insn),
+                symbols.form_name(*left_form),
+                symbols.form_name(*right_form),
+                arg_list_id
+            ))
         }
         Op::Operate1 { form: _, op } => {
-            let e = state.stack.pop().unwrap_or_else(|| Expr::Raw("<unary-underflow>".to_string()));
-            state.stack.push(Expr::Unary { op: *op, expr: Box::new(e) });
+            let e = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<unary-underflow>".to_string()));
+            state.stack.push(Expr::Unary {
+                op: *op,
+                expr: Box::new(e),
+            });
             None
         }
-        Op::Operate2 { left_form: _, right_form: _, op } => {
-            let right = state.stack.pop().unwrap_or_else(|| Expr::Raw("<rhs-underflow>".to_string()));
-            let left = state.stack.pop().unwrap_or_else(|| Expr::Raw("<lhs-underflow>".to_string()));
-            state.stack.push(Expr::Binary { op: *op, left: Box::new(left), right: Box::new(right) });
+        Op::Operate2 {
+            left_form: _,
+            right_form: _,
+            op,
+        } => {
+            let right = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<rhs-underflow>".to_string()));
+            let left = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<lhs-underflow>".to_string()));
+            state.stack.push(Expr::Binary {
+                op: *op,
+                left: Box::new(left),
+                right: Box::new(right),
+            });
             None
         }
-        Op::Command { arg_list_id, arg_forms, named_arg_ids, ret_form, .. } => {
+        Op::Command {
+            arg_list_id,
+            arg_forms,
+            named_arg_ids,
+            ret_form,
+            ..
+        } => {
             let args = pop_n_args(state, arg_forms.len());
             let chain = pop_element_chain(state);
             let command = Expr::Command {
@@ -159,35 +323,67 @@ fn handle_instruction(scene: &Scene, symbols: &SymbolTables, labels: &LabelNames
             None
         }
         Op::Text { read_flag } => {
-            let text = state.stack.pop().unwrap_or_else(|| Expr::Raw("<text-underflow>".to_string()));
+            let text = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<text-underflow>".to_string()));
             let rendered = match text {
                 Expr::Str(s) => s,
                 other => other.to_ss(symbols),
             };
-            Some(format!("{} // read_flag={} {}", rendered, read_flag, offset_comment(insn)))
+            Some(format!(
+                "{} // read_flag={} {}",
+                rendered,
+                read_flag,
+                offset_comment(insn)
+            ))
         }
         Op::Name => {
-            let name = state.stack.pop().unwrap_or_else(|| Expr::Raw("<name-underflow>".to_string()));
-            Some(format!("【{}】 // {}", strip_quotes(name.to_ss(symbols)), offset_comment(insn)))
+            let name = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<name-underflow>".to_string()));
+            Some(format!(
+                "【{}】 // {}",
+                strip_quotes(name.to_ss(symbols)),
+                offset_comment(insn)
+            ))
         }
         Op::SelBlockStart => {
             state.sel_depth += 1;
-            Some(format!("// {} selection block start depth={}", offset_comment(insn), state.sel_depth))
+            Some(format!(
+                "// {} selection block start depth={}",
+                offset_comment(insn),
+                state.sel_depth
+            ))
         }
         Op::SelBlockEnd => {
             let old = state.sel_depth;
             state.sel_depth = state.sel_depth.saturating_sub(1);
-            Some(format!("// {} selection block end depth={}", offset_comment(insn), old))
+            Some(format!(
+                "// {} selection block end depth={}",
+                offset_comment(insn),
+                old
+            ))
         }
         Op::Eof => Some(format!("eof; // {}", offset_comment(insn))),
-        Op::Unknown { code } => Some(format!("__cd_unknown(0x{:02X}); // {}", code, offset_comment(insn))),
+        Op::Unknown { code } => Some(format!(
+            "__cd_unknown(0x{:02X}); // {}",
+            code,
+            offset_comment(insn)
+        )),
     }
 }
 
 fn pop_n_args(state: &mut VmModel, n: usize) -> Vec<Expr> {
     let mut out = Vec::with_capacity(n);
     for _ in 0..n {
-        out.push(state.stack.pop().unwrap_or_else(|| Expr::Raw("<arg-underflow>".to_string())));
+        out.push(
+            state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<arg-underflow>".to_string())),
+        );
     }
     out.reverse();
     out
@@ -334,7 +530,14 @@ fn build_label_names(scene: &Scene) -> LabelNames {
 fn format_arg_form(form: &ArgForm, symbols: &SymbolTables) -> String {
     match form {
         ArgForm::Form(v) => symbols.form_name(*v),
-        ArgForm::List(forms) => format!("[{}]", forms.iter().map(|f| format_arg_form(f, symbols)).collect::<Vec<_>>().join(", ")),
+        ArgForm::List(forms) => format!(
+            "[{}]",
+            forms
+                .iter()
+                .map(|f| format_arg_form(f, symbols))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
     }
 }
 
@@ -365,7 +568,11 @@ pub fn emit_structured_ss(scene: &Scene, insns: &[Instruction], symbols: &Symbol
     }
     let flat = build_flat_stmts(scene, insns, symbols, &label_names);
     let label_pos = build_flat_label_pos(&flat);
-    let mut emitter = StructuredEmitter { flat: &flat, label_pos, out: String::new() };
+    let mut emitter = StructuredEmitter {
+        flat: &flat,
+        label_pos,
+        out: String::new(),
+    };
     emitter.emit_range(0, flat.len(), 0, &LoopCtx::default());
     out.push_str(&emitter.out);
     emit_string_table(scene, &mut out);
@@ -373,14 +580,21 @@ pub fn emit_structured_ss(scene: &Scene, insns: &[Instruction], symbols: &Symbol
 }
 
 fn emit_user_symbol_header(scene: &Scene, symbols: &SymbolTables, out: &mut String) {
-    out.push_str(&format!("// user_prop: inc_count={} scene_count={}\n", scene.pack_inc_prop_cnt, scene.scn_prop_names.len()));
+    out.push_str(&format!(
+        "// user_prop: inc_count={} scene_count={}\n",
+        scene.pack_inc_prop_cnt,
+        scene.scn_prop_names.len()
+    ));
     for (i, name) in scene.pack_inc_prop_names.iter().enumerate() {
         let (form, size) = scene
             .pack_inc_props
             .get(i)
             .map(|p| (symbols.form_name(p.form), p.size))
             .unwrap_or_else(|| ("unknown_form".to_string(), 0));
-        out.push_str(&format!("//   inc[{}] {}: {} size={}\n", i, name, form, size));
+        out.push_str(&format!(
+            "//   inc[{}] {}: {} size={}\n",
+            i, name, form, size
+        ));
     }
     for (i, name) in scene.scn_prop_names.iter().enumerate() {
         let user_id = scene.pack_inc_prop_cnt + i;
@@ -389,15 +603,27 @@ fn emit_user_symbol_header(scene: &Scene, symbols: &SymbolTables, out: &mut Stri
             .get(i)
             .map(|p| (symbols.form_name(p.form), p.size))
             .unwrap_or_else(|| ("unknown_form".to_string(), 0));
-        out.push_str(&format!("//   scene[{}] user_id={} {}: {} size={}\n", i, user_id, name, form, size));
+        out.push_str(&format!(
+            "//   scene[{}] user_id={} {}: {} size={}\n",
+            i, user_id, name, form, size
+        ));
     }
-    out.push_str(&format!("// user_cmd: inc_count={} scene_count={}\n", scene.pack_inc_cmd_cnt, scene.header.scn_cmd_name_cnt.max(0)));
+    out.push_str(&format!(
+        "// user_cmd: inc_count={} scene_count={}\n",
+        scene.pack_inc_cmd_cnt,
+        scene.header.scn_cmd_name_cnt.max(0)
+    ));
     for (i, name) in scene.pack_inc_cmd_names.iter().enumerate() {
         out.push_str(&format!("//   inc[{}] {}\n", i, name));
     }
     let local_cmd_name_cnt = scene.header.scn_cmd_name_cnt.max(0) as usize;
     for i in 0..local_cmd_name_cnt.min(scene.scn_cmd_names.len()) {
-        out.push_str(&format!("//   scene[{}] user_id={} {}\n", i, scene.pack_inc_cmd_cnt + i, &scene.scn_cmd_names[i]));
+        out.push_str(&format!(
+            "//   scene[{}] user_id={} {}\n",
+            i,
+            scene.pack_inc_cmd_cnt + i,
+            &scene.scn_cmd_names[i]
+        ));
     }
     out.push('\n');
 }
@@ -414,16 +640,27 @@ fn emit_string_table(scene: &Scene, out: &mut String) {
     }
 }
 
-fn build_flat_stmts(scene: &Scene, insns: &[Instruction], symbols: &SymbolTables, labels: &LabelNames) -> Vec<FlatStmt> {
+fn build_flat_stmts(
+    scene: &Scene,
+    insns: &[Instruction],
+    symbols: &SymbolTables,
+    labels: &LabelNames,
+) -> Vec<FlatStmt> {
     let mut labels_by_offset: BTreeMap<usize, Vec<String>> = BTreeMap::new();
     for (id, ofs) in scene.labels.iter().enumerate() {
         if *ofs >= 0 {
-            labels_by_offset.entry(*ofs as usize).or_default().push(labels.label(id as i32));
+            labels_by_offset
+                .entry(*ofs as usize)
+                .or_default()
+                .push(labels.label(id as i32));
         }
     }
     for (z, ofs) in scene.z_labels.iter().enumerate() {
         if *ofs > 0 {
-            labels_by_offset.entry(*ofs as usize).or_default().push(format!("#z{}", z));
+            labels_by_offset
+                .entry(*ofs as usize)
+                .or_default()
+                .push(format!("#z{}", z));
         }
     }
     for (i, cmd) in scene.scn_cmds.iter().enumerate() {
@@ -447,18 +684,30 @@ fn build_flat_stmts(scene: &Scene, insns: &[Instruction], symbols: &SymbolTables
             let mut seen = BTreeSet::new();
             for name in names {
                 if seen.insert(name.clone()) {
-                    out.push(FlatStmt { offset: insn.offset, kind: FlatKind::Label(name.clone()) });
+                    out.push(FlatStmt {
+                        offset: insn.offset,
+                        kind: FlatKind::Label(name.clone()),
+                    });
                 }
             }
         }
         if let Some(kind) = handle_instruction_flat(scene, symbols, labels, &mut state, insn) {
-            out.push(FlatStmt { offset: insn.offset, kind });
+            out.push(FlatStmt {
+                offset: insn.offset,
+                kind,
+            });
         }
     }
     out
 }
 
-fn handle_instruction_flat(scene: &Scene, symbols: &SymbolTables, labels: &LabelNames, state: &mut VmModel, insn: &Instruction) -> Option<FlatKind> {
+fn handle_instruction_flat(
+    scene: &Scene,
+    symbols: &SymbolTables,
+    labels: &LabelNames,
+    state: &mut VmModel,
+    insn: &Instruction,
+) -> Option<FlatKind> {
     match &insn.op {
         Op::None => None,
         Op::Nl { line } => {
@@ -475,11 +724,22 @@ fn handle_instruction_flat(scene: &Scene, symbols: &SymbolTables, labels: &Label
             None
         }
         Op::Pop { form } => {
-            let expr = state.stack.pop().unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
-            Some(FlatKind::Line(format!("{}; // pop {}", expr.to_ss(symbols), symbols.form_name(*form))))
+            let expr = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
+            Some(FlatKind::Line(format!(
+                "{}; // pop {}",
+                expr.to_ss(symbols),
+                symbols.form_name(*form)
+            )))
         }
         Op::Copy { form: _ } => {
-            let expr = state.stack.last().cloned().unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
+            let expr = state
+                .stack
+                .last()
+                .cloned()
+                .unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
             state.stack.push(expr);
             None
         }
@@ -496,11 +756,21 @@ fn handle_instruction_flat(scene: &Scene, symbols: &SymbolTables, labels: &Label
         }
         Op::DecProp { form, prop_id } => {
             let size = if *form == FM_INTLIST || *form == FM_STRLIST {
-                state.stack.pop().map(|e| e.to_ss(symbols)).unwrap_or_else(|| "0".to_string())
+                state
+                    .stack
+                    .pop()
+                    .map(|e| e.to_ss(symbols))
+                    .unwrap_or_else(|| "0".to_string())
             } else {
                 "0".to_string()
             };
-            Some(FlatKind::Line(format!("property {}: {}; // prop_id={} size={}", call_prop_name(scene, *prop_id), symbols.form_name(*form), prop_id, size)))
+            Some(FlatKind::Line(format!(
+                "property {}: {}; // prop_id={} size={}",
+                call_prop_name(scene, *prop_id),
+                symbols.form_name(*form),
+                prop_id,
+                size
+            )))
         }
         Op::ElmPoint => {
             state.element_points.push(state.stack.len());
@@ -509,50 +779,111 @@ fn handle_instruction_flat(scene: &Scene, symbols: &SymbolTables, labels: &Label
         Op::Arg => Some(FlatKind::Line("__expand_args();".to_string())),
         Op::Goto { label } => Some(FlatKind::Goto(labels.label(*label))),
         Op::GotoTrue { label } => {
-            let cond = state.stack.pop().unwrap_or_else(|| Expr::Raw("<cond-underflow>".to_string()));
-            Some(FlatKind::IfTrue { cond: cond.to_ss(symbols), target: labels.label(*label) })
+            let cond = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<cond-underflow>".to_string()));
+            Some(FlatKind::IfTrue {
+                cond: cond.to_ss(symbols),
+                target: labels.label(*label),
+            })
         }
         Op::GotoFalse { label } => {
-            let cond = state.stack.pop().unwrap_or_else(|| Expr::Raw("<cond-underflow>".to_string()));
-            Some(FlatKind::IfFalse { cond: cond.to_ss(symbols), target: labels.label(*label) })
+            let cond = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<cond-underflow>".to_string()));
+            Some(FlatKind::IfFalse {
+                cond: cond.to_ss(symbols),
+                target: labels.label(*label),
+            })
         }
         Op::Gosub { label, arg_forms } => {
             let args = pop_n_args(state, arg_forms.len());
-            state.stack.push(Expr::Gosub { label: labels.label(*label), args, ret_form: FM_INT });
+            state.stack.push(Expr::Gosub {
+                label: labels.label(*label),
+                args,
+                ret_form: FM_INT,
+            });
             None
         }
         Op::GosubStr { label, arg_forms } => {
             let args = pop_n_args(state, arg_forms.len());
-            state.stack.push(Expr::Gosub { label: labels.label(*label), args, ret_form: FM_STR });
+            state.stack.push(Expr::Gosub {
+                label: labels.label(*label),
+                args,
+                ret_form: FM_STR,
+            });
             None
         }
         Op::Return { arg_forms } => {
             let args = pop_n_args(state, arg_forms.len());
-            let rendered = args.iter().map(|e| e.to_ss(symbols)).collect::<Vec<_>>().join(", ");
+            let rendered = args
+                .iter()
+                .map(|e| e.to_ss(symbols))
+                .collect::<Vec<_>>()
+                .join(", ");
             if rendered.is_empty() {
                 Some(FlatKind::Line("return;".to_string()))
             } else {
                 Some(FlatKind::Line(format!("return({});", rendered)))
             }
         }
-        Op::Assign { left_form: _, right_form: _, arg_list_id: _ } => {
-            let right = state.stack.pop().unwrap_or_else(|| Expr::Raw("<rhs-underflow>".to_string()));
+        Op::Assign {
+            left_form: _,
+            right_form: _,
+            arg_list_id: _,
+        } => {
+            let right = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<rhs-underflow>".to_string()));
             let left_chain = pop_element_chain(state);
             let left = format_chain(&left_chain, symbols);
-            Some(FlatKind::Line(format!("{} = {};", left, right.to_ss(symbols))))
+            Some(FlatKind::Line(format!(
+                "{} = {};",
+                left,
+                right.to_ss(symbols)
+            )))
         }
         Op::Operate1 { form: _, op } => {
-            let e = state.stack.pop().unwrap_or_else(|| Expr::Raw("<unary-underflow>".to_string()));
-            state.stack.push(Expr::Unary { op: *op, expr: Box::new(e) });
+            let e = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<unary-underflow>".to_string()));
+            state.stack.push(Expr::Unary {
+                op: *op,
+                expr: Box::new(e),
+            });
             None
         }
-        Op::Operate2 { left_form: _, right_form: _, op } => {
-            let right = state.stack.pop().unwrap_or_else(|| Expr::Raw("<rhs-underflow>".to_string()));
-            let left = state.stack.pop().unwrap_or_else(|| Expr::Raw("<lhs-underflow>".to_string()));
-            state.stack.push(Expr::Binary { op: *op, left: Box::new(left), right: Box::new(right) });
+        Op::Operate2 {
+            left_form: _,
+            right_form: _,
+            op,
+        } => {
+            let right = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<rhs-underflow>".to_string()));
+            let left = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<lhs-underflow>".to_string()));
+            state.stack.push(Expr::Binary {
+                op: *op,
+                left: Box::new(left),
+                right: Box::new(right),
+            });
             None
         }
-        Op::Command { arg_list_id, arg_forms, named_arg_ids, ret_form, .. } => {
+        Op::Command {
+            arg_list_id,
+            arg_forms,
+            named_arg_ids,
+            ret_form,
+            ..
+        } => {
             let args = pop_n_args(state, arg_forms.len());
             let chain = pop_element_chain(state);
             let command = Expr::Command {
@@ -566,16 +897,28 @@ fn handle_instruction_flat(scene: &Scene, symbols: &SymbolTables, labels: &Label
             None
         }
         Op::Text { read_flag } => {
-            let text = state.stack.pop().unwrap_or_else(|| Expr::Raw("<text-underflow>".to_string()));
+            let text = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<text-underflow>".to_string()));
             let rendered = match text {
                 Expr::Str(s) => s,
                 other => other.to_ss(symbols),
             };
-            Some(FlatKind::Line(format!("{} // read_flag={}", rendered, read_flag)))
+            Some(FlatKind::Line(format!(
+                "{} // read_flag={}",
+                rendered, read_flag
+            )))
         }
         Op::Name => {
-            let name = state.stack.pop().unwrap_or_else(|| Expr::Raw("<name-underflow>".to_string()));
-            Some(FlatKind::Line(format!("【{}】", strip_quotes(name.to_ss(symbols)))))
+            let name = state
+                .stack
+                .pop()
+                .unwrap_or_else(|| Expr::Raw("<name-underflow>".to_string()));
+            Some(FlatKind::Line(format!(
+                "【{}】",
+                strip_quotes(name.to_ss(symbols))
+            )))
         }
         Op::SelBlockStart => Some(FlatKind::Line("{ // selection".to_string())),
         Op::SelBlockEnd => Some(FlatKind::Line("} // selection".to_string())),
@@ -672,7 +1015,10 @@ impl<'a> StructuredEmitter<'a> {
             return None;
         }
         self.write(indent, &format!("while ({}) {{", cond));
-        let ctx = LoopCtx { continue_target: Some(loop_label), break_target: Some(out_label.clone()) };
+        let ctx = LoopCtx {
+            continue_target: Some(loop_label),
+            break_target: Some(out_label.clone()),
+        };
         self.emit_range(i + 1, back_idx, indent + 1, &ctx);
         self.write(indent, "}");
         Some(self.skip_labels(out_pos))
@@ -706,7 +1052,10 @@ impl<'a> StructuredEmitter<'a> {
             return None;
         }
         self.write(indent, &format!("for (; {}; ) {{", cond));
-        let ctx = LoopCtx { continue_target: Some(loop_label), break_target: Some(out_label.clone()) };
+        let ctx = LoopCtx {
+            continue_target: Some(loop_label),
+            break_target: Some(out_label.clone()),
+        };
         self.emit_range(cond_idx + 1, back_idx, indent + 1, &ctx);
         if i + 1 < cond_label_pos {
             self.emit_range(i + 1, cond_label_pos, indent + 1, &ctx);
@@ -715,7 +1064,13 @@ impl<'a> StructuredEmitter<'a> {
         Some(self.skip_labels(out_pos))
     }
 
-    fn try_emit_if(&mut self, i: usize, end: usize, indent: usize, loop_ctx: &LoopCtx) -> Option<usize> {
+    fn try_emit_if(
+        &mut self,
+        i: usize,
+        end: usize,
+        indent: usize,
+        loop_ctx: &LoopCtx,
+    ) -> Option<usize> {
         let (cond, false_label) = match &self.flat[i].kind {
             FlatKind::IfFalse { cond, target } => (cond.clone(), target.clone()),
             _ => return None,

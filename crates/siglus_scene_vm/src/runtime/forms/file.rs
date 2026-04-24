@@ -74,7 +74,8 @@ fn strlist_key_from_value(value: &Value) -> Option<u32> {
 fn handle_load_txt(ctx: &mut CommandContext, params: &[Value]) -> Result<bool> {
     let file_name = params.get(0).and_then(|v| v.as_str()).unwrap_or("");
     let Some(target_key) = params.get(1).and_then(strlist_key_from_value) else {
-        ctx.unknown.record_note("FILE.LOAD_TXT missing STRLIST target");
+        ctx.unknown
+            .record_note("FILE.LOAD_TXT missing STRLIST target");
         ctx.push(Value::Int(0));
         return Ok(true);
     };
@@ -83,7 +84,8 @@ fn handle_load_txt(ctx: &mut CommandContext, params: &[Value]) -> Result<bool> {
         ctx.push(Value::Int(0));
         return Ok(true);
     }
-    let Some(path) = resolve_text_file_path(&ctx.project_dir, &ctx.globals.append_dir, file_name) else {
+    let Some(path) = resolve_text_file_path(&ctx.project_dir, &ctx.globals.append_dir, file_name)
+    else {
         ctx.unknown
             .record_note(&format!("FILE.LOAD_TXT missing file:{file_name}"));
         ctx.push(Value::Int(0));
@@ -110,7 +112,11 @@ fn preload_omv(ctx: &mut CommandContext, name: &str) {
     if name.is_empty() {
         return;
     }
-    match crate::resource::find_omv_path_with_append_dir(&ctx.project_dir, &ctx.globals.append_dir, name) {
+    match crate::resource::find_omv_path_with_append_dir(
+        &ctx.project_dir,
+        &ctx.globals.append_dir,
+        name,
+    ) {
         Ok(path) => match fs::File::open(&path) {
             Ok(mut file) => {
                 use std::io::Read;
@@ -125,7 +131,8 @@ fn preload_omv(ctx: &mut CommandContext, name: &str) {
             }
         },
         Err(e) => {
-            ctx.unknown.record_note(&format!("FILE.PRELOAD_OMV failed:{name}:{e}"));
+            ctx.unknown
+                .record_note(&format!("FILE.PRELOAD_OMV failed:{name}:{e}"));
         }
     }
 }

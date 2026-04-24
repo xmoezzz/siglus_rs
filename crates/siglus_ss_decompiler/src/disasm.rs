@@ -14,31 +14,78 @@ pub struct Instruction {
 #[derive(Debug, Clone)]
 pub enum Op {
     None,
-    Nl { line: i32 },
-    Push { form: i32, value: i32 },
-    Pop { form: i32 },
-    Copy { form: i32 },
+    Nl {
+        line: i32,
+    },
+    Push {
+        form: i32,
+        value: i32,
+    },
+    Pop {
+        form: i32,
+    },
+    Copy {
+        form: i32,
+    },
     Property,
     CopyElm,
-    DecProp { form: i32, prop_id: i32 },
+    DecProp {
+        form: i32,
+        prop_id: i32,
+    },
     ElmPoint,
     Arg,
-    Goto { label: i32 },
-    GotoTrue { label: i32 },
-    GotoFalse { label: i32 },
-    Gosub { label: i32, arg_forms: Vec<ArgForm> },
-    GosubStr { label: i32, arg_forms: Vec<ArgForm> },
-    Return { arg_forms: Vec<ArgForm> },
-    Assign { left_form: i32, right_form: i32, arg_list_id: i32 },
-    Operate1 { form: i32, op: u8 },
-    Operate2 { left_form: i32, right_form: i32, op: u8 },
-    Command { arg_list_id: i32, arg_count: i32, arg_forms: Vec<ArgForm>, named_arg_ids: Vec<i32>, ret_form: i32 },
-    Text { read_flag: i32 },
+    Goto {
+        label: i32,
+    },
+    GotoTrue {
+        label: i32,
+    },
+    GotoFalse {
+        label: i32,
+    },
+    Gosub {
+        label: i32,
+        arg_forms: Vec<ArgForm>,
+    },
+    GosubStr {
+        label: i32,
+        arg_forms: Vec<ArgForm>,
+    },
+    Return {
+        arg_forms: Vec<ArgForm>,
+    },
+    Assign {
+        left_form: i32,
+        right_form: i32,
+        arg_list_id: i32,
+    },
+    Operate1 {
+        form: i32,
+        op: u8,
+    },
+    Operate2 {
+        left_form: i32,
+        right_form: i32,
+        op: u8,
+    },
+    Command {
+        arg_list_id: i32,
+        arg_count: i32,
+        arg_forms: Vec<ArgForm>,
+        named_arg_ids: Vec<i32>,
+        ret_form: i32,
+    },
+    Text {
+        read_flag: i32,
+    },
     Name,
     SelBlockStart,
     SelBlockEnd,
     Eof,
-    Unknown { code: u8 },
+    Unknown {
+        code: u8,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -176,7 +223,10 @@ fn successors(scene: &Scene, insn: &Instruction, next_pc: usize) -> Successors {
         Op::Return { .. } | Op::Eof => None,
         _ => Some(next_pc),
     };
-    Successors { fallthrough, extra_targets }
+    Successors {
+        fallthrough,
+        extra_targets,
+    }
 }
 
 fn label_target(scene: &Scene, label: i32, insn_offset: usize) -> Result<usize> {
@@ -219,18 +269,36 @@ fn decode_one(r: &mut Reader<'_>, offset: usize) -> Result<Instruction> {
     let code_byte = r.read_u8()?;
     let op = match code_byte {
         CD_NONE => Op::None,
-        CD_NL => Op::Nl { line: r.read_i32()? },
-        CD_PUSH => Op::Push { form: r.read_i32()?, value: r.read_i32()? },
-        CD_POP => Op::Pop { form: r.read_i32()? },
-        CD_COPY => Op::Copy { form: r.read_i32()? },
+        CD_NL => Op::Nl {
+            line: r.read_i32()?,
+        },
+        CD_PUSH => Op::Push {
+            form: r.read_i32()?,
+            value: r.read_i32()?,
+        },
+        CD_POP => Op::Pop {
+            form: r.read_i32()?,
+        },
+        CD_COPY => Op::Copy {
+            form: r.read_i32()?,
+        },
         CD_PROPERTY => Op::Property,
         CD_COPY_ELM => Op::CopyElm,
-        CD_DEC_PROP => Op::DecProp { form: r.read_i32()?, prop_id: r.read_i32()? },
+        CD_DEC_PROP => Op::DecProp {
+            form: r.read_i32()?,
+            prop_id: r.read_i32()?,
+        },
         CD_ELM_POINT => Op::ElmPoint,
         CD_ARG => Op::Arg,
-        CD_GOTO => Op::Goto { label: r.read_i32()? },
-        CD_GOTO_TRUE => Op::GotoTrue { label: r.read_i32()? },
-        CD_GOTO_FALSE => Op::GotoFalse { label: r.read_i32()? },
+        CD_GOTO => Op::Goto {
+            label: r.read_i32()?,
+        },
+        CD_GOTO_TRUE => Op::GotoTrue {
+            label: r.read_i32()?,
+        },
+        CD_GOTO_FALSE => Op::GotoFalse {
+            label: r.read_i32()?,
+        },
         CD_GOSUB => {
             let label = r.read_i32()?;
             let arg_forms = read_arg_form_list(r, "CD_GOSUB")?;
@@ -245,25 +313,47 @@ fn decode_one(r: &mut Reader<'_>, offset: usize) -> Result<Instruction> {
             let arg_forms = read_arg_form_list(r, "CD_RETURN")?;
             Op::Return { arg_forms }
         }
-        CD_ASSIGN => Op::Assign { left_form: r.read_i32()?, right_form: r.read_i32()?, arg_list_id: r.read_i32()? },
-        CD_OPERATE_1 => Op::Operate1 { form: r.read_i32()?, op: r.read_u8()? },
-        CD_OPERATE_2 => Op::Operate2 { left_form: r.read_i32()?, right_form: r.read_i32()?, op: r.read_u8()? },
+        CD_ASSIGN => Op::Assign {
+            left_form: r.read_i32()?,
+            right_form: r.read_i32()?,
+            arg_list_id: r.read_i32()?,
+        },
+        CD_OPERATE_1 => Op::Operate1 {
+            form: r.read_i32()?,
+            op: r.read_u8()?,
+        },
+        CD_OPERATE_2 => Op::Operate2 {
+            left_form: r.read_i32()?,
+            right_form: r.read_i32()?,
+            op: r.read_u8()?,
+        },
         CD_COMMAND => {
             let arg_list_id = r.read_i32()?;
             let arg_forms = read_arg_form_list(r, "CD_COMMAND")?;
             let arg_count_i32 = arg_forms.len() as i32;
             let named_count = r.read_i32()?;
             if named_count < 0 {
-                return Err(Error::with_offset("CD_COMMAND has negative named arg count", offset));
+                return Err(Error::with_offset(
+                    "CD_COMMAND has negative named arg count",
+                    offset,
+                ));
             }
             let mut named_arg_ids = Vec::with_capacity(named_count as usize);
             for _ in 0..named_count {
                 named_arg_ids.push(r.read_i32()?);
             }
             let ret_form = r.read_i32()?;
-            Op::Command { arg_list_id, arg_count: arg_count_i32, arg_forms, named_arg_ids, ret_form }
+            Op::Command {
+                arg_list_id,
+                arg_count: arg_count_i32,
+                arg_forms,
+                named_arg_ids,
+                ret_form,
+            }
         }
-        CD_TEXT => Op::Text { read_flag: r.read_i32()? },
+        CD_TEXT => Op::Text {
+            read_flag: r.read_i32()?,
+        },
         CD_NAME => Op::Name,
         CD_SEL_BLOCK_START => Op::SelBlockStart,
         CD_SEL_BLOCK_END => Op::SelBlockEnd,
@@ -275,7 +365,11 @@ fn decode_one(r: &mut Reader<'_>, offset: usize) -> Result<Instruction> {
             ));
         }
     };
-    Ok(Instruction { offset, code: code_byte, op })
+    Ok(Instruction {
+        offset,
+        code: code_byte,
+        op,
+    })
 }
 
 fn read_nonnegative_count(r: &mut Reader<'_>, what: &str) -> Result<usize> {

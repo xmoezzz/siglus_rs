@@ -44,11 +44,11 @@ pub fn dispatch(ctx: &mut CommandContext, _args: &[Value]) -> Result<bool> {
             Ok(true)
         }
         o if o == ctx.ids.keylist_op_clear as i64 => {
-            ctx.input.clear_keyboard();
+            ctx.script_input.clear_keyboard();
             Ok(true)
         }
         o if o == ctx.ids.keylist_op_next as i64 => {
-            ctx.input.next_keyboard_frame();
+            ctx.script_input.next_keyboard_frame();
             Ok(true)
         }
         _ => Ok(false),

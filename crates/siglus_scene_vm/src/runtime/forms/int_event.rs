@@ -172,9 +172,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
     match post {
         PostAction::Push(v) => ctx.push(v),
-        PostAction::Wait { index, key_skip } => {
-            ctx.wait.wait_generic_int_event(form_id, index, key_skip, key_skip)
-        }
+        PostAction::Wait { index, key_skip } => ctx
+            .wait
+            .wait_generic_int_event(form_id, index, key_skip, key_skip),
     }
     Ok(true)
 }

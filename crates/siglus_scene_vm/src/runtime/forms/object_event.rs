@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 
-use crate::runtime::forms::codes::{elm_value, FM_OBJECTEVENT, FM_OBJECTEVENTLIST, ELM_ARRAY};
+use crate::runtime::forms::codes::{elm_value, ELM_ARRAY, FM_OBJECTEVENT, FM_OBJECTEVENTLIST};
 use crate::runtime::globals::{ObjectEventTarget, ObjectState, StageFormState};
 use crate::runtime::{CommandContext, Value};
 
@@ -22,7 +22,10 @@ fn object_runtime_slot(idx: usize, obj: &ObjectState) -> usize {
     obj.runtime_slot_or(idx)
 }
 
-fn find_object_by_runtime_slot<'a>(objects: &'a [ObjectState], runtime_slot: usize) -> Option<&'a ObjectState> {
+fn find_object_by_runtime_slot<'a>(
+    objects: &'a [ObjectState],
+    runtime_slot: usize,
+) -> Option<&'a ObjectState> {
     for (idx, obj) in objects.iter().enumerate() {
         if object_runtime_slot(idx, obj) == runtime_slot {
             return Some(obj);
@@ -43,7 +46,9 @@ fn find_object_by_runtime_slot_mut<'a>(
         if object_runtime_slot(idx, obj) == runtime_slot {
             return Some(obj);
         }
-        if let Some(found) = find_object_by_runtime_slot_mut(&mut obj.runtime.child_objects, runtime_slot) {
+        if let Some(found) =
+            find_object_by_runtime_slot_mut(&mut obj.runtime.child_objects, runtime_slot)
+        {
             return Some(found);
         }
         objects = tail;
@@ -218,8 +223,12 @@ fn dispatch_object_event_on_runtime_slot(
                 .unwrap_or(false)
         };
         if active {
-            ctx.wait
-                .wait_object_all_events(ctx.ids.form_global_stage, stage_idx, runtime_slot, false);
+            ctx.wait.wait_object_all_events(
+                ctx.ids.form_global_stage,
+                stage_idx,
+                runtime_slot,
+                false,
+            );
         }
         default_push(ctx);
         return Ok(true);
@@ -275,7 +284,10 @@ fn dispatch_object_event_on_runtime_slot(
         return Ok(false);
     };
     let Some(ev) = obj.runtime.prop_events.get_mut(target) else {
-        bail!("OBJECTEVENT target {:?} is not backed by an object IntEvent", target);
+        bail!(
+            "OBJECTEVENT target {:?} is not backed by an object IntEvent",
+            target
+        );
     };
 
     if is_set_op(op) {
@@ -345,7 +357,9 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
 }
 
 pub fn dispatch_list(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
-    let Some((chain_pos, chain)) = prop_access::parse_element_chain_ctx(ctx, FM_OBJECTEVENTLIST as u32, args) else {
+    let Some((chain_pos, chain)) =
+        prop_access::parse_element_chain_ctx(ctx, FM_OBJECTEVENTLIST as u32, args)
+    else {
         return Ok(false);
     };
     if chain.len() < 3 {
@@ -361,7 +375,10 @@ pub fn dispatch_list(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     }
 
     if chain[2] < 0 {
-        bail!("OBJECTEVENTLIST.ARRAY index must be non-negative: {}", chain[2]);
+        bail!(
+            "OBJECTEVENTLIST.ARRAY index must be non-negative: {}",
+            chain[2]
+        );
     }
 
     let Some((stage_idx, _ambient_runtime_slot)) = ctx.globals.current_stage_object else {
@@ -376,7 +393,8 @@ pub fn dispatch_list(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
         let Some(st) = ctx.globals.stage_forms.get(&stage_form) else {
             return Ok(false);
         };
-        let Some(runtime_slot) = object_runtime_slot_by_stage_index(st, stage_idx, object_idx) else {
+        let Some(runtime_slot) = object_runtime_slot_by_stage_index(st, stage_idx, object_idx)
+        else {
             bail!(
                 "OBJECTEVENTLIST.ARRAY[{}] has no object in stage {}",
                 object_idx,

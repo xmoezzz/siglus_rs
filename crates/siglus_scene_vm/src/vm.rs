@@ -5,8 +5,10 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::elm_code;
+use crate::runtime::globals::{
+    ObjectFrameActionState, PendingButtonAction, PendingButtonActionKind, PendingFrameActionFinish,
+};
 use crate::runtime::{self, constants, CommandContext, Value};
-use crate::runtime::globals::{ObjectFrameActionState, PendingButtonAction, PendingButtonActionKind, PendingFrameActionFinish};
 use crate::scene_stream::SceneStream;
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
@@ -20,7 +22,6 @@ const CD_COPY_ELM: u8 = constants::cd::COPY_ELM;
 const CD_DEC_PROP: u8 = constants::cd::DEC_PROP;
 const CD_ELM_POINT: u8 = constants::cd::ELM_POINT;
 const CD_ARG: u8 = constants::cd::ARG;
-
 
 const CD_GOTO: u8 = constants::cd::GOTO;
 const CD_GOTO_TRUE: u8 = constants::cd::GOTO_TRUE;
@@ -220,6 +221,8 @@ pub struct SceneVm<'a> {
 
     // When a command triggers a VM wait (movie wait-key etc.), its return value is produced when the wait completes.
     delayed_ret_form: Option<i32>,
+    script_input_synced_this_frame: bool,
+    yield_safe_after_step: bool,
 
     user_cmd_names: std::collections::HashMap<u32, String>,
     call_cmd_names: std::collections::HashMap<u32, String>,
@@ -322,6 +325,8 @@ impl<'a> SceneVm<'a> {
             steps: 0,
             halted: false,
             delayed_ret_form: None,
+            script_input_synced_this_frame: false,
+            yield_safe_after_step: false,
             user_cmd_names,
             call_cmd_names: std::collections::HashMap::new(),
             scene_pck_cache: None,
@@ -362,6 +367,8 @@ impl<'a> SceneVm<'a> {
             steps: 0,
             halted: false,
             delayed_ret_form: None,
+            script_input_synced_this_frame: false,
+            yield_safe_after_step: false,
             user_cmd_names,
             call_cmd_names: std::collections::HashMap::new(),
             scene_pck_cache: None,
@@ -390,7 +397,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn vm_trace_matches(&self) -> bool {
-        self.current_scene_name.as_deref() == Some("sys10_tt01") && self.current_line_no == 397
+        std::env::var_os("SIGLUS_TRACE_VM").is_some()
     }
 
     fn vm_trace_stack_summary(&self) -> String {
@@ -399,7 +406,8 @@ impl<'a> SceneVm<'a> {
         let int_tail = &self.int_stack[int_tail_start..];
         let _ = write!(
             &mut out,
-            "int_len={} str_len={} elm_points={:?} int_tail={:?}",
+            "call_depth={} int_len={} str_len={} elm_points={:?} int_tail={:?}",
+            self.call_stack.len(),
             self.int_stack.len(),
             self.str_stack.len(),
             self.element_points,
@@ -545,7 +553,6 @@ impl<'a> SceneVm<'a> {
         let saved_int_stack = self.int_stack.clone();
         let saved_str_stack = self.str_stack.clone();
         let saved_element_points = self.element_points.clone();
-        let inline_wait_generation = self.ctx.wait.block_generation();
 
         if let Some(caller) = self.call_stack.last_mut() {
             caller.return_pc = return_pc;
@@ -594,12 +601,6 @@ impl<'a> SceneVm<'a> {
                     _ => {}
                 }
             }
-            if self.call_stack.len() > base_depth {
-                let wait_created_by_inline = self.ctx.wait.block_generation() != inline_wait_generation;
-                if wait_created_by_inline && self.ctx.wait_poll() {
-                    break;
-                }
-            }
             budget -= 1;
         }
 
@@ -607,21 +608,18 @@ impl<'a> SceneVm<'a> {
             self.int_stack = saved_int_stack;
             self.str_stack = saved_str_stack;
             self.element_points = saved_element_points;
-
-            if !frame_action_proc {
-                if self.halted && !saved_halted {
-                    self.halted = false;
-                    self.stream.set_prg_cntr(saved_pc)?;
-                }
-                if self.call_stack.len() > base_depth {
-                    self.call_stack.truncate(base_depth);
-                }
-                if let (Some((return_pc, ret_form)), Some(caller)) =
-                    (saved_caller_return, self.call_stack.last_mut())
-                {
-                    caller.return_pc = return_pc;
-                    caller.ret_form = ret_form;
-                }
+            if self.halted && !saved_halted {
+                self.halted = false;
+                self.stream.set_prg_cntr(saved_pc)?;
+            }
+            if self.call_stack.len() > base_depth {
+                self.call_stack.truncate(base_depth);
+            }
+            if let (Some((return_pc, ret_form)), Some(caller)) =
+                (saved_caller_return, self.call_stack.last_mut())
+            {
+                caller.return_pc = return_pc;
+                caller.ret_form = ret_form;
             }
         }
 
@@ -645,7 +643,10 @@ impl<'a> SceneVm<'a> {
         self.ensure_scene_pck_cache()?;
         if !self.scene_stream_cache.contains_key(&scene_no) {
             let chunk = {
-                let pck = self.scene_pck_cache.as_ref().expect("scene pck cache initialized");
+                let pck = self
+                    .scene_pck_cache
+                    .as_ref()
+                    .expect("scene pck cache initialized");
                 pck.scn_data_slice(scene_no)?.to_vec()
             };
             let chunk_leaked: &'static [u8] = Box::leak(chunk.into_boxed_slice());
@@ -679,7 +680,10 @@ impl<'a> SceneVm<'a> {
             );
         }
         let (target_call_cmd_names, target_scene_name) = {
-            let pck = self.scene_pck_cache.as_ref().expect("scene pck cache initialized");
+            let pck = self
+                .scene_pck_cache
+                .as_ref()
+                .expect("scene pck cache initialized");
             (
                 pck.inc_cmd_name_map.clone(),
                 pck.find_scene_name(target_scene_no).map(ToOwned::to_owned),
@@ -688,8 +692,10 @@ impl<'a> SceneVm<'a> {
 
         let saved_stream = std::mem::replace(&mut self.stream, target_stream);
         let target_user_cmd_names = self.stream.scn_cmd_name_map.clone();
-        let saved_user_cmd_names = std::mem::replace(&mut self.user_cmd_names, target_user_cmd_names);
-        let saved_call_cmd_names = std::mem::replace(&mut self.call_cmd_names, target_call_cmd_names);
+        let saved_user_cmd_names =
+            std::mem::replace(&mut self.user_cmd_names, target_user_cmd_names);
+        let saved_call_cmd_names =
+            std::mem::replace(&mut self.call_cmd_names, target_call_cmd_names);
         let saved_current_scene_no = self.current_scene_no;
         let saved_current_scene_name = self.current_scene_name.clone();
         let saved_current_line_no = self.current_line_no;
@@ -697,6 +703,7 @@ impl<'a> SceneVm<'a> {
         let saved_ctx_scene_name = self.ctx.current_scene_name.clone();
         let saved_ctx_line_no = self.ctx.current_line_no;
         let saved_halted = self.halted;
+        let saved_user_props = std::mem::take(&mut self.user_props);
 
         self.current_scene_no = Some(target_scene_no);
         self.current_scene_name = target_scene_name;
@@ -729,6 +736,7 @@ impl<'a> SceneVm<'a> {
         self.ctx.current_scene_name = saved_ctx_scene_name;
         self.ctx.current_line_no = saved_ctx_line_no;
         self.halted = saved_halted;
+        self.user_props = saved_user_props;
         result
     }
 
@@ -758,7 +766,11 @@ impl<'a> SceneVm<'a> {
                 return Ok(false);
             };
             let cmd_no = match self.user_cmd_names.iter().find_map(|(no, name)| {
-                if name.eq_ignore_ascii_case(cmd_name) { Some(*no as usize) } else { None }
+                if name.eq_ignore_ascii_case(cmd_name) {
+                    Some(*no as usize)
+                } else {
+                    None
+                }
             }) {
                 Some(v) => v,
                 None => {
@@ -798,17 +810,23 @@ impl<'a> SceneVm<'a> {
             if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
                 eprintln!(
                     "[SG_FRAME_ACTION_CALL] target scene not found: scn_name={} cmd={}",
-                    name,
-                    cmd_name
+                    name, cmd_name
                 );
             }
             return Ok(false);
         };
 
         let target_stream = self.cached_scene_stream(target_scene_no)?;
-        let cmd_no = match target_stream.scn_cmd_name_map.iter().find_map(|(no, name)| {
-            if name.eq_ignore_ascii_case(cmd_name) { Some(*no as usize) } else { None }
-        }) {
+        let cmd_no = match target_stream
+            .scn_cmd_name_map
+            .iter()
+            .find_map(|(no, name)| {
+                if name.eq_ignore_ascii_case(cmd_name) {
+                    Some(*no as usize)
+                } else {
+                    None
+                }
+            }) {
             Some(v) => v,
             None => {
                 if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
@@ -861,13 +879,16 @@ impl<'a> SceneVm<'a> {
         // in the stored scene.
         if Some(target_scene_no) == self.current_scene_no {
             let Some(cmd_no) = self.user_cmd_names.iter().find_map(|(no, name)| {
-                if name.eq_ignore_ascii_case(cmd_name) { Some(*no as usize) } else { None }
+                if name.eq_ignore_ascii_case(cmd_name) {
+                    Some(*no as usize)
+                } else {
+                    None
+                }
             }) else {
                 if std::env::var_os("SG_DEBUG").is_some() {
                     eprintln!(
                         "[SG_DEBUG][BUTTON] user command not found for ex-call: scene={:?} cmd={}",
-                        scn_name,
-                        cmd_name
+                        scn_name, cmd_name
                     );
                 }
                 return Ok(false);
@@ -886,9 +907,17 @@ impl<'a> SceneVm<'a> {
         }
 
         let target_stream = self.cached_scene_stream(target_scene_no)?;
-        let Some(cmd_no) = target_stream.scn_cmd_name_map.iter().find_map(|(no, name)| {
-            if name.eq_ignore_ascii_case(cmd_name) { Some(*no as usize) } else { None }
-        }) else {
+        let Some(cmd_no) = target_stream
+            .scn_cmd_name_map
+            .iter()
+            .find_map(|(no, name)| {
+                if name.eq_ignore_ascii_case(cmd_name) {
+                    Some(*no as usize)
+                } else {
+                    None
+                }
+            })
+        else {
             if std::env::var_os("SG_DEBUG").is_some() {
                 eprintln!(
                     "[SG_DEBUG][BUTTON] target user command not found for ex-call: target_scene={} scn_name={:?} cmd={}",
@@ -974,9 +1003,19 @@ impl<'a> SceneVm<'a> {
 
         self.stream = target_stream;
         self.user_cmd_names = self.stream.scn_cmd_name_map.clone();
-        self.call_cmd_names = self.scene_pck_cache.as_ref().expect("scene pck cache initialized").inc_cmd_name_map.clone();
+        self.call_cmd_names = self
+            .scene_pck_cache
+            .as_ref()
+            .expect("scene pck cache initialized")
+            .inc_cmd_name_map
+            .clone();
         self.current_scene_no = Some(target_scene_no);
-        self.current_scene_name = self.scene_pck_cache.as_ref().expect("scene pck cache initialized").find_scene_name(target_scene_no).map(ToOwned::to_owned);
+        self.current_scene_name = self
+            .scene_pck_cache
+            .as_ref()
+            .expect("scene pck cache initialized")
+            .find_scene_name(target_scene_no)
+            .map(ToOwned::to_owned);
         self.current_line_no = -1;
         self.ctx.current_scene_no = Some(target_scene_no as i64);
         self.ctx.current_scene_name = self.current_scene_name.clone();
@@ -1031,8 +1070,10 @@ impl<'a> SceneVm<'a> {
         let saved_stream = std::mem::replace(&mut self.stream, target_stream);
         let target_user_cmd_names = self.stream.scn_cmd_name_map.clone();
         let target_call_cmd_names = pck.inc_cmd_name_map.clone();
-        let saved_user_cmd_names = std::mem::replace(&mut self.user_cmd_names, target_user_cmd_names);
-        let saved_call_cmd_names = std::mem::replace(&mut self.call_cmd_names, target_call_cmd_names);
+        let saved_user_cmd_names =
+            std::mem::replace(&mut self.user_cmd_names, target_user_cmd_names);
+        let saved_call_cmd_names =
+            std::mem::replace(&mut self.call_cmd_names, target_call_cmd_names);
         let saved_current_scene_no = self.current_scene_no;
         let saved_current_scene_name = self.current_scene_name.clone();
         let saved_current_line_no = self.current_line_no;
@@ -1040,6 +1081,7 @@ impl<'a> SceneVm<'a> {
         let saved_ctx_scene_name = self.ctx.current_scene_name.clone();
         let saved_ctx_line_no = self.ctx.current_line_no;
         let saved_halted = self.halted;
+        let saved_user_props = std::mem::take(&mut self.user_props);
 
         self.current_scene_no = Some(target_scene_no);
         self.current_scene_name = pck.find_scene_name(target_scene_no).map(ToOwned::to_owned);
@@ -1072,6 +1114,7 @@ impl<'a> SceneVm<'a> {
         self.ctx.current_scene_name = saved_ctx_scene_name;
         self.ctx.current_line_no = saved_ctx_line_no;
         self.halted = saved_halted;
+        self.user_props = saved_user_props;
         result
     }
 
@@ -1094,8 +1137,8 @@ impl<'a> SceneVm<'a> {
                 object_chain: Some(object_chain.clone()),
                 frame_action_chain: Some(frame_action_chain),
                 scn_name: fa.scn_name.clone(),
-                    cmd_name: fa.cmd_name.clone(),
-                    args: fa.args.clone(),
+                cmd_name: fa.cmd_name.clone(),
+                args: fa.args.clone(),
                 count: fa.counter.get_count(),
                 end_time: fa.end_time,
             });
@@ -1103,7 +1146,8 @@ impl<'a> SceneVm<'a> {
         for (ch_idx, ch) in obj.frame_action_ch.iter().enumerate() {
             if !ch.cmd_name.is_empty() {
                 let mut frame_action_chain = object_chain.clone();
-                frame_action_chain.push(crate::runtime::forms::codes::elm_value::OBJECT_FRAME_ACTION_CH);
+                frame_action_chain
+                    .push(crate::runtime::forms::codes::elm_value::OBJECT_FRAME_ACTION_CH);
                 frame_action_chain.push(crate::runtime::forms::codes::ELM_ARRAY);
                 frame_action_chain.push(ch_idx as i32);
                 out.push(FrameActionWork {
@@ -1137,7 +1181,6 @@ impl<'a> SceneVm<'a> {
             }
         }
     }
-
 
     fn object_from_frame_action_chain_mut<'b>(
         objects: &'b mut [crate::runtime::globals::ObjectState],
@@ -1193,7 +1236,8 @@ impl<'a> SceneVm<'a> {
             let Some(objects) = st.object_lists.get_mut(&stage_idx) else {
                 continue;
             };
-            let Some(obj) = Self::object_from_frame_action_chain_mut(objects, chain, elm_array) else {
+            let Some(obj) = Self::object_from_frame_action_chain_mut(objects, chain, elm_array)
+            else {
                 continue;
             };
             if let Some(idx) = item.ch_idx {
@@ -1204,7 +1248,10 @@ impl<'a> SceneVm<'a> {
         None
     }
 
-    fn begin_frame_action_finish(&mut self, item: &FrameActionWork) -> Option<(String, Vec<Value>)> {
+    fn begin_frame_action_finish(
+        &mut self,
+        item: &FrameActionWork,
+    ) -> Option<(String, Vec<Value>)> {
         self.with_frame_action_mut(item, |fa| {
             if fa.cmd_name.is_empty() || fa.end_time < 0 {
                 return None;
@@ -1271,7 +1318,10 @@ impl<'a> SceneVm<'a> {
         let Some(st) = self.ctx.globals.stage_forms.get_mut(&stage_form) else {
             return top_idx;
         };
-        let next_slot = st.next_nested_object_slot.entry(stage_idx).or_insert(100000);
+        let next_slot = st
+            .next_nested_object_slot
+            .entry(stage_idx)
+            .or_insert(100000);
         let Some(list) = st.object_lists.get_mut(&stage_idx) else {
             return top_idx;
         };
@@ -1283,7 +1333,10 @@ impl<'a> SceneVm<'a> {
         let mut obj = &mut list[top_idx];
         let mut pos = 6usize;
         while pos + 2 < chain.len() {
-            if chain[pos] == object_child && (chain[pos + 1] == elm_array || chain[pos + 1] == crate::runtime::forms::codes::ELM_ARRAY) {
+            if chain[pos] == object_child
+                && (chain[pos + 1] == elm_array
+                    || chain[pos + 1] == crate::runtime::forms::codes::ELM_ARRAY)
+            {
                 let child_idx = chain[pos + 2].max(0) as usize;
                 if obj.runtime.child_objects.len() <= child_idx {
                     obj.runtime
@@ -1301,7 +1354,10 @@ impl<'a> SceneVm<'a> {
         slot
     }
 
-    fn set_frame_action_current_object(&mut self, item: &FrameActionWork) -> (Option<(i64, usize)>, Option<Vec<i32>>) {
+    fn set_frame_action_current_object(
+        &mut self,
+        item: &FrameActionWork,
+    ) -> (Option<(i64, usize)>, Option<Vec<i32>>) {
         let prev_target = self.ctx.globals.current_stage_object;
         let prev_chain = self.ctx.globals.current_object_chain.clone();
         if let Some(chain) = item.object_chain.clone() {
@@ -1325,7 +1381,10 @@ impl<'a> SceneVm<'a> {
         self.ctx.globals.current_object_chain = prev_chain;
     }
 
-    fn frame_action_work_from_pending_finish(&self, pending: &PendingFrameActionFinish) -> FrameActionWork {
+    fn frame_action_work_from_pending_finish(
+        &self,
+        pending: &PendingFrameActionFinish,
+    ) -> FrameActionWork {
         let object_chain = pending.object_chain.clone();
         let (stage_idx, obj_idx) = object_chain
             .as_ref()
@@ -1341,7 +1400,8 @@ impl<'a> SceneVm<'a> {
         let ch_idx = if let Some(chain) = object_chain.as_ref() {
             let base = chain.len();
             if pending.frame_action_chain.len() >= base + 3
-                && pending.frame_action_chain[base] == crate::runtime::forms::codes::elm_value::OBJECT_FRAME_ACTION_CH
+                && pending.frame_action_chain[base]
+                    == crate::runtime::forms::codes::elm_value::OBJECT_FRAME_ACTION_CH
                 && pending.frame_action_chain[base + 1] == crate::runtime::forms::codes::ELM_ARRAY
             {
                 Some(pending.frame_action_chain[base + 2].max(0) as usize)
@@ -1357,7 +1417,11 @@ impl<'a> SceneVm<'a> {
         };
 
         let global_form_id = if object_chain.is_none() {
-            pending.frame_action_chain.first().copied().map(|v| v as u32)
+            pending
+                .frame_action_chain
+                .first()
+                .copied()
+                .map(|v| v as u32)
         } else {
             None
         };
@@ -1382,7 +1446,11 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
         let item = self.frame_action_work_from_pending_finish(&pending);
-        let final_count = if pending.end_time == -1 { 0 } else { pending.end_time };
+        let final_count = if pending.end_time == -1 {
+            0
+        } else {
+            pending.end_time
+        };
         let _ = self.with_frame_action_mut(&item, |fa| {
             // C_elm_frame_action::finish clears the active command before invoking
             // the end action, sets the end-action flag, and leaves any new
@@ -1401,21 +1469,33 @@ impl<'a> SceneVm<'a> {
             &pending.args,
         );
         let (prev_target, prev_chain) = self.set_frame_action_current_object(&item);
-        let result = self.run_scene_user_cmd_inline(Some(&pending.scn_name), &pending.cmd_name, &call_args, true);
+        let result = self.run_scene_user_cmd_inline(
+            Some(&pending.scn_name),
+            &pending.cmd_name,
+            &call_args,
+            true,
+        );
         self.restore_frame_action_current_object(prev_target, prev_chain);
 
         let _ = self.with_frame_action_mut(&item, |fa| {
             fa.end_flag = false;
         });
         if let Err(e) = result {
-            self.ctx.unknown.record_note(&format!("frame_action.finish.failed:{}:{}:{e}", pending.scn_name, pending.cmd_name));
+            self.ctx.unknown.record_note(&format!(
+                "frame_action.finish.failed:{}:{}:{e}",
+                pending.scn_name, pending.cmd_name
+            ));
         }
         Ok(())
     }
 
     fn run_pending_button_action(&mut self, action: PendingButtonAction) -> Result<()> {
         match action.kind {
-            PendingButtonActionKind::UserCall { scn_name, cmd_name, z_no } => {
+            PendingButtonActionKind::UserCall {
+                scn_name,
+                cmd_name,
+                z_no,
+            } => {
                 if scn_name.is_empty() {
                     return Ok(());
                 }
@@ -1428,17 +1508,32 @@ impl<'a> SceneVm<'a> {
                 if !cmd_name.is_empty() {
                     let _ = self.enter_scene_user_cmd_call(Some(&scn_name), &cmd_name, &[])?;
                 } else if z_no >= 0 {
-                    self.farcall_scene_name_ex(&scn_name, z_no as i32, self.cfg.fm_void, true, &[])?;
+                    self.farcall_scene_name_ex(
+                        &scn_name,
+                        z_no as i32,
+                        self.cfg.fm_void,
+                        true,
+                        &[],
+                    )?;
                 }
             }
-            PendingButtonActionKind::Syscom { sys_type, sys_type_opt, mode } => {
+            PendingButtonActionKind::Syscom {
+                sys_type,
+                sys_type_opt,
+                mode,
+            } => {
                 self.run_pending_button_syscom_action(sys_type, sys_type_opt, mode)?;
             }
         }
         Ok(())
     }
 
-    fn run_pending_button_syscom_action(&mut self, sys_type: i64, sys_type_opt: i64, mode: i64) -> Result<()> {
+    fn run_pending_button_syscom_action(
+        &mut self,
+        sys_type: i64,
+        sys_type_opt: i64,
+        mode: i64,
+    ) -> Result<()> {
         use crate::runtime::forms::codes::syscom_op;
         use crate::runtime::forms::codes::FM_SYSCOM;
         let op = match sys_type {
@@ -1466,8 +1561,16 @@ impl<'a> SceneVm<'a> {
             5 => vec![Value::Int(1), Value::Int(1), Value::Int(1)],
             7 | 8 | 11 => Vec::new(),
             9 => vec![Value::Int(sys_type_opt), Value::Int(1), Value::Int(1)],
-            10 => vec![Value::Int(sys_type_opt), Value::Int(1), Value::Int(1), Value::Int(1)],
-            12 | 14 => vec![Value::Int(sys_type_opt), Value::Int(if mode == 0 { 1 } else { 0 })],
+            10 => vec![
+                Value::Int(sys_type_opt),
+                Value::Int(1),
+                Value::Int(1),
+                Value::Int(1),
+            ],
+            12 | 14 => vec![
+                Value::Int(sys_type_opt),
+                Value::Int(if mode == 0 { 1 } else { 0 }),
+            ],
             13 | 15 => vec![Value::Int(sys_type_opt), Value::Int(mode + 1)],
             _ => Vec::new(),
         };
@@ -1518,14 +1621,6 @@ impl<'a> SceneVm<'a> {
                 self.current_scene_name()
             );
         }
-        self.ctx.tick_frame();
-        if trace {
-            eprintln!(
-                "[SG_TICK_TRACE] after ctx.tick_frame blocked={} halted={}",
-                self.is_blocked(),
-                self.halted
-            );
-        }
         self.drain_pending_button_actions()?;
         if self.ctx.globals.script.frame_action_time_stop_flag && trace {
             eprintln!(
@@ -1533,7 +1628,8 @@ impl<'a> SceneVm<'a> {
             );
         }
         let mut work: Vec<FrameActionWork> = Vec::new();
-        let mut global_form_ids: Vec<u32> = self.ctx.globals.frame_actions.keys().copied().collect();
+        let mut global_form_ids: Vec<u32> =
+            self.ctx.globals.frame_actions.keys().copied().collect();
         global_form_ids.sort_unstable();
         for form_id in global_form_ids {
             let Some(fa) = self.ctx.globals.frame_actions.get(&form_id) else {
@@ -1555,7 +1651,13 @@ impl<'a> SceneVm<'a> {
                 });
             }
         }
-        let mut global_list_form_ids: Vec<u32> = self.ctx.globals.frame_action_lists.keys().copied().collect();
+        let mut global_list_form_ids: Vec<u32> = self
+            .ctx
+            .globals
+            .frame_action_lists
+            .keys()
+            .copied()
+            .collect();
         global_list_form_ids.sort_unstable();
         for form_id in global_list_form_ids {
             let Some(list) = self.ctx.globals.frame_action_lists.get(&form_id) else {
@@ -1569,7 +1671,11 @@ impl<'a> SceneVm<'a> {
                         ch_idx: Some(idx),
                         global_form_id: Some(form_id),
                         object_chain: None,
-                        frame_action_chain: Some(vec![form_id as i32, crate::runtime::forms::codes::ELM_ARRAY, idx as i32]),
+                        frame_action_chain: Some(vec![
+                            form_id as i32,
+                            crate::runtime::forms::codes::ELM_ARRAY,
+                            idx as i32,
+                        ]),
                         scn_name: fa.scn_name.clone(),
                         cmd_name: fa.cmd_name.clone(),
                         args: fa.args.clone(),
@@ -1637,8 +1743,16 @@ impl<'a> SceneVm<'a> {
                 &item.args,
             );
             let (prev_target, prev_chain) = self.set_frame_action_current_object(&item);
-            if let Err(e) = self.run_scene_user_cmd_inline(Some(&item.scn_name), &item.cmd_name, &call_args, true) {
-                self.ctx.unknown.record_note(&format!("frame_action.call.failed:{}:{}:{e}", item.scn_name, item.cmd_name));
+            if let Err(e) = self.run_scene_user_cmd_inline(
+                Some(&item.scn_name),
+                &item.cmd_name,
+                &call_args,
+                true,
+            ) {
+                self.ctx.unknown.record_note(&format!(
+                    "frame_action.call.failed:{}:{}:{e}",
+                    item.scn_name, item.cmd_name
+                ));
             }
             self.restore_frame_action_current_object(prev_target, prev_chain);
 
@@ -1660,13 +1774,30 @@ impl<'a> SceneVm<'a> {
                     &finish_args,
                 );
                 let (prev_target, prev_chain) = self.set_frame_action_current_object(&item);
-                if let Err(e) = self.run_scene_user_cmd_inline(Some(&item.scn_name), &finish_cmd_name, &finish_call_args, true) {
-                    self.ctx.unknown.record_note(&format!("frame_action.finish_call.failed:{}:{}:{e}", item.scn_name, finish_cmd_name));
+                if let Err(e) = self.run_scene_user_cmd_inline(
+                    Some(&item.scn_name),
+                    &finish_cmd_name,
+                    &finish_call_args,
+                    true,
+                ) {
+                    self.ctx.unknown.record_note(&format!(
+                        "frame_action.finish_call.failed:{}:{}:{e}",
+                        item.scn_name, finish_cmd_name
+                    ));
                 }
                 self.restore_frame_action_current_object(prev_target, prev_chain);
                 self.end_frame_action_finish(&item);
             }
-            }
+        }
+        self.ctx.tick_frame();
+        if trace {
+            eprintln!(
+                "[SG_TICK_TRACE] after ctx.tick_frame blocked={} halted={}",
+                self.is_blocked(),
+                self.halted
+            );
+        }
+        self.script_input_synced_this_frame = false;
         Ok(())
     }
 
@@ -1754,7 +1885,59 @@ impl<'a> SceneVm<'a> {
         self.step_inner(true)
     }
 
+    fn can_yield_script_proc(&self) -> bool {
+        self.int_stack.is_empty()
+            && self.str_stack.is_empty()
+            && self.element_points.is_empty()
+            && self.ctx.stack.is_empty()
+    }
+
+    pub fn run_script_proc_slice(&mut self, soft_budget: usize) -> Result<bool> {
+        if self.halted {
+            return Ok(false);
+        }
+        if self.is_blocked() {
+            return Ok(true);
+        }
+        // This guard is for runaway execution within one script-proc slice, not
+        // a cumulative lifetime budget. The original engine keeps running across
+        // many frames; accumulating the counter forever makes long-lived title
+        // loops look like false "infinite loop" failures.
+        self.steps = 0;
+        if !self.script_input_synced_this_frame {
+            self.ctx.sync_script_input_from_runtime();
+            // C++ keeps script input as a stable per-frame snapshot. Consume
+            // runtime edge stocks only after taking that snapshot, so OS events
+            // delivered between VM frames are not erased by the render/tick pass
+            // before scene code can query mouse.left.on_* or key.on_*.
+            self.ctx.input.next_frame();
+            self.script_input_synced_this_frame = true;
+        }
+
+        let mut executed = 0usize;
+        let hard_budget = soft_budget.max(1).saturating_mul(4096).max(1_000_000);
+        loop {
+            let running = self.step_inner(true)?;
+            if !running || self.halted {
+                return Ok(running);
+            }
+            executed = executed.saturating_add(1);
+
+            if self.is_blocked() {
+                return Ok(true);
+            }
+
+            if executed >= hard_budget {
+                bail!(
+                    "script proc exceeded hard budget={} without reaching a wait/yield boundary",
+                    hard_budget
+                );
+            }
+        }
+    }
+
     fn step_inner(&mut self, respect_wait: bool) -> Result<bool> {
+        self.yield_safe_after_step = false;
         if self.halted {
             return Ok(false);
         }
@@ -1775,9 +1958,18 @@ impl<'a> SceneVm<'a> {
         }
 
         if self.cfg.max_steps > 0 && self.steps >= self.cfg.max_steps {
+            let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
+            let scene_no = self
+                .current_scene_no
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "-".to_string());
             bail!(
-                "VM reached SIGLUS_VM_MAX_STEPS={} (possible infinite loop)",
-                self.cfg.max_steps
+                "VM reached SIGLUS_VM_MAX_STEPS={} (possible infinite loop) scene={} scene_no={} line={} pc=0x{:x}",
+                self.cfg.max_steps,
+                scene,
+                scene_no,
+                self.current_line_no,
+                self.stream.get_prg_cntr()
             );
         }
         self.steps += 1;
@@ -1801,6 +1993,15 @@ impl<'a> SceneVm<'a> {
                 let line_no = self.stream.pop_i32()?;
                 self.current_line_no = line_no;
                 self.ctx.current_line_no = line_no as i64;
+                self.yield_safe_after_step = true;
+                // Compact element continuation is statement-local, but some title/menu code
+                // keeps a base object element alive across `NL` boundaries and continues to use
+                // compact child/property syntax on the following line. So we only drop the
+                // continuation context when there is no live element on the VM stack anymore.
+                if self.element_points.is_empty() {
+                    self.ctx.globals.current_object_chain = None;
+                    self.ctx.globals.current_stage_object = None;
+                }
             }
 
             CD_PUSH => {
@@ -1818,7 +2019,10 @@ impl<'a> SceneVm<'a> {
 
             CD_ELM_POINT => {
                 self.element_points.push(self.int_stack.len());
-                self.vm_trace(None, format!("ELM_POINT push start={} ", self.int_stack.len()));
+                self.vm_trace(
+                    None,
+                    format!("ELM_POINT push start={} ", self.int_stack.len()),
+                );
             }
             CD_COPY_ELM => {
                 self.exec_copy_element()?;
@@ -1882,7 +2086,8 @@ impl<'a> SceneVm<'a> {
                 };
 
                 if frame_action_proc {
-                    if forms.first().copied() != Some(crate::runtime::forms::codes::FM_FRAMEACTION) {
+                    if forms.first().copied() != Some(crate::runtime::forms::codes::FM_FRAMEACTION)
+                    {
                         bail!("frame_action CD_ARG requires first argument to be FM_FRAMEACTION");
                     }
                     if actual_arg_cnt != forms.len() {
@@ -2066,7 +2271,14 @@ impl<'a> SceneVm<'a> {
                 }
 
                 let ret_form = self.stream.pop_i32()?;
+                let block_generation = self.ctx.wait.block_generation();
                 self.exec_command(elm, arg_list_id, ret_form, &mut args)?;
+                if respect_wait
+                    && self.ctx.wait.block_generation() != block_generation
+                    && self.ctx.wait_poll()
+                {
+                    return Ok(true);
+                }
             }
             CD_TEXT => {
                 let _rf_flag_no = self.stream.pop_i32()?;
@@ -2208,7 +2420,14 @@ impl<'a> SceneVm<'a> {
             }
         };
         if start > self.int_stack.len() {
-            self.vm_trace(None, format!("pop_element invalid start={} len={}", start, self.int_stack.len()));
+            self.vm_trace(
+                None,
+                format!(
+                    "pop_element invalid start={} len={}",
+                    start,
+                    self.int_stack.len()
+                ),
+            );
             bail!(
                 "invalid element point start={start} len={}",
                 self.int_stack.len()
@@ -2237,18 +2456,40 @@ impl<'a> SceneVm<'a> {
                 let decl = &pck.inc_props[prop_idx];
                 return Some((decl.form, decl.size.max(0) as usize));
             }
-            let local_idx = prop_idx.saturating_sub(pck.inc_props.len());
-            let list_ofs = self.stream.header.scn_prop_list_ofs.max(0) as usize;
-            let cnt = self.stream.header.scn_prop_cnt.max(0) as usize;
-            if local_idx < cnt {
-                let off = list_ofs.checked_add(local_idx * 8)?;
-                if off + 8 <= self.stream.chunk.len() {
-                    let form = i32::from_le_bytes(self.stream.chunk[off..off + 4].try_into().unwrap());
-                    let size = i32::from_le_bytes(self.stream.chunk[off + 4..off + 8].try_into().unwrap());
-                    return Some((form, size.max(0) as usize));
-                }
+        } else if prop_idx < self.stream.header.scn_prop_cnt.max(0) as usize {
+            // Some VM/unit-test entry points construct a SceneVm directly from
+            // one scene chunk and do not eagerly load Scene.pck metadata.  In
+            // that mode the bytecode still numbers the shared/inc properties
+            // from zero, and this scene chunk carries the matching declarations
+            // in its own prop table.  Treat them as authoritative until the
+            // pack cache is available; otherwise scalar input/menu variables
+            // are mis-created as generic lists and title clicks never latch.
+            let off = (self.stream.header.scn_prop_list_ofs.max(0) as usize)
+                .checked_add(prop_idx * 8)?;
+            if off + 8 <= self.stream.chunk.len() {
+                let form = i32::from_le_bytes(self.stream.chunk[off..off + 4].try_into().unwrap());
+                let size =
+                    i32::from_le_bytes(self.stream.chunk[off + 4..off + 8].try_into().unwrap());
+                return Some((form, size.max(0) as usize));
             }
-            return None;
+        }
+
+        let local_idx = prop_idx.saturating_sub(
+            self.scene_pck_cache
+                .as_ref()
+                .map(|pck| pck.inc_props.len())
+                .unwrap_or(0),
+        );
+        let list_ofs = self.stream.header.scn_prop_list_ofs.max(0) as usize;
+        let cnt = self.stream.header.scn_prop_cnt.max(0) as usize;
+        if local_idx < cnt {
+            let off = list_ofs.checked_add(local_idx * 8)?;
+            if off + 8 <= self.stream.chunk.len() {
+                let form = i32::from_le_bytes(self.stream.chunk[off..off + 4].try_into().unwrap());
+                let size =
+                    i32::from_le_bytes(self.stream.chunk[off + 4..off + 8].try_into().unwrap());
+                return Some((form, size.max(0) as usize));
+            }
         }
         None
     }
@@ -2267,7 +2508,9 @@ impl<'a> SceneVm<'a> {
     }
 
     fn default_user_prop_cell(&self, prop_id: u16) -> UserPropCell {
-        let (form, size) = self.user_prop_decl(prop_id).unwrap_or((self.cfg.fm_list, 0));
+        let (form, size) = self
+            .user_prop_decl(prop_id)
+            .unwrap_or((self.cfg.fm_list, 0));
         let mut cell = UserPropCell::new(form, self.default_user_prop_element(prop_id, form));
         if form == self.cfg.fm_intlist {
             cell.int_list = vec![0; size];
@@ -2276,7 +2519,10 @@ impl<'a> SceneVm<'a> {
         } else if form == self.cfg.fm_list && size > 0 {
             let mut items = Vec::with_capacity(size);
             for i in 0..size {
-                let mut slot = UserPropCell::new(self.cfg.fm_list, self.default_user_prop_slot_element(prop_id, i));
+                let mut slot = UserPropCell::new(
+                    self.cfg.fm_list,
+                    self.default_user_prop_slot_element(prop_id, i),
+                );
                 slot.form = self.cfg.fm_list;
                 items.push(slot);
             }
@@ -2312,10 +2558,16 @@ impl<'a> SceneVm<'a> {
             Value::List(items) => {
                 if declared_form == self.cfg.fm_intlist {
                     cell.form = self.cfg.fm_intlist;
-                    cell.int_list = items.into_iter().map(|item| item.as_i64().unwrap_or(0) as i32).collect();
+                    cell.int_list = items
+                        .into_iter()
+                        .map(|item| item.as_i64().unwrap_or(0) as i32)
+                        .collect();
                 } else if declared_form == self.cfg.fm_strlist {
                     cell.form = self.cfg.fm_strlist;
-                    cell.str_list = items.into_iter().map(|item| item.as_str().unwrap_or("").to_string()).collect();
+                    cell.str_list = items
+                        .into_iter()
+                        .map(|item| item.as_str().unwrap_or("").to_string())
+                        .collect();
                 } else {
                     cell.form = self.cfg.fm_list;
                     let mut out = Vec::with_capacity(items.len());
@@ -2325,7 +2577,12 @@ impl<'a> SceneVm<'a> {
                         } else {
                             vec![]
                         };
-                        out.push(self.user_prop_cell_from_value(item, self.cfg.fm_list, slot_element, prop_id));
+                        out.push(self.user_prop_cell_from_value(
+                            item,
+                            self.cfg.fm_list,
+                            slot_element,
+                            prop_id,
+                        ));
                     }
                     cell.list_items = out;
                 }
@@ -2343,18 +2600,30 @@ impl<'a> SceneVm<'a> {
     }
 
     fn intlist_bit_get(values: &[i32], bit: i32, index: usize) -> i32 {
-        let word = values.get(index / (32 / bit as usize)).copied().unwrap_or(0) as u32;
+        let word = values
+            .get(index / (32 / bit as usize))
+            .copied()
+            .unwrap_or(0) as u32;
         let shift = (index % (32 / bit as usize)) * bit as usize;
         let mask = ((1u32 << bit) - 1) << shift;
         ((word & mask) >> shift) as i32
     }
 
-    fn intlist_dispatch_read(&mut self, values: &[i32], sub: &[i32], fallback_element: &[i32]) -> Result<()> {
+    fn intlist_dispatch_read(
+        &mut self,
+        values: &[i32],
+        sub: &[i32],
+        fallback_element: &[i32],
+    ) -> Result<()> {
         use crate::runtime::forms::codes::{
             ELM_ARRAY, ELM_INTLIST_BIT, ELM_INTLIST_BIT16, ELM_INTLIST_BIT2, ELM_INTLIST_BIT4,
             ELM_INTLIST_BIT8, ELM_INTLIST_GET_SIZE,
         };
-        let sub = if sub.len() == 1 && self.call_array_marker(sub[0]) { &[][..] } else { sub };
+        let sub = if sub.len() == 1 && self.call_array_marker(sub[0]) {
+            &[][..]
+        } else {
+            sub
+        };
         if sub.is_empty() {
             self.push_element(fallback_element.to_vec());
             return Ok(());
@@ -2370,7 +2639,8 @@ impl<'a> SceneVm<'a> {
             ELM_INTLIST_GET_SIZE => {
                 self.push_int(values.len() as i32);
             }
-            ELM_INTLIST_BIT | ELM_INTLIST_BIT2 | ELM_INTLIST_BIT4 | ELM_INTLIST_BIT8 | ELM_INTLIST_BIT16 => {
+            ELM_INTLIST_BIT | ELM_INTLIST_BIT2 | ELM_INTLIST_BIT4 | ELM_INTLIST_BIT8
+            | ELM_INTLIST_BIT16 => {
                 let bit = match sub[0] {
                     ELM_INTLIST_BIT => 1,
                     ELM_INTLIST_BIT2 => 2,
@@ -2394,10 +2664,21 @@ impl<'a> SceneVm<'a> {
         Ok(())
     }
 
-    fn push_user_prop_cell_result(&mut self, cell: &UserPropCell, sub: &[i32], full_elm: &[i32]) -> Result<()> {
-        use crate::runtime::forms::codes::{ELM_STRLIST_GET_SIZE, FM_INTLISTREF, FM_INTREF, FM_STRLISTREF, FM_STRREF};
+    fn push_user_prop_cell_result(
+        &mut self,
+        cell: &UserPropCell,
+        sub: &[i32],
+        full_elm: &[i32],
+    ) -> Result<()> {
+        use crate::runtime::forms::codes::{
+            ELM_STRLIST_GET_SIZE, FM_INTLISTREF, FM_INTREF, FM_STRLISTREF, FM_STRREF,
+        };
 
-        let sub = if sub.len() == 1 && self.call_array_marker(sub[0]) { &[][..] } else { sub };
+        let sub = if sub.len() == 1 && self.call_array_marker(sub[0]) {
+            &[][..]
+        } else {
+            sub
+        };
         if cell.form == self.cfg.fm_int && sub.is_empty() {
             self.push_int(cell.int_value);
             return Ok(());
@@ -2430,7 +2711,10 @@ impl<'a> SceneVm<'a> {
             }
             return Ok(());
         }
-        if matches!(cell.form, FM_INTREF | FM_STRREF | FM_INTLISTREF | FM_STRLISTREF) {
+        if matches!(
+            cell.form,
+            FM_INTREF | FM_STRREF | FM_INTLISTREF | FM_STRLISTREF
+        ) {
             self.push_element(cell.element.clone());
             return Ok(());
         }
@@ -2438,7 +2722,10 @@ impl<'a> SceneVm<'a> {
             let slot = if let Some(slot) = cell.list_items.get(idx) {
                 slot.clone()
             } else {
-                let mut tmp = UserPropCell::new(self.cfg.fm_list, self.default_user_prop_slot_element(elm_code::code(full_elm[0]), idx));
+                let mut tmp = UserPropCell::new(
+                    self.cfg.fm_list,
+                    self.default_user_prop_slot_element(elm_code::code(full_elm[0]), idx),
+                );
                 tmp.form = self.cfg.fm_list;
                 tmp
             };
@@ -2527,13 +2814,22 @@ impl<'a> SceneVm<'a> {
         frame.user_props.iter().position(|p| p.prop_id == prop_id)
     }
 
-    fn push_call_prop_result(&mut self, prop: &CallProp, sub: &[i32], full_elm: &[i32]) -> Result<()> {
+    fn push_call_prop_result(
+        &mut self,
+        prop: &CallProp,
+        sub: &[i32],
+        full_elm: &[i32],
+    ) -> Result<()> {
         use crate::runtime::forms::codes::{
             ELM_ARRAY, ELM_STRLIST_GET_SIZE, FM_INT, FM_INTLIST, FM_INTLISTREF, FM_INTREF, FM_STR,
             FM_STRLIST, FM_STRLISTREF, FM_STRREF,
         };
 
-        let sub = if sub.len() == 1 && self.call_array_marker(sub[0]) { &[][..] } else { sub };
+        let sub = if sub.len() == 1 && self.call_array_marker(sub[0]) {
+            &[][..]
+        } else {
+            sub
+        };
         match prop.form {
             FM_INT if sub.is_empty() => {
                 if let CallPropValue::Int(n) = &prop.value {
@@ -2597,7 +2893,11 @@ impl<'a> SceneVm<'a> {
     }
 
     fn str_display_width_char(ch: char) -> usize {
-        if ch.is_ascii() { 1 } else { 2 }
+        if ch.is_ascii() {
+            1
+        } else {
+            2
+        }
     }
 
     fn str_display_width(s: &str) -> usize {
@@ -2650,11 +2950,21 @@ impl<'a> SceneVm<'a> {
         out
     }
 
-    fn call_prop_eval_str_op(&mut self, current: &str, op: i32, params: &[Value], al_id: i32) -> Result<()> {
+    fn call_prop_eval_str_op(
+        &mut self,
+        current: &str,
+        op: i32,
+        params: &[Value],
+        al_id: i32,
+    ) -> Result<()> {
         use crate::runtime::forms::codes::str_op;
         match op {
-            str_op::UPPER => self.push_str(current.chars().map(|c| c.to_ascii_uppercase()).collect()),
-            str_op::LOWER => self.push_str(current.chars().map(|c| c.to_ascii_lowercase()).collect()),
+            str_op::UPPER => {
+                self.push_str(current.chars().map(|c| c.to_ascii_uppercase()).collect())
+            }
+            str_op::LOWER => {
+                self.push_str(current.chars().map(|c| c.to_ascii_lowercase()).collect())
+            }
             str_op::CNT => self.push_int(current.chars().count() as i32),
             str_op::LEN => self.push_int(Self::str_display_width(current) as i32),
             str_op::LEFT => {
@@ -2784,7 +3094,11 @@ impl<'a> SceneVm<'a> {
                 }
                 _ => bail!("unsupported CALL_PROP ref assign sub={:?}", sub),
             },
-            _ => bail!("unsupported call prop assign form={} sub={:?}", prop.form, sub),
+            _ => bail!(
+                "unsupported call prop assign form={} sub={:?}",
+                prop.form,
+                sub
+            ),
         }
         Ok(())
     }
@@ -2802,8 +3116,8 @@ impl<'a> SceneVm<'a> {
             ELM_ARRAY, ELM_INTLIST_BIT, ELM_INTLIST_BIT16, ELM_INTLIST_BIT2, ELM_INTLIST_BIT4,
             ELM_INTLIST_BIT8, ELM_INTLIST_CLEAR, ELM_INTLIST_GET_SIZE, ELM_INTLIST_INIT,
             ELM_INTLIST_RESIZE, ELM_INTLIST_SETS, ELM_STRLIST_GET_SIZE, ELM_STRLIST_INIT,
-            ELM_STRLIST_RESIZE, FM_INT, FM_INTLIST, FM_INTLISTREF, FM_INTREF, FM_STR,
-            FM_STRLIST, FM_STRLISTREF, FM_STRREF,
+            ELM_STRLIST_RESIZE, FM_INT, FM_INTLIST, FM_INTLISTREF, FM_INTREF, FM_STR, FM_STRLIST,
+            FM_STRLISTREF, FM_STRREF,
         };
 
         let (form, mut value, mut element) = {
@@ -2844,7 +3158,11 @@ impl<'a> SceneVm<'a> {
                     if al_id == 0 {
                         self.push_str(current);
                     } else {
-                        let rhs = args.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let rhs = args
+                            .first()
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
                         value = CallPropValue::Str(rhs);
                         write_back = true;
                         self.push_default_for_ret(ret_form);
@@ -2875,7 +3193,8 @@ impl<'a> SceneVm<'a> {
                     }
                 } else {
                     match sub[0] {
-                        ELM_INTLIST_BIT | ELM_INTLIST_BIT2 | ELM_INTLIST_BIT4 | ELM_INTLIST_BIT8 | ELM_INTLIST_BIT16 => {
+                        ELM_INTLIST_BIT | ELM_INTLIST_BIT2 | ELM_INTLIST_BIT4
+                        | ELM_INTLIST_BIT8 | ELM_INTLIST_BIT16 => {
                             self.push_element(element.clone());
                         }
                         ELM_INTLIST_INIT => {
@@ -2884,16 +3203,23 @@ impl<'a> SceneVm<'a> {
                             self.push_default_for_ret(ret_form);
                         }
                         ELM_INTLIST_RESIZE => {
-                            let new_len = args.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                            let new_len =
+                                args.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
                             list.resize(new_len, 0);
                             write_back = true;
                             self.push_default_for_ret(ret_form);
                         }
                         ELM_INTLIST_GET_SIZE => self.push_int(list.len() as i32),
                         ELM_INTLIST_CLEAR => {
-                            let start = args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
-                            let end = args.get(1).and_then(|v| v.as_i64()).unwrap_or(-1).max(-1) as isize;
-                            let clear_value = if al_id == 0 { 0 } else { args.get(2).and_then(|v| v.as_i64()).unwrap_or(0) as i32 };
+                            let start =
+                                args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                            let end =
+                                args.get(1).and_then(|v| v.as_i64()).unwrap_or(-1).max(-1) as isize;
+                            let clear_value = if al_id == 0 {
+                                0
+                            } else {
+                                args.get(2).and_then(|v| v.as_i64()).unwrap_or(0) as i32
+                            };
                             if !list.is_empty() && end >= 0 {
                                 let end = usize::min(end as usize, list.len().saturating_sub(1));
                                 for i in start..=end {
@@ -2906,7 +3232,8 @@ impl<'a> SceneVm<'a> {
                             self.push_default_for_ret(ret_form);
                         }
                         ELM_INTLIST_SETS => {
-                            let start = args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                            let start =
+                                args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
                             for (off, v) in args.iter().skip(1).enumerate() {
                                 let idx = start + off;
                                 if list.len() <= idx {
@@ -2938,7 +3265,11 @@ impl<'a> SceneVm<'a> {
                         if al_id == 0 {
                             self.push_str(list[idx].clone());
                         } else {
-                            let rhs = args.first().and_then(|v| v.as_str()).unwrap_or("").to_string();
+                            let rhs = args
+                                .first()
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
                             list[idx] = rhs;
                             write_back = true;
                             self.push_default_for_ret(ret_form);
@@ -2955,7 +3286,8 @@ impl<'a> SceneVm<'a> {
                             self.push_default_for_ret(ret_form);
                         }
                         ELM_STRLIST_RESIZE => {
-                            let new_len = args.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                            let new_len =
+                                args.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
                             list.resize_with(new_len, String::new);
                             write_back = true;
                             self.push_default_for_ret(ret_form);
@@ -3276,15 +3608,18 @@ impl<'a> SceneVm<'a> {
                         self.call_stack[current_idx].int_args = Self::blank_call_int_args();
                     }
                     ELM_INTLIST_RESIZE => {
-                        let new_len = args.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                        let new_len =
+                            args.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
                         self.call_stack[current_idx].int_args.resize(new_len, 0);
                     }
                     ELM_INTLIST_GET_SIZE => {
                         self.push_int(self.call_stack[current_idx].int_args.len() as i32);
                     }
                     ELM_INTLIST_CLEAR => {
-                        let start = args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
-                        let end = args.get(1).and_then(|v| v.as_i64()).unwrap_or(-1).max(-1) as isize;
+                        let start =
+                            args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                        let end =
+                            args.get(1).and_then(|v| v.as_i64()).unwrap_or(-1).max(-1) as isize;
                         let value = if al_id == 0 {
                             0
                         } else {
@@ -3292,7 +3627,8 @@ impl<'a> SceneVm<'a> {
                         };
                         let frame = &mut self.call_stack[current_idx];
                         if !frame.int_args.is_empty() && end >= 0 {
-                            let end = usize::min(end as usize, frame.int_args.len().saturating_sub(1));
+                            let end =
+                                usize::min(end as usize, frame.int_args.len().saturating_sub(1));
                             for i in start..=end {
                                 if i < frame.int_args.len() {
                                     frame.int_args[i] = value;
@@ -3301,7 +3637,8 @@ impl<'a> SceneVm<'a> {
                         }
                     }
                     ELM_INTLIST_SETS => {
-                        let start = args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                        let start =
+                            args.get(0).and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
                         let frame = &mut self.call_stack[current_idx];
                         for (off, v) in args.iter().skip(1).enumerate() {
                             let idx = start + off;
@@ -3359,8 +3696,11 @@ impl<'a> SceneVm<'a> {
                         self.call_stack[current_idx].str_args = Self::blank_call_str_args();
                     }
                     ELM_STRLIST_RESIZE => {
-                        let new_len = args.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
-                        self.call_stack[current_idx].str_args.resize_with(new_len, String::new);
+                        let new_len =
+                            args.first().and_then(|v| v.as_i64()).unwrap_or(0).max(0) as usize;
+                        self.call_stack[current_idx]
+                            .str_args
+                            .resize_with(new_len, String::new);
                     }
                     ELM_STRLIST_GET_SIZE => {
                         self.push_int(self.call_stack[current_idx].str_args.len() as i32);
@@ -3374,8 +3714,21 @@ impl<'a> SceneVm<'a> {
                     let call_prop_id = elm_code::code(tail[0]) as i32;
                     let prop_idx = self
                         .find_call_prop_index_in_frame(current_idx, call_prop_id)
-                        .ok_or_else(|| anyhow!("missing CALL_PROP command id={} for {:?}", call_prop_id, elm))?;
-                    self.exec_call_prop_command(current_idx, prop_idx, &tail[1..], al_id, ret_form, args)?;
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "missing CALL_PROP command id={} for {:?}",
+                                call_prop_id,
+                                elm
+                            )
+                        })?;
+                    self.exec_call_prop_command(
+                        current_idx,
+                        prop_idx,
+                        &tail[1..],
+                        al_id,
+                        ret_form,
+                        args,
+                    )?;
                     return Ok(true);
                 }
                 bail!("unsupported CALL command chain {:?}", elm);
@@ -3404,7 +3757,9 @@ impl<'a> SceneVm<'a> {
     }
 
     fn assign_user_prop(&mut self, prop_id: u16, array_idx: Option<usize>, rhs: Value) {
-        let decl = self.user_prop_decl(prop_id).unwrap_or((self.cfg.fm_list, 0));
+        let decl = self
+            .user_prop_decl(prop_id)
+            .unwrap_or((self.cfg.fm_list, 0));
         if let Some(i) = array_idx {
             let slot_element = self.default_user_prop_slot_element(prop_id, i);
             let default_entry = self.default_user_prop_cell(prop_id);
@@ -3430,13 +3785,16 @@ impl<'a> SceneVm<'a> {
                 return;
             }
             let list_form = self.cfg.fm_list;
-            let new_slot = self.user_prop_cell_from_value(rhs, list_form, slot_element, Some(prop_id));
+            let new_slot =
+                self.user_prop_cell_from_value(rhs, list_form, slot_element, Some(prop_id));
             let head = constants::elm::create(constants::elm::OWNER_USER_PROP, 0, prop_id as i32);
             let elm_array = self.ctx.ids.elm_array;
             let entry = self.user_props.entry(prop_id).or_insert(default_entry);
             if entry.list_items.len() <= i {
                 let cur = entry.list_items.len();
-                entry.list_items.resize_with(i + 1, || UserPropCell::new(list_form, Vec::new()));
+                entry
+                    .list_items
+                    .resize_with(i + 1, || UserPropCell::new(list_form, Vec::new()));
                 for idx in cur..entry.list_items.len() {
                     entry.list_items[idx].form = list_form;
                     entry.list_items[idx].element = vec![head, elm_array, idx as i32];
@@ -3459,7 +3817,14 @@ impl<'a> SceneVm<'a> {
             }
         };
         if start > self.int_stack.len() {
-            self.vm_trace(None, format!("COPY_ELM invalid start={} len={}", start, self.int_stack.len()));
+            self.vm_trace(
+                None,
+                format!(
+                    "COPY_ELM invalid start={} len={}",
+                    start,
+                    self.int_stack.len()
+                ),
+            );
             bail!(
                 "invalid element point start={start} len={}",
                 self.int_stack.len()
@@ -3670,6 +4035,15 @@ impl<'a> SceneVm<'a> {
         if elm.len() != 3 || elm[1] != self.ctx.ids.elm_array || elm[2] <= 0 {
             return false;
         }
+        // Siglus object-child shorthand reuses the same compact `[slot, ELM_ARRAY, parent]`
+        // shape as generic parent-slot access. When we are already inside an object chain,
+        // prefer the object child interpretation so title/menu patno updates like
+        // `front.object[0].[29] = ...` continue to drive the actual child objects instead
+        // of disappearing into the generic parent-form property bags.
+        if self.ctx.globals.current_object_chain.is_some() && self.compact_object_op_allowed(elm[0])
+        {
+            return false;
+        }
         let parent_form = elm[2] as u32;
         let slot = elm[0];
         let ret_form = self
@@ -3714,10 +4088,130 @@ impl<'a> SceneVm<'a> {
         if op < 0 {
             return false;
         }
+        // Compact object continuation is only valid for object-family element codes.
+        // Do not reinterpret real form ids / global aliases (e.g. syscom/system/script)
+        // as object ops, otherwise title loops get stuck inside the wrong dispatch path.
+        if self.looks_like_runtime_form_id(op)
+            || constants::is_stage_global_form(op as u32, self.ctx.ids.form_global_stage)
+        {
+            return false;
+        }
         if op <= 187 {
             return true;
         }
         false
+    }
+
+    fn looks_like_runtime_form_id(&self, op: i32) -> bool {
+        let known = [
+            self.cfg.fm_void,
+            self.cfg.fm_int,
+            self.cfg.fm_str,
+            self.cfg.fm_label,
+            self.cfg.fm_list,
+            self.ctx.ids.form_global_stage as i32,
+            self.ctx.ids.form_global_mov as i32,
+            self.ctx.ids.form_global_bgm as i32,
+            self.ctx.ids.form_global_bgm_table as i32,
+            self.ctx.ids.form_global_pcm as i32,
+            self.ctx.ids.form_global_pcmch as i32,
+            self.ctx.ids.form_global_se as i32,
+            self.ctx.ids.form_global_pcm_event as i32,
+            self.ctx.ids.form_global_excall as i32,
+            self.ctx.ids.form_global_koe_st as i32,
+            self.ctx.ids.form_global_screen as i32,
+            self.ctx.ids.form_global_msgbk as i32,
+            self.ctx.ids.form_global_input as i32,
+            self.ctx.ids.form_global_mouse as i32,
+            self.ctx.ids.form_global_keylist as i32,
+            self.ctx.ids.form_global_key as i32,
+            self.ctx.ids.form_global_syscom as i32,
+            self.ctx.ids.form_global_script as i32,
+            self.ctx.ids.form_global_system as i32,
+            self.ctx.ids.form_global_frame_action as i32,
+            self.ctx.ids.form_global_frame_action_ch as i32,
+            self.ctx.ids.form_global_math as i32,
+            self.ctx.ids.form_global_cgtable as i32,
+            self.ctx.ids.form_global_database as i32,
+            self.ctx.ids.form_global_g00buf as i32,
+            self.ctx.ids.form_global_mask as i32,
+            self.ctx.ids.form_global_editbox as i32,
+            self.ctx.ids.form_global_file as i32,
+            self.ctx.ids.form_global_steam as i32,
+            6,
+            24,
+            40,
+            46,
+            63,
+            64,
+            86,
+            92,
+            96,
+            crate::runtime::forms::codes::FM_CALL,
+            crate::runtime::forms::codes::FM_CALLLIST,
+            crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32,
+            crate::runtime::forms::codes::FORM_GLOBAL_SYSCOM as i32,
+            crate::runtime::forms::codes::FORM_GLOBAL_SYSTEM as i32,
+            crate::runtime::forms::codes::FORM_GLOBAL_SCRIPT as i32,
+            crate::runtime::forms::codes::FM_COUNTER,
+            crate::runtime::forms::codes::FM_COUNTERLIST,
+            crate::runtime::forms::codes::FM_FRAMEACTION,
+            crate::runtime::forms::codes::FM_FRAMEACTIONLIST,
+            crate::runtime::forms::codes::FM_STAGE,
+            crate::runtime::forms::codes::FM_STAGELIST,
+            crate::runtime::forms::codes::FM_OBJECT,
+            crate::runtime::forms::codes::FM_OBJECTLIST,
+            crate::runtime::forms::codes::FM_OBJECTEVENT,
+            crate::runtime::forms::codes::FM_OBJECTEVENTLIST,
+            crate::runtime::forms::codes::FM_MWND,
+            crate::runtime::forms::codes::FM_MWNDLIST,
+            crate::runtime::forms::codes::FM_GROUP,
+            crate::runtime::forms::codes::FM_GROUPLIST,
+            crate::runtime::forms::codes::FM_BTNSELITEM,
+            crate::runtime::forms::codes::FM_BTNSELITEMLIST,
+            crate::runtime::forms::codes::FM_SCREEN,
+            crate::runtime::forms::codes::FM_QUAKE,
+            crate::runtime::forms::codes::FM_QUAKELIST,
+            crate::runtime::forms::codes::FM_EFFECT,
+            crate::runtime::forms::codes::FM_EFFECTLIST,
+            crate::runtime::forms::codes::FM_BGM,
+            crate::runtime::forms::codes::FM_BGMLIST,
+            crate::runtime::forms::codes::FM_PCM,
+            crate::runtime::forms::codes::FM_PCMCH,
+            crate::runtime::forms::codes::FM_PCMCHLIST,
+            crate::runtime::forms::codes::FM_SE,
+            crate::runtime::forms::codes::FM_MOV,
+            crate::runtime::forms::codes::FM_MOUSE,
+            crate::runtime::forms::codes::FM_KEY,
+            crate::runtime::forms::codes::FM_KEYLIST,
+            crate::runtime::forms::codes::FM_INPUT,
+            crate::runtime::forms::codes::FM_EDITBOX,
+            crate::runtime::forms::codes::FM_EDITBOXLIST,
+            crate::runtime::forms::codes::FM_WORLD,
+            crate::runtime::forms::codes::FM_WORLDLIST,
+            crate::runtime::forms::codes::FM_EXCALL,
+        ];
+        known.contains(&op)
+    }
+
+    fn current_object_has_child_index(&self, child_idx: i32) -> bool {
+        if child_idx < 0 {
+            return false;
+        }
+        let Some((stage_idx, obj_idx)) = self.ctx.globals.current_stage_object else {
+            return false;
+        };
+        let stage_form = self.ctx.ids.form_global_stage;
+        let Some(stage_state) = self.ctx.globals.stage_forms.get(&stage_form) else {
+            return false;
+        };
+        let Some(list) = stage_state.object_lists.get(&stage_idx) else {
+            return false;
+        };
+        let Some(obj) = list.get(obj_idx) else {
+            return false;
+        };
+        (child_idx as usize) < obj.runtime.child_objects.len()
     }
 
     fn try_compact_object_chain(&self, elm: &[i32]) -> Option<Vec<i32>> {
@@ -3737,13 +4231,19 @@ impl<'a> SceneVm<'a> {
             crate::runtime::forms::codes::STAGE_ELM_OBJECT
         };
 
-        let looks_like_full_stage_object = elm.len() >= 4
-            && elm[1] == elm_array
-            && elm[3] == stage_object;
+        let looks_like_full_stage_object =
+            elm.len() >= 4 && elm[1] == elm_array && elm[3] == stage_object;
         let looks_like_absolute_stage_alias_object = elm.len() >= 4
             && constants::is_stage_global_form(elm[0] as u32, self.ctx.ids.form_global_stage)
             && elm[1] == stage_object
             && elm[2] == elm_array;
+        let looks_like_current_object_child = elm.len() >= 2
+            && elm[1] == elm_array
+            && elm[0] >= 0
+            && (elm.len() == 2
+                || self.compact_object_op_allowed(elm[2])
+                || elm[2] == elm_array
+                || elm[2] == crate::runtime::forms::codes::ELM_ARRAY);
 
         if looks_like_absolute_stage_alias_object {
             return None;
@@ -3751,6 +4251,16 @@ impl<'a> SceneVm<'a> {
 
         if !looks_like_full_stage_object {
             if let Some(prefix) = &self.ctx.globals.current_object_chain {
+                if looks_like_current_object_child && self.current_object_has_child_index(elm[0]) {
+                    let mut synthetic = prefix.clone();
+                    synthetic.push(crate::runtime::forms::codes::elm_value::OBJECT_CHILD);
+                    synthetic.push(elm_array);
+                    synthetic.push(elm[0]);
+                    if elm.len() > 2 {
+                        synthetic.extend_from_slice(&elm[2..]);
+                    }
+                    return Some(synthetic);
+                }
                 let mut synthetic = prefix.clone();
                 synthetic.extend_from_slice(elm);
                 return Some(synthetic);
@@ -3767,6 +4277,13 @@ impl<'a> SceneVm<'a> {
         } else {
             crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32
         };
+
+        if elm.len() >= 4
+            && self.looks_like_runtime_form_id(op)
+            && !constants::is_stage_global_form(op as u32, self.ctx.ids.form_global_stage)
+        {
+            return None;
+        }
 
         if elm.len() >= 4 {
             let obj_idx = elm[3];
@@ -3818,6 +4335,12 @@ impl<'a> SceneVm<'a> {
         if elm.len() != 3 || elm[1] != self.ctx.ids.elm_array || elm[2] <= 0 {
             return false;
         }
+        // See try_parent_slot_property(): inside object chains this compact syntax is used for
+        // object child operations, not generic parent-form slots.
+        if self.ctx.globals.current_object_chain.is_some() && self.compact_object_op_allowed(elm[0])
+        {
+            return false;
+        }
         let parent_form = elm[2] as u32;
         let slot = elm[0];
         match rhs {
@@ -3844,6 +4367,18 @@ impl<'a> SceneVm<'a> {
     }
 
     fn exec_property(&mut self, mut elm: Vec<i32>) -> Result<()> {
+        if std::env::var_os("SG_TITLE_CHAIN_TRACE").is_some()
+            && self.current_scene_name.as_deref() == Some("sys10_tt01")
+            && matches!(elm.first().copied(), Some(83 | 84 | 24 | 25))
+        {
+            eprintln!(
+                "[SG_TITLE_CHAIN_TRACE] line={} elm={:?} current_object_chain={:?} current_stage_object={:?}",
+                self.current_line_no,
+                elm,
+                self.ctx.globals.current_object_chain,
+                self.ctx.globals.current_stage_object
+            );
+        }
         self.vm_trace(None, format!("exec_property enter elm={:?}", elm));
         if elm.is_empty() {
             self.push_int(0);
@@ -3851,7 +4386,10 @@ impl<'a> SceneVm<'a> {
         }
         // Call-local properties (declared by CD_DEC_PROP / populated by CD_ARG).
         if self.exec_call_property(&elm)? {
-            self.vm_trace(None, format!("exec_property handled by call-property elm={:?}", elm));
+            self.vm_trace(
+                None,
+                format!("exec_property handled by call-property elm={:?}", elm),
+            );
             return Ok(());
         }
 
@@ -3864,10 +4402,15 @@ impl<'a> SceneVm<'a> {
             let call_prop_id = elm_code::code(head) as i32;
             let prop_idx = self
                 .find_call_prop_index_in_frame(current_idx, call_prop_id)
-                .ok_or_else(|| anyhow!("missing direct CALL_PROP id={} for {:?}", call_prop_id, elm))?;
+                .ok_or_else(|| {
+                    anyhow!("missing direct CALL_PROP id={} for {:?}", call_prop_id, elm)
+                })?;
             let prop = self.call_stack[current_idx].user_props[prop_idx].clone();
             self.push_call_prop_result(&prop, &elm[1..], &elm)?;
-            self.vm_trace(None, format!("exec_property direct CALL_PROP elm={:?}", elm));
+            self.vm_trace(
+                None,
+                format!("exec_property direct CALL_PROP elm={:?}", elm),
+            );
             return Ok(());
         }
 
@@ -3879,7 +4422,10 @@ impl<'a> SceneVm<'a> {
                 .cloned()
                 .unwrap_or_else(|| self.default_user_prop_cell(prop_id));
             self.push_user_prop_cell_result(&cell, &elm[1..], &elm)?;
-            self.vm_trace(None, format!("exec_property direct USER_PROP elm={:?}", elm));
+            self.vm_trace(
+                None,
+                format!("exec_property direct USER_PROP elm={:?}", elm),
+            );
             return Ok(());
         }
 
@@ -3892,11 +4438,20 @@ impl<'a> SceneVm<'a> {
         }
 
         if self.try_parent_slot_property(&elm) {
-            self.vm_trace(None, format!("exec_property handled by parent-slot elm={:?}", elm));
+            self.vm_trace(
+                None,
+                format!("exec_property handled by parent-slot elm={:?}", elm),
+            );
             return Ok(());
         }
         if let Some(synthetic) = self.try_compact_object_chain(&elm) {
-            self.vm_trace(None, format!("exec_property compact-object elm={:?} synthetic={:?}", elm, synthetic));
+            self.vm_trace(
+                None,
+                format!(
+                    "exec_property compact-object elm={:?} synthetic={:?}",
+                    elm, synthetic
+                ),
+            );
             self.ctx.vm_call = Some(runtime::VmCallMeta {
                 element: synthetic.clone(),
                 al_id: 0,
@@ -3928,7 +4483,10 @@ impl<'a> SceneVm<'a> {
             ret_form: self.cfg.fm_int as i64,
         });
 
-        self.vm_trace(None, format!("exec_property dispatch form_id={} elm={:?}", form_id, elm));
+        self.vm_trace(
+            None,
+            format!("exec_property dispatch form_id={} elm={:?}", form_id, elm),
+        );
         if !runtime::dispatch_form_code(&mut self.ctx, form_id, &args)? {
             self.ctx.vm_call = None;
             bail!("unhandled form property chain {:?}", elm);
@@ -3963,15 +4521,20 @@ impl<'a> SceneVm<'a> {
             let call_prop_id = elm_code::code(head) as i32;
             let prop_idx = self
                 .find_call_prop_index_in_frame(current_idx, call_prop_id)
-                .ok_or_else(|| anyhow!("missing direct CALL_PROP assign id={} for {:?}", call_prop_id, elm))?;
+                .ok_or_else(|| {
+                    anyhow!(
+                        "missing direct CALL_PROP assign id={} for {:?}",
+                        call_prop_id,
+                        elm
+                    )
+                })?;
             let frame = self
                 .call_stack
                 .get_mut(current_idx)
                 .ok_or_else(|| anyhow!("call stack underflow"))?;
-            let prop = frame
-                .user_props
-                .get_mut(prop_idx)
-                .ok_or_else(|| anyhow!("missing direct CALL_PROP slot assign id={}", call_prop_id))?;
+            let prop = frame.user_props.get_mut(prop_idx).ok_or_else(|| {
+                anyhow!("missing direct CALL_PROP slot assign id={}", call_prop_id)
+            })?;
             Self::assign_call_prop_result(prop, &elm[1..], rhs)?;
             return Ok(());
         }
@@ -3995,7 +4558,13 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
         if let Some(synthetic) = self.try_compact_object_chain(&elm) {
-            self.vm_trace(None, format!("exec_assign compact-object elm={:?} synthetic={:?} al_id={} rhs={:?}", elm, synthetic, al_id, rhs));
+            self.vm_trace(
+                None,
+                format!(
+                    "exec_assign compact-object elm={:?} synthetic={:?} al_id={} rhs={:?}",
+                    elm, synthetic, al_id, rhs
+                ),
+            );
             let args: Vec<Value> = vec![rhs];
             self.ctx.vm_call = Some(runtime::VmCallMeta {
                 element: synthetic.clone(),
@@ -4018,7 +4587,13 @@ impl<'a> SceneVm<'a> {
         }
 
         let form_id = self.canonical_runtime_form_id(head as u32);
-        self.vm_trace(None, format!("exec_assign dispatch form_id={} elm={:?} al_id={} rhs={:?}", form_id, elm, al_id, rhs));
+        self.vm_trace(
+            None,
+            format!(
+                "exec_assign dispatch form_id={} elm={:?} al_id={} rhs={:?}",
+                form_id, elm, al_id, rhs
+            ),
+        );
         let args: Vec<Value> = vec![rhs];
         if (std::env::var_os("SIGLUS_TRACE_VM_COMMANDS").is_some()) {
             eprintln!(
@@ -4111,6 +4686,40 @@ impl<'a> SceneVm<'a> {
 
         match owner {
             o if o == elm_code::ELM_OWNER_FORM => {
+                if let Some(synthetic) = self.try_compact_object_chain(&elm) {
+                    self.vm_trace(
+                        None,
+                        format!(
+                            "exec_command compact-object elm={:?} synthetic={:?} al_id={} ret_form={} args={:?}",
+                            elm, synthetic, al_id, ret_form, args
+                        ),
+                    );
+                    self.ctx.vm_call = Some(runtime::VmCallMeta {
+                        element: synthetic.clone(),
+                        al_id: al_id as i64,
+                        ret_form: ret_form as i64,
+                    });
+                    let form_id = self.canonical_runtime_form_id(synthetic[0] as u32) as i32;
+                    if !runtime::dispatch_form_code(&mut self.ctx, form_id as u32, args)? {
+                        self.ctx.vm_call = None;
+                        bail!(
+                            "unhandled compact object command chain {:?} -> {:?}",
+                            elm,
+                            synthetic
+                        );
+                    }
+                    self.ctx.vm_call = None;
+                    self.drain_pending_frame_action_finishes()?;
+                    if ret_form != self.cfg.fm_void {
+                        if self.ctx.wait_poll() {
+                            self.delayed_ret_form = Some(ret_form);
+                            return Ok(());
+                        }
+                    }
+                    self.take_ctx_return(ret_form)?;
+                    return Ok(());
+                }
+
                 let form_id = self.canonical_runtime_form_id(raw_head as u32) as i32;
                 if self.exec_builtin_global_control(form_id, ret_form)? {
                     if ret_form != self.cfg.fm_void {
@@ -4298,7 +4907,14 @@ impl<'a> SceneVm<'a> {
         Ok(())
     }
 
-    fn farcall_scene_name_ex(&mut self, scene_name: &str, z_no: i32, ret_form: i32, ex_call_proc: bool, scratch_source_args: &[Value]) -> Result<()> {
+    fn farcall_scene_name_ex(
+        &mut self,
+        scene_name: &str,
+        z_no: i32,
+        ret_form: i32,
+        ex_call_proc: bool,
+        scratch_source_args: &[Value],
+    ) -> Result<()> {
         if std::env::var_os("SIGLUS_TRACE_SCENE_SWITCH").is_some() {
             eprintln!(
                 "[vm scene farcall] scene={} z={} ret_form={}",
@@ -4403,7 +5019,9 @@ impl<'a> SceneVm<'a> {
                 Ok(true)
             }
             constants::elm_value::GLOBAL_CHECK_SAVEPOINT => {
-                self.ctx.stack.push(Value::Int(if self.save_point.is_some() { 1 } else { 0 }));
+                self.ctx
+                    .stack
+                    .push(Value::Int(if self.save_point.is_some() { 1 } else { 0 }));
                 Ok(true)
             }
             constants::elm_value::GLOBAL_SELPOINT => {
@@ -4417,7 +5035,9 @@ impl<'a> SceneVm<'a> {
                 Ok(true)
             }
             constants::elm_value::GLOBAL_CHECK_SELPOINT => {
-                self.ctx.stack.push(Value::Int(if self.has_sel_point() { 1 } else { 0 }));
+                self.ctx
+                    .stack
+                    .push(Value::Int(if self.has_sel_point() { 1 } else { 0 }));
                 Ok(true)
             }
             constants::elm_value::GLOBAL_STACK_SELPOINT => {
@@ -4463,7 +5083,17 @@ impl<'a> SceneVm<'a> {
                 0
             };
             if !scene_name.is_empty() {
-                self.farcall_scene_name_ex(scene_name, z_no, ret_form, false, if al_id >= 1 && args.len() > 2 { &args[2..] } else { &[] })?;
+                self.farcall_scene_name_ex(
+                    scene_name,
+                    z_no,
+                    ret_form,
+                    false,
+                    if al_id >= 1 && args.len() > 2 {
+                        &args[2..]
+                    } else {
+                        &[]
+                    },
+                )?;
             } else {
                 self.push_default_for_ret(ret_form);
             }
@@ -4504,21 +5134,21 @@ impl<'a> SceneVm<'a> {
                     Value::Element(elm) => self.push_element(elm),
                     _ => bail!("non-element ctx return for FM_LIST"),
                 },
-                Some(Value::List(_)) => bail!("FM_LIST ctx return used raw Value::List; expected element reference"),
+                Some(Value::List(_)) => {
+                    bail!("FM_LIST ctx return used raw Value::List; expected element reference")
+                }
                 Some(_) => bail!("non-element ctx return for FM_LIST"),
                 None => bail!("missing ctx return element for FM_LIST"),
             },
-            _ => {
-                match v {
-                    Some(Value::Element(elm)) => self.push_element(elm),
-                    Some(Value::NamedArg { value, .. }) => match *value {
-                        Value::Element(elm) => self.push_element(elm),
-                        _ => bail!("non-element ctx return for form {}", ret_form),
-                    },
-                    Some(_) => bail!("non-element ctx return for form {}", ret_form),
-                    None => bail!("missing ctx return element for form {}", ret_form),
-                }
-            }
+            _ => match v {
+                Some(Value::Element(elm)) => self.push_element(elm),
+                Some(Value::NamedArg { value, .. }) => match *value {
+                    Value::Element(elm) => self.push_element(elm),
+                    _ => bail!("non-element ctx return for form {}", ret_form),
+                },
+                Some(_) => bail!("non-element ctx return for form {}", ret_form),
+                None => bail!("missing ctx return element for form {}", ret_form),
+            },
         }
         Ok(())
     }
@@ -4531,12 +5161,57 @@ impl<'a> SceneVm<'a> {
         }
     }
 
+    fn update_compact_context_from_element(&mut self, elm: &[i32]) {
+        let stage_form = if self.ctx.ids.form_global_stage != 0 {
+            self.ctx.ids.form_global_stage as i32
+        } else {
+            crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32
+        };
+        let elm_array = if self.ctx.ids.elm_array != 0 {
+            self.ctx.ids.elm_array
+        } else {
+            crate::runtime::forms::codes::ELM_ARRAY
+        };
+        let stage_object = if self.ctx.ids.stage_elm_object != 0 {
+            self.ctx.ids.stage_elm_object
+        } else {
+            crate::runtime::forms::codes::STAGE_ELM_OBJECT
+        };
+        let object_child = crate::runtime::forms::codes::elm_value::OBJECT_CHILD;
+
+        if elm.len() >= 6
+            && elm[0] == stage_form
+            && elm[1] == elm_array
+            && elm[3] == stage_object
+            && elm[4] == elm_array
+            && elm[5] >= 0
+        {
+            let mut pos = 6usize;
+            while pos + 2 < elm.len() && elm[pos] == object_child && elm[pos + 1] == elm_array {
+                pos += 3;
+            }
+            // Only plain object references should become compact continuation context.
+            // Property references like OBJECT.COLOR_RATE_EVE must not overwrite the base
+            // object chain, otherwise a follow-up compact property duplicates the op.
+            if pos != elm.len() {
+                return;
+            }
+            let stage_idx = elm[2] as i64;
+            let runtime_slot = self.runtime_slot_from_object_chain(stage_idx, elm[5] as usize, elm);
+            self.ctx.globals.current_object_chain = Some(elm.to_vec());
+            self.ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
+        }
+    }
+
     fn push_return_value_raw(&mut self, v: Value) {
         match v {
             Value::NamedArg { value, .. } => self.push_return_value_raw(*value),
             Value::Int(n) => self.push_int(n as i32),
             Value::Str(s) => self.push_str(s),
-            Value::Element(elm) => self.push_element(elm),
+            Value::Element(elm) => {
+                self.update_compact_context_from_element(&elm);
+                self.push_element(elm);
+            }
             Value::List(_) => {
                 panic!("raw Value::List reached push_return_value_raw; expected runtime ref");
             }

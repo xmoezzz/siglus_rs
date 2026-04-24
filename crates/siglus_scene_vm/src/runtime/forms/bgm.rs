@@ -75,8 +75,7 @@ fn named_int(args: &[Value], id: i32) -> Option<i64> {
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let ret_form = crate::runtime::forms::prop_access::current_vm_meta(ctx).1;
-    let Some(op) =
-        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
+    let Some(op) = crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
     else {
         bail!("BGM form expects an element opcode");
     };

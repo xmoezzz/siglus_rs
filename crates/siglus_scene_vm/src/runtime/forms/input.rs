@@ -20,11 +20,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, _args: &[Value]) -> Resu
     let op = chain[1] as i64;
     match op {
         o if o == ctx.ids.input_op_clear as i64 => {
-            ctx.input.clear_all();
+            ctx.script_input.clear_all();
             Ok(true)
         }
         o if o == ctx.ids.input_op_next as i64 => {
-            ctx.input.next_frame();
+            ctx.script_input.next_frame();
             Ok(true)
         }
         o if o == ctx.ids.input_op_decide as i64 => {

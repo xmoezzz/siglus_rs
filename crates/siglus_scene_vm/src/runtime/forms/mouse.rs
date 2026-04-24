@@ -23,24 +23,24 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let op = chain[1] as i64;
     match op {
         o if o == ctx.ids.mouse_op_clear as i64 => {
-            ctx.input.clear_mouse();
+            ctx.script_input.clear_mouse();
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_next as i64 => {
-            ctx.input.next_mouse_frame();
+            ctx.script_input.next_mouse_frame();
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_x as i64 => {
-            ctx.push(Value::Int(ctx.input.mouse_x as i64));
+            ctx.push(Value::Int(ctx.script_input.mouse_x as i64));
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_y as i64 => {
-            ctx.push(Value::Int(ctx.input.mouse_y as i64));
+            ctx.push(Value::Int(ctx.script_input.mouse_y as i64));
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_get_pos as i64 => {
-            let x = ctx.input.mouse_x as i64;
-            let y = ctx.input.mouse_y as i64;
+            let x = ctx.script_input.mouse_x as i64;
+            let y = ctx.script_input.mouse_y as i64;
             let mut assigned = 0usize;
             for v in args.iter() {
                 if let Value::Element(chain) = v {
@@ -59,16 +59,17 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             let x = args
                 .get(0)
                 .and_then(|v| v.as_i64())
-                .unwrap_or(ctx.input.mouse_x as i64) as i32;
+                .unwrap_or(ctx.script_input.mouse_x as i64) as i32;
             let y = args
                 .get(1)
                 .and_then(|v| v.as_i64())
-                .unwrap_or(ctx.input.mouse_y as i64) as i32;
+                .unwrap_or(ctx.script_input.mouse_y as i64) as i32;
             ctx.input.on_mouse_move(x, y);
+            ctx.script_input.on_mouse_move(x, y);
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_wheel as i64 => {
-            let d = ctx.input.take_wheel_delta();
+            let d = ctx.script_input.take_wheel_delta();
             ctx.push(Value::Int(d as i64));
             Ok(true)
         }

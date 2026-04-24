@@ -165,7 +165,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 0
             } else {
                 let raw = looked * 100 / total;
-                if raw <= 0 { 1 } else { raw }
+                if raw <= 0 {
+                    1
+                } else {
+                    raw
+                }
             };
             ctx.push(Value::Int(percent));
             return Ok(true);

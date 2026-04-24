@@ -69,12 +69,8 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         } else {
             &[]
         };
-        let p_i32 = |i: usize| -> i32 {
-            params
-                .get(i)
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0) as i32
-        };
+        let p_i32 =
+            |i: usize| -> i32 { params.get(i).and_then(|v| v.as_i64()).unwrap_or(0) as i32 };
         let p_str = |i: usize| -> &str { params.get(i).and_then(|v| v.as_str()).unwrap_or("") };
 
         if ctx.ids.database_list_get_size != 0 && op == ctx.ids.database_list_get_size {

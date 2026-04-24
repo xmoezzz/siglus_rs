@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::runtime::forms::prop_access;
 use crate::runtime::forms::codes::elm_value;
+use crate::runtime::forms::prop_access;
 use crate::runtime::{CommandContext, Value};
 
 const TNM_ANGLE_UNIT: f64 = 10.0;
@@ -121,7 +121,8 @@ fn timetable_value(params: &[Value]) -> i64 {
                 let t = now_time - end_time;
                 ret_value = -(end_value - start_value) * t * t / duration / duration + end_value;
             } else {
-                ret_value = (end_value - start_value) * (now_time - start_time) / duration + start_value;
+                ret_value =
+                    (end_value - start_value) * (now_time - start_time) / duration + start_value;
             }
             break;
         }
@@ -418,7 +419,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     // TOSTR_BY_CODE
     if op == elm_value::MATH_TOSTR_BY_CODE {
         let code = (p_int(0) & 0xffff) as u32;
-        let s = char::from_u32(code).map(|c| c.to_string()).unwrap_or_default();
+        let s = char::from_u32(code)
+            .map(|c| c.to_string())
+            .unwrap_or_default();
         ctx.push(Value::Str(s));
         return Ok(true);
     }

@@ -225,7 +225,10 @@ impl GameexeConfig {
         self.entries
             .iter()
             .rev()
-            .find(|e| e.key_index(prefix) == Some(index) && e.key_field_after_index(prefix) == Some(nf.as_str()))
+            .find(|e| {
+                e.key_index(prefix) == Some(index)
+                    && e.key_field_after_index(prefix) == Some(nf.as_str())
+            })
             .map(|e| e.value.as_str())
     }
 
@@ -239,7 +242,10 @@ impl GameexeConfig {
         self.entries
             .iter()
             .rev()
-            .find(|e| e.key_index(prefix) == Some(index) && e.key_field_after_index(prefix) == Some(nf.as_str()))
+            .find(|e| {
+                e.key_index(prefix) == Some(index)
+                    && e.key_field_after_index(prefix) == Some(nf.as_str())
+            })
             .map(|e| e.scalar_unquoted())
     }
 

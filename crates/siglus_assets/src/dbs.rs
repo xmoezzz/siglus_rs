@@ -173,7 +173,11 @@ impl DbsDatabase {
 
     /// Return 1 if the item call number exists, otherwise 0.
     pub fn check_item_no(&self, item_call_no: i32) -> i32 {
-        if self.get_item_no(item_call_no) >= 0 { 1 } else { 0 }
+        if self.get_item_no(item_call_no) >= 0 {
+            1
+        } else {
+            0
+        }
     }
 
     /// Mimics `C_elm_database::find_num`.

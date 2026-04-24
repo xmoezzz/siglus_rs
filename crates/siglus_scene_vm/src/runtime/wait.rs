@@ -67,7 +67,10 @@ fn object_runtime_slot(idx: usize, obj: &ObjectState) -> usize {
     obj.runtime_slot_or(idx)
 }
 
-fn find_object_by_runtime_slot<'a>(objects: &'a [ObjectState], runtime_slot: usize) -> Option<&'a ObjectState> {
+fn find_object_by_runtime_slot<'a>(
+    objects: &'a [ObjectState],
+    runtime_slot: usize,
+) -> Option<&'a ObjectState> {
     for (idx, obj) in objects.iter().enumerate() {
         if object_runtime_slot(idx, obj) == runtime_slot {
             return Some(obj);
@@ -88,7 +91,9 @@ fn find_object_by_runtime_slot_mut<'a>(
         if object_runtime_slot(idx, obj) == runtime_slot {
             return Some(obj);
         }
-        if let Some(found) = find_object_by_runtime_slot_mut(&mut obj.runtime.child_objects, runtime_slot) {
+        if let Some(found) =
+            find_object_by_runtime_slot_mut(&mut obj.runtime.child_objects, runtime_slot)
+        {
             return Some(found);
         }
         objects = tail;
@@ -96,7 +101,6 @@ fn find_object_by_runtime_slot_mut<'a>(
     }
     None
 }
-
 
 fn object_event_list_for_wait<'a>(
     obj: &'a ObjectState,
@@ -340,38 +344,53 @@ impl VmWait {
                     stage_form_id,
                     stage_idx,
                     runtime_slot,
-                } => object_active_by_runtime_slot(globals, *stage_form_id, *stage_idx, *runtime_slot)
-                    .map(|obj| !obj.used || !obj.any_event_active())
-                    .unwrap_or(true),
+                } => object_active_by_runtime_slot(
+                    globals,
+                    *stage_form_id,
+                    *stage_idx,
+                    *runtime_slot,
+                )
+                .map(|obj| !obj.used || !obj.any_event_active())
+                .unwrap_or(true),
                 EventWait::ObjectOne {
                     stage_form_id,
                     stage_idx,
                     runtime_slot,
                     op,
-                } => object_active_by_runtime_slot(globals, *stage_form_id, *stage_idx, *runtime_slot)
-                    .map(|obj| {
-                        !obj.used
-                            || !obj
-                                .int_event_by_op(ids, *op)
-                                .map(|e| e.check_event())
-                                .unwrap_or(false)
-                    })
-                    .unwrap_or(true),
+                } => object_active_by_runtime_slot(
+                    globals,
+                    *stage_form_id,
+                    *stage_idx,
+                    *runtime_slot,
+                )
+                .map(|obj| {
+                    !obj.used
+                        || !obj
+                            .int_event_by_op(ids, *op)
+                            .map(|e| e.check_event())
+                            .unwrap_or(false)
+                })
+                .unwrap_or(true),
                 EventWait::ObjectList {
                     stage_form_id,
                     stage_idx,
                     runtime_slot,
                     list_op,
                     list_idx,
-                } => object_active_by_runtime_slot(globals, *stage_form_id, *stage_idx, *runtime_slot)
-                    .map(|obj| {
-                        let active = object_event_list_for_wait(obj, ids, *list_op)
-                            .and_then(|v| v.get(*list_idx))
-                            .map(|e| e.check_event())
-                            .unwrap_or(false);
-                        !obj.used || !active
-                    })
-                    .unwrap_or(true),
+                } => object_active_by_runtime_slot(
+                    globals,
+                    *stage_form_id,
+                    *stage_idx,
+                    *runtime_slot,
+                )
+                .map(|obj| {
+                    let active = object_event_list_for_wait(obj, ids, *list_op)
+                        .and_then(|v| v.get(*list_idx))
+                        .map(|e| e.check_event())
+                        .unwrap_or(false);
+                    !obj.used || !active
+                })
+                .unwrap_or(true),
                 EventWait::GenericIntEvent { form_id, index } => match index {
                     Some(i) => globals
                         .int_event_lists
@@ -694,7 +713,6 @@ impl VmWait {
 
         wipe_skipped
     }
-
 
     /// Notify MOV/OBJECT movie waits that DECIDE/CANCEL completed a down-up pair.
     ///

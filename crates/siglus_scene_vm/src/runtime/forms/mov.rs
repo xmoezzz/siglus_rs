@@ -60,8 +60,7 @@ fn arg_int(args: &[Value], idx: usize) -> Option<i64> {
 }
 
 pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
-    let Some(op) =
-        crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
+    let Some(op) = crate::runtime::forms::prop_access::current_op_from_ctx_or_args(ctx, args)
     else {
         bail!("MOV form expects an element opcode");
     };
@@ -80,8 +79,16 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             let y = arg_int(args, 2).unwrap_or(0) as i32;
             let raw_w = arg_int(args, 3).unwrap_or(ctx.screen_w as i64);
             let raw_h = arg_int(args, 4).unwrap_or(ctx.screen_h as i64);
-            let w = if raw_w <= 0 { ctx.screen_w.max(1) } else { raw_w as u32 };
-            let h = if raw_h <= 0 { ctx.screen_h.max(1) } else { raw_h as u32 };
+            let w = if raw_w <= 0 {
+                ctx.screen_w.max(1)
+            } else {
+                raw_w as u32
+            };
+            let h = if raw_h <= 0 {
+                ctx.screen_h.max(1)
+            } else {
+                raw_h as u32
+            };
 
             let wait = op == mov_op::PLAY_WAIT || op == mov_op::PLAY_WAIT_KEY;
             let key_skip = op == mov_op::PLAY_WAIT_KEY;
@@ -94,15 +101,21 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             // the next frame delta include decode/setup time and can finish MOV_WAIT before the
             // first frame is shown.  The renderer-side sync path decodes and then installs the
             // exact asset duration once the first frame is available.
-            ctx.globals.mov.start(name.to_string(), x, y, w, h, None, key_skip);
-            if std::env::var_os("SG_DEBUG").is_some() || std::env::var_os("SG_MOVIE_TRACE").is_some() {
+            ctx.globals
+                .mov
+                .start(name.to_string(), x, y, w, h, None, key_skip);
+            if std::env::var_os("SG_DEBUG").is_some()
+                || std::env::var_os("SG_MOVIE_TRACE").is_some()
+            {
                 eprintln!(
                     "[SG_DEBUG][MOV] PLAY file={} pos=({}, {}) size={}x{} wait={} key_skip={} total_ms={:?} path={}",
                     name, x, y, w, h, wait, key_skip, info.duration_ms(), info.path.display()
                 );
             }
             if wait {
-                let ret_form = crate::runtime::forms::prop_access::current_vm_meta(ctx).1.unwrap_or(0);
+                let ret_form = crate::runtime::forms::prop_access::current_vm_meta(ctx)
+                    .1
+                    .unwrap_or(0);
                 let return_value_flag = ret_form != super::codes::FM_VOID as i64;
                 ctx.wait.wait_global_movie(key_skip, return_value_flag);
             }

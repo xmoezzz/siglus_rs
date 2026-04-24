@@ -11,7 +11,9 @@ impl Error {
     }
 
     pub fn with_offset(msg: impl AsRef<str>, offset: usize) -> Self {
-        Self { msg: format!("{} at byte offset 0x{offset:X}", msg.as_ref()) }
+        Self {
+            msg: format!("{} at byte offset 0x{offset:X}", msg.as_ref()),
+        }
     }
 }
 

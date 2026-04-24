@@ -258,7 +258,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
     match post_action {
         MaskPostAction::None => {}
-        MaskPostAction::Wait(key_skip) => ctx.wait.wait_generic_int_event(0, None, key_skip, key_skip),
+        MaskPostAction::Wait(key_skip) => {
+            ctx.wait.wait_generic_int_event(0, None, key_skip, key_skip)
+        }
     }
     Ok(handled)
 }

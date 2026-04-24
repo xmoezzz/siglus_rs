@@ -21,18 +21,24 @@ fn push_ok(ctx: &mut CommandContext, ret_form: Option<i64>) {
     ctx.push(v);
 }
 
-fn queue_finish(ctx: &mut CommandContext, fa: &ObjectFrameActionState, frame_action_chain: Vec<i32>) {
+fn queue_finish(
+    ctx: &mut CommandContext,
+    fa: &ObjectFrameActionState,
+    frame_action_chain: Vec<i32>,
+) {
     if fa.cmd_name.is_empty() {
         return;
     }
-    ctx.globals.pending_frame_action_finishes.push(PendingFrameActionFinish {
-        frame_action_chain,
-        object_chain: None,
-        scn_name: fa.scn_name.clone(),
-        cmd_name: fa.cmd_name.clone(),
-        end_time: fa.end_time,
-        args: fa.args.clone(),
-    });
+    ctx.globals
+        .pending_frame_action_finishes
+        .push(PendingFrameActionFinish {
+            frame_action_chain,
+            object_chain: None,
+            scn_name: fa.scn_name.clone(),
+            cmd_name: fa.cmd_name.clone(),
+            end_time: fa.end_time,
+            args: fa.args.clone(),
+        });
 }
 
 fn apply_set_from_parts(

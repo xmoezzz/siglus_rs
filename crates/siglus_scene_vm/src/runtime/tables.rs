@@ -32,7 +32,11 @@ pub struct ButtonSeTemplate {
 
 impl Default for ButtonSeTemplate {
     fn default() -> Self {
-        Self { hit_no: 0, push_no: -1, decide_no: 1 }
+        Self {
+            hit_no: 0,
+            push_no: -1,
+            decide_no: 1,
+        }
     }
 }
 
@@ -219,8 +223,6 @@ impl AssetTables {
     }
 }
 
-
-
 fn load_button_action_templates(cfg: &GameexeConfig) -> Vec<ButtonActionTemplate> {
     let cnt = cfg
         .get_usize("BUTTON.ACTION.CNT")
@@ -285,7 +287,6 @@ fn load_se_file_names(cfg: &GameexeConfig) -> Vec<Option<String>> {
 }
 
 fn load_button_se_templates(cfg: &GameexeConfig) -> Vec<ButtonSeTemplate> {
-
     let cnt = cfg
         .get_usize("BUTTON.SE.CNT")
         .unwrap_or(INIDEF_BTN_SE_CNT)
@@ -293,13 +294,22 @@ fn load_button_se_templates(cfg: &GameexeConfig) -> Vec<ButtonSeTemplate> {
     let mut out = vec![ButtonSeTemplate::default(); cnt];
 
     for i in 0..cnt {
-        if let Some(v) = cfg.get_indexed_field("BUTTON.SE", i, "HIT").and_then(parse_i64_like_local) {
+        if let Some(v) = cfg
+            .get_indexed_field("BUTTON.SE", i, "HIT")
+            .and_then(parse_i64_like_local)
+        {
             out[i].hit_no = v;
         }
-        if let Some(v) = cfg.get_indexed_field("BUTTON.SE", i, "PUSH").and_then(parse_i64_like_local) {
+        if let Some(v) = cfg
+            .get_indexed_field("BUTTON.SE", i, "PUSH")
+            .and_then(parse_i64_like_local)
+        {
             out[i].push_no = v;
         }
-        if let Some(v) = cfg.get_indexed_field("BUTTON.SE", i, "DECIDE").and_then(parse_i64_like_local) {
+        if let Some(v) = cfg
+            .get_indexed_field("BUTTON.SE", i, "DECIDE")
+            .and_then(parse_i64_like_local)
+        {
             out[i].decide_no = v;
         }
     }

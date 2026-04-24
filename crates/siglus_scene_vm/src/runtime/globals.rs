@@ -698,13 +698,25 @@ pub struct PendingFrameActionFinish {
 
 #[derive(Debug, Clone)]
 pub enum PendingButtonActionKind {
-    UserCall { scn_name: String, cmd_name: String, z_no: i64 },
-    Syscom { sys_type: i64, sys_type_opt: i64, mode: i64 },
+    UserCall {
+        scn_name: String,
+        cmd_name: String,
+        z_no: i64,
+    },
+    Syscom {
+        sys_type: i64,
+        sys_type_opt: i64,
+        mode: i64,
+    },
 }
 
 impl Default for PendingButtonActionKind {
     fn default() -> Self {
-        Self::UserCall { scn_name: String::new(), cmd_name: String::new(), z_no: -1 }
+        Self::UserCall {
+            scn_name: String::new(),
+            cmd_name: String::new(),
+            z_no: -1,
+        }
     }
 }
 
@@ -947,7 +959,11 @@ impl Counter {
 
     pub fn update_time(&mut self, past_game_time: i32, past_real_time: i32) {
         if self.is_running {
-            let add = if self.real_flag { past_real_time } else { past_game_time };
+            let add = if self.real_flag {
+                past_real_time
+            } else {
+                past_game_time
+            };
             self.cur_time = self.cur_time.saturating_add(add as i64);
         }
 
@@ -1846,10 +1862,7 @@ impl Default for ObjectWeatherWorkState {
 
 impl ObjectWeatherWorkState {
     fn next_rand(&mut self) -> i64 {
-        self.rand_seed = self
-            .rand_seed
-            .wrapping_mul(1103515245)
-            .wrapping_add(12345);
+        self.rand_seed = self.rand_seed.wrapping_mul(1103515245).wrapping_add(12345);
         ((self.rand_seed >> 16) & 0x7fff) as i64
     }
 
@@ -1861,7 +1874,6 @@ impl ObjectWeatherWorkState {
         }
     }
 }
-
 
 #[derive(Debug, Clone)]
 pub struct ObjectMovieState {
@@ -1931,8 +1943,6 @@ impl ObjectMovieState {
         self.just_looped = false;
         self.seeked = false;
     }
-
-
 
     pub fn tick(&mut self, past_game_time: i32, past_real_time: i32) {
         self.just_finished = false;
@@ -2262,9 +2272,12 @@ impl ObjectPropEvents {
         self.center_x.update_time(past_game_time, past_real_time);
         self.center_y.update_time(past_game_time, past_real_time);
         self.center_z.update_time(past_game_time, past_real_time);
-        self.center_rep_x.update_time(past_game_time, past_real_time);
-        self.center_rep_y.update_time(past_game_time, past_real_time);
-        self.center_rep_z.update_time(past_game_time, past_real_time);
+        self.center_rep_x
+            .update_time(past_game_time, past_real_time);
+        self.center_rep_y
+            .update_time(past_game_time, past_real_time);
+        self.center_rep_z
+            .update_time(past_game_time, past_real_time);
         self.scale_x.update_time(past_game_time, past_real_time);
         self.scale_y.update_time(past_game_time, past_real_time);
         self.scale_z.update_time(past_game_time, past_real_time);
@@ -2275,10 +2288,14 @@ impl ObjectPropEvents {
         self.clip_top.update_time(past_game_time, past_real_time);
         self.clip_right.update_time(past_game_time, past_real_time);
         self.clip_bottom.update_time(past_game_time, past_real_time);
-        self.src_clip_left.update_time(past_game_time, past_real_time);
-        self.src_clip_top.update_time(past_game_time, past_real_time);
-        self.src_clip_right.update_time(past_game_time, past_real_time);
-        self.src_clip_bottom.update_time(past_game_time, past_real_time);
+        self.src_clip_left
+            .update_time(past_game_time, past_real_time);
+        self.src_clip_top
+            .update_time(past_game_time, past_real_time);
+        self.src_clip_right
+            .update_time(past_game_time, past_real_time);
+        self.src_clip_bottom
+            .update_time(past_game_time, past_real_time);
         self.tr.update_time(past_game_time, past_real_time);
         self.mono.update_time(past_game_time, past_real_time);
         self.reverse.update_time(past_game_time, past_real_time);
@@ -2911,7 +2928,6 @@ impl ObjectState {
             self.weather_work.cnt_max = cnt;
         }
     }
-
 
     pub fn init_param_like(&mut self) {
         self.base = ObjectBaseState::default();
@@ -3673,7 +3689,9 @@ impl ObjectState {
             .prop_event_lists
             .update_time(past_game_time, past_real_time);
         self.runtime.prop_event_lists.frame();
-        self.frame_action.counter.update_time(past_game_time, past_real_time);
+        self.frame_action
+            .counter
+            .update_time(past_game_time, past_real_time);
         for fa in &mut self.frame_action_ch {
             fa.counter.update_time(past_game_time, past_real_time);
         }
@@ -3690,7 +3708,6 @@ impl ObjectState {
             self.movie.pause_flag = true;
         }
     }
-
 
     pub fn update_weather_time(
         &mut self,
@@ -4719,7 +4736,8 @@ impl GlobalState {
                 };
                 fa.counter.update_time(past_game_time, past_real_time);
             }
-            let mut frame_action_list_ids: Vec<u32> = self.frame_action_lists.keys().copied().collect();
+            let mut frame_action_list_ids: Vec<u32> =
+                self.frame_action_lists.keys().copied().collect();
             frame_action_list_ids.sort_unstable();
             for frame_action_list_id in frame_action_list_ids {
                 let Some(list) = self.frame_action_lists.get_mut(&frame_action_list_id) else {

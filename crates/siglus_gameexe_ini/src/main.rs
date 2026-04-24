@@ -139,7 +139,10 @@ fn parse_args() -> Result<Args> {
             _ if arg.starts_with('-') => bail!("unknown option: {arg}"),
             _ => {
                 if let Some(prev) = &input {
-                    bail!("multiple input files specified: {} and {arg}", prev.display());
+                    bail!(
+                        "multiple input files specified: {} and {arg}",
+                        prev.display()
+                    );
                 }
                 input = Some(PathBuf::from(arg));
             }
@@ -295,8 +298,12 @@ fn decode_headered(
         );
     }
 
-    let text = unpack_and_decode_gameexe_text(&body)
-        .with_context(|| format!("unpack/decode headered Gameexe.dat after {}", applied.join(",")))?;
+    let text = unpack_and_decode_gameexe_text(&body).with_context(|| {
+        format!(
+            "unpack/decode headered Gameexe.dat after {}",
+            applied.join(",")
+        )
+    })?;
 
     Ok(DecodeResult {
         text,

@@ -1902,7 +1902,8 @@ impl Renderer {
                 }
             };
 
-            let scissor = dst_scissor_rect_scaled(sprite.dst_clip, surface_w, surface_h, surface_scale);
+            let scissor =
+                dst_scissor_rect_scaled(sprite.dst_clip, surface_w, surface_h, surface_scale);
             if let Some(sci) = scissor {
                 if sci.w == 0 || sci.h == 0 {
                     continue;

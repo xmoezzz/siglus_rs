@@ -141,10 +141,20 @@ pub struct Scene {
 impl Scene {
     pub fn parse(name: Option<String>, data: &[u8]) -> Result<Self> {
         let header = ScnHeader::parse(data)?;
-        let code_range = checked_range(data.len(), header.scn_ofs, header.scn_size, "scene bytecode")?;
+        let code_range = checked_range(
+            data.len(),
+            header.scn_ofs,
+            header.scn_size,
+            "scene bytecode",
+        )?;
         let code = data[code_range].to_vec();
 
-        let str_indices = read_index_array(data, header.str_index_list_ofs, header.str_index_cnt, "scene string index list")?;
+        let str_indices = read_index_array(
+            data,
+            header.str_index_list_ofs,
+            header.str_index_cnt,
+            "scene string index list",
+        )?;
         let strings = parse_encrypted_strings(data, header.str_list_ofs, &str_indices)?;
         if header.str_cnt != header.str_index_cnt {
             return Err(Error::new(format!(
@@ -154,17 +164,53 @@ impl Scene {
         }
 
         let labels = read_i32_array(data, header.label_list_ofs, header.label_cnt, "label list")?;
-        let z_labels = read_i32_array(data, header.z_label_list_ofs, header.z_label_cnt, "z-label list")?;
+        let z_labels = read_i32_array(
+            data,
+            header.z_label_list_ofs,
+            header.z_label_cnt,
+            "z-label list",
+        )?;
         let cmd_labels = read_cmd_labels(data, header.cmd_label_list_ofs, header.cmd_label_cnt)?;
         let scn_props = read_scn_props(data, header.scn_prop_list_ofs, header.scn_prop_cnt)?;
-        let scn_prop_name_indices = read_index_array(data, header.scn_prop_name_index_list_ofs, header.scn_prop_name_index_cnt, "scene property name index list")?;
-        let scn_prop_names = parse_plain_string_table(data, header.scn_prop_name_list_ofs, &scn_prop_name_indices, "scene property names")?;
+        let scn_prop_name_indices = read_index_array(
+            data,
+            header.scn_prop_name_index_list_ofs,
+            header.scn_prop_name_index_cnt,
+            "scene property name index list",
+        )?;
+        let scn_prop_names = parse_plain_string_table(
+            data,
+            header.scn_prop_name_list_ofs,
+            &scn_prop_name_indices,
+            "scene property names",
+        )?;
         let scn_cmds = read_scn_cmds(data, header.scn_cmd_list_ofs, header.scn_cmd_cnt)?;
-        let scn_cmd_name_indices = read_index_array(data, header.scn_cmd_name_index_list_ofs, header.scn_cmd_name_index_cnt, "scene command name index list")?;
-        let scn_cmd_names = parse_plain_string_table(data, header.scn_cmd_name_list_ofs, &scn_cmd_name_indices, "scene command names")?;
-        let call_prop_name_indices = read_index_array(data, header.call_prop_name_index_list_ofs, header.call_prop_name_index_cnt, "call property name index list")?;
-        let call_prop_names = parse_plain_string_table(data, header.call_prop_name_list_ofs, &call_prop_name_indices, "call property names")?;
-        let namae_list = read_i32_array(data, header.namae_list_ofs, header.namae_cnt, "namae list")?;
+        let scn_cmd_name_indices = read_index_array(
+            data,
+            header.scn_cmd_name_index_list_ofs,
+            header.scn_cmd_name_index_cnt,
+            "scene command name index list",
+        )?;
+        let scn_cmd_names = parse_plain_string_table(
+            data,
+            header.scn_cmd_name_list_ofs,
+            &scn_cmd_name_indices,
+            "scene command names",
+        )?;
+        let call_prop_name_indices = read_index_array(
+            data,
+            header.call_prop_name_index_list_ofs,
+            header.call_prop_name_index_cnt,
+            "call property name index list",
+        )?;
+        let call_prop_names = parse_plain_string_table(
+            data,
+            header.call_prop_name_list_ofs,
+            &call_prop_name_indices,
+            "call property names",
+        )?;
+        let namae_list =
+            read_i32_array(data, header.namae_list_ofs, header.namae_cnt, "namae list")?;
         let read_flags = read_read_flags(data, header.read_flag_list_ofs, header.read_flag_cnt)?;
 
         Ok(Self {
@@ -209,7 +255,10 @@ fn read_cmd_labels(data: &[u8], ofs: i32, cnt: i32) -> Result<Vec<CmdLabel>> {
     let mut r = Reader::with_pos(data, range.start)?;
     let mut out = Vec::with_capacity(cnt as usize);
     for _ in 0..cnt {
-        out.push(CmdLabel { cmd_id: r.read_i32()?, offset: r.read_i32()? });
+        out.push(CmdLabel {
+            cmd_id: r.read_i32()?,
+            offset: r.read_i32()?,
+        });
     }
     Ok(out)
 }
@@ -222,7 +271,10 @@ fn read_scn_props(data: &[u8], ofs: i32, cnt: i32) -> Result<Vec<ScnProp>> {
     let mut r = Reader::with_pos(data, range.start)?;
     let mut out = Vec::with_capacity(cnt as usize);
     for _ in 0..cnt {
-        out.push(ScnProp { form: r.read_i32()?, size: r.read_i32()? });
+        out.push(ScnProp {
+            form: r.read_i32()?,
+            size: r.read_i32()?,
+        });
     }
     Ok(out)
 }
@@ -235,7 +287,9 @@ fn read_scn_cmds(data: &[u8], ofs: i32, cnt: i32) -> Result<Vec<ScnCmd>> {
     let mut r = Reader::with_pos(data, range.start)?;
     let mut out = Vec::with_capacity(cnt as usize);
     for _ in 0..cnt {
-        out.push(ScnCmd { offset: r.read_i32()? });
+        out.push(ScnCmd {
+            offset: r.read_i32()?,
+        });
     }
     Ok(out)
 }
@@ -248,7 +302,9 @@ fn read_read_flags(data: &[u8], ofs: i32, cnt: i32) -> Result<Vec<ReadFlag>> {
     let mut r = Reader::with_pos(data, range.start)?;
     let mut out = Vec::with_capacity(cnt as usize);
     for _ in 0..cnt {
-        out.push(ReadFlag { line_no: r.read_i32()? });
+        out.push(ReadFlag {
+            line_no: r.read_i32()?,
+        });
     }
     Ok(out)
 }
@@ -261,14 +317,24 @@ fn parse_encrypted_strings(data: &[u8], base_ofs: i32, indices: &[Index]) -> Res
     let mut out = Vec::with_capacity(indices.len());
     for (logical_index, index) in indices.iter().enumerate() {
         if index.offset < 0 || index.size < 0 {
-            return Err(Error::new(format!("string index {logical_index} has negative offset or size")));
+            return Err(Error::new(format!(
+                "string index {logical_index} has negative offset or size"
+            )));
         }
-        let char_off = (index.offset as usize).checked_mul(2).ok_or_else(|| Error::new("string offset overflow"))?;
-        let start = base.checked_add(char_off).ok_or_else(|| Error::new("string offset overflow"))?;
-        let byte_size = (index.size as usize).checked_mul(2).ok_or_else(|| Error::new("string byte size overflow"))?;
+        let char_off = (index.offset as usize)
+            .checked_mul(2)
+            .ok_or_else(|| Error::new("string offset overflow"))?;
+        let start = base
+            .checked_add(char_off)
+            .ok_or_else(|| Error::new("string offset overflow"))?;
+        let byte_size = (index.size as usize)
+            .checked_mul(2)
+            .ok_or_else(|| Error::new("string byte size overflow"))?;
         let range = start..start + byte_size;
         if range.end > data.len() {
-            return Err(Error::new(format!("string index {logical_index} is outside scene data")));
+            return Err(Error::new(format!(
+                "string index {logical_index} is outside scene data"
+            )));
         }
         let key = (28807u32.wrapping_mul(logical_index as u32)) as u16;
         let mut words = Vec::with_capacity(index.size as usize);
@@ -281,7 +347,12 @@ fn parse_encrypted_strings(data: &[u8], base_ofs: i32, indices: &[Index]) -> Res
     Ok(out)
 }
 
-fn parse_plain_string_table(data: &[u8], base_ofs: i32, indices: &[Index], what: &str) -> Result<Vec<String>> {
+fn parse_plain_string_table(
+    data: &[u8],
+    base_ofs: i32,
+    indices: &[Index],
+    what: &str,
+) -> Result<Vec<String>> {
     if base_ofs < 0 {
         return Err(Error::new(format!("{what} has negative base offset")));
     }
@@ -289,14 +360,24 @@ fn parse_plain_string_table(data: &[u8], base_ofs: i32, indices: &[Index], what:
     let mut out = Vec::with_capacity(indices.len());
     for (i, index) in indices.iter().enumerate() {
         if index.offset < 0 || index.size < 0 {
-            return Err(Error::new(format!("{what} index {i} has negative offset or size")));
+            return Err(Error::new(format!(
+                "{what} index {i} has negative offset or size"
+            )));
         }
-        let char_off = (index.offset as usize).checked_mul(2).ok_or_else(|| Error::new(format!("{what} offset overflow")))?;
-        let start = base.checked_add(char_off).ok_or_else(|| Error::new(format!("{what} offset overflow")))?;
-        let byte_size = (index.size as usize).checked_mul(2).ok_or_else(|| Error::new(format!("{what} byte size overflow")))?;
+        let char_off = (index.offset as usize)
+            .checked_mul(2)
+            .ok_or_else(|| Error::new(format!("{what} offset overflow")))?;
+        let start = base
+            .checked_add(char_off)
+            .ok_or_else(|| Error::new(format!("{what} offset overflow")))?;
+        let byte_size = (index.size as usize)
+            .checked_mul(2)
+            .ok_or_else(|| Error::new(format!("{what} byte size overflow")))?;
         let range = start..start + byte_size;
         if range.end > data.len() {
-            return Err(Error::new(format!("{what} index {i} is outside scene data")));
+            return Err(Error::new(format!(
+                "{what} index {i} is outside scene data"
+            )));
         }
         let mut words = Vec::with_capacity(index.size as usize);
         let mut r = Reader::with_pos(data, start)?;

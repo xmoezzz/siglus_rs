@@ -227,7 +227,8 @@ fn play_named_source(
             pcm.play_in_slot(audio, ch, name, loop_flag).is_ok()
         };
         if !ok {
-            ctx.unknown.record_note(&format!("pcmch.play_pcm.failed:{ch}:{name}"));
+            ctx.unknown
+                .record_note(&format!("pcmch.play_pcm.failed:{ch}:{name}"));
         }
         return Ok(true);
     }
@@ -240,8 +241,10 @@ fn play_named_source(
                 "bgm",
                 &mapped_name,
             ) {
-                if play_path_on_pcm_slot(ctx, ch, &format!("bgm:{name}"), &path, loop_flag).is_err() {
-                    ctx.unknown.record_note(&format!("pcmch.play_bgm.failed:{ch}:{name}"));
+                if play_path_on_pcm_slot(ctx, ch, &format!("bgm:{name}"), &path, loop_flag).is_err()
+                {
+                    ctx.unknown
+                        .record_note(&format!("pcmch.play_bgm.failed:{ch}:{name}"));
                 }
                 return Ok(true);
             }
@@ -250,11 +253,13 @@ fn play_named_source(
             resolve_subdir_path(&ctx.project_dir, &ctx.globals.append_dir, "bgm", name)
         {
             if play_path_on_pcm_slot(ctx, ch, &format!("bgm:{name}"), &path, loop_flag).is_err() {
-                ctx.unknown.record_note(&format!("pcmch.play_bgm.failed:{ch}:{name}"));
+                ctx.unknown
+                    .record_note(&format!("pcmch.play_bgm.failed:{ch}:{name}"));
             }
             return Ok(true);
         }
-        ctx.unknown.record_note(&format!("pcmch.bgm.missing:{ch}:{name}"));
+        ctx.unknown
+            .record_note(&format!("pcmch.bgm.missing:{ch}:{name}"));
         return Ok(true);
     }
 
@@ -264,7 +269,8 @@ fn play_named_source(
             pcm.play_koe_no_in_slot(audio, ch, no, loop_flag).is_ok()
         };
         if !ok {
-            ctx.unknown.record_note(&format!("pcmch.play_koe.failed:{ch}:{no}"));
+            ctx.unknown
+                .record_note(&format!("pcmch.play_koe.failed:{ch}:{no}"));
         }
         return Ok(true);
     }
@@ -278,7 +284,8 @@ fn play_named_source(
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())
         else {
-            ctx.unknown.record_note(&format!("pcmch.se.table.missing:{ch}:{no}"));
+            ctx.unknown
+                .record_note(&format!("pcmch.se.table.missing:{ch}:{no}"));
             return Ok(true);
         };
         let ok = {
@@ -286,7 +293,8 @@ fn play_named_source(
             pcm.play_in_slot(audio, ch, &name, loop_flag).is_ok()
         };
         if !ok {
-            ctx.unknown.record_note(&format!("pcmch.play_se.failed:{ch}:{no}:{name}"));
+            ctx.unknown
+                .record_note(&format!("pcmch.play_se.failed:{ch}:{no}:{name}"));
         }
         return Ok(true);
     }
