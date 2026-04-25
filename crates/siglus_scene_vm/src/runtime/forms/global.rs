@@ -103,6 +103,16 @@ fn named_i64(args: &[Value], id: i32) -> Option<i64> {
     })
 }
 
+fn mwnd_no_from_value(v: &Value) -> Option<usize> {
+    match v.unwrap_named() {
+        Value::Int(n) if *n >= 0 => Some(*n as usize),
+        Value::Element(chain) => chain
+            .windows(2)
+            .find_map(|w| (w[0] == forms::codes::ELM_ARRAY && w[1] >= 0).then_some(w[1] as usize)),
+        _ => None,
+    }
+}
+
 fn parse_selbtn_choices(
     args: &[Value],
 ) -> (i64, Vec<crate::runtime::globals::BtnSelectChoiceState>) {
@@ -446,6 +456,37 @@ pub fn dispatch_global_form(
     }
     if form_id == 6 || form_id == 96 {
         ctx.wait.wait_next_frame(ctx.globals.render_frame);
+        return Ok(true);
+    }
+    if form_id == constants::elm_value::GLOBAL_SET_MWND as u32
+        || form_id == constants::elm_value::GLOBAL_SET_SEL_MWND as u32
+    {
+        let next = args.iter().find_map(mwnd_no_from_value);
+        if form_id == constants::elm_value::GLOBAL_SET_SEL_MWND as u32 {
+            if let Some(no) = next {
+                ctx.globals.current_sel_mwnd_no = Some(no);
+            }
+        } else if let Some(no) = next {
+            ctx.globals.current_mwnd_no = Some(no);
+        }
+        return Ok(true);
+    }
+    if form_id == constants::elm_value::GLOBAL_GET_MWND as u32
+        || form_id == constants::elm_value::GLOBAL_GET_SEL_MWND as u32
+    {
+        let no = if form_id == constants::elm_value::GLOBAL_GET_SEL_MWND as u32 {
+            ctx.globals.current_sel_mwnd_no
+        } else {
+            ctx.globals.current_mwnd_no
+        };
+        // C++ returns -1 only when no current MWND element resolves.
+        ctx.push(Value::Int(no.map(|n| n as i64).unwrap_or(-1)));
+        return Ok(true);
+    }
+    if form_id == constants::elm_value::GLOBAL_SET_TITLE as u32 {
+        // Original engine forwards this to the OS window caption.  The winit
+        // shell owns the actual window, so keep VM semantics as a successful
+        // side-effect command here.
         return Ok(true);
     }
 

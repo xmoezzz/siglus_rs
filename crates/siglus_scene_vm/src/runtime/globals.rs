@@ -556,6 +556,9 @@ pub struct GlobalState {
     pub focused_stage_group: Option<(u32, i64, usize)>,
     /// Currently focused message-window selection (form_id, stage_idx, mwnd_idx).
     pub focused_stage_mwnd: Option<(u32, i64, usize)>,
+    /// Current message-window handles used by GLOBAL.GET_MWND/SET_MWND.
+    pub current_mwnd_no: Option<usize>,
+    pub current_sel_mwnd_no: Option<usize>,
     /// GLOBAL.SELBTN button-selection runtime state.
     pub selbtn: BtnSelectRuntimeState,
     /// Last object target touched by stage/object dispatch. Compact object-only chains in scene bytecode
@@ -636,6 +639,8 @@ impl Default for GlobalState {
             stage_forms: HashMap::new(),
             focused_stage_group: None,
             focused_stage_mwnd: None,
+            current_mwnd_no: Some(0),
+            current_sel_mwnd_no: Some(1),
             selbtn: BtnSelectRuntimeState::default(),
             current_stage_object: None,
             current_object_chain: None,

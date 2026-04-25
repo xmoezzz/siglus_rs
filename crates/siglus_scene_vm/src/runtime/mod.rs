@@ -2464,12 +2464,13 @@ impl CommandContext {
                     return;
                 }
                 Err(err) => {
-                    if trace || std::env::var_os("SG_DEBUG").is_some() {
-                        eprintln!(
-                            "[SG_DEBUG][MOV] poll_asset failed file={} err={:#}",
-                            file_name, err
-                        );
-                    }
+                    // Movie not found or decode failed: stop playback so
+                    // any MOV wait unblocks instead of hanging forever.
+                    eprintln!(
+                        "[SG_MOV] error file={} err={:#}",
+                        file_name, err
+                    );
+                    self.globals.mov.playing = false;
                     return;
                 }
             };
@@ -5214,9 +5215,13 @@ fn sync_movie_object_recursive(
                         return;
                     }
                     Err(err) => {
-                        if trace {
-                            eprintln!("[SG_MOVIE_TRACE] poll_asset failed stage={} obj={} file={} err={:#}", stage_idx, obj_idx, file, err);
-                        }
+                        // OMV not found or decode failed. Stop playback so any
+                        // wait_movie unblocks instead of hanging forever.
+                        eprintln!(
+                            "[SG_MOVIE] omv error stage={} obj={} file={}: {:#}",
+                            stage_idx, obj_idx, file, err
+                        );
+                        obj.movie.playing = false;
                         for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
                             sync_movie_object_recursive(
                                 ids,

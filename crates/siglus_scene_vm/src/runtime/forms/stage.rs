@@ -174,6 +174,25 @@ fn parse_target(ctx: &CommandContext, chain: &[i32]) -> Option<StageTarget> {
     let objectlist_get_size = constants::OBJECTLIST_GET_SIZE;
     let objectlist_resize = constants::OBJECTLIST_RESIZE;
     if chain.len() < 4 || chain[1] != elm_array {
+        // Global aliases are dispatched by the C++ global form as a concrete
+        // stage first, then the remaining tail is parsed by the stage handler:
+        // `front.mwnd[n].op` arrives here as `[FRONT, MWND, ARRAY, n, op]`.
+        // The Rust stage state currently stores the visible front alias in
+        // stage slot 0, matching the rest of the object-chain bridge.
+        if chain.len() >= 5
+            && (chain[0] as u32 == constants::global_form::BACK
+                || chain[0] as u32 == constants::global_form::FRONT
+                || chain[0] as u32 == constants::global_form::NEXT)
+            && chain[2] == elm_array
+        {
+            return Some(StageTarget::ChildItemOp {
+                stage: 0,
+                child: chain[1],
+                idx: chain[3] as i64,
+                op: chain[4] as i64,
+                tail: chain.get(5..).unwrap_or(&[]).to_vec(),
+            });
+        }
         // Same-version decomp-confirmed testcase shape:
         // [FORM_STAGE_ALIAS, child_code, ELM_ARRAY, stage_idx, ...]
         if chain.len() >= 4 && chain[2] == elm_array {
@@ -2956,10 +2975,7 @@ fn dispatch_object_op(
                     .and_then(|layer| layer.sprite(sprite_id))
                     .map(|spr| if spr.visible { 1 } else { 0 })
                     .unwrap_or(0),
-                ObjectBackend::Gfx => ctx
-                    .gfx
-                    .object_peek_disp(stage_idx, obj_u as i64)
-                    .unwrap_or(0),
+                ObjectBackend::Gfx => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::Number { .. } => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::String {
                     layer_id,
@@ -3025,11 +3041,7 @@ fn dispatch_object_op(
                     .and_then(|layer| layer.sprite(sprite_id))
                     .map(|spr| spr.x as i64)
                     .unwrap_or(0),
-                ObjectBackend::Gfx => ctx
-                    .gfx
-                    .object_peek_pos(stage_idx, obj_u as i64)
-                    .map(|(x, _)| x)
-                    .unwrap_or(0),
+                ObjectBackend::Gfx => obj.get_int_prop(&ctx.ids, op),
                 _ => obj.get_int_prop(&ctx.ids, op),
             };
             ctx.stack.push(Value::Int(v));
@@ -3084,11 +3096,7 @@ fn dispatch_object_op(
                     .and_then(|layer| layer.sprite(sprite_id))
                     .map(|spr| spr.y as i64)
                     .unwrap_or(0),
-                ObjectBackend::Gfx => ctx
-                    .gfx
-                    .object_peek_pos(stage_idx, obj_u as i64)
-                    .map(|(_, y)| y)
-                    .unwrap_or(0),
+                ObjectBackend::Gfx => obj.get_int_prop(&ctx.ids, op),
                 _ => obj.get_int_prop(&ctx.ids, op),
             };
             ctx.stack.push(Value::Int(v));
@@ -3912,25 +3920,23 @@ fn dispatch_object_op(
 
     if op == constants::elm_value::OBJECT_CREATE_FROM_CAPTURE_FILE {
         let (pos, _named) = split_pos_named(script_args);
-        let Some(file) = pos.get(0).and_then(|v| v.as_str()) else {
-            panic!("OBJECT.CREATE_FROM_CAPTURE_FILE requires file name");
-        };
-        let Some(path) = resolve_capture_file_path(&ctx.project_dir, &ctx.globals.append_dir, file)
-        else {
-            panic!("OBJECT.CREATE_FROM_CAPTURE_FILE cannot resolve file: {file}");
-        };
+        let file_opt = pos.get(0).and_then(|v| v.as_str());
+        let path_opt = file_opt.and_then(|file| {
+            resolve_capture_file_path(&ctx.project_dir, &ctx.globals.append_dir, file)
+        });
         object_clear_backend(ctx, obj, stage_idx, obj_u);
         obj.used = true;
         obj.object_type = 10;
-        obj.file_name = Some(file.to_string());
+        obj.file_name = file_opt.map(|s| s.to_string());
         obj.movie.reset();
         obj.init_param_like();
-        let img_id = ctx.images.load_file(&path, 0).unwrap_or_else(|e| {
-            panic!(
-                "OBJECT.CREATE_FROM_CAPTURE_FILE failed to load {}: {e}",
-                path.display()
-            )
-        });
+        let img_id = if let Some(path) = path_opt {
+            ctx.images
+                .load_file(&path, 0)
+                .unwrap_or_else(|_| insert_capture_image_id(ctx, true))
+        } else {
+            insert_capture_image_id(ctx, true)
+        };
         bind_capture_backend(ctx, obj, stage_idx, img_id);
         push_ok(ctx, ret_form);
         return true;
@@ -5456,6 +5462,30 @@ fn dispatch_object_op(
     if op == constants::elm_value::OBJECT_SET_CHILD_SORT_TYPE_TEST {
         obj.base.child_sort_type = 1;
         ctx.stack.push(Value::Int(0));
+        return true;
+    }
+
+    // Emote ops — not yet implemented; stub out to avoid panics.
+    if op == constants::elm_value::OBJECT_EMOTE_CHECK_PLAYING {
+        // Report "not playing" since emote playback is unimplemented.
+        ctx.stack.push(Value::Int(0));
+        return true;
+    }
+    if op == constants::elm_value::OBJECT_EMOTE_WAIT_PLAYING
+        || op == constants::elm_value::OBJECT_EMOTE_WAIT_PLAYING_KEY
+    {
+        // Emotes are not implemented; resolve the wait immediately.
+        push_ok(ctx, ret_form);
+        return true;
+    }
+    if op == constants::elm_value::OBJECT_EMOTE_PLAY_TIMELINE
+        || op == constants::elm_value::OBJECT_EMOTE_STOP_TIMELINE
+        || op == constants::elm_value::OBJECT_EMOTE_SKIP
+        || op == constants::elm_value::OBJECT_EMOTE_PASS
+        || op == constants::elm_value::OBJECT_EMOTE_MOUTH_VOLUME
+        || op == constants::elm_value::OBJECT_EMOTE_KOE_CHARA_NO
+    {
+        push_ok(ctx, ret_form);
         return true;
     }
 
