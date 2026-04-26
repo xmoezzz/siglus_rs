@@ -526,6 +526,44 @@ impl<'a> SceneVm<'a> {
         );
     }
 
+    fn vm_scn_cmd_context(&self, pc: usize) -> String {
+        let cnt = self.stream.header.scn_cmd_cnt.max(0) as usize;
+        let mut prev: Option<(usize, usize)> = None;
+        let mut next: Option<(usize, usize)> = None;
+        for cmd_no in 0..cnt {
+            let Ok(off) = self.stream.scn_cmd_offset(cmd_no) else {
+                continue;
+            };
+            if off <= pc {
+                prev = Some(match prev {
+                    Some(cur) if cur.1 > off => cur,
+                    _ => (cmd_no, off),
+                });
+            }
+            if off > pc {
+                next = Some(match next {
+                    Some(cur) if cur.1 < off => cur,
+                    _ => (cmd_no, off),
+                });
+            }
+        }
+
+        let mut out = String::new();
+        if let Some((cmd_no, off)) = prev {
+            let name = self.stream.scn_cmd_name_map.get(&(cmd_no as u32)).map(String::as_str).unwrap_or("<unnamed>");
+            let _ = write!(&mut out, "prev_scn_cmd=#{}:{}@0x{:x} delta={} ", cmd_no, name, off, pc.saturating_sub(off));
+        } else {
+            let _ = write!(&mut out, "prev_scn_cmd=<none> " );
+        }
+        if let Some((cmd_no, off)) = next {
+            let name = self.stream.scn_cmd_name_map.get(&(cmd_no as u32)).map(String::as_str).unwrap_or("<unnamed>");
+            let _ = write!(&mut out, "next_scn_cmd=#{}:{}@0x{:x} distance={}", cmd_no, name, off, off.saturating_sub(pc));
+        } else {
+            let _ = write!(&mut out, "next_scn_cmd=<none>" );
+        }
+        out
+    }
+
     pub fn take_script_proc_request(&mut self) -> bool {
         let requested = self.ctx.excall_state.script_proc_requested;
         self.ctx.excall_state.script_proc_requested = false;
@@ -569,6 +607,7 @@ impl<'a> SceneVm<'a> {
         cmd_name: &str,
         offset: usize,
         return_pc: usize,
+        end_offset: Option<usize>,
         _expected_return_pc: Option<usize>,
         call_args: &[Value],
         frame_action_proc: bool,
@@ -627,6 +666,12 @@ impl<'a> SceneVm<'a> {
         let mut budget: u64 = 20000;
         let mut run_error = None;
         while budget > 0 {
+            if let Some(end) = end_offset {
+                if self.stream.get_prg_cntr() >= end {
+                    break;
+                }
+            }
+            let wait_generation_before_step = self.ctx.wait.block_generation();
             let running = match self.step_inner(false) {
                 Ok(v) => v,
                 Err(e) => {
@@ -635,6 +680,9 @@ impl<'a> SceneVm<'a> {
                 }
             };
             if self.halted || !running {
+                break;
+            }
+            if self.ctx.wait.block_generation() != wait_generation_before_step && self.ctx.wait_poll() {
                 break;
             }
             if self.call_stack.len() == base_depth {
@@ -767,10 +815,12 @@ impl<'a> SceneVm<'a> {
         } else {
             self.stream.scn.len()
         };
+        let target_end_offset = self.stream.next_scn_cmd_offset_after(target_offset)?;
         let result = self.run_user_cmd_inline_at_offset(
             cmd_name,
             target_offset,
             target_return_pc,
+            target_end_offset,
             None,
             call_args,
             frame_action_proc,
@@ -797,6 +847,10 @@ impl<'a> SceneVm<'a> {
         call_args: &[Value],
         frame_action_proc: bool,
     ) -> Result<bool> {
+        if frame_action_proc {
+            return self.run_scene_user_cmd_frame_action_proc(scn_name, cmd_name, call_args);
+        }
+
         let current_scene_no = self.current_scene_no;
         let is_current_scene = match scn_name {
             None => true,
@@ -837,10 +891,12 @@ impl<'a> SceneVm<'a> {
             };
             let offset = self.stream.scn_cmd_offset(cmd_no)?;
             let return_pc = self.stream.get_prg_cntr();
+            let end_offset = self.stream.next_scn_cmd_offset_after(offset)?;
             return self.run_user_cmd_inline_at_offset(
                 cmd_name,
                 offset,
                 return_pc,
+                end_offset,
                 Some(return_pc),
                 call_args,
                 frame_action_proc,
@@ -899,6 +955,260 @@ impl<'a> SceneVm<'a> {
             false,
             frame_action_proc,
         )
+    }
+
+    fn run_scene_user_cmd_frame_action_proc(
+        &mut self,
+        scn_name: Option<&str>,
+        cmd_name: &str,
+        call_args: &[Value],
+    ) -> Result<bool> {
+        let saved_scene_no = self.current_scene_no;
+        let saved_scene_stack_len = self.scene_stack.len();
+        let saved_call_depth = self.call_stack.len();
+
+        let current_scene_no = self.current_scene_no;
+        let is_current_scene = match scn_name {
+            None => true,
+            Some(name) if name.is_empty() => true,
+            Some(name) => self
+                .current_scene_name
+                .as_deref()
+                .map(|cur| cur.eq_ignore_ascii_case(name))
+                .unwrap_or(false),
+        };
+
+        if is_current_scene {
+            let Some(_) = current_scene_no else {
+                return Ok(false);
+            };
+            let Some(cmd_no) = self.user_cmd_names.iter().find_map(|(no, name)| {
+                if name.eq_ignore_ascii_case(cmd_name) {
+                    Some(*no as usize)
+                } else {
+                    None
+                }
+            }) else {
+                if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+                    eprintln!(
+                        "[SG_FRAME_ACTION_CALL] current-scene user command not found: cmd={} scene={:?} scn_name={:?}",
+                        cmd_name,
+                        self.current_scene_no,
+                        scn_name
+                    );
+                }
+                return Ok(false);
+            };
+            let offset = self.stream.scn_cmd_offset(cmd_no)?;
+            self.enter_current_scene_user_cmd_proc_at_offset(
+                offset,
+                self.cfg.fm_void,
+                call_args,
+                false,
+                true,
+            )?;
+        } else {
+            let Some(name) = scn_name.filter(|name| !name.is_empty()) else {
+                return Ok(false);
+            };
+            self.ensure_scene_pck_cache()?;
+            let Some(target_scene_no) = self
+                .scene_pck_cache
+                .as_ref()
+                .expect("scene pck cache initialized")
+                .find_scene_no(name)
+            else {
+                if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+                    eprintln!(
+                        "[SG_FRAME_ACTION_CALL] target scene not found: scn_name={} cmd={}",
+                        name, cmd_name
+                    );
+                }
+                return Ok(false);
+            };
+
+            let target_stream = self.cached_scene_stream(target_scene_no)?;
+            let Some(cmd_no) = target_stream.scn_cmd_name_map.iter().find_map(|(no, name)| {
+                if name.eq_ignore_ascii_case(cmd_name) {
+                    Some(*no as usize)
+                } else {
+                    None
+                }
+            }) else {
+                if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+                    eprintln!(
+                        "[SG_FRAME_ACTION_CALL] user command not found: cmd={} target_scene={} scn_name={:?}",
+                        cmd_name,
+                        target_scene_no,
+                        scn_name
+                    );
+                }
+                return Ok(false);
+            };
+            let offset = target_stream.scn_cmd_offset(cmd_no)?;
+            self.enter_scene_user_cmd_at_scene_offset_ex(
+                target_scene_no,
+                offset,
+                call_args,
+                self.cfg.fm_void,
+                false,
+                true,
+            )?;
+        }
+
+        if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+            eprintln!(
+                "[SG_FRAME_ACTION_CALL] proc enter cmd={} scene={:?} depth={} args={:?}",
+                cmd_name,
+                self.current_scene_no,
+                self.call_stack.len(),
+                call_args
+            );
+        }
+
+        let mut budget: u64 = 20000;
+        while budget > 0 {
+            let wait_generation_before_step = self.ctx.wait.block_generation();
+            let running = self.step_inner(false)?;
+            if self.halted || !running {
+                break;
+            }
+            if self.ctx.wait.block_generation() != wait_generation_before_step && self.ctx.wait_poll() {
+                break;
+            }
+            if self.current_scene_no == saved_scene_no
+                && self.scene_stack.len() == saved_scene_stack_len
+                && self.call_stack.len() == saved_call_depth
+            {
+                break;
+            }
+            budget -= 1;
+        }
+        if budget == 0 {
+            bail!(
+                "frame_action user command exceeded script-proc budget: cmd={} scene={:?}",
+                cmd_name,
+                scn_name
+            );
+        }
+
+        Ok(true)
+    }
+
+    fn enter_current_scene_user_cmd_proc_at_offset(
+        &mut self,
+        offset: usize,
+        ret_form: i32,
+        call_args: &[Value],
+        excall_proc: bool,
+        frame_action_proc: bool,
+    ) -> Result<bool> {
+        let return_pc = self.stream.get_prg_cntr();
+        let depth = self.call_stack.len();
+        let Some(caller) = self.call_stack.last_mut() else {
+            return Ok(false);
+        };
+        if std::env::var_os("SIGLUS_TRACE_CALL_RETURN_PC").is_some() {
+            eprintln!(
+                "[SG_CALL_PC] proc-call set depth={} offset=0x{:x} return_pc=0x{:x} old=0x{:x} frame_action={}",
+                depth,
+                offset,
+                return_pc,
+                caller.return_pc,
+                frame_action_proc
+            );
+        }
+        caller.return_pc = return_pc;
+        caller.ret_form = ret_form;
+        for arg in call_args {
+            self.push_call_arg_value(arg);
+        }
+        self.call_stack.push(self.make_call_frame(
+            self.cfg.fm_void,
+            excall_proc,
+            frame_action_proc,
+            call_args.len(),
+            None,
+        ));
+        self.stream.set_prg_cntr(offset)?;
+        if excall_proc {
+            self.mark_excall_script_proc_requested();
+        }
+        Ok(true)
+    }
+
+    fn enter_scene_user_cmd_at_scene_offset_ex(
+        &mut self,
+        target_scene_no: usize,
+        target_offset: usize,
+        call_args: &[Value],
+        ret_form: i32,
+        ex_call_proc: bool,
+        frame_action_proc: bool,
+    ) -> Result<bool> {
+        let target_stream = self.cached_scene_stream(target_scene_no)?;
+        if target_offset > target_stream.scn.len() {
+            bail!(
+                "scene_pck: user command offset out of bounds: scn_no={} offset=0x{:x} scn_len=0x{:x}",
+                target_scene_no,
+                target_offset,
+                target_stream.scn.len()
+            );
+        }
+
+        let saved = SceneExecFrame {
+            stream: self.stream.clone(),
+            user_cmd_names: self.user_cmd_names.clone(),
+            call_cmd_names: self.call_cmd_names.clone(),
+            int_stack: std::mem::take(&mut self.int_stack),
+            str_stack: std::mem::take(&mut self.str_stack),
+            element_points: std::mem::take(&mut self.element_points),
+            call_stack: std::mem::take(&mut self.call_stack),
+            gosub_return_stack: std::mem::take(&mut self.gosub_return_stack),
+            user_props: std::mem::take(&mut self.user_props),
+            current_scene_no: self.current_scene_no,
+            current_scene_name: self.current_scene_name.clone(),
+            current_line_no: self.current_line_no,
+            ret_form,
+            excall_proc: ex_call_proc,
+        };
+        self.scene_stack.push(saved);
+
+        self.stream = target_stream;
+        self.user_cmd_names = self.stream.scn_cmd_name_map.clone();
+        self.call_cmd_names = self
+            .scene_pck_cache
+            .as_ref()
+            .expect("scene pck cache initialized")
+            .inc_cmd_name_map
+            .clone();
+        self.current_scene_no = Some(target_scene_no);
+        self.current_scene_name = self
+            .scene_pck_cache
+            .as_ref()
+            .expect("scene pck cache initialized")
+            .find_scene_name(target_scene_no)
+            .map(ToOwned::to_owned);
+        self.current_line_no = -1;
+        self.ctx.current_scene_no = Some(target_scene_no as i64);
+        self.ctx.current_scene_name = self.current_scene_name.clone();
+        self.ctx.current_line_no = -1;
+
+        for arg in call_args {
+            self.push_call_arg_value(arg);
+        }
+        self.call_stack.push(self.make_call_frame(
+            self.cfg.fm_void,
+            ex_call_proc,
+            frame_action_proc,
+            call_args.len(),
+            None,
+        ));
+        self.stream.set_prg_cntr(target_offset)?;
+        if ex_call_proc {
+            self.mark_excall_script_proc_requested();
+        }
+        Ok(true)
     }
 
     fn enter_scene_user_cmd_call(
@@ -997,35 +1307,13 @@ impl<'a> SceneVm<'a> {
         offset: usize,
         call_args: &[Value],
     ) -> Result<bool> {
-        let return_pc = self.stream.get_prg_cntr();
-        let depth = self.call_stack.len();
-        let Some(caller) = self.call_stack.last_mut() else {
-            return Ok(false);
-        };
-        if std::env::var_os("SIGLUS_TRACE_CALL_RETURN_PC").is_some() {
-            eprintln!(
-                "[SG_CALL_PC] excall-current set depth={} offset=0x{:x} return_pc=0x{:x} old=0x{:x}",
-                depth,
-                offset,
-                return_pc,
-                caller.return_pc
-            );
-        }
-        caller.return_pc = return_pc;
-        caller.ret_form = self.cfg.fm_void;
-        for arg in call_args {
-            self.push_call_arg_value(arg);
-        }
-        self.call_stack.push(self.make_call_frame(
+        self.enter_current_scene_user_cmd_proc_at_offset(
+            offset,
             self.cfg.fm_void,
+            call_args,
             true,
             false,
-            call_args.len(),
-            None,
-        ));
-        self.stream.set_prg_cntr(offset)?;
-        self.mark_excall_script_proc_requested();
-        Ok(true)
+        )
     }
 
     fn enter_scene_user_cmd_at_scene_offset(
@@ -1034,67 +1322,14 @@ impl<'a> SceneVm<'a> {
         target_offset: usize,
         call_args: &[Value],
     ) -> Result<bool> {
-        let target_stream = self.cached_scene_stream(target_scene_no)?;
-        if target_offset > target_stream.scn.len() {
-            bail!(
-                "scene_pck: user command offset out of bounds: scn_no={} offset=0x{:x} scn_len=0x{:x}",
-                target_scene_no,
-                target_offset,
-                target_stream.scn.len()
-            );
-        }
-
-        let saved = SceneExecFrame {
-            stream: self.stream.clone(),
-            user_cmd_names: self.user_cmd_names.clone(),
-            call_cmd_names: self.call_cmd_names.clone(),
-            int_stack: std::mem::take(&mut self.int_stack),
-            str_stack: std::mem::take(&mut self.str_stack),
-            element_points: std::mem::take(&mut self.element_points),
-            call_stack: std::mem::take(&mut self.call_stack),
-            gosub_return_stack: std::mem::take(&mut self.gosub_return_stack),
-            user_props: std::mem::take(&mut self.user_props),
-            current_scene_no: self.current_scene_no,
-            current_scene_name: self.current_scene_name.clone(),
-            current_line_no: self.current_line_no,
-            ret_form: self.cfg.fm_void,
-            excall_proc: true,
-        };
-        self.scene_stack.push(saved);
-
-        self.stream = target_stream;
-        self.user_cmd_names = self.stream.scn_cmd_name_map.clone();
-        self.call_cmd_names = self
-            .scene_pck_cache
-            .as_ref()
-            .expect("scene pck cache initialized")
-            .inc_cmd_name_map
-            .clone();
-        self.current_scene_no = Some(target_scene_no);
-        self.current_scene_name = self
-            .scene_pck_cache
-            .as_ref()
-            .expect("scene pck cache initialized")
-            .find_scene_name(target_scene_no)
-            .map(ToOwned::to_owned);
-        self.current_line_no = -1;
-        self.ctx.current_scene_no = Some(target_scene_no as i64);
-        self.ctx.current_scene_name = self.current_scene_name.clone();
-        self.ctx.current_line_no = -1;
-
-        self.call_stack.push(self.make_call_frame(
+        self.enter_scene_user_cmd_at_scene_offset_ex(
+            target_scene_no,
+            target_offset,
+            call_args,
             self.cfg.fm_void,
             true,
             false,
-            call_args.len(),
-            None,
-        ));
-        for arg in call_args {
-            self.push_call_arg_value(arg);
-        }
-        self.stream.set_prg_cntr(target_offset)?;
-        self.mark_excall_script_proc_requested();
-        Ok(true)
+        )
     }
 
     fn run_current_scene_user_cmd_inline(
@@ -1156,10 +1391,12 @@ impl<'a> SceneVm<'a> {
         } else {
             self.stream.scn.len()
         };
+        let target_end_offset = self.stream.next_scn_cmd_offset_after(target_offset)?;
         let result = self.run_user_cmd_inline_at_offset(
             cmd_name,
             target_offset,
             target_return_pc,
+            target_end_offset,
             None,
             call_args,
             frame_action_proc,
@@ -2408,11 +2645,13 @@ impl<'a> SceneVm<'a> {
                 // In the original engine this is treated as a fatal script error.
                 // Stop execution and record it.
                 *self.unknown_opcodes.entry(opcode).or_insert(0) += 1;
+                let scn_cmd_context = self.vm_scn_cmd_context(pc_before);
                 eprintln!(
-                    "VM hit CD_NONE scene={} line={} pc=0x{:x} bytes={:02x?}; stopping",
+                    "VM hit CD_NONE scene={} line={} pc=0x{:x} {} bytes={:02x?}; stopping",
                     self.current_scene_name.as_deref().unwrap_or("<none>"),
                     self.current_line_no,
                     pc_before,
+                    scn_cmd_context,
                     &self.stream.scn[pc_before.saturating_sub(8)..self.stream.scn.len().min(pc_before + 16)]
                 );
                 self.halted = true;
@@ -4748,10 +4987,12 @@ impl<'a> SceneVm<'a> {
             };
             let offset = self.stream.scn_cmd_offset(local_cmd_no as usize)?;
             let return_pc = self.stream.get_prg_cntr();
+            let end_offset = self.stream.next_scn_cmd_offset_after(offset)?;
             return self.run_user_cmd_inline_at_offset(
                 &name,
                 offset,
                 return_pc,
+                end_offset,
                 Some(return_pc),
                 args,
                 false,

@@ -323,6 +323,21 @@ impl<'a> SceneStream<'a> {
         Ok(prg)
     }
 
+    pub fn next_scn_cmd_offset_after(&self, start: usize) -> Result<Option<usize>> {
+        let cnt = self.header.scn_cmd_cnt.max(0) as usize;
+        let mut next: Option<usize> = None;
+        for cmd_no in 0..cnt {
+            let off = self.scn_cmd_offset(cmd_no)?;
+            if off > start {
+                next = Some(match next {
+                    Some(cur) => cur.min(off),
+                    None => off,
+                });
+            }
+        }
+        Ok(next)
+    }
+
     pub fn pop_u8(&mut self) -> Result<u8> {
         if self.pc + 1 > self.scn.len() {
             bail!("scn: pop_u8 past end");

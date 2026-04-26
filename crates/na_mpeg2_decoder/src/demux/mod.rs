@@ -1,17 +1,18 @@
 //! Minimal MPEG demux helpers.
 //!
-//! This module is intentionally small: it only extracts *video elementary stream*
+//! This module is intentionally small: it extracts MPEG video and MPEG audio PES
 //! payload bytes (and optional PTS) from common MPEG containers.
 //!
 //! Supported:
 //! - Raw ES (start-code byte stream)
-//! - MPEG-TS (188-byte packets; video PID auto-sniffed from PES stream_id 0xE0..0xEF)
-//! - MPEG-PS (pack/system headers + PES; extracts video PES payload)
+//! - MPEG-TS (188-byte packets; video/audio PID auto-sniffed from PES stream_id)
+//! - MPEG-PS (pack/system headers + PES; extracts video and audio PES payload)
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StreamType {
     MpegVideo,
     MpegAudio,
+    DvdLpcmAudio,
     Unknown,
 }
 
@@ -54,6 +55,7 @@ pub struct Demuxer {
     // TS state
     ts_video_pid: Option<u16>,
     ts_audio_pid: Option<u16>,
+    ts_private_audio_pid: Option<u16>,
 }
 
 impl Demuxer {
@@ -65,6 +67,7 @@ impl Demuxer {
             buf: Vec::new(),
             ts_video_pid: None,
             ts_audio_pid: None,
+            ts_private_audio_pid: None,
         }
     }
 
@@ -76,6 +79,7 @@ impl Demuxer {
             buf: Vec::new(),
             ts_video_pid: None,
             ts_audio_pid: None,
+            ts_private_audio_pid: None,
         }
     }
 
@@ -172,7 +176,7 @@ impl Demuxer {
             }
 
             // Auto-sniff video/audio PID from PES headers.
-            if pusi && (self.ts_video_pid.is_none() || self.ts_audio_pid.is_none()) {
+            if pusi && (self.ts_video_pid.is_none() || self.ts_audio_pid.is_none() || self.ts_private_audio_pid.is_none()) {
                 if payload.len() >= 4 && payload[0] == 0 && payload[1] == 0 && payload[2] == 1 {
                     let sid = payload[3];
                     if self.ts_video_pid.is_none() && (0xE0..=0xEF).contains(&sid) {
@@ -180,6 +184,9 @@ impl Demuxer {
                     }
                     if self.ts_audio_pid.is_none() && (0xC0..=0xDF).contains(&sid) {
                         self.ts_audio_pid = Some(pid);
+                    }
+                    if self.ts_private_audio_pid.is_none() && sid == 0xBD {
+                        self.ts_private_audio_pid = Some(pid);
                     }
                 }
             }
@@ -193,6 +200,11 @@ impl Demuxer {
             if let Some(apid) = self.ts_audio_pid {
                 if pid == apid {
                     st = Some(StreamType::MpegAudio);
+                }
+            }
+            if let Some(ppid) = self.ts_private_audio_pid {
+                if pid == ppid {
+                    st = Some(StreamType::DvdLpcmAudio);
                 }
             }
             let Some(stream_type) = st else {
@@ -246,6 +258,8 @@ impl Demuxer {
                 StreamType::MpegVideo
             } else if (0xC0..=0xDF).contains(&sid) {
                 StreamType::MpegAudio
+            } else if sid == 0xBD {
+                StreamType::DvdLpcmAudio
             } else {
                 pos = sc_pos + 4;
                 continue;

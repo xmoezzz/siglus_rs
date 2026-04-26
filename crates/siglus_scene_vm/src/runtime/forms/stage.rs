@@ -731,8 +731,63 @@ fn ensure_group(
 
 fn ensure_mwnd(ctx: &mut CommandContext, st: &mut StageFormState, stage_idx: i64, mwnd_idx: usize) {
     st.ensure_mwnd_list(stage_idx, mwnd_idx + 1);
-    let _ = ctx;
-    let _ = st;
+    let Some(list) = st.mwnd_lists.get_mut(&stage_idx) else {
+        return;
+    };
+    let Some(m) = list.get_mut(mwnd_idx) else {
+        return;
+    };
+    if m.initialized_from_gameexe {
+        return;
+    }
+
+    if let Some(t) = ctx.tables.mwnd_templates.get(mwnd_idx).cloned() {
+        m.window_pos = Some(t.window_pos);
+        m.window_size = (t.window_size.0 > 0 && t.window_size.1 > 0).then_some(t.window_size);
+        m.message_pos = Some(t.message_pos);
+        m.window_moji_cnt = (t.moji_cnt.0 > 0 && t.moji_cnt.1 > 0).then_some(t.moji_cnt);
+        m.moji_size = (t.moji_size > 0).then_some(t.moji_size);
+        m.open_anime_type = t.open_anime_type;
+        m.open_anime_time = t.open_anime_time;
+        m.close_anime_type = t.close_anime_type;
+        m.close_anime_time = t.close_anime_time;
+
+        if let Some(waku) = (t.waku_no >= 0)
+            .then_some(t.waku_no as usize)
+            .and_then(|idx| ctx.tables.waku_templates.get(idx))
+        {
+            m.waku_file = waku.waku_file.clone();
+            m.filter_file = waku.filter_file.clone();
+        }
+    }
+
+    m.initialized_from_gameexe = true;
+}
+
+fn apply_mwnd_waku_from_gameexe(
+    ctx: &CommandContext,
+    m: &mut crate::runtime::globals::MwndState,
+    mwnd_idx: usize,
+    requested_waku_no: Option<i64>,
+) {
+    let fallback = ctx
+        .tables
+        .mwnd_templates
+        .get(mwnd_idx)
+        .map(|t| t.waku_no)
+        .unwrap_or(-1);
+    let waku_no = requested_waku_no.unwrap_or(fallback);
+    let waku_no = if waku_no < 0 { fallback } else { waku_no };
+    let Some(waku) = (waku_no >= 0)
+        .then_some(waku_no as usize)
+        .and_then(|idx| ctx.tables.waku_templates.get(idx))
+    else {
+        m.waku_file.clear();
+        m.filter_file.clear();
+        return;
+    };
+    m.waku_file = waku.waku_file.clone();
+    m.filter_file = waku.filter_file.clone();
 }
 
 fn ensure_btnselitem(
@@ -1150,12 +1205,14 @@ fn object_event_list_default(ids: &crate::runtime::constants::RuntimeConstants, 
     }
 }
 
-fn resolve_object_omv_path(
+fn resolve_object_movie_path(
     project_dir: &Path,
     append_dir: &str,
     file_name: &str,
 ) -> Option<PathBuf> {
-    crate::resource::find_omv_path_with_append_dir(project_dir, append_dir, file_name).ok()
+    crate::resource::find_mov_path_with_append_dir(project_dir, append_dir, file_name)
+        .ok()
+        .map(|(path, _)| path)
 }
 
 fn resolve_filter_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
@@ -1180,10 +1237,7 @@ fn resolve_filter_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
 }
 
 fn movie_total_time_ms(ctx: &mut CommandContext, file: &str) -> Option<u64> {
-    ctx.movie
-        .prepare_omv(file)
-        .ok()
-        .and_then(|info| info.duration_ms())
+    ctx.movie.prepare(file).ok().and_then(|info| info.duration_ms())
 }
 
 fn digits_most_significant(mut n: u64) -> Vec<i64> {
@@ -3993,7 +4047,7 @@ fn dispatch_object_op(
             obj.clear_runtime_only();
 
             let movie_path =
-                resolve_object_omv_path(&ctx.project_dir, &ctx.globals.append_dir, file);
+                resolve_object_movie_path(&ctx.project_dir, &ctx.globals.append_dir, file);
             let total_ms = movie_path
                 .as_ref()
                 .and_then(|_| movie_total_time_ms(ctx, file));
@@ -6538,7 +6592,7 @@ fn resolve_mwnd_list_op(_ids: &constants::RuntimeConstants, op: i32) -> Option<M
 
 fn resolve_mwnd_op(_ids: &constants::RuntimeConstants, op: i32) -> Option<MwndOpKind> {
     match op {
-        constants::MWND_MSG_BLOCK => Some(MwndOpKind::MsgBlock),
+        constants::MWND_MSG_BLOCK | constants::MWND_MSG_PP_BLOCK => Some(MwndOpKind::MsgBlock),
         constants::MWND_OPEN_NOWAIT | constants::MWND_OPEN_WAIT | constants::MWND_OPEN => {
             Some(MwndOpKind::Open)
         }
@@ -6592,6 +6646,7 @@ fn resolve_mwnd_op(_ids: &constants::RuntimeConstants, op: i32) -> Option<MwndOp
         constants::MWND_SELMSG => Some(MwndOpKind::SelMsg),
         constants::MWND_SEL_CANCEL => Some(MwndOpKind::SelCancel),
         constants::MWND_SEL => Some(MwndOpKind::Sel),
+        constants::MWND_SET_WAKU => Some(MwndOpKind::SetWaku),
         constants::MWND_INIT_WAKU_FILE => Some(MwndOpKind::InitWakuFile),
         constants::MWND_SET_WAKU_FILE => Some(MwndOpKind::SetWakuFile),
         constants::MWND_GET_WAKU_FILE => Some(MwndOpKind::GetWakuFile),
@@ -6902,6 +6957,85 @@ fn dispatch_mwnd_list_op(
     }
 }
 
+fn global_mwnd_op_from_global_op(op: i32) -> Option<i32> {
+    match op {
+        constants::GLOBAL_OPEN => Some(constants::MWND_OPEN),
+        constants::GLOBAL_OPEN_WAIT => Some(constants::MWND_OPEN_WAIT),
+        constants::GLOBAL_OPEN_NOWAIT => Some(constants::MWND_OPEN_NOWAIT),
+        constants::GLOBAL_CLOSE => Some(constants::MWND_CLOSE),
+        constants::GLOBAL_CLOSE_WAIT => Some(constants::MWND_CLOSE_WAIT),
+        constants::GLOBAL_CLOSE_NOWAIT => Some(constants::MWND_CLOSE_NOWAIT),
+        constants::GLOBAL_END_CLOSE => Some(constants::MWND_END_CLOSE),
+        constants::GLOBAL_MSG_BLOCK => Some(constants::MWND_MSG_BLOCK),
+        constants::GLOBAL_MSG_PP_BLOCK => Some(constants::MWND_MSG_PP_BLOCK),
+        constants::GLOBAL_CLEAR => Some(constants::MWND_CLEAR),
+        constants::GLOBAL_PRINT => Some(constants::MWND_PRINT),
+        constants::GLOBAL_NL => Some(constants::MWND_NL),
+        constants::GLOBAL_NLI => Some(constants::MWND_NLI),
+        constants::GLOBAL_WAIT_MSG => Some(constants::MWND_WAIT_MSG),
+        constants::GLOBAL_PP => Some(constants::MWND_PP),
+        constants::GLOBAL_R => Some(constants::MWND_R),
+        constants::GLOBAL_PAGE => Some(constants::MWND_PAGE),
+        constants::GLOBAL_SET_NAMAE => Some(constants::MWND_SET_NAMAE),
+        constants::GLOBAL_NEXT_MSG => Some(constants::MWND_NEXT_MSG),
+        constants::GLOBAL_MULTI_MSG => Some(constants::MWND_MULTI_MSG),
+        constants::GLOBAL_RUBY => Some(constants::MWND_RUBY),
+        constants::GLOBAL_KOE => Some(constants::MWND_KOE),
+        constants::GLOBAL_KOE_PLAY_WAIT => Some(constants::MWND_KOE_PLAY_WAIT),
+        constants::GLOBAL_KOE_PLAY_WAIT_KEY => Some(constants::MWND_KOE_PLAY_WAIT_KEY),
+        constants::GLOBAL_SIZE => Some(constants::MWND_SIZE),
+        constants::GLOBAL_COLOR => Some(constants::MWND_COLOR),
+        constants::GLOBAL_INDENT => Some(constants::MWND_INDENT),
+        constants::GLOBAL_CLEAR_INDENT => Some(constants::MWND_CLEAR_INDENT),
+        constants::GLOBAL_START_SLIDE_MSG => Some(constants::MWND_START_SLIDE_MSG),
+        constants::GLOBAL_END_SLIDE_MSG => Some(constants::MWND_END_SLIDE_MSG),
+        constants::GLOBAL_SET_WAKU => Some(constants::MWND_SET_WAKU),
+        constants::GLOBAL_CLEAR_FACE => Some(constants::MWND_CLEAR_FACE),
+        constants::GLOBAL_SET_FACE => Some(constants::MWND_SET_FACE),
+        constants::GLOBAL_REP_POS => Some(constants::MWND_REP_POS),
+        constants::GLOBAL_MSGBTN => Some(constants::MWND_MSGBTN),
+        _ => None,
+    }
+}
+
+pub fn dispatch_current_mwnd_global_op(
+    ctx: &mut CommandContext,
+    global_op: i32,
+    script_args: &[Value],
+) -> bool {
+    let Some(mwnd_op) = global_mwnd_op_from_global_op(global_op) else {
+        return false;
+    };
+    let form_id = if ctx.ids.form_global_stage != 0 {
+        ctx.ids.form_global_stage
+    } else {
+        constants::global_form::STAGE_ALT
+    };
+    let stage_idx = 0i64;
+    let mwnd_idx = ctx.globals.current_mwnd_no.unwrap_or(0);
+    let (al_id, ret_form) = prop_access::current_vm_meta(ctx);
+    let rhs_owned = if al_id == Some(1) {
+        script_args.first().cloned()
+    } else {
+        None
+    };
+    with_stage_state(ctx, form_id, |ctx, st| {
+        dispatch_mwnd_item_op(
+            ctx,
+            st,
+            stage_idx,
+            mwnd_idx,
+            mwnd_op,
+            &[],
+            script_args,
+            rhs_owned.as_ref(),
+            al_id,
+            ret_form,
+        )
+    })
+}
+
+
 fn dispatch_mwnd_item_op(
     ctx: &mut CommandContext,
     st: &mut StageFormState,
@@ -7201,19 +7335,21 @@ fn dispatch_mwnd_item_op(
             let koe_no = script_args.first().and_then(Value::as_i64).unwrap_or(0);
             let chara_no = script_args.get(1).and_then(Value::as_i64).unwrap_or(-1);
             m.koe = Some((koe_no, chara_no));
-            let _ = {
-                let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-                se.play_koe_no(audio, koe_no)
-            };
+            if let Err(err) = {
+                let (koe, audio) = (&mut ctx.koe, &mut ctx.audio);
+                koe.play_koe_no(audio, koe_no)
+            } {
+                eprintln!("[SG_AUDIO] mwnd.koe failed koe_no={koe_no}: {err:#}");
+            }
             msgbk_add_koe(ctx, koe_no, chara_no);
             match k {
                 MwndOpKind::KoePlayWait => {
                     ctx.wait
-                        .wait_audio(crate::runtime::wait::AudioWait::SeAny, false);
+                        .wait_audio(crate::runtime::wait::AudioWait::KoeAny, false);
                 }
                 MwndOpKind::KoePlayWaitKey => {
                     ctx.wait
-                        .wait_audio(crate::runtime::wait::AudioWait::SeAny, true);
+                        .wait_audio(crate::runtime::wait::AudioWait::KoeAny, true);
                 }
                 _ => {}
             }
@@ -7356,9 +7492,14 @@ fn dispatch_mwnd_item_op(
             ctx.stack.push(Value::Str(m.name_text.clone()));
             true
         }
+        MwndOpKind::SetWaku => {
+            let requested = script_args.first().and_then(Value::as_i64);
+            apply_mwnd_waku_from_gameexe(ctx, m, mwnd_idx, requested);
+            push_ok(ctx, ret_form);
+            true
+        }
         MwndOpKind::InitWakuFile => {
-            m.waku_file.clear();
-
+            apply_mwnd_waku_from_gameexe(ctx, m, mwnd_idx, None);
             push_ok(ctx, ret_form);
             true
         }

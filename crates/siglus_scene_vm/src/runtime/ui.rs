@@ -85,6 +85,7 @@ pub struct MwndMsgRuntime {
 pub struct MwndWindowRuntime {
     pub pos: Option<(i32, i32)>,
     pub size: Option<(u32, u32)>,
+    pub message_pos: Option<(i32, i32)>,
     pub moji_cnt: Option<(i64, i64)>,
     pub moji_size: Option<i64>,
     pub moji_color: Option<i64>,
@@ -155,6 +156,7 @@ pub struct MwndProjectionState {
     pub rep_pos: Option<(i64, i64)>,
     pub window_pos: Option<(i64, i64)>,
     pub window_size: Option<(i64, i64)>,
+    pub message_pos: Option<(i64, i64)>,
     pub window_moji_cnt: Option<(i64, i64)>,
     pub moji_size: Option<i64>,
     pub moji_color: Option<i64>,
@@ -390,10 +392,15 @@ impl UiRuntime {
         } else {
             0
         };
-        let x = rect.x + pad + face_pad;
-        let y = rect.y + pad + name_h;
-        let width = (rect.w as i32 - pad * 2 - face_pad).max(1) as u32;
-        let height = (rect.h as i32 - pad * 2 - name_h).max(1) as u32;
+        let fallback_x = rect.x + pad + face_pad;
+        let fallback_y = rect.y + pad + name_h;
+        let (x, y) = if let Some((mx, my)) = self.mwnd.window.message_pos {
+            (rect.x + mx + face_pad, rect.y + my)
+        } else {
+            (fallback_x, fallback_y)
+        };
+        let width = (rect.x + rect.w as i32 - x - pad).max(1) as u32;
+        let height = (rect.y + rect.h as i32 - y - pad).max(1) as u32;
         (x, y, width, height)
     }
 
@@ -1205,6 +1212,7 @@ impl UiRuntime {
         self.set_mwnd_window_state(
             proj.window_pos,
             proj.window_size,
+            proj.message_pos,
             proj.window_moji_cnt,
             proj.moji_size,
             proj.moji_color,
@@ -1228,6 +1236,7 @@ impl UiRuntime {
         &mut self,
         window_pos: Option<(i64, i64)>,
         window_size: Option<(i64, i64)>,
+        message_pos: Option<(i64, i64)>,
         window_moji_cnt: Option<(i64, i64)>,
         moji_size: Option<i64>,
         moji_color: Option<i64>,
@@ -1239,6 +1248,7 @@ impl UiRuntime {
     ) {
         self.mwnd.window.pos = window_pos.map(|(x, y)| (x as i32, y as i32));
         self.mwnd.window.size = window_size.map(|(w, h)| (w.max(1) as u32, h.max(1) as u32));
+        self.mwnd.window.message_pos = message_pos.map(|(x, y)| (x as i32, y as i32));
         self.mwnd.window.moji_cnt = window_moji_cnt;
         self.mwnd.window.moji_size = moji_size;
         self.mwnd.window.moji_color = moji_color;
@@ -1258,6 +1268,7 @@ impl UiRuntime {
     pub fn clear_mwnd_window_state(&mut self) {
         self.mwnd.window.pos = None;
         self.mwnd.window.size = None;
+        self.mwnd.window.message_pos = None;
         self.mwnd.window.moji_cnt = None;
         self.mwnd.window.moji_size = None;
         self.mwnd.window.moji_color = None;

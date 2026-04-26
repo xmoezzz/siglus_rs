@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::audio::{BgmEngine, PcmEngine, SeEngine};
+use crate::audio::{BgmEngine, KoeEngine, PcmEngine, SeEngine};
 
 use super::constants::RuntimeConstants;
 use super::globals::{GlobalState, ObjectState};
@@ -19,6 +19,7 @@ use super::Value;
 pub enum AudioWait {
     Bgm,
     BgmFade,
+    KoeAny,
     SeAny,
     PcmAny,
     PcmSlot(u8),
@@ -283,12 +284,13 @@ impl VmWait {
         &mut self,
         stack: &mut Vec<Value>,
         bgm: &mut BgmEngine,
+        koe: &mut KoeEngine,
         se: &mut SeEngine,
         pcm: &mut PcmEngine,
         globals: &mut GlobalState,
         ids: &RuntimeConstants,
     ) -> bool {
-        let blocked = self.is_blocked(bgm, se, pcm, globals, ids);
+        let blocked = self.is_blocked(bgm, koe, se, pcm, globals, ids);
         if !blocked {
             if let Some(v) = self.pending_value.take() {
                 stack.push(v);
@@ -300,6 +302,7 @@ impl VmWait {
     pub fn is_blocked(
         &mut self,
         bgm: &mut BgmEngine,
+        koe: &mut KoeEngine,
         se: &mut SeEngine,
         pcm: &mut PcmEngine,
         globals: &mut GlobalState,
@@ -324,6 +327,7 @@ impl VmWait {
             let done = match w {
                 AudioWait::Bgm => !bgm.is_playing(),
                 AudioWait::BgmFade => !bgm.is_fade_out_doing(),
+                AudioWait::KoeAny => !koe.is_playing_any(),
                 AudioWait::SeAny => !se.is_playing_any(),
                 AudioWait::PcmAny => !pcm.is_playing_any(),
                 AudioWait::PcmSlot(s) => !pcm.is_playing_slot(s as usize),
@@ -738,7 +742,10 @@ impl VmWait {
             self.event_return_value = false;
         }
         if self.global_movie && self.global_movie_key_skip {
-            globals.mov.stop();
+            // C++ tnm_mov_wait_proc returns first, then C_elm_mov::close() tears down
+            // the native movie.  Do not clear audio_id here; RuntimeContext must still
+            // see it and stop the Rust movie audio handle.
+            globals.mov.playing = false;
             if self.global_movie_return_value {
                 self.pending_value = Some(Value::Int(result));
             }

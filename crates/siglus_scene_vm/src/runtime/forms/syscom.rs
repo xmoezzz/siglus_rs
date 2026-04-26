@@ -956,9 +956,10 @@ pub(crate) fn apply_audio_config(ctx: &mut CommandContext) {
     ctx.audio
         .set_track_master_volume_raw(TrackKind::Bgm, eff_bgm);
     ctx.audio.set_track_master_volume_raw(TrackKind::Se, eff_se);
-    // KOE is treated as PCM for now (voice).
     ctx.audio
-        .set_track_master_volume_raw(TrackKind::Pcm, eff_pcm.min(eff_koe));
+        .set_track_master_volume_raw(TrackKind::Pcm, eff_pcm);
+    ctx.audio
+        .set_track_master_volume_raw(TrackKind::Koe, eff_koe);
     ctx.audio
         .set_track_master_volume_raw(TrackKind::Mov, eff_mov);
 }

@@ -12,6 +12,7 @@ pub enum TrackKind {
     Bgm,
     Se,
     Pcm,
+    Koe,
     Mov,
 }
 
@@ -24,14 +25,17 @@ pub struct AudioHub {
     bgm: Option<TrackHandle>,
     se: Option<TrackHandle>,
     pcm: Option<TrackHandle>,
+    koe: Option<TrackHandle>,
     mov: Option<TrackHandle>,
     bgm_base: u8,
     se_base: u8,
     pcm_base: u8,
+    koe_base: u8,
     mov_base: u8,
     bgm_master: u8,
     se_master: u8,
     pcm_master: u8,
+    koe_master: u8,
     mov_master: u8,
 }
 
@@ -50,20 +54,24 @@ impl AudioHub {
                 let bgm = manager.add_sub_track(TrackBuilder::default()).ok();
                 let se = manager.add_sub_track(TrackBuilder::default()).ok();
                 let pcm = manager.add_sub_track(TrackBuilder::default()).ok();
+                let koe = manager.add_sub_track(TrackBuilder::default()).ok();
                 let mov = manager.add_sub_track(TrackBuilder::default()).ok();
                 Self {
                     manager: Some(manager),
                     bgm,
                     se,
                     pcm,
+                    koe,
                     mov,
                     bgm_base: 255,
                     se_base: 255,
                     pcm_base: 255,
+                    koe_base: 255,
                     mov_base: 255,
                     bgm_master: 255,
                     se_master: 255,
                     pcm_master: 255,
+                    koe_master: 255,
                     mov_master: 255,
                 }
             }
@@ -74,14 +82,17 @@ impl AudioHub {
                     bgm: None,
                     se: None,
                     pcm: None,
+                    koe: None,
                     mov: None,
                     bgm_base: 255,
                     se_base: 255,
                     pcm_base: 255,
+                    koe_base: 255,
                     mov_base: 255,
                     bgm_master: 255,
                     se_master: 255,
                     pcm_master: 255,
+                    koe_master: 255,
                     mov_master: 255,
                 }
             }
@@ -97,6 +108,7 @@ impl AudioHub {
             TrackKind::Bgm => self.bgm.as_ref(),
             TrackKind::Se => self.se.as_ref(),
             TrackKind::Pcm => self.pcm.as_ref(),
+            TrackKind::Koe => self.koe.as_ref(),
             TrackKind::Mov => self.mov.as_ref(),
         }
     }
@@ -106,6 +118,7 @@ impl AudioHub {
             TrackKind::Bgm => self.bgm.as_mut(),
             TrackKind::Se => self.se.as_mut(),
             TrackKind::Pcm => self.pcm.as_mut(),
+            TrackKind::Koe => self.koe.as_mut(),
             TrackKind::Mov => self.mov.as_mut(),
         }
     }
@@ -115,6 +128,7 @@ impl AudioHub {
             TrackKind::Bgm => &mut self.bgm_base,
             TrackKind::Se => &mut self.se_base,
             TrackKind::Pcm => &mut self.pcm_base,
+            TrackKind::Koe => &mut self.koe_base,
             TrackKind::Mov => &mut self.mov_base,
         }
     }
@@ -124,6 +138,7 @@ impl AudioHub {
             TrackKind::Bgm => &mut self.bgm_master,
             TrackKind::Se => &mut self.se_master,
             TrackKind::Pcm => &mut self.pcm_master,
+            TrackKind::Koe => &mut self.koe_master,
             TrackKind::Mov => &mut self.mov_master,
         }
     }
@@ -133,6 +148,7 @@ impl AudioHub {
             TrackKind::Bgm => self.bgm_base,
             TrackKind::Se => self.se_base,
             TrackKind::Pcm => self.pcm_base,
+            TrackKind::Koe => self.koe_base,
             TrackKind::Mov => self.mov_base,
         }
     }
@@ -142,6 +158,7 @@ impl AudioHub {
             TrackKind::Bgm => self.bgm_master,
             TrackKind::Se => self.se_master,
             TrackKind::Pcm => self.pcm_master,
+            TrackKind::Koe => self.koe_master,
             TrackKind::Mov => self.mov_master,
         }
     }

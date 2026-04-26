@@ -217,12 +217,19 @@ pub fn resolve_koe_source(project_dir: &Path, koe_no: i64) -> Result<KoeSource> 
     let koe_no_u32 = koe_no as u32;
     let scn_no = koe_no_u32 / 100_000;
     let base = project_dir.join("koe");
-    let nested_stem = format!("{:04}/z{:09}", scn_no, koe_no_u32);
-
-    for ext in ["wav", "nwa"] {
-        let p = base.join(format!("{}.{}", nested_stem, ext));
-        if p.exists() {
-            return Ok(KoeSource::File(p));
+    for dir in [format!("{:04}", scn_no), scn_no.to_string()] {
+        for stem in [
+            format!("z{:09}", koe_no_u32),
+            format!("Z{:09}", koe_no_u32),
+            format!("z{}", koe_no_u32),
+            format!("Z{}", koe_no_u32),
+        ] {
+            for ext in ["wav", "nwa", "ogg"] {
+                let p = base.join(&dir).join(format!("{stem}.{ext}"));
+                if p.exists() {
+                    return Ok(KoeSource::File(p));
+                }
+            }
         }
     }
 
@@ -230,7 +237,7 @@ pub fn resolve_koe_source(project_dir: &Path, koe_no: i64) -> Result<KoeSource> 
     if ovk.exists() {
         return Ok(KoeSource::OvkEntryByNo {
             path: ovk,
-            entry_no: koe_no_u32,
+            entry_no: koe_no_u32 % 100_000,
         });
     }
 

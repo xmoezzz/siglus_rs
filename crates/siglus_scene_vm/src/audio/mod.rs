@@ -10,4 +10,4 @@ pub use engine::{
     TNM_PLAYER_STATE_PLAY,
 };
 pub use kira_hub::{AudioHub, TrackKind};
-pub use sfx_engine::{PcmEngine, SeEngine};
+pub use sfx_engine::{KoeEngine, PcmEngine, SeEngine};

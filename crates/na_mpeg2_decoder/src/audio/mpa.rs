@@ -1,10 +1,9 @@
 use crate::error::{AvError, Result};
 
-use symphonia::core::audio::SampleBuffer;
+use symphonia::core::audio::{SampleBuffer, SignalSpec};
 use symphonia::core::codecs::{
-    CodecParameters, Decoder, DecoderOptions, CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3,
+    CodecParameters, CodecType, Decoder, DecoderOptions, CODEC_TYPE_MP1, CODEC_TYPE_MP2, CODEC_TYPE_MP3,
 };
-use symphonia::core::errors::Error as SymphError;
 use symphonia::core::formats::Packet;
 
 #[derive(Clone)]
@@ -20,7 +19,9 @@ pub struct MpaAudioDecoder {
     buf: Vec<u8>,
 
     dec: Option<Box<dyn Decoder>>,
+    dec_codec: Option<CodecType>,
     sample_buf: Option<SampleBuffer<f32>>,
+    sample_spec: Option<SignalSpec>,
 
     // Best-effort PTS tracking.
     next_pts_ms: Option<i64>,
@@ -34,7 +35,9 @@ impl MpaAudioDecoder {
         Self {
             buf: Vec::new(),
             dec: None,
+            dec_codec: None,
             sample_buf: None,
+            sample_spec: None,
             next_pts_ms: None,
             track_id: 0,
         }
@@ -80,20 +83,38 @@ impl MpaAudioDecoder {
         &mut self,
         pkt_bytes: &[u8],
         pts_ms: i64,
-        codec_type: symphonia::core::codecs::CodecType,
+        codec_type: CodecType,
         on_chunk: &mut F,
     ) -> Result<()>
     where
         F: FnMut(MpaAudioChunk),
     {
-        if self.dec.is_none() {
+        if self.dec.is_none() || self.dec_codec != Some(codec_type) {
             let mut cp = CodecParameters::new();
             cp.for_codec(codec_type);
 
-            let dec = symphonia::default::get_codecs()
+            let dec = match symphonia::default::get_codecs()
                 .make(&cp, &DecoderOptions::default())
-                .map_err(AvError::from)?;
+                .map_err(AvError::from)
+            {
+                Ok(dec) => dec,
+                Err(err) => {
+                    if std::env::var_os("SG_MOVIE_TRACE").is_some()
+                        || std::env::var_os("SG_DEBUG").is_some()
+                    {
+                        eprintln!("[SG_DEBUG][MOV] mpa.decoder.open.drop: {err}");
+                    }
+                    self.dec = None;
+                    self.dec_codec = None;
+                    self.sample_buf = None;
+                    self.sample_spec = None;
+                    return Ok(());
+                }
+            };
             self.dec = Some(dec);
+            self.dec_codec = Some(codec_type);
+            self.sample_buf = None;
+            self.sample_spec = None;
         }
 
         let pkt = Packet::new_from_boxed_slice(
@@ -110,53 +131,69 @@ impl MpaAudioDecoder {
                 let duration = decoded.capacity();
                 let duration_u64 = duration as u64;
 
-                let sb = match self.sample_buf.as_mut() {
-                    None => {
-                        self.sample_buf = Some(SampleBuffer::<f32>::new(duration_u64, spec));
-                        self.sample_buf.as_mut().unwrap()
+                let need_new_buf = match (self.sample_buf.as_ref(), self.sample_spec.as_ref()) {
+                    (Some(sb), Some(cur_spec)) => {
+                        sb.capacity() < duration || !same_signal_spec(cur_spec, &spec)
                     }
-                    Some(sb) => {
-                        if sb.capacity() < duration {
-                            *sb = SampleBuffer::<f32>::new(duration_u64, spec);
-                        }
-                        sb
-                    }
+                    _ => true,
                 };
+                if need_new_buf {
+                    self.sample_buf = Some(SampleBuffer::<f32>::new(duration_u64, spec));
+                    self.sample_spec = Some(spec);
+                }
 
+                let sb = self.sample_buf.as_mut().expect("sample buffer must exist");
                 sb.copy_interleaved_ref(decoded.clone());
 
                 let channels = spec.channels.count() as u16;
-                let samples = sb.samples().to_vec();
+                let frames = decoded.frames();
+                let valid_sample_count = frames.saturating_mul(channels as usize);
+                let all_samples = sb.samples();
+                let sample_count = valid_sample_count.min(all_samples.len());
+                let samples = all_samples[..sample_count].to_vec();
 
                 let sample_rate = spec.rate;
-                on_chunk(MpaAudioChunk {
-                    pts_ms,
-                    sample_rate,
-                    channels,
-                    samples,
-                });
+                if channels != 0 && sample_rate != 0 && !samples.is_empty() {
+                    on_chunk(MpaAudioChunk {
+                        pts_ms,
+                        sample_rate,
+                        channels,
+                        samples,
+                    });
+                }
 
-                // Advance PTS based on decoded frames.
-                let frames = decoded.frames() as i64;
-                if frames > 0 && sample_rate > 0 {
-                    let dur_ms = (frames * 1000) / (sample_rate as i64);
+                let frames_i64 = frames as i64;
+                if frames_i64 > 0 && sample_rate > 0 {
+                    let dur_ms = (frames_i64 * 1000) / (sample_rate as i64);
                     self.next_pts_ms = Some(pts_ms + dur_ms);
                 }
             }
-            Err(SymphError::DecodeError(_)) => {
-                // Best-effort: ignore bad frames.
+            Err(e) => {
+                if std::env::var_os("SG_MOVIE_TRACE").is_some()
+                    || std::env::var_os("SG_DEBUG").is_some()
+                {
+                    eprintln!("[SG_DEBUG][MOV] mpa.audio_decode.drop: {e}");
+                }
+                self.dec = None;
+                self.dec_codec = None;
+                self.sample_buf = None;
+                self.sample_spec = None;
             }
-            Err(e) => return Err(e.into()),
         }
 
         Ok(())
     }
 }
 
+
+fn same_signal_spec(a: &SignalSpec, b: &SignalSpec) -> bool {
+    a.rate == b.rate && a.channels == b.channels
+}
+
 #[derive(Clone, Copy)]
 struct MpaHeader {
     frame_len: usize,
-    codec_type: symphonia::core::codecs::CodecType,
+    codec_type: CodecType,
 }
 
 impl MpaHeader {

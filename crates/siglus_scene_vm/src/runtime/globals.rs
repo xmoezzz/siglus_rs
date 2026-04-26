@@ -751,6 +751,7 @@ pub struct GlobalMovieState {
     pub image_id: Option<ImageId>,
     pub last_frame_idx: Option<usize>,
     pub audio_id: Option<u64>,
+    pub audio_start_attempted: bool,
 }
 
 impl Default for GlobalMovieState {
@@ -770,6 +771,7 @@ impl Default for GlobalMovieState {
             image_id: None,
             last_frame_idx: None,
             audio_id: None,
+            audio_start_attempted: false,
         }
     }
 }
@@ -796,6 +798,7 @@ impl GlobalMovieState {
         self.height = height;
         self.last_frame_idx = None;
         self.audio_id = None;
+        self.audio_start_attempted = false;
     }
 
     pub fn stop(&mut self) {
@@ -806,6 +809,7 @@ impl GlobalMovieState {
         self.total_ms = None;
         self.last_frame_idx = None;
         self.audio_id = None;
+        self.audio_start_attempted = false;
     }
 
     pub fn tick(&mut self, past_real_time: i32) {
@@ -4107,6 +4111,7 @@ pub enum MwndOpKind {
     /// (string) -> (string overflow_msg)
     AddMsg,
 
+    SetWaku,
     InitWakuFile,
     SetWakuFile,
     GetWakuFile,
@@ -4158,6 +4163,7 @@ pub struct BtnSelItemState {
 
 #[derive(Debug, Default, Clone)]
 pub struct MwndState {
+    pub initialized_from_gameexe: bool,
     pub open: bool,
     pub name_text: String,
     pub msg_text: String,
@@ -4169,6 +4175,7 @@ pub struct MwndState {
     pub msgbtn: Option<(i64, i64, i64, i64)>,
     pub window_pos: Option<(i64, i64)>,
     pub window_size: Option<(i64, i64)>,
+    pub message_pos: Option<(i64, i64)>,
     pub window_moji_cnt: Option<(i64, i64)>,
     pub multi_msg: bool,
     pub ruby_text: Option<String>,

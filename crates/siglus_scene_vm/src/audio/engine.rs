@@ -24,6 +24,9 @@ struct WavPcmRegion {
     byte_rate: u32,
     block_align: usize,
     sample_rate: u32,
+    channels: u16,
+    bits_per_sample: u16,
+    audio_format: u16,
 }
 
 impl WavPcmRegion {
@@ -43,6 +46,10 @@ fn wav_pcm_region(wav: &[u8]) -> Option<WavPcmRegion> {
     let mut pos = 12usize;
     let mut byte_rate: Option<u32> = None;
     let mut block_align: Option<usize> = None;
+    let mut sample_rate: Option<u32> = None;
+    let mut channels: Option<u16> = None;
+    let mut bits_per_sample: Option<u16> = None;
+    let mut audio_format: Option<u16> = None;
     let mut data_offset: Option<usize> = None;
     let mut data_len: Option<usize> = None;
     let mut data_len_field_offset: Option<usize> = None;
@@ -58,16 +65,22 @@ fn wav_pcm_region(wav: &[u8]) -> Option<WavPcmRegion> {
         }
         if id == b"fmt " {
             if sz >= 16 {
-                let off = pos + 8;
-                if off + 6 <= wav.len() {
-                    byte_rate = Some(u32::from_le_bytes([
-                        wav[off],
-                        wav[off + 1],
-                        wav[off + 2],
-                        wav[off + 3],
-                    ]));
-                    block_align = Some(u16::from_le_bytes([wav[pos + 12], wav[pos + 13]]) as usize);
-                }
+                audio_format = Some(u16::from_le_bytes([wav[pos], wav[pos + 1]]));
+                channels = Some(u16::from_le_bytes([wav[pos + 2], wav[pos + 3]]));
+                sample_rate = Some(u32::from_le_bytes([
+                    wav[pos + 4],
+                    wav[pos + 5],
+                    wav[pos + 6],
+                    wav[pos + 7],
+                ]));
+                byte_rate = Some(u32::from_le_bytes([
+                    wav[pos + 8],
+                    wav[pos + 9],
+                    wav[pos + 10],
+                    wav[pos + 11],
+                ]));
+                block_align = Some(u16::from_le_bytes([wav[pos + 12], wav[pos + 13]]) as usize);
+                bits_per_sample = Some(u16::from_le_bytes([wav[pos + 14], wav[pos + 15]]));
             }
         } else if id == b"data" {
             data_offset = Some(pos);
@@ -80,18 +93,17 @@ fn wav_pcm_region(wav: &[u8]) -> Option<WavPcmRegion> {
         }
     }
 
-    let byte_rate = byte_rate?;
-    let block_align = block_align?.max(1);
-    let sample_rate = (byte_rate / (block_align as u32)).max(1);
-
     Some(WavPcmRegion {
         data_offset: data_offset?,
         data_len: data_len?,
         data_len_field_offset: data_len_field_offset?,
         riff_len_field_offset: 4,
-        byte_rate,
-        block_align,
-        sample_rate,
+        byte_rate: byte_rate?,
+        block_align: block_align?.max(1),
+        sample_rate: sample_rate?.max(1),
+        channels: channels?.max(1),
+        bits_per_sample: bits_per_sample?,
+        audio_format: audio_format?,
     })
 }
 
@@ -548,6 +560,7 @@ impl BgmEngine {
         let (script_entry, path) = self.resolve_bgm_script(regist_name)?;
         let decoded = decode_bgm_to_wav_bytes(&path, None)
             .with_context(|| format!("decode BGM: {}", path.display()))?;
+
         let region = wav_pcm_region(&decoded.wav_bytes)
             .ok_or_else(|| anyhow!("decoded BGM is not PCM WAV: {}", path.display()))?;
         let total_samples = region.sample_count();
@@ -562,6 +575,22 @@ impl BgmEngine {
         };
         let (start_sample, end_sample, restart_sample) =
             clamp_sample_range(total_samples, effective_start, script_end, script_repeat);
+
+        if std::env::var_os("SG_AUDIO_TRACE").is_some() {
+            eprintln!(
+                "[SG_AUDIO_TRACE] bgm.prepare name={} file={} wav_format={} channels={} sample_rate={} bits={} total_frames={} start={} end={} repeat={}",
+                regist_name,
+                path.display(),
+                region.audio_format,
+                region.channels,
+                region.sample_rate,
+                region.bits_per_sample,
+                total_samples,
+                start_sample,
+                end_sample,
+                restart_sample
+            );
+        }
 
         let slot = &mut self.players[slot_id];
         slot.reset_all();

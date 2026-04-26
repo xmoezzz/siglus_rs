@@ -29,7 +29,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::assets::RgbaImage;
-use crate::audio::{AudioHub, BgmEngine, PcmEngine, SeEngine};
+use crate::audio::{AudioHub, BgmEngine, KoeEngine, PcmEngine, SeEngine};
 use crate::image_manager::{ImageId, ImageManager};
 use crate::layer::{
     ClipRect, LayerId, LayerManager, RenderSprite, Sprite, SpriteFit, SpriteId, SpriteRuntimeLight,
@@ -164,6 +164,7 @@ pub struct CommandContext {
     pub audio: AudioHub,
 
     pub bgm: BgmEngine,
+    pub koe: KoeEngine,
     pub pcm: PcmEngine,
     pub se: SeEngine,
 
@@ -263,6 +264,9 @@ impl CommandContext {
                 eprintln!("[SG_DEBUG][WAIT_KEY] down_up result={}", result);
             }
             self.finish_skipped_movie_waits();
+            if !self.globals.mov.playing && self.globals.mov.file_name.is_some() {
+                self.close_global_movie_runtime();
+            }
         }
         skipped
     }
@@ -392,6 +396,7 @@ impl CommandContext {
             layers: LayerManager::default(),
             audio,
             bgm: BgmEngine::new(project_dir.clone()),
+            koe: KoeEngine::new(project_dir.clone()),
             pcm: PcmEngine::new(project_dir.clone()),
             se: SeEngine::new(project_dir.clone()),
             movie: MovieManager::new(project_dir.clone()),
@@ -443,6 +448,7 @@ impl CommandContext {
     pub fn reset_for_scene_restart(&mut self) {
         self.audio = AudioHub::new();
         self.bgm = BgmEngine::new(self.project_dir.clone());
+        self.koe = KoeEngine::new(self.project_dir.clone());
         self.pcm = PcmEngine::new(self.project_dir.clone());
         self.se = SeEngine::new(self.project_dir.clone());
         self.movie = MovieManager::new(self.project_dir.clone());
@@ -1261,15 +1267,16 @@ impl CommandContext {
     }
 
     pub fn wait_poll(&mut self) -> bool {
-        let (wait, stack, bgm, se, pcm, globals) = (
+        let (wait, stack, bgm, koe, se, pcm, globals) = (
             &mut self.wait,
             &mut self.stack,
             &mut self.bgm,
+            &mut self.koe,
             &mut self.se,
             &mut self.pcm,
             &mut self.globals,
         );
-        wait.poll(stack, bgm, se, pcm, globals, &self.ids)
+        wait.poll(stack, bgm, koe, se, pcm, globals, &self.ids)
     }
 
     pub fn push(&mut self, v: Value) {
@@ -2289,6 +2296,7 @@ impl CommandContext {
                         rep_pos: m.rep_pos,
                         window_pos: m.window_pos,
                         window_size: m.window_size,
+                        message_pos: m.message_pos,
                         window_moji_cnt: m.window_moji_cnt,
                         moji_size: m.moji_size,
                         moji_color: m.moji_color,
@@ -2389,28 +2397,44 @@ impl CommandContext {
         }
     }
 
+    fn close_global_movie_runtime(&mut self) {
+        let was_active = self.globals.mov.playing
+            || self.globals.mov.file_name.is_some()
+            || self.globals.mov.audio_id.is_some()
+            || self.globals.mov.image_id.is_some();
+
+        if let Some(id) = self.globals.mov.audio_id.take() {
+            self.movie.stop_audio(id);
+        }
+        if let (Some(layer_id), Some(sprite_id)) =
+            (self.globals.mov.layer_id, self.globals.mov.sprite_id)
+        {
+            if let Some(sprite) = self
+                .layers
+                .layer_mut(layer_id)
+                .and_then(|l| l.sprite_mut(sprite_id))
+            {
+                sprite.visible = false;
+                sprite.image_id = None;
+            }
+        }
+        self.globals.mov.image_id = None;
+        self.globals.mov.last_frame_idx = None;
+
+        if was_active {
+            self.globals.mov.stop();
+        }
+    }
+
     fn sync_global_movie(&mut self) {
         let trace = std::env::var_os("SG_MOVIE_TRACE").is_some();
         let file_name = self.globals.mov.file_name.clone();
 
         if !self.globals.mov.playing || file_name.as_deref().unwrap_or("").is_empty() {
-            if let Some(id) = self.globals.mov.audio_id.take() {
-                self.movie.stop_audio(id);
-            }
-            if let (Some(layer_id), Some(sprite_id)) =
-                (self.globals.mov.layer_id, self.globals.mov.sprite_id)
-            {
-                if let Some(sprite) = self
-                    .layers
-                    .layer_mut(layer_id)
-                    .and_then(|l| l.sprite_mut(sprite_id))
-                {
-                    sprite.visible = false;
-                    sprite.image_id = None;
-                }
-            }
-            self.globals.mov.image_id = None;
-            self.globals.mov.last_frame_idx = None;
+            // Native Siglus closes C_elm_mov when a MOV wait naturally finishes or is skipped.
+            // Keep that lifecycle here so the movie window, image, and movie audio track do not
+            // survive past the wait procedure.
+            self.close_global_movie_runtime();
             return;
         }
         let file_name = file_name.expect("checked global movie file name");
@@ -2425,7 +2449,7 @@ impl CommandContext {
                 m.timer_ms,
                 m.last_frame_idx,
                 m.image_id,
-                m.audio_id.is_none(),
+                m.audio_id.is_none() && !m.audio_start_attempted,
             )
         };
 
@@ -2520,10 +2544,35 @@ impl CommandContext {
         }
 
         if need_audio {
+            self.globals.mov.audio_start_attempted = true;
             if let Some(track) = audio_track.as_ref() {
-                if let Ok(id) = self.movie.start_audio(&mut self.audio, track, timer_ms) {
-                    self.globals.mov.audio_id = Some(id);
+                match self.movie.start_audio(&mut self.audio, track, timer_ms) {
+                    Ok(id) => {
+                        self.globals.mov.audio_id = Some(id);
+                        if trace || sg_debug_enabled() {
+                            eprintln!(
+                                "[SG_DEBUG][MOV] audio_start file={} samples={} channels={} rate={} offset_ms={}",
+                                file_name,
+                                track.samples.len(),
+                                track.channels,
+                                track.sample_rate,
+                                timer_ms
+                            );
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "[SG_MOV] audio_start.failed file={} channels={} rate={} samples={} err={:#}",
+                            file_name,
+                            track.channels,
+                            track.sample_rate,
+                            track.samples.len(),
+                            err
+                        );
+                    }
                 }
+            } else if trace || sg_debug_enabled() {
+                eprintln!("[SG_DEBUG][MOV] audio_track.missing file={}", file_name);
             }
         }
 
@@ -5082,14 +5131,9 @@ fn sync_movie_object_recursive(
 
                 if let Some(layer) = layers.layer_mut(layer_id) {
                     if let Some(sprite) = layer.sprite_mut(sprite_id) {
-                        let disp = obj.get_int_prop(ids, ids.obj_disp);
-                        sprite.visible = disp != 0;
-                        if ids.obj_x != 0 {
-                            sprite.x = obj.lookup_int_prop(ids, ids.obj_x).unwrap_or(0) as i32;
-                        }
-                        if ids.obj_y != 0 {
-                            sprite.y = obj.lookup_int_prop(ids, ids.obj_y).unwrap_or(0) as i32;
-                        }
+                        let render_info =
+                            button_object_render_info(ids, gfx, stage_idx, obj_idx as usize, obj);
+                        apply_button_object_render_info_to_sprite(sprite, &render_info);
                         if ids.obj_alpha != 0 {
                             sprite.alpha = obj
                                 .lookup_int_prop(ids, ids.obj_alpha)
@@ -5100,6 +5144,9 @@ fn sync_movie_object_recursive(
                             sprite.order =
                                 obj.lookup_int_prop(ids, ids.obj_order).unwrap_or(0) as i32;
                         }
+                        sprite.blend = crate::layer::SpriteBlend::from_i64(
+                            obj.lookup_int_prop(ids, ids.obj_blend).unwrap_or(0),
+                        );
                     }
                 }
 
@@ -5131,7 +5178,7 @@ fn sync_movie_object_recursive(
                     } = &mut obj.backend
                     {
                         if image_id.is_none() {
-                            match movie_mgr.ensure_omv_preview_frame(file) {
+                            match movie_mgr.ensure_preview_frame(file) {
                                 Ok(frame) => {
                                     let img_id = images.insert_image_arc(frame.clone());
                                     *image_id = Some(img_id);
@@ -5190,10 +5237,10 @@ fn sync_movie_object_recursive(
                         stage_idx, obj_idx, file
                     );
                 }
-                let (asset, decoded_now) = match movie_mgr.poll_omv_asset(file) {
+                let (asset, decoded_now) = match movie_mgr.poll_asset(file) {
                     Ok(Some((a, decoded_now))) => (a, decoded_now),
                     Ok(None) => {
-                        // Do not block the UI thread while decoding OMV. Until the first
+                        // Do not block the UI thread while decoding the movie. Until the first
                         // decoded frame is available, keep this movie at its start so the
                         // wait/auto-free logic cannot run ahead of visible playback.
                         obj.movie.timer_ms = 0;
@@ -5215,10 +5262,10 @@ fn sync_movie_object_recursive(
                         return;
                     }
                     Err(err) => {
-                        // OMV not found or decode failed. Stop playback so any
+                        // Movie not found or decode failed. Stop playback so any
                         // wait_movie unblocks instead of hanging forever.
                         eprintln!(
-                            "[SG_MOVIE] omv error stage={} obj={} file={}: {:#}",
+                            "[SG_MOVIE] object movie error stage={} obj={} file={}: {:#}",
                             stage_idx, obj_idx, file, err
                         );
                         obj.movie.playing = false;
@@ -6676,6 +6723,160 @@ fn object_participates_in_tree(obj: &globals::ObjectState) -> bool {
     !matches!(obj.backend, globals::ObjectBackend::None)
 }
 
+fn mark_object_tree_sprite_keys(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    object_keys: &mut HashSet<(LayerId, SpriteId)>,
+) {
+    let runtime_slot = object_runtime_slot(obj_idx, obj);
+    for rs in fetch_bound_render_sprites_any(ctx, stage_idx, runtime_slot, obj) {
+        if let (Some(lid), Some(sid)) = (rs.layer_id, rs.sprite_id) {
+            object_keys.insert((lid, sid));
+        }
+    }
+    for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+        mark_object_tree_sprite_keys(ctx, stage_idx, child_idx, child, object_keys);
+    }
+}
+
+fn mark_mwnd_owned_sprite_keys(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    m: &globals::MwndState,
+    object_keys: &mut HashSet<(LayerId, SpriteId)>,
+) {
+    for (idx, obj) in m.button_list.iter().enumerate() {
+        mark_object_tree_sprite_keys(ctx, stage_idx, idx, obj, object_keys);
+    }
+    for (idx, obj) in m.face_list.iter().enumerate() {
+        mark_object_tree_sprite_keys(ctx, stage_idx, idx, obj, object_keys);
+    }
+    for (idx, obj) in m.object_list.iter().enumerate() {
+        mark_object_tree_sprite_keys(ctx, stage_idx, idx, obj, object_keys);
+    }
+}
+
+fn mwnd_parent_render_state(m: &globals::MwndState) -> ParentRenderState {
+    let (x, y) = m.window_pos.unwrap_or((0, 0));
+    ParentRenderState {
+        world_no: m.world,
+        pos_x: x as f32,
+        pos_y: y as f32,
+        pos_z: 0.0,
+        center_rep_x: 0.0,
+        center_rep_y: 0.0,
+        center_rep_z: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        scale_z: 1.0,
+        rotate_x: 0.0,
+        rotate_y: 0.0,
+        rotate_z: 0.0,
+        tr: 255,
+        mono: 0,
+        reverse: 0,
+        bright: 0,
+        dark: 0,
+        color_rate: 0,
+        color_r: 0,
+        color_g: 0,
+        color_b: 0,
+        color_add_r: 0,
+        color_add_g: 0,
+        color_add_b: 0,
+        blend: crate::layer::SpriteBlend::Normal,
+        dst_clip: None,
+        mask_image_id: None,
+        mask_offset_x: 0,
+        mask_offset_y: 0,
+        tonecurve_image_id: None,
+        tonecurve_row: 0.0,
+        tonecurve_sat: 0.0,
+    }
+}
+
+fn append_mwnd_embedded_object_list_sprites(
+    ctx: &CommandContext,
+    worlds: Option<&Vec<globals::WorldState>>,
+    stage_idx: i64,
+    list: &[globals::ObjectState],
+    parent: ParentRenderState,
+    parent_layer: i64,
+    out: &mut Vec<RenderSprite>,
+    object_keys: &mut HashSet<(LayerId, SpriteId)>,
+    debug: &mut Vec<String>,
+) {
+    for (obj_idx, obj) in list.iter().enumerate() {
+        append_object_tree_sprites(
+            ctx,
+            worlds,
+            stage_idx,
+            obj_idx,
+            obj,
+            true,
+            0,
+            parent_layer,
+            Some(parent),
+            out,
+            object_keys,
+            debug,
+        );
+    }
+}
+
+fn append_mwnd_embedded_sprites(
+    ctx: &CommandContext,
+    worlds: Option<&Vec<globals::WorldState>>,
+    stage_idx: i64,
+    m: &globals::MwndState,
+    out: &mut Vec<RenderSprite>,
+    object_keys: &mut HashSet<(LayerId, SpriteId)>,
+    debug: &mut Vec<String>,
+) {
+    if !m.open || ctx.globals.script.mwnd_disp_off_flag || ctx.globals.syscom.hide_mwnd.onoff {
+        return;
+    }
+    let parent = mwnd_parent_render_state(m);
+    append_mwnd_embedded_object_list_sprites(
+        ctx,
+        worlds,
+        stage_idx,
+        &m.button_list,
+        parent,
+        m.layer,
+        out,
+        object_keys,
+        debug,
+    );
+    if !m.face_file.is_empty() {
+        append_mwnd_embedded_object_list_sprites(
+            ctx,
+            worlds,
+            stage_idx,
+            &m.face_list,
+            parent,
+            m.layer,
+            out,
+            object_keys,
+            debug,
+        );
+    }
+    append_mwnd_embedded_object_list_sprites(
+        ctx,
+        worlds,
+        stage_idx,
+        &m.object_list,
+        parent,
+        m.layer,
+        out,
+        object_keys,
+        debug,
+    );
+}
+
+
 fn build_siglus_object_render_list(
     ctx: &CommandContext,
     base: &[RenderSprite],
@@ -6694,51 +6895,90 @@ fn build_siglus_object_render_list(
         if debug_enabled {
             debug.push(format!("[SG_DEBUG] stage_form {}", form_id));
         }
-        let mut stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
+        let mut stage_ids: Vec<i64> = st
+            .object_lists
+            .keys()
+            .chain(st.mwnd_lists.keys())
+            .copied()
+            .collect();
         stage_ids.sort_unstable();
+        stage_ids.dedup();
         for stage_idx in stage_ids {
-            let Some(list) = st.object_lists.get(&stage_idx) else {
-                continue;
-            };
-            let active_cnt = list
-                .iter()
-                .filter(|o| object_participates_in_tree(o))
-                .count();
-            if active_cnt == 0 {
+            let worlds = st.world_lists.get(&stage_idx);
+            if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+                for m in mwnds {
+                    mark_mwnd_owned_sprite_keys(ctx, stage_idx, m, &mut object_keys);
+                }
+            }
+
+            let active_cnt = st
+                .object_lists
+                .get(&stage_idx)
+                .map(|list| {
+                    list.iter()
+                        .filter(|o| object_participates_in_tree(o))
+                        .count()
+                })
+                .unwrap_or(0);
+            let mwnd_embedded_cnt = st
+                .mwnd_lists
+                .get(&stage_idx)
+                .map(|mwnds| {
+                    mwnds
+                        .iter()
+                        .map(|m| m.button_list.len() + m.face_list.len() + m.object_list.len())
+                        .sum::<usize>()
+                })
+                .unwrap_or(0);
+            if active_cnt == 0 && mwnd_embedded_cnt == 0 {
                 continue;
             }
-            let worlds = st.world_lists.get(&stage_idx);
             if debug_enabled {
                 debug.push(format!(
                     "[SG_DEBUG]   stage {} active_objects={}",
                     stage_idx, active_cnt
                 ));
             }
-            let mut top: Vec<(usize, &globals::ObjectState)> = list
-                .iter()
-                .enumerate()
-                .filter(|(_, o)| object_participates_in_tree(o))
-                .collect();
-            top.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
-                let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
-                let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
-                (l.order, l.layer).cmp(&(r.order, r.layer))
-            });
-            for (obj_idx, obj) in top {
-                append_object_tree_sprites(
-                    ctx,
-                    worlds,
-                    stage_idx,
-                    obj_idx,
-                    obj,
-                    true,
-                    0,
-                    0,
-                    None,
-                    &mut object_list,
-                    &mut object_keys,
-                    &mut debug,
-                );
+            if let Some(list) = st.object_lists.get(&stage_idx) {
+                let mut top: Vec<(usize, &globals::ObjectState)> = list
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, o)| object_participates_in_tree(o))
+                    .collect();
+                top.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
+                    let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
+                    let r = effective_object_info(ctx, stage_idx, *rhs_idx, rhs);
+                    (l.order, l.layer).cmp(&(r.order, r.layer))
+                });
+                for (obj_idx, obj) in top {
+                    append_object_tree_sprites(
+                        ctx,
+                        worlds,
+                        stage_idx,
+                        obj_idx,
+                        obj,
+                        true,
+                        0,
+                        0,
+                        None,
+                        &mut object_list,
+                        &mut object_keys,
+                        &mut debug,
+                    );
+                }
+            }
+            if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+                for m in mwnds {
+                    append_mwnd_embedded_sprites(
+                        ctx,
+                        worlds,
+                        stage_idx,
+                        m,
+                        &mut object_list,
+                        &mut object_keys,
+                        &mut debug,
+                    );
+                }
             }
         }
     }

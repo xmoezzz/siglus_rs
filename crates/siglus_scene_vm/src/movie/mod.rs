@@ -8,7 +8,7 @@ use std::sync::{
 };
 use std::thread;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
 
 use crate::assets::RgbaImage;
@@ -513,31 +513,132 @@ fn decode_mpeg2_asset(path: &Path) -> Result<MovieAsset> {
     }
 
     let mut frames: Vec<Arc<RgbaImage>> = Vec::new();
-    let mut pipeline = na_mpeg2_decoder::MpegVideoPipeline::new();
+    let mut audio_samples: Vec<i16> = Vec::new();
+    let mut audio_channels: Option<u16> = None;
+    let mut audio_sample_rate: Option<u32> = None;
+    let mut dropped_audio_format_changes: u32 = 0;
+
+    fn append_mpeg_audio_chunk(
+        path: &Path,
+        phase: &str,
+        audio_channels: &mut Option<u16>,
+        audio_sample_rate: &mut Option<u32>,
+        audio_samples: &mut Vec<i16>,
+        dropped_audio_format_changes: &mut u32,
+        a: na_mpeg2_decoder::MpegAudioF32,
+    ) {
+        match (*audio_channels, *audio_sample_rate) {
+            (None, None) => {
+                *audio_channels = Some(a.channels);
+                *audio_sample_rate = Some(a.sample_rate);
+            }
+            (Some(ch), Some(sr)) if ch == a.channels && sr == a.sample_rate => {}
+            (Some(ch), Some(sr)) => {
+                *dropped_audio_format_changes = (*dropped_audio_format_changes).saturating_add(1);
+                if std::env::var_os("SG_MOVIE_TRACE").is_some()
+                    || std::env::var_os("SG_DEBUG").is_some()
+                {
+                    eprintln!(
+                        "[SG_DEBUG][MOV] mpeg2_audio_format_change.drop phase={} path={} base={}ch/{}Hz got={}ch/{}Hz samples={}",
+                        phase,
+                        path.display(),
+                        ch,
+                        sr,
+                        a.channels,
+                        a.sample_rate,
+                        a.samples.len()
+                    );
+                }
+                return;
+            }
+            _ => return,
+        }
+        audio_samples.extend(a.samples.into_iter().map(f32_to_i16_sample));
+    }
+
+    let mut pipeline = na_mpeg2_decoder::MpegAvPipeline::new();
     pipeline
-        .push_with(&bytes, None, |f| {
-            let w = f.width as u32;
-            let h = f.height as u32;
-            let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
-            na_mpeg2_decoder::frame_to_rgba_bt601_limited(&f, &mut rgba);
-            frames.push(Arc::new(RgbaImage {
-                width: w,
-                height: h,
-                rgba,
-            }));
+        .push_with(&bytes, None, |ev| match ev {
+            na_mpeg2_decoder::MpegAvEvent::Video(f) => {
+                frames.push(Arc::new(RgbaImage {
+                    width: f.width,
+                    height: f.height,
+                    rgba: f.rgba,
+                }));
+            }
+            na_mpeg2_decoder::MpegAvEvent::Audio(a) => append_mpeg_audio_chunk(
+                path,
+                "decode",
+                &mut audio_channels,
+                &mut audio_sample_rate,
+                &mut audio_samples,
+                &mut dropped_audio_format_changes,
+                a,
+            ),
         })
-        .context("mpeg2 decode")?;
-    pipeline.flush_with(|f| {
-        let w = f.width as u32;
-        let h = f.height as u32;
-        let mut rgba = vec![0u8; (w as usize) * (h as usize) * 4];
-        na_mpeg2_decoder::frame_to_rgba_bt601_limited(&f, &mut rgba);
-        frames.push(Arc::new(RgbaImage {
-            width: w,
-            height: h,
-            rgba,
-        }));
+        .context("mpeg2 av decode")?;
+
+    pipeline.flush_with(|ev| match ev {
+        na_mpeg2_decoder::MpegAvEvent::Video(f) => {
+            frames.push(Arc::new(RgbaImage {
+                width: f.width,
+                height: f.height,
+                rgba: f.rgba,
+            }));
+        }
+        na_mpeg2_decoder::MpegAvEvent::Audio(a) => append_mpeg_audio_chunk(
+            path,
+            "flush",
+            &mut audio_channels,
+            &mut audio_sample_rate,
+            &mut audio_samples,
+            &mut dropped_audio_format_changes,
+            a,
+        ),
     })?;
+
+
+    let audio = match (audio_channels, audio_sample_rate, audio_samples.is_empty()) {
+        (Some(channels), Some(sample_rate), false) => {
+            if channels == 0 || sample_rate == 0 {
+                bail!(
+                    "mpeg2 audio stream has invalid format in {}: channels={} sample_rate={}",
+                    path.display(), channels, sample_rate
+                );
+            }
+            let frames_len = (audio_samples.len() as u64) / (channels as u64);
+            let duration_ms = Some(
+                ((frames_len as f64) * 1000.0 / sample_rate as f64).round() as u64,
+            );
+            Some(MovieAudio {
+                samples: Arc::new(audio_samples),
+                channels,
+                sample_rate,
+                duration_ms,
+            })
+        }
+        (None, None, true) => None,
+        (Some(_), Some(_), true) => None,
+        _ => bail!(
+            "mpeg2 audio decoder produced incomplete format metadata for {}",
+            path.display()
+        ),
+    };
+
+    let decoded_duration_ms = if frames.is_empty() {
+        None
+    } else {
+        fps.filter(|f| *f > 0.0)
+            .map(|f| ((frames.len() as f64) * 1000.0 / f as f64).round().max(1.0) as u64)
+    };
+
+    let audio_duration_ms = audio.as_ref().and_then(|a| a.duration_ms);
+    let total_duration_ms = match (audio_duration_ms, decoded_duration_ms) {
+        (Some(a), Some(v)) => Some(a.max(v)),
+        (Some(a), None) => Some(a),
+        (None, Some(v)) => Some(v),
+        (None, None) => None,
+    };
 
     let info = MovieInfo {
         path: path.to_path_buf(),
@@ -545,13 +646,41 @@ fn decode_mpeg2_asset(path: &Path) -> Result<MovieAsset> {
         height: height.or_else(|| frames.first().map(|f| f.height)),
         fps,
         decoded_frames: Some(frames.len()),
-        audio_duration_ms: None,
+        audio_duration_ms: total_duration_ms,
     };
+    if std::env::var_os("SG_MOVIE_TRACE").is_some() || std::env::var_os("SG_DEBUG").is_some() {
+        if let Some(a) = audio.as_ref() {
+            eprintln!(
+                "[SG_DEBUG][MOV] mpeg2_decoded path={} frames={} audio_samples={} channels={} rate={} audio_ms={:?} total_ms={:?} dropped_format_changes={}",
+                path.display(),
+                frames.len(),
+                a.samples.len(),
+                a.channels,
+                a.sample_rate,
+                a.duration_ms,
+                total_duration_ms,
+                dropped_audio_format_changes
+            );
+        } else {
+            eprintln!(
+                "[SG_DEBUG][MOV] mpeg2_decoded path={} frames={} audio=none total_ms={:?} dropped_format_changes={}",
+                path.display(),
+                frames.len(),
+                total_duration_ms,
+                dropped_audio_format_changes
+            );
+        }
+    }
     Ok(MovieAsset {
         info,
         frames,
-        audio: None,
+        audio,
     })
+}
+
+fn f32_to_i16_sample(s: f32) -> i16 {
+    let clamped = s.max(-1.0).min(1.0);
+    (clamped * 32767.0).round() as i16
 }
 
 fn decode_omv_asset(path: &Path) -> Result<MovieAsset> {

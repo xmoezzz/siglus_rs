@@ -256,6 +256,14 @@ impl SfxEngine {
                     .wav_bytes
             }
         };
+        if std::env::var_os("SG_AUDIO_TRACE").is_some() {
+            eprintln!(
+                "[SG_AUDIO_TRACE] koe resolved koe_no={} source={:?} wav_ms={:?}",
+                koe_no,
+                resolved,
+                wav_duration_ms(&wav)
+            );
+        }
 
         self.play_decoded_wav_in_slot(audio, slot, &format!("koe:{koe_no}"), wav, loop_flag)
     }
@@ -428,6 +436,50 @@ impl PcmEngine {
 
     pub fn is_playing_slot(&mut self, slot: usize) -> bool {
         self.inner.is_playing_slot(slot)
+    }
+
+    pub fn volume_raw(&self) -> u8 {
+        self.inner.volume_raw()
+    }
+
+    pub fn set_volume_raw(&mut self, audio: &mut AudioHub, volume_raw: u8) -> Result<()> {
+        self.inner.set_volume_raw(audio, volume_raw)
+    }
+
+    pub fn set_volume_raw_fade(
+        &mut self,
+        audio: &mut AudioHub,
+        volume_raw: u8,
+        fade_ms: i64,
+    ) -> Result<()> {
+        self.inner.set_volume_raw_fade(audio, volume_raw, fade_ms)
+    }
+}
+
+pub struct KoeEngine {
+    inner: SfxEngine,
+}
+
+impl KoeEngine {
+    pub fn new(project_dir: PathBuf) -> Self {
+        // Original engine: C_elm_koe owns one active voice player and stops it
+        // before starting the next KOE.
+        Self {
+            inner: SfxEngine::new(project_dir, "wav", TrackKind::Koe, 1),
+        }
+    }
+
+    pub fn play_koe_no(&mut self, audio: &mut AudioHub, koe_no: i64) -> Result<()> {
+        let _ = self.stop(None);
+        self.inner.play_koe_no_in_slot(audio, 0, koe_no, false)
+    }
+
+    pub fn stop(&mut self, fade_time_ms: Option<i64>) -> Result<()> {
+        self.inner.stop_slot(0, fade_time_ms)
+    }
+
+    pub fn is_playing_any(&mut self) -> bool {
+        self.inner.is_playing_any()
     }
 
     pub fn volume_raw(&self) -> u8 {

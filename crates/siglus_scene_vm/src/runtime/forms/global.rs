@@ -237,10 +237,12 @@ fn dispatch_global_koe_command(
             let chara_no = args.get(1).and_then(Value::as_i64).unwrap_or(0);
             let is_ex = op == constants::elm_value::GLOBAL_EXKOE;
             remember_global_koe(ctx, koe_no, chara_no, is_ex);
-            let _ = {
-                let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-                se.play_koe_no(audio, koe_no)
-            };
+            if let Err(err) = {
+                let (koe, audio) = (&mut ctx.koe, &mut ctx.audio);
+                koe.play_koe_no(audio, koe_no)
+            } {
+                eprintln!("[SG_AUDIO] koe.play failed koe_no={koe_no}: {err:#}");
+            }
             if ret_form.unwrap_or(0) != 0 {
                 ctx.push(Value::Int(0));
             }
@@ -255,14 +257,16 @@ fn dispatch_global_koe_command(
             let is_ex = op == constants::elm_value::GLOBAL_EXKOE_PLAY_WAIT
                 || op == constants::elm_value::GLOBAL_EXKOE_PLAY_WAIT_KEY;
             remember_global_koe(ctx, koe_no, chara_no, is_ex);
-            let _ = {
-                let (se, audio) = (&mut ctx.se, &mut ctx.audio);
-                se.play_koe_no(audio, koe_no)
-            };
+            if let Err(err) = {
+                let (koe, audio) = (&mut ctx.koe, &mut ctx.audio);
+                koe.play_koe_no(audio, koe_no)
+            } {
+                eprintln!("[SG_AUDIO] koe.play_wait failed koe_no={koe_no}: {err:#}");
+            }
             let key_skip = op == constants::elm_value::GLOBAL_KOE_PLAY_WAIT_KEY
                 || op == constants::elm_value::GLOBAL_EXKOE_PLAY_WAIT_KEY;
             ctx.wait
-                .wait_audio(crate::runtime::wait::AudioWait::SeAny, key_skip);
+                .wait_audio(crate::runtime::wait::AudioWait::KoeAny, key_skip);
             if ret_form.unwrap_or(0) != 0 {
                 ctx.push(Value::Int(0));
             }
@@ -270,20 +274,20 @@ fn dispatch_global_koe_command(
         }
         constants::elm_value::GLOBAL_KOE_STOP => {
             let fade = args.get(0).and_then(Value::as_i64);
-            let _ = ctx.se.stop(fade);
+            let _ = ctx.koe.stop(fade);
             Ok(true)
         }
         constants::elm_value::GLOBAL_KOE_WAIT | constants::elm_value::GLOBAL_KOE_WAIT_KEY => {
             let key_skip = op == constants::elm_value::GLOBAL_KOE_WAIT_KEY;
             ctx.wait
-                .wait_audio(crate::runtime::wait::AudioWait::SeAny, key_skip);
+                .wait_audio(crate::runtime::wait::AudioWait::KoeAny, key_skip);
             if ret_form.unwrap_or(0) != 0 {
                 ctx.push(Value::Int(0));
             }
             Ok(true)
         }
         constants::elm_value::GLOBAL_KOE_CHECK => {
-            let playing = ctx.se.is_playing_any();
+            let playing = ctx.koe.is_playing_any();
             ctx.push(Value::Int(if playing { 1 } else { 0 }));
             Ok(true)
         }
@@ -300,21 +304,21 @@ fn dispatch_global_koe_command(
                 .unwrap_or(255)
                 .clamp(0, 255) as u8;
             let fade = args.get(1).and_then(Value::as_i64).unwrap_or(0);
-            let _ = ctx.se.set_volume_raw_fade(&mut ctx.audio, vol, fade);
+            let _ = ctx.koe.set_volume_raw_fade(&mut ctx.audio, vol, fade);
             Ok(true)
         }
         constants::elm_value::GLOBAL_KOE_SET_VOLUME_MAX => {
             let fade = args.get(0).and_then(Value::as_i64).unwrap_or(0);
-            let _ = ctx.se.set_volume_raw_fade(&mut ctx.audio, 255, fade);
+            let _ = ctx.koe.set_volume_raw_fade(&mut ctx.audio, 255, fade);
             Ok(true)
         }
         constants::elm_value::GLOBAL_KOE_SET_VOLUME_MIN => {
             let fade = args.get(0).and_then(Value::as_i64).unwrap_or(0);
-            let _ = ctx.se.set_volume_raw_fade(&mut ctx.audio, 0, fade);
+            let _ = ctx.koe.set_volume_raw_fade(&mut ctx.audio, 0, fade);
             Ok(true)
         }
         constants::elm_value::GLOBAL_KOE_GET_VOLUME => {
-            ctx.push(Value::Int(ctx.se.volume_raw() as i64));
+            ctx.push(Value::Int(ctx.koe.volume_raw() as i64));
             Ok(true)
         }
         _ => Ok(false),
@@ -406,6 +410,119 @@ fn dispatch_capture_command(
     }
 }
 
+fn push_global_message_ok(ctx: &mut CommandContext) {
+    let ret_form = crate::runtime::forms::prop_access::current_vm_meta(ctx)
+        .1
+        .unwrap_or(0);
+    if ret_form == 0 {
+        return;
+    }
+    if ret_form == constants::fm::STR as i64 {
+        ctx.push(Value::Str(String::new()));
+    } else {
+        ctx.push(Value::Int(0));
+    }
+}
+
+fn global_message_arg_str(args: &[Value]) -> Option<&str> {
+    args.iter()
+        .rev()
+        .find_map(|v| v.unwrap_named().as_str())
+}
+
+fn dispatch_global_message_command(
+    ctx: &mut CommandContext,
+    form_id: u32,
+    args: &[Value],
+) -> Result<bool> {
+    match form_id as i32 {
+        constants::elm_value::GLOBAL_OPEN
+        | constants::elm_value::GLOBAL_OPEN_WAIT
+        | constants::elm_value::GLOBAL_OPEN_NOWAIT => {
+            ctx.ui.show_message_bg(true);
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_CLOSE
+        | constants::elm_value::GLOBAL_CLOSE_WAIT
+        | constants::elm_value::GLOBAL_CLOSE_NOWAIT
+        | constants::elm_value::GLOBAL_END_CLOSE => {
+            ctx.ui.show_message_bg(false);
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_MSG_BLOCK
+        | constants::elm_value::GLOBAL_MSG_PP_BLOCK => {
+            // Message block commands are accepted here; key waits remain in
+            // WAIT_MSG/PP/R/PAGE.
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_CLEAR => {
+            ctx.ui.clear_message();
+            ctx.ui.clear_name();
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_CLEAR_MSGBK => {
+            ctx.ui.clear_message();
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_PRINT => {
+            if let Some(s) = global_message_arg_str(args) {
+                if !s.is_empty() {
+                    ctx.ui.show_message_bg(true);
+                    ctx.ui.append_message(s);
+                }
+            }
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_NL | constants::elm_value::GLOBAL_NLI => {
+            ctx.ui.append_linebreak();
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_WAIT_MSG | constants::elm_value::GLOBAL_PP => {
+            ctx.ui.begin_wait_message();
+            ctx.wait.wait_key();
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_R | constants::elm_value::GLOBAL_PAGE => {
+            ctx.ui.begin_wait_message();
+            ctx.ui.request_clear_message_on_wait_end();
+            ctx.wait.wait_key();
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_SET_NAMAE => {
+            ctx.ui.set_name(global_message_arg_str(args).unwrap_or("").to_string());
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_CLEAR_FACE
+        | constants::elm_value::GLOBAL_SET_FACE
+        | constants::elm_value::GLOBAL_SIZE
+        | constants::elm_value::GLOBAL_COLOR
+        | constants::elm_value::GLOBAL_RUBY
+        | constants::elm_value::GLOBAL_MSGBTN
+        | constants::elm_value::GLOBAL_MULTI_MSG
+        | constants::elm_value::GLOBAL_NEXT_MSG
+        | constants::elm_value::GLOBAL_START_SLIDE_MSG
+        | constants::elm_value::GLOBAL_END_SLIDE_MSG
+        | constants::elm_value::GLOBAL_INDENT
+        | constants::elm_value::GLOBAL_CLEAR_INDENT
+        | constants::elm_value::GLOBAL_REP_POS
+        | constants::elm_value::GLOBAL_SET_WAKU => {
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        _ => Ok(false),
+    }
+}
+
 pub fn dispatch_global_form(
     ctx: &mut CommandContext,
     form_id: u32,
@@ -419,7 +536,13 @@ pub fn dispatch_global_form(
     if dispatch_selbtn_command(ctx, form_id, args)? {
         return Ok(true);
     }
+    if stage::dispatch_current_mwnd_global_op(ctx, form_id as i32, args) {
+        return Ok(true);
+    }
     if dispatch_global_koe_command(ctx, form_id, args)? {
+        return Ok(true);
+    }
+    if dispatch_global_message_command(ctx, form_id, args)? {
         return Ok(true);
     }
 

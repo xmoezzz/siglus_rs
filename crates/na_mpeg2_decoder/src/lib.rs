@@ -1,4 +1,4 @@
-//! na_mpeg2_decoder: MPEG-1/2 video + MPEG audio (MP1/2/3) decode helpers.
+//! na_mpeg2_decoder: MPEG-1/2 video plus MPEG audio (MP1/2/3), DVD private LPCM, and AC-3 decode helpers.
 
 pub mod convert;
 pub mod demux;
@@ -14,6 +14,6 @@ pub use demux::{Demuxer, Packet, StreamType};
 pub use pipeline::MpegVideoPipeline;
 pub use video::{Decoder, Frame, PixelFormat};
 
-pub use audio::{MpaAudioChunk, MpaAudioDecoder};
+pub use audio::{Ac3AudioChunk, Ac3AudioDecoder, MpaAudioChunk, MpaAudioDecoder};
 pub use av::{MpegAudioF32, MpegAvEvent, MpegAvPipeline, MpegRgbaFrame};
 pub use error::{AvError, Result as AvResult};

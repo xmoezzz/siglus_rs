@@ -22,6 +22,10 @@ const INIMAX_BTN_ACTION_CNT: usize = 256;
 const TNM_BTN_STATE_MAX: usize = 5;
 const INIDEF_SE_CNT: usize = 16;
 const INIMAX_SE_CNT: usize = 256;
+const INIDEF_MWND_CNT: usize = 2;
+const INIMAX_MWND_CNT: usize = 64;
+const INIDEF_WAKU_CNT: usize = 32;
+const INIMAX_WAKU_CNT: usize = 256;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ButtonSeTemplate {
@@ -79,6 +83,49 @@ impl Default for ButtonActionTemplate {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct MwndTemplate {
+    pub window_pos: (i64, i64),
+    pub window_size: (i64, i64),
+    pub message_pos: (i64, i64),
+    pub moji_cnt: (i64, i64),
+    pub moji_size: i64,
+    pub waku_no: i64,
+    pub name_waku_no: i64,
+    pub open_anime_type: i64,
+    pub open_anime_time: i64,
+    pub close_anime_type: i64,
+    pub close_anime_time: i64,
+}
+
+impl Default for MwndTemplate {
+    fn default() -> Self {
+        Self {
+            window_pos: (0, 0),
+            window_size: (0, 0),
+            message_pos: (0, 0),
+            moji_cnt: (0, 0),
+            moji_size: 0,
+            waku_no: -1,
+            name_waku_no: -1,
+            open_anime_type: 0,
+            open_anime_time: 0,
+            close_anime_type: 0,
+            close_anime_time: 0,
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct WakuTemplate {
+    pub waku_file: String,
+    pub filter_file: String,
+    pub icon_no: i64,
+    pub page_icon_no: i64,
+    pub icon_pos_type: i64,
+    pub icon_pos: (i64, i64, i64),
+}
+
 #[derive(Debug)]
 pub struct AssetTables {
     pub gameexe: Option<GameexeConfig>,
@@ -87,6 +134,8 @@ pub struct AssetTables {
     pub button_se_templates: Vec<ButtonSeTemplate>,
     pub button_action_templates: Vec<ButtonActionTemplate>,
     pub se_file_names: Vec<Option<String>>,
+    pub mwnd_templates: Vec<MwndTemplate>,
+    pub waku_templates: Vec<WakuTemplate>,
 
     pub cgtable: Option<CgTableData>,
     pub cgtable_flag_cnt: Option<usize>,
@@ -105,6 +154,8 @@ impl Default for AssetTables {
             button_se_templates: vec![ButtonSeTemplate::default(); INIDEF_BTN_SE_CNT],
             button_action_templates: vec![ButtonActionTemplate::default(); INIDEF_BTN_ACTION_CNT],
             se_file_names: vec![None; INIDEF_SE_CNT],
+            mwnd_templates: vec![MwndTemplate::default(); INIDEF_MWND_CNT],
+            waku_templates: vec![WakuTemplate::default(); INIDEF_WAKU_CNT],
             cgtable: None,
             cgtable_flag_cnt: None,
             cg_flags: Vec::new(),
@@ -153,6 +204,8 @@ impl AssetTables {
         out.button_se_templates = load_button_se_templates(&cfg);
         out.button_action_templates = load_button_action_templates(&cfg);
         out.se_file_names = load_se_file_names(&cfg);
+        out.mwnd_templates = load_mwnd_templates(&cfg);
+        out.waku_templates = load_waku_templates(&cfg);
         out.gameexe = Some(cfg);
 
         // Drive table loading from the parsed config.
@@ -221,6 +274,126 @@ impl AssetTables {
 
         out
     }
+}
+
+fn parse_i64_tuple(raw: Option<&str>) -> Vec<i64> {
+    raw.map(parse_button_action_numbers).unwrap_or_default()
+}
+
+fn load_mwnd_templates(cfg: &GameexeConfig) -> Vec<MwndTemplate> {
+    let cnt = cfg
+        .get_usize("MWND.CNT")
+        .unwrap_or(INIDEF_MWND_CNT)
+        .min(INIMAX_MWND_CNT);
+    let mut out = vec![MwndTemplate::default(); cnt];
+
+    for i in 0..cnt {
+        let mut t = MwndTemplate::default();
+        let window_pos = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "WINDOW_POS"));
+        if window_pos.len() >= 2 {
+            t.window_pos = (window_pos[0], window_pos[1]);
+        }
+        let window_size = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "WINDOW_SIZE"));
+        if window_size.len() >= 2 {
+            t.window_size = (window_size[0], window_size[1]);
+        }
+        let message_pos = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "MESSAGE_POS"));
+        if message_pos.len() >= 2 {
+            t.message_pos = (message_pos[0], message_pos[1]);
+        }
+        let moji_cnt = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "MOJI_CNT"));
+        if moji_cnt.len() >= 2 {
+            t.moji_cnt = (moji_cnt[0], moji_cnt[1]);
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("MWND", i, "MOJI_SIZE")
+            .and_then(parse_i64_like_local)
+        {
+            t.moji_size = v;
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("MWND", i, "WAKU_NO")
+            .and_then(parse_i64_like_local)
+        {
+            t.waku_no = v;
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("MWND", i, "NAME_WAKU_NO")
+            .and_then(parse_i64_like_local)
+        {
+            t.name_waku_no = v;
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("MWND", i, "OPEN_ANIME_TYPE")
+            .and_then(parse_i64_like_local)
+        {
+            t.open_anime_type = v;
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("MWND", i, "OPEN_ANIME_TIME")
+            .and_then(parse_i64_like_local)
+        {
+            t.open_anime_time = v;
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("MWND", i, "CLOSE_ANIME_TYPE")
+            .and_then(parse_i64_like_local)
+        {
+            t.close_anime_type = v;
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("MWND", i, "CLOSE_ANIME_TIME")
+            .and_then(parse_i64_like_local)
+        {
+            t.close_anime_time = v;
+        }
+        out[i] = t;
+    }
+
+    out
+}
+
+fn load_waku_templates(cfg: &GameexeConfig) -> Vec<WakuTemplate> {
+    let cnt = cfg
+        .get_usize("WAKU.CNT")
+        .unwrap_or(INIDEF_WAKU_CNT)
+        .min(INIMAX_WAKU_CNT);
+    let mut out = vec![WakuTemplate::default(); cnt];
+
+    for i in 0..cnt {
+        let mut t = WakuTemplate::default();
+        if let Some(v) = cfg.get_indexed_field_unquoted("WAKU", i, "WAKU_FILE") {
+            t.waku_file = v.to_string();
+        }
+        if let Some(v) = cfg.get_indexed_field_unquoted("WAKU", i, "FILTER_FILE") {
+            t.filter_file = v.to_string();
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("WAKU", i, "ICON_NO")
+            .and_then(parse_i64_like_local)
+        {
+            t.icon_no = v;
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("WAKU", i, "PAGE_ICON_NO")
+            .and_then(parse_i64_like_local)
+        {
+            t.page_icon_no = v;
+        }
+        if let Some(v) = cfg
+            .get_indexed_field("WAKU", i, "ICON_POS_TYPE")
+            .and_then(parse_i64_like_local)
+        {
+            t.icon_pos_type = v;
+        }
+        let icon_pos = parse_i64_tuple(cfg.get_indexed_field("WAKU", i, "ICON_POS"));
+        if icon_pos.len() >= 3 {
+            t.icon_pos = (icon_pos[0], icon_pos[1], icon_pos[2]);
+        }
+        out[i] = t;
+    }
+
+    out
 }
 
 fn load_button_action_templates(cfg: &GameexeConfig) -> Vec<ButtonActionTemplate> {
