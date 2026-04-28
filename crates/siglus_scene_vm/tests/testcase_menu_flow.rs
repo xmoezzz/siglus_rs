@@ -58,7 +58,7 @@ fn make_vm(scene_name: &str, z: i32) -> Result<SceneVm<'static>> {
 }
 
 fn advance_one_frame(vm: &mut SceneVm<'static>) -> Result<()> {
-    let _running = vm.run_script_proc_slice(2000)?;
+    let _running = vm.run_script_proc()?;
     vm.tick_frame()?;
     Ok(())
 }

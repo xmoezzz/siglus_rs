@@ -1,25 +1,80 @@
 //! Text rendering helpers.
 //!
-//! We prefer fontdue + TTF from `project_dir/font`. If no font is available,
-//! fall back to a 5x7 ASCII bitmap font so text is still visible.
+//! TTF/OTF fonts are preferred. The lookup order mirrors the engine use case:
+//! game-local fonts first, then engine-local fonts, then the compile-time
+//! embedded default font, then platform fonts. If no font can be loaded, a
+//! small ASCII bitmap fallback is used only to keep debug
+//! text visible.
 
 use crate::assets::RgbaImage;
 use crate::image_manager::{ImageId, ImageManager};
 use fontdue::Font;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+mod embedded_font {
+    include!(concat!(env!("OUT_DIR"), "/siglus_embedded_font.rs"));
+}
+
 
 #[derive(Debug, Default)]
 pub struct FontCache {
     font: Option<Font>,
+    loaded_from: Option<PathBuf>,
 }
 
 impl FontCache {
     pub fn new() -> Self {
-        Self { font: None }
+        Self {
+            font: None,
+            loaded_from: None,
+        }
     }
 
     pub fn is_loaded(&self) -> bool {
         self.font.is_some()
+    }
+
+    pub fn loaded_from(&self) -> Option<&Path> {
+        self.loaded_from.as_deref()
+    }
+
+    pub fn load_for_project(&mut self, project_dir: &Path) -> bool {
+        if self.font.is_some() {
+            return true;
+        }
+
+        let mut dirs = Vec::new();
+        dirs.push(project_dir.join("font"));
+        dirs.push(project_dir.join("fonts"));
+
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(exe_dir) = exe.parent() {
+                dirs.push(exe_dir.join("font"));
+                dirs.push(exe_dir.join("fonts"));
+            }
+        }
+
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        dirs.push(manifest_dir.join("assets").join("font"));
+        dirs.push(manifest_dir.join("assets").join("fonts"));
+
+        for dir in dirs {
+            if self.load_from_font_dir(&dir) {
+                return true;
+            }
+        }
+
+        if self.try_load_embedded_default_font() {
+            return true;
+        }
+
+        for path in platform_font_candidates() {
+            if self.try_load_font_file(&path) {
+                return true;
+            }
+        }
+
+        false
     }
 
     pub fn load_from_font_dir(&mut self, font_dir: &Path) -> bool {
@@ -29,28 +84,60 @@ impl FontCache {
         let Ok(entries) = std::fs::read_dir(font_dir) else {
             return false;
         };
+
+        let mut files = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_file() {
-                continue;
+            if path.is_file() && is_supported_font_path(&path) {
+                files.push(path);
             }
-            let ext = path
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            if ext != "ttf" && ext != "otf" && ext != "ttc" {
-                continue;
-            }
-            let Ok(bytes) = std::fs::read(&path) else {
-                continue;
-            };
-            if let Ok(font) = Font::from_bytes(bytes, fontdue::FontSettings::default()) {
-                self.font = Some(font);
+        }
+        files.sort_by_key(|path| font_path_priority(path));
+
+        for path in files {
+            if self.try_load_font_file(&path) {
                 return true;
             }
         }
         false
+    }
+
+    fn try_load_font_file(&mut self, path: &Path) -> bool {
+        if self.font.is_some() {
+            return true;
+        }
+        if !path.is_file() || !is_supported_font_path(path) {
+            return false;
+        }
+        let Ok(bytes) = std::fs::read(path) else {
+            return false;
+        };
+        match Font::from_bytes(bytes, fontdue::FontSettings::default()) {
+            Ok(font) => {
+                self.font = Some(font);
+                self.loaded_from = Some(path.to_path_buf());
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
+    fn try_load_embedded_default_font(&mut self) -> bool {
+        if self.font.is_some() {
+            return true;
+        }
+        let Some(bytes) = embedded_font::EMBEDDED_DEFAULT_FONT else {
+            return false;
+        };
+        match Font::from_bytes(bytes.to_vec(), fontdue::FontSettings::default()) {
+            Ok(font) => {
+                self.font = Some(font);
+                let source = embedded_font::EMBEDDED_DEFAULT_FONT_SOURCE.unwrap_or("embedded:default-font");
+                self.loaded_from = Some(PathBuf::from(source));
+                true
+            }
+            Err(_) => false,
+        }
     }
 
     pub fn render_text(
@@ -62,6 +149,19 @@ impl FontCache {
         max_h: u32,
     ) -> Option<ImageId> {
         self.render_text_into(images, None, text, font_px, max_w, max_h)
+    }
+
+    pub fn render_mwnd_text(
+        &self,
+        images: &mut ImageManager,
+        text: &str,
+        font_px: f32,
+        max_w: u32,
+        max_h: u32,
+        moji_space: Option<(i64, i64)>,
+    ) -> Option<ImageId> {
+        let img = self.render_mwnd_text_rgba(text, font_px, max_w, max_h, moji_space)?;
+        Some(images.insert_image(img))
     }
 
     pub fn render_text_into(
@@ -94,6 +194,20 @@ impl FontCache {
             return render_text_image_basic_rgba(text, font_px as u32, max_w, max_h);
         };
         render_text_fontdue_rgba(font, text, font_px, max_w, max_h)
+    }
+
+    pub fn render_mwnd_text_rgba(
+        &self,
+        text: &str,
+        font_px: f32,
+        max_w: u32,
+        max_h: u32,
+        moji_space: Option<(i64, i64)>,
+    ) -> Option<RgbaImage> {
+        let Some(font) = self.font.as_ref() else {
+            return render_text_image_basic_rgba(text, font_px as u32, max_w, max_h);
+        };
+        render_mwnd_text_fontdue_rgba(font, text, font_px, max_w, max_h, moji_space)
     }
 }
 
@@ -158,16 +272,167 @@ pub fn render_text_image_basic_rgba(
     })
 }
 
-fn render_text_fontdue(
-    images: &mut ImageManager,
+
+fn render_mwnd_text_fontdue_rgba(
     font: &Font,
     text: &str,
     font_px: f32,
     max_w: u32,
     max_h: u32,
-) -> Option<ImageId> {
-    let img = render_text_fontdue_rgba(font, text, font_px, max_w, max_h)?;
-    Some(images.insert_image(img))
+    moji_space: Option<(i64, i64)>,
+) -> Option<RgbaImage> {
+    if text.is_empty() || max_w == 0 || max_h == 0 {
+        return None;
+    }
+
+    let (space_x, space_y) = moji_space.unwrap_or((-1, 10));
+    let font_cell = font_px.round().max(1.0) as i32;
+    let full_cell_w = font_cell.max(1);
+    let half_cell_w = (font_cell / 2).max(1);
+    let line_h = (font_cell + space_y as i32).max(font_cell).max(1);
+    let mut rgba = vec![0u8; (max_w * max_h * 4) as usize];
+
+    let mut x = 0i32;
+    let mut y = 0i32;
+
+    for ch in text.chars() {
+        match ch {
+            '\r' => continue,
+            '\n' => {
+                x = 0;
+                y += line_h;
+                if y >= max_h as i32 {
+                    break;
+                }
+                continue;
+            }
+            '\t' => {
+                x += (full_cell_w + space_x as i32).max(1) * 2;
+                continue;
+            }
+            _ => {}
+        }
+
+        let cell_w = if is_hankaku(ch) { half_cell_w } else { full_cell_w };
+        let advance = (cell_w + space_x as i32).max(1);
+        if x > 0 && x + cell_w > max_w as i32 {
+            x = 0;
+            y += line_h;
+            if y >= max_h as i32 {
+                break;
+            }
+        }
+
+        let (metrics, glyph) = font.rasterize(ch, font_px);
+        if metrics.width == 0 || metrics.height == 0 {
+            x += advance;
+            continue;
+        }
+
+        let cell_inner_x = ((cell_w - metrics.width as i32) / 2).max(0);
+        let cell_inner_y = ((line_h - metrics.height as i32) / 2).max(0);
+        let draw_x = x + cell_inner_x + metrics.xmin.min(0);
+        let draw_y = y + cell_inner_y;
+
+        draw_glyph_bitmap(
+            &mut rgba,
+            max_w,
+            max_h,
+            draw_x + 1,
+            draw_y + 1,
+            metrics.width,
+            metrics.height,
+            &glyph,
+            (0, 0, 0, 180),
+        );
+        draw_glyph_bitmap(
+            &mut rgba,
+            max_w,
+            max_h,
+            draw_x,
+            draw_y,
+            metrics.width,
+            metrics.height,
+            &glyph,
+            (255, 255, 255, 255),
+        );
+
+        x += advance;
+    }
+
+    Some(RgbaImage {
+        width: max_w,
+        height: max_h,
+        rgba,
+    })
+}
+
+fn is_hankaku(ch: char) -> bool {
+    ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F)
+}
+
+fn draw_glyph_bitmap(
+    rgba: &mut [u8],
+    w: u32,
+    h: u32,
+    x: i32,
+    y: i32,
+    glyph_w: usize,
+    glyph_h: usize,
+    glyph: &[u8],
+    color: (u8, u8, u8, u8),
+) {
+    for gy in 0..glyph_h {
+        let py = y + gy as i32;
+        if py < 0 || py as u32 >= h {
+            continue;
+        }
+        for gx in 0..glyph_w {
+            let px = x + gx as i32;
+            if px < 0 || px as u32 >= w {
+                continue;
+            }
+            let src = glyph[gy * glyph_w + gx];
+            if src == 0 {
+                continue;
+            }
+            let src_a = ((src as u16 * color.3 as u16) / 255) as u8;
+            blend_rgba_pixel(rgba, w, px as u32, py as u32, color.0, color.1, color.2, src_a);
+        }
+    }
+}
+
+fn blend_rgba_pixel(
+    rgba: &mut [u8],
+    w: u32,
+    x: u32,
+    y: u32,
+    sr: u8,
+    sg: u8,
+    sb: u8,
+    sa: u8,
+) {
+    let idx = ((y * w + x) * 4) as usize;
+    let da = rgba[idx + 3] as u16;
+    let sa_u = sa as u16;
+    let inv_sa = 255u16.saturating_sub(sa_u);
+    let out_a = sa_u + (da * inv_sa + 127) / 255;
+    if out_a == 0 {
+        rgba[idx] = 0;
+        rgba[idx + 1] = 0;
+        rgba[idx + 2] = 0;
+        rgba[idx + 3] = 0;
+        return;
+    }
+    let blend = |src: u8, dst: u8| -> u8 {
+        let src_p = src as u16 * sa_u;
+        let dst_p = dst as u16 * da * inv_sa / 255;
+        ((src_p + dst_p + out_a / 2) / out_a).min(255) as u8
+    };
+    rgba[idx] = blend(sr, rgba[idx]);
+    rgba[idx + 1] = blend(sg, rgba[idx + 1]);
+    rgba[idx + 2] = blend(sb, rgba[idx + 2]);
+    rgba[idx + 3] = out_a.min(255) as u8;
 }
 
 fn render_text_fontdue_rgba(
@@ -182,92 +447,181 @@ fn render_text_fontdue_rgba(
     }
     let mut rgba = vec![0u8; (max_w * max_h * 4) as usize];
 
-    let mut x = 0.0f32;
-    let mut y = font_px;
-    let line_height = font
-        .horizontal_line_metrics(font_px)
+    let metrics = font.horizontal_line_metrics(font_px);
+    let ascent = metrics.map(|m| m.ascent).unwrap_or(font_px);
+    let line_height = metrics
         .map(|m| (m.ascent - m.descent + m.line_gap).max(1.0))
         .unwrap_or(font_px * 1.3);
 
-    let mut word = String::new();
-    let flush_word = |word: &str, x: &mut f32, y: &mut f32, rgba: &mut [u8]| {
-        if word.is_empty() {
-            return;
-        }
-        let word_w: f32 = word
-            .chars()
-            .map(|c| font.metrics(c, font_px).advance_width)
-            .sum();
-        if *x + word_w > max_w as f32 {
-            *x = 0.0;
-            *y += line_height;
-        }
-        if *y >= max_h as f32 {
-            return;
-        }
-        for ch in word.chars() {
-            let metrics = font.metrics(ch, font_px);
-            let (gmetrics, glyph) = font.rasterize(ch, font_px);
-            let gx = *x + gmetrics.xmin as f32;
-            let gy = *y + gmetrics.ymin as f32;
-            for gy_i in 0..gmetrics.height {
-                let py = gy as i32 + gy_i as i32;
-                if py < 0 || py as u32 >= max_h {
-                    continue;
-                }
-                for gx_i in 0..gmetrics.width {
-                    let px = gx as i32 + gx_i as i32;
-                    if px < 0 || px as u32 >= max_w {
-                        continue;
-                    }
-                    let src = glyph[gy_i * gmetrics.width + gx_i];
-                    if src == 0 {
-                        continue;
-                    }
-                    let idx = ((py as u32 * max_w + px as u32) * 4) as usize;
-                    rgba[idx] = 255;
-                    rgba[idx + 1] = 255;
-                    rgba[idx + 2] = 255;
-                    rgba[idx + 3] = src;
-                }
-            }
-            *x += metrics.advance_width;
-        }
-    };
+    let mut x = 0.0f32;
+    let mut baseline_y = ascent.max(1.0);
 
     for ch in text.chars() {
         match ch {
+            '\r' => continue,
             '\n' => {
-                flush_word(&word, &mut x, &mut y, &mut rgba);
-                word.clear();
                 x = 0.0;
-                y += line_height;
-                if y >= max_h as f32 {
+                baseline_y += line_height;
+                if baseline_y - ascent >= max_h as f32 {
                     break;
                 }
+                continue;
             }
             '\t' => {
-                flush_word(&word, &mut x, &mut y, &mut rgba);
-                word.clear();
-                x += font_px * 2.0;
+                x += font.metrics(' ', font_px).advance_width * 2.0;
+                continue;
             }
-            ' ' => {
-                flush_word(&word, &mut x, &mut y, &mut rgba);
-                word.clear();
-                x += font.metrics(' ', font_px).advance_width;
-            }
-            _ => {
-                word.push(ch);
+            _ => {}
+        }
+
+        let advance = font.metrics(ch, font_px).advance_width.max(0.0);
+        if x > 0.0 && x + advance > max_w as f32 {
+            x = 0.0;
+            baseline_y += line_height;
+            if baseline_y - ascent >= max_h as f32 {
+                break;
             }
         }
+
+        let (gmetrics, glyph) = font.rasterize(ch, font_px);
+        let gx = x + gmetrics.xmin as f32;
+        let gy = baseline_y + gmetrics.ymin as f32;
+        for gy_i in 0..gmetrics.height {
+            let py = gy as i32 + gy_i as i32;
+            if py < 0 || py as u32 >= max_h {
+                continue;
+            }
+            for gx_i in 0..gmetrics.width {
+                let px = gx as i32 + gx_i as i32;
+                if px < 0 || px as u32 >= max_w {
+                    continue;
+                }
+                let src = glyph[gy_i * gmetrics.width + gx_i];
+                if src == 0 {
+                    continue;
+                }
+                let idx = ((py as u32 * max_w + px as u32) * 4) as usize;
+                rgba[idx] = 255;
+                rgba[idx + 1] = 255;
+                rgba[idx + 2] = 255;
+                rgba[idx + 3] = src;
+            }
+        }
+        x += advance;
     }
-    flush_word(&word, &mut x, &mut y, &mut rgba);
 
     Some(RgbaImage {
         width: max_w,
         height: max_h,
         rgba,
     })
+}
+
+pub fn embedded_default_font_available() -> bool {
+    embedded_font::EMBEDDED_DEFAULT_FONT.is_some()
+}
+
+pub fn embedded_default_font_names() -> &'static [&'static str] {
+    if embedded_default_font_available() {
+        embedded_font::EMBEDDED_DEFAULT_FONT_ALIASES
+    } else {
+        &[]
+    }
+}
+
+pub fn font_name_matches_embedded_default(name: &str) -> bool {
+    if !embedded_default_font_available() {
+        return false;
+    }
+    let needle = normalize_font_name_for_match(name);
+    if needle.is_empty() {
+        return false;
+    }
+    embedded_font::EMBEDDED_DEFAULT_FONT_ALIASES
+        .iter()
+        .any(|alias| normalize_font_name_for_match(alias) == needle)
+}
+
+fn normalize_font_name_for_match(name: &str) -> String {
+    name.chars()
+        .filter(|ch| !ch.is_whitespace() && *ch != '-' && *ch != '_' && *ch != '.')
+        .flat_map(|ch| ch.to_lowercase())
+        .collect()
+}
+
+fn is_supported_font_path(path: &Path) -> bool {
+    matches!(
+        path.extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .as_deref(),
+        Some("ttf" | "otf" | "ttc")
+    )
+}
+
+fn font_path_priority(path: &Path) -> (u8, u8, String) {
+    let name_original = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let name = name_original.to_ascii_lowercase();
+    let ext_score = match path
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("ttf") | Some("otf") => 0,
+        Some("ttc") => 1,
+        _ => 2,
+    };
+    let family_score = if name.contains("ms pgothic")
+        || name.contains("mspgothic")
+        || name.contains("ms-pgothic")
+        || name.contains("msgothic")
+        || name_original.contains("ＭＳ Ｐゴシック")
+        || name_original.contains("MS PGothic")
+    {
+        0
+    } else if name.contains("pgothic") || name_original.contains("Ｐゴシック") {
+        1
+    } else if name.contains("gothic") || name_original.contains("ゴシック") {
+        2
+    } else {
+        3
+    };
+    (family_score, ext_score, name)
+}
+
+fn platform_font_candidates() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        let windir = std::env::var_os("WINDIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
+        let fonts = windir.join("Fonts");
+        out.push(fonts.join("msgothic.ttc"));
+        out.push(fonts.join("msgothic.ttf"));
+        out.push(fonts.join("YuGothM.ttc"));
+        out.push(fonts.join("YuGothR.ttc"));
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        out.push(PathBuf::from("/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc"));
+        out.push(PathBuf::from("/System/Library/Fonts/ヒラギノ角ゴシック W4.ttc"));
+        out.push(PathBuf::from("/System/Library/Fonts/Supplemental/Arial Unicode.ttf"));
+        out.push(PathBuf::from("/System/Library/Fonts/Supplemental/Osaka.ttf"));
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "android"))]
+    {
+        out.push(PathBuf::from("/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"));
+        out.push(PathBuf::from("/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc"));
+        out.push(PathBuf::from("/usr/share/fonts/opentype/noto/NotoSansCJKjp-Regular.otf"));
+        out.push(PathBuf::from("/usr/share/fonts/truetype/fonts-japanese-gothic.ttf"));
+    }
+
+    out
 }
 
 fn draw_glyph_5x7(rgba: &mut [u8], w: u32, h: u32, x: u32, y: u32, ch: char, scale: u32) {

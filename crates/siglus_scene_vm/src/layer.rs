@@ -600,7 +600,7 @@ impl LayerManager {
     pub fn render_list(&self) -> Vec<RenderSprite> {
         let mut out = Vec::new();
 
-        if self.bg.visible {
+        if self.bg.visible && self.bg.alpha > 0 && self.bg.tr > 0 {
             if let Some(img) = self.bg.image_id {
                 let mut bg = self.bg.clone();
                 bg.image_id = Some(img);
@@ -618,7 +618,7 @@ impl LayerManager {
                 if !s.visible {
                     continue;
                 }
-                if s.image_id.is_none() {
+                if s.image_id.is_none() || s.alpha == 0 || s.tr == 0 {
                     continue;
                 }
                 out.push(RenderSprite {

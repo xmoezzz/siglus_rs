@@ -402,6 +402,7 @@ pub struct SyscomRuntimeState {
     pub capture_buffer: Option<RgbaImage>,
     pub capture_size: Option<(u32, u32)>,
     pub return_scene_once: Option<(String, i64)>,
+    pub pending_scene_call: Option<(String, i64)>,
     pub pending_proc: Option<SyscomPendingProc>,
     pub msg_back_load_tid: i64,
 }
@@ -557,8 +558,11 @@ pub struct GlobalState {
     /// Currently focused message-window selection (form_id, stage_idx, mwnd_idx).
     pub focused_stage_mwnd: Option<(u32, i64, usize)>,
     /// Current message-window handles used by GLOBAL.GET_MWND/SET_MWND.
+    /// Original engine initializes these to FRONT.MWND[default_*].
     pub current_mwnd_no: Option<usize>,
+    pub current_mwnd_stage_idx: i64,
     pub current_sel_mwnd_no: Option<usize>,
+    pub current_sel_mwnd_stage_idx: i64,
     /// GLOBAL.SELBTN button-selection runtime state.
     pub selbtn: BtnSelectRuntimeState,
     /// Last object target touched by stage/object dispatch. Compact object-only chains in scene bytecode
@@ -640,7 +644,9 @@ impl Default for GlobalState {
             focused_stage_group: None,
             focused_stage_mwnd: None,
             current_mwnd_no: Some(0),
+            current_mwnd_stage_idx: 1,
             current_sel_mwnd_no: Some(1),
+            current_sel_mwnd_stage_idx: 1,
             selbtn: BtnSelectRuntimeState::default(),
             current_stage_object: None,
             current_object_chain: None,
@@ -1578,6 +1584,8 @@ pub enum ObjectOpKind {
     CreatePct,
     CreateRect,
     CreateString,
+    /// CREATE_COPY_FROM
+    CreateCopyFrom,
     /// SET_POS (2 or 3 ints)
     SetPos,
     /// SET_CENTER (2 or 3 ints)
@@ -4169,6 +4177,23 @@ pub struct MwndState {
     pub msg_text: String,
     pub waku_file: String,
     pub filter_file: String,
+    pub filter_margin: Option<(i64, i64, i64, i64)>,
+    pub filter_color: Option<(u8, u8, u8, u8)>,
+    pub filter_config_color: bool,
+    pub filter_config_tr: bool,
+    pub waku_extend_type: i64,
+    pub icon_no: i64,
+    pub page_icon_no: i64,
+    pub key_icon_appear: bool,
+    pub key_icon_mode: i64,
+    pub key_icon_pos: Option<(i64, i64)>,
+    pub icon_pos_type: i64,
+    pub icon_pos_base: i64,
+    pub icon_pos: Option<(i64, i64, i64)>,
+    /// Per-button WAKU template placement: (pos_base, x, y).
+    pub waku_button_layout: Vec<(i64, i64, i64)>,
+    /// Per-face WAKU template placement.
+    pub waku_face_pos: Vec<(i64, i64)>,
     pub face_file: String,
     pub face_no: i64,
     pub rep_pos: Option<(i64, i64)>,
@@ -4176,7 +4201,10 @@ pub struct MwndState {
     pub window_pos: Option<(i64, i64)>,
     pub window_size: Option<(i64, i64)>,
     pub message_pos: Option<(i64, i64)>,
+    pub message_margin: Option<(i64, i64, i64, i64)>,
     pub window_moji_cnt: Option<(i64, i64)>,
+    pub moji_space: Option<(i64, i64)>,
+    pub mwnd_extend_type: i64,
     pub multi_msg: bool,
     pub ruby_text: Option<String>,
     pub koe: Option<(i64, i64)>,
@@ -4207,6 +4235,8 @@ pub struct MwndState {
 
 #[derive(Debug, Default, Clone)]
 pub struct StageFormState {
+    /// C++ C_elm_stage_list::init creates BACK/FRONT/NEXT sub stages eagerly.
+    pub initialized_from_gameexe: bool,
     /// Group list storage per stage index.
     pub group_lists: HashMap<i64, Vec<GroupState>>,
     /// BTNSELITEM list storage per stage index.
@@ -4215,6 +4245,10 @@ pub struct StageFormState {
     pub mwnd_lists: HashMap<i64, Vec<MwndState>>,
     /// World list storage per stage index.
     pub world_lists: HashMap<i64, Vec<WorldState>>,
+    /// Effect list storage per stage index. Mirrors C_elm_stage::m_effect_list.
+    pub effect_lists: HashMap<i64, Vec<ScreenEffectState>>,
+    /// Quake list storage per stage index. Mirrors C_elm_stage::m_quake_list.
+    pub quake_lists: HashMap<i64, Vec<ScreenQuakeState>>,
     // --- OBJECT / OBJECTLIST ---
     /// Per-stage object state (string objects, rect objects, nested child objects, etc.).
     pub object_lists: HashMap<i64, Vec<ObjectState>>,
@@ -4275,9 +4309,9 @@ impl Default for ScreenEffectState {
             color_add_g: IntEvent::new(0),
             color_add_b: IntEvent::new(0),
             begin_order: 0,
-            begin_layer: 0,
+            begin_layer: i32::MIN,
             end_order: 0,
-            end_layer: 0,
+            end_layer: i32::MAX,
             wipe_copy: 0,
             wipe_erase: 0,
         }
@@ -4642,6 +4676,24 @@ impl StageFormState {
         }
     }
 
+    pub fn ensure_effect_list(&mut self, stage_idx: i64, cnt: usize) {
+        let entry = self.effect_lists.entry(stage_idx).or_default();
+        if entry.len() < cnt {
+            entry.extend((0..(cnt - entry.len())).map(|_| ScreenEffectState::default()));
+        } else if entry.len() > cnt {
+            entry.truncate(cnt);
+        }
+    }
+
+    pub fn ensure_quake_list(&mut self, stage_idx: i64, cnt: usize) {
+        let entry = self.quake_lists.entry(stage_idx).or_default();
+        if entry.len() < cnt {
+            entry.extend((0..(cnt - entry.len())).map(|_| ScreenQuakeState::default()));
+        } else if entry.len() > cnt {
+            entry.truncate(cnt);
+        }
+    }
+
     pub fn close_all_mwnd(&mut self, stage_idx: i64) {
         if let Some(list) = self.mwnd_lists.get_mut(&stage_idx) {
             for m in list {
@@ -4669,6 +4721,13 @@ impl StageFormState {
             .get(&stage_idx)
             .map(|v| v.len())
             .unwrap_or(0)
+    }
+
+    pub fn is_embedded_object_slot(&self, stage_idx: i64, slot: usize) -> bool {
+        let prefix = format!("{stage_idx}:");
+        self.embedded_object_slots
+            .iter()
+            .any(|(key, &mapped_slot)| mapped_slot == slot && key.starts_with(&prefix))
     }
 }
 
@@ -4809,11 +4868,39 @@ impl GlobalState {
             let mut object_stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
             object_stage_ids.sort_unstable();
             for object_stage_id in object_stage_ids {
+                let embedded_prefix = format!("{object_stage_id}:");
+                let embedded_slots: HashSet<usize> = st
+                    .embedded_object_slots
+                    .iter()
+                    .filter_map(|(key, &slot)| key.starts_with(&embedded_prefix).then_some(slot))
+                    .collect();
                 let Some(objs) = st.object_lists.get_mut(&object_stage_id) else {
                     continue;
                 };
-                for obj in objs {
+                for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                    if embedded_slots.contains(&obj_idx) {
+                        continue;
+                    }
                     obj.tick(past_game_time, past_real_time);
+                }
+            }
+
+            let mut mwnd_stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
+            mwnd_stage_ids.sort_unstable();
+            for mwnd_stage_id in mwnd_stage_ids {
+                let Some(mwnds) = st.mwnd_lists.get_mut(&mwnd_stage_id) else {
+                    continue;
+                };
+                for mwnd in mwnds {
+                    for obj in &mut mwnd.button_list {
+                        obj.tick(past_game_time, past_real_time);
+                    }
+                    for obj in &mut mwnd.face_list {
+                        obj.tick(past_game_time, past_real_time);
+                    }
+                    for obj in &mut mwnd.object_list {
+                        obj.tick(past_game_time, past_real_time);
+                    }
                 }
             }
             let mut world_stage_ids: Vec<i64> = st.world_lists.keys().copied().collect();
@@ -4825,6 +4912,28 @@ impl GlobalState {
                 for w in worlds {
                     w.update_time(past_game_time, past_real_time);
                     w.frame();
+                }
+            }
+
+            let mut effect_stage_ids: Vec<i64> = st.effect_lists.keys().copied().collect();
+            effect_stage_ids.sort_unstable();
+            for effect_stage_id in effect_stage_ids {
+                let Some(effects) = st.effect_lists.get_mut(&effect_stage_id) else {
+                    continue;
+                };
+                for effect in effects {
+                    effect.tick(past_game_time.max(0));
+                }
+            }
+
+            let mut quake_stage_ids: Vec<i64> = st.quake_lists.keys().copied().collect();
+            quake_stage_ids.sort_unstable();
+            for quake_stage_id in quake_stage_ids {
+                let Some(quakes) = st.quake_lists.get_mut(&quake_stage_id) else {
+                    continue;
+                };
+                for quake in quakes {
+                    let _ = quake.is_active();
                 }
             }
         }

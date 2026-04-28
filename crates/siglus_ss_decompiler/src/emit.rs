@@ -166,9 +166,24 @@ fn handle_instruction(
             None
         }
         Op::CopyElm => {
-            let start = state.element_points.last().copied().unwrap_or(0);
+            let Some(start) = state.element_points.last().copied() else {
+                return Some(format!(
+                    "// {} copy element failed: missing ELM_POINT",
+                    offset_comment(insn)
+                ));
+            };
+            if start > state.stack.len() {
+                return Some(format!(
+                    "// {} copy element failed: bad ELM_POINT start={} stack_len={}",
+                    offset_comment(insn),
+                    start,
+                    state.stack.len()
+                ));
+            }
+            let new_start = state.stack.len();
             let items = state.stack[start..].to_vec();
             state.stack.extend(items);
+            state.element_points.push(new_start);
             Some(format!("// {} copy element", offset_comment(insn)))
         }
         Op::DecProp { form, prop_id } => {
@@ -390,9 +405,18 @@ fn pop_n_args(state: &mut VmModel, n: usize) -> Vec<Expr> {
 }
 
 fn pop_element_chain(state: &mut VmModel) -> Vec<Expr> {
-    let start = state.element_points.pop().unwrap_or(0);
+    let Some(start) = state.element_points.pop() else {
+        return vec![Expr::Raw(format!(
+            "__missing_elm_point(stack_len={})",
+            state.stack.len()
+        ))];
+    };
     if start > state.stack.len() {
-        return vec![Expr::Raw("<bad-element-point>".to_string())];
+        return vec![Expr::Raw(format!(
+            "__bad_elm_point(start={}, stack_len={})",
+            start,
+            state.stack.len()
+        ))];
     }
     let mut items = state.stack.split_off(start);
     for item in &mut items {
@@ -401,7 +425,7 @@ fn pop_element_chain(state: &mut VmModel) -> Vec<Expr> {
         }
     }
     if items.is_empty() {
-        items.push(Expr::Raw("<empty-element>".to_string()));
+        items.push(Expr::Raw(format!("__empty_elm_at_stack({})", start)));
     }
     items
 }
@@ -663,15 +687,18 @@ fn build_flat_stmts(
                 .push(format!("#z{}", z));
         }
     }
+    let mut command_entry_offsets: BTreeSet<usize> = BTreeSet::new();
     for (i, cmd) in scene.scn_cmds.iter().enumerate() {
         if cmd.offset >= 0 {
+            let offset = cmd.offset as usize;
+            command_entry_offsets.insert(offset);
             let name = scene
                 .scn_cmd_names
                 .get(i)
                 .cloned()
                 .unwrap_or_else(|| format!("cmd_{}", i));
             labels_by_offset
-                .entry(cmd.offset as usize)
+                .entry(offset)
                 .or_default()
                 .push(format!("#cmd_{}", sanitize_label_name(&name)));
         }
@@ -680,6 +707,13 @@ fn build_flat_stmts(
     let mut state = VmModel::default();
     let mut out = Vec::new();
     for insn in insns {
+        if command_entry_offsets.contains(&insn.offset) && insn.offset != 0 {
+            state = VmModel::default();
+            out.push(FlatStmt {
+                offset: insn.offset,
+                kind: FlatKind::Line("// reset VM expression stack at user-command entry".to_string()),
+            });
+        }
         if let Some(names) = labels_by_offset.get(&insn.offset) {
             let mut seen = BTreeSet::new();
             for name in names {
@@ -749,9 +783,20 @@ fn handle_instruction_flat(
             None
         }
         Op::CopyElm => {
-            let start = state.element_points.last().copied().unwrap_or(0);
+            let Some(start) = state.element_points.last().copied() else {
+                return Some(FlatKind::Line("// copy element failed: missing ELM_POINT".to_string()));
+            };
+            if start > state.stack.len() {
+                return Some(FlatKind::Line(format!(
+                    "// copy element failed: bad ELM_POINT start={} stack_len={}",
+                    start,
+                    state.stack.len()
+                )));
+            }
+            let new_start = state.stack.len();
             let items = state.stack[start..].to_vec();
             state.stack.extend(items);
+            state.element_points.push(new_start);
             None
         }
         Op::DecProp { form, prop_id } => {

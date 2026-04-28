@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use crate::runtime::commands::util;
 use crate::runtime::forms::syscom as syscom_form;
+use crate::runtime::forms::stage;
 use crate::runtime::globals::WipeState;
 use crate::runtime::{Command, CommandContext, Value};
 use std::path::{Path, PathBuf};
@@ -174,6 +175,7 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
             } else {
                 None
             };
+            stage::apply_stage_wipe(ctx, begin_order, end_order, begin_layer, end_layer);
             ctx.globals.start_wipe(WipeState::new(
                 mask_file,
                 mask_image_id,

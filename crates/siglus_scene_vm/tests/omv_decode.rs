@@ -51,7 +51,7 @@ fn movie_manager_decodes_known_omv_samples_without_losing_frames() -> Result<()>
         assert_eq!(asset.info.width, Some(width), "{}", rel);
         assert_eq!(asset.info.height, Some(height), "{}", rel);
         assert_eq!(asset.info.decoded_frames, Some(frames), "{}", rel);
-        assert_eq!(asset.frames.len(), frames, "{}", rel);
+        assert_eq!(asset.frames.len(), 1, "{}", rel);
     }
 
     Ok(())

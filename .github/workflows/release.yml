@@ -1,0 +1,217 @@
+name: Rust CI and Release
+
+"on":
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_PACKAGE: siglus_scene_vm
+  BIN_NAME: siglus_engine
+  RUST_BACKTRACE: '1'
+
+jobs:
+  build-linux-x86_64:
+    name: Linux x86_64
+    runs-on: ubuntu-24.04
+    env:
+      TARGET: x86_64-unknown-linux-gnu
+      ASSET: siglus_engine-linux-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install Linux build dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config \
+            cmake \
+            clang \
+            libasound2-dev \
+            libudev-dev \
+            libx11-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxrandr-dev \
+            libxinerama-dev \
+            libgl1-mesa-dev
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          rustup target add "$TARGET"
+          cargo build --release --locked --target "$TARGET" -p "$CARGO_PACKAGE" --bin "$BIN_NAME"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/$ASSET"
+          cp "target/$TARGET/release/$BIN_NAME" "dist/$ASSET/$BIN_NAME"
+          chmod +x "dist/$ASSET/$BIN_NAME"
+          tar -czf "dist/$ASSET.tar.gz" -C "dist/$ASSET" "$BIN_NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-x86_64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  build-linux-aarch64:
+    name: Linux aarch64
+    runs-on: ubuntu-24.04
+    env:
+      TARGET: aarch64-unknown-linux-gnu
+      ASSET: siglus_engine-linux-aarch64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Install cross
+        run: |
+          set -euo pipefail
+          cargo install cross --locked
+
+      - name: Create default Cross.toml when the repository has none
+        run: |
+          set -euo pipefail
+          if [ ! -f Cross.toml ]; then
+            cat > Cross.toml <<'EOF'
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+  "dpkg --add-architecture arm64",
+  "apt-get update",
+  "apt-get install -y --no-install-recommends pkg-config cmake clang libasound2-dev:arm64 libudev-dev:arm64 libx11-dev:arm64 libxi-dev:arm64 libxcursor-dev:arm64 libxrandr-dev:arm64 libxinerama-dev:arm64 libgl1-mesa-dev:arm64"
+]
+EOF
+          fi
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          rustup target add "$TARGET"
+          cross build --release --locked --target "$TARGET" -p "$CARGO_PACKAGE" --bin "$BIN_NAME"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/$ASSET"
+          cp "target/$TARGET/release/$BIN_NAME" "dist/$ASSET/$BIN_NAME"
+          chmod +x "dist/$ASSET/$BIN_NAME"
+          tar -czf "dist/$ASSET.tar.gz" -C "dist/$ASSET" "$BIN_NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux-aarch64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  build-macos-universal:
+    name: macOS universal
+    runs-on: macos-15-intel
+    env:
+      X86_TARGET: x86_64-apple-darwin
+      ARM_TARGET: aarch64-apple-darwin
+      ASSET: siglus_engine-macos-universal
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build x86_64 and arm64
+        run: |
+          set -euo pipefail
+          rustup target add "$X86_TARGET" "$ARM_TARGET"
+          cargo build --release --locked --target "$X86_TARGET" -p "$CARGO_PACKAGE" --bin "$BIN_NAME"
+          cargo build --release --locked --target "$ARM_TARGET" -p "$CARGO_PACKAGE" --bin "$BIN_NAME"
+
+      - name: Create universal binary with lipo
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/$ASSET"
+          lipo -create \
+            "target/$X86_TARGET/release/$BIN_NAME" \
+            "target/$ARM_TARGET/release/$BIN_NAME" \
+            -output "dist/$ASSET/$BIN_NAME"
+          chmod +x "dist/$ASSET/$BIN_NAME"
+          lipo -info "dist/$ASSET/$BIN_NAME"
+          tar -czf "dist/$ASSET.tar.gz" -C "dist/$ASSET" "$BIN_NAME"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos-universal
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  build-windows-x86_64:
+    name: Windows x64
+    runs-on: windows-2025
+    env:
+      TARGET: x86_64-pc-windows-msvc
+      ASSET: siglus_engine-windows-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+
+      - name: Build
+        shell: pwsh
+        run: |
+          rustup target add $env:TARGET
+          cargo build --release --locked --target $env:TARGET -p $env:CARGO_PACKAGE --bin $env:BIN_NAME
+
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "dist/$env:ASSET" | Out-Null
+          Copy-Item "target/$env:TARGET/release/$env:BIN_NAME.exe" "dist/$env:ASSET/$env:BIN_NAME.exe"
+          Compress-Archive -Path "dist/$env:ASSET/$env:BIN_NAME.exe" -DestinationPath "dist/$env:ASSET.zip" -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows-x86_64
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-24.04
+    needs:
+      - build-linux-x86_64
+      - build-linux-aarch64
+      - build-macos-universal
+      - build-windows-x86_64
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release delete "$TAG_NAME" -y || true
+          gh release create "$TAG_NAME" release-assets/* \
+            --title "$TAG_NAME" \
+            --generate-notes

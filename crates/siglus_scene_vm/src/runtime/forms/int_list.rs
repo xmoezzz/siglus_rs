@@ -81,21 +81,31 @@ fn bit_set(list: &mut Vec<i64>, bit_width: i32, index: i64, value: i64) {
 ///
 /// More exotic sub-ops (bit ops, init, copy, etc.) can be added later.
 pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
-    // Find element chain if present.
+    // Find element chain from the current VM call first, matching the str-list path.
     let mut chain_pos: Option<usize> = None;
     let mut chain: Option<&[i32]> = None;
-    for (i, v) in args.iter().enumerate() {
-        if let Value::Element(c) = v {
-            if !c.is_empty() && c[0] == form_id as i32 {
-                chain_pos = Some(i);
-                chain = Some(c);
-                break;
+    if let Some(vm_call) = ctx.vm_call.as_ref() {
+        if vm_call.element.first().copied() == Some(form_id as i32) {
+            chain_pos = Some(args.len());
+            chain = Some(vm_call.element.as_slice());
+        }
+    }
+    if chain.is_none() {
+        for (i, v) in args.iter().enumerate() {
+            if let Value::Element(c) = v {
+                if !c.is_empty() && c[0] == form_id as i32 {
+                    chain_pos = Some(i);
+                    chain = Some(c);
+                    break;
+                }
             }
         }
     }
 
     let params = if let Some(pos) = chain_pos {
-        if pos > 1 {
+        if pos == args.len() {
+            args
+        } else if pos > 1 {
             &args[1..pos]
         } else {
             &[]
@@ -111,7 +121,8 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             args.get(2).and_then(|v| v.as_i64()),
         ) {
             if al_id == 1 {
-                if let Some(c) = chain {
+                if let Some(c_ref) = chain {
+                    let c = c_ref.to_vec();
                     if c.len() >= 3 && c[1] == ctx.ids.elm_array {
                         let idx = c[2] as i64;
                         let list = ctx
@@ -138,9 +149,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     }
 
     // Command call shape: [rhs?, Element(chain), al_id, ret_form]
-    if let (Some(pos), Some(c)) = (chain_pos, chain) {
-        let al_id = args.get(pos + 1).and_then(|v| v.as_i64()).unwrap_or(0);
-        let _ret_form = args.get(pos + 2).and_then(|v| v.as_i64()).unwrap_or(0);
+    if let (Some(pos), Some(c_ref)) = (chain_pos, chain) {
+        let c = c_ref.to_vec();
+        let meta_al_id = ctx.vm_call.as_ref().map(|m| m.al_id).unwrap_or(0);
+        let meta_ret_form = ctx.vm_call.as_ref().map(|m| m.ret_form).unwrap_or(0);
+        let al_id = args.get(pos + 1).and_then(|v| v.as_i64()).unwrap_or(meta_al_id);
+        let _ret_form = args.get(pos + 2).and_then(|v| v.as_i64()).unwrap_or(meta_ret_form);
 
         if c.len() >= 3 && c[1] == ctx.ids.elm_array {
             let idx = c[2] as i64;

@@ -1,4 +1,4 @@
-use crate::runtime::{CommandContext, Value};
+use crate::runtime::{CommandContext, ProcKind, Value};
 use anyhow::Result;
 
 pub fn dispatch(ctx: &mut CommandContext, allow_key_skip: bool, args: &[Value]) -> Result<bool> {
@@ -12,6 +12,7 @@ pub fn dispatch(ctx: &mut CommandContext, allow_key_skip: bool, args: &[Value]) 
     } else {
         ctx.wait.wait_ms(ms);
     }
+    ctx.request_wait_proc_boundary(ProcKind::TimeWait);
 
     Ok(true)
 }

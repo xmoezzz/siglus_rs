@@ -23,9 +23,11 @@ use siglus_scene_vm::image_manager::ImageId;
 use siglus_scene_vm::render::Renderer;
 use siglus_scene_vm::runtime::globals::SyscomPendingProcKind;
 use siglus_scene_vm::runtime::input::{VmKey, VmMouseButton};
-use siglus_scene_vm::runtime::CommandContext;
+use siglus_scene_vm::runtime::{CommandContext, ProcKind};
 use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::{SceneVm, VmConfig};
+
+const FRAME_INTERVAL: Duration = Duration::from_millis(16);
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -33,8 +35,8 @@ struct Args {
     #[arg(long)]
     project_dir: Option<PathBuf>,
 
-    /// Optional scene name override.
-    #[arg(long)]
+    /// Optional scene name override. Also accepted as `--scene` for direct script startup.
+    #[arg(long, visible_alias = "scene")]
     scene_name: Option<String>,
 
     /// Optional scene index override.
@@ -61,9 +63,6 @@ struct Args {
     #[arg(long, default_value_t = false)]
     exit_after_capture: bool,
 
-    /// Maximum VM steps per frame.
-    #[arg(long, default_value_t = 2000)]
-    steps_per_frame: u32,
 
     /// Pause at startup.
     #[arg(long, default_value_t = false)]
@@ -172,7 +171,6 @@ struct App {
 
     paused: bool,
     step_once: bool,
-    steps_per_frame: u32,
 
     last_window_mode: Option<i64>,
     last_window_size: Option<i64>,
@@ -182,6 +180,9 @@ struct App {
     last_mouse_move: Instant,
     redraw_count: u32,
     next_frame_at: Instant,
+    frame_dirty: bool,
+    script_needs_pump: bool,
+    script_resume_after_redraw: bool,
     captured: bool,
     pending_exit: bool,
 
@@ -281,7 +282,6 @@ impl App {
         Self {
             paused: args.paused,
             step_once: false,
-            steps_per_frame: args.steps_per_frame,
             initial_size,
             boot,
             flow,
@@ -301,6 +301,9 @@ impl App {
             last_mouse_move: Instant::now(),
             redraw_count: 0,
             next_frame_at: Instant::now(),
+            frame_dirty: true,
+            script_needs_pump: true,
+            script_resume_after_redraw: false,
             captured: false,
             pending_exit: false,
             hud_show_active_textures: false,
@@ -1272,6 +1275,27 @@ impl App {
         Ok(vm)
     }
 
+    fn consume_syscom_pending_scene_call(&mut self) -> Result<bool> {
+        let Some((scene_name, z_no)) = self
+            .vm
+            .as_mut()
+            .and_then(|vm| vm.ctx.globals.syscom.pending_scene_call.take())
+        else {
+            return Ok(false);
+        };
+
+        {
+            let vm = self.vm.as_mut().expect("vm checked");
+            vm.ctx.globals.syscom.menu_open = false;
+            vm.ctx.globals.syscom.menu_kind = None;
+            vm.ctx.globals.syscom.msg_back_open = false;
+            vm.call_scene_name_from_system(&scene_name, z_no as i32)?;
+        }
+
+        self.ensure_requested_script_proc();
+        Ok(true)
+    }
+
     fn consume_syscom_pending_proc(&mut self) -> Result<bool> {
         let Some(vm) = self.vm.as_mut() else {
             return Ok(false);
@@ -1356,6 +1380,7 @@ impl App {
     }
 
     fn pump_vm(&mut self) -> Result<()> {
+        self.script_needs_pump = false;
         self.ensure_requested_script_proc();
         if self.vm.is_none() {
             return Ok(());
@@ -1365,13 +1390,14 @@ impl App {
             return Ok(());
         }
 
-        // Keep `steps_per_frame` as the script-slice budget, not as "run the
-        // entire proc stack N times per display frame". The latter advances the
-        // title flow far too aggressively and swallows hover/click animation
-        // feedback that the original engine presents frame-by-frame.
-        let mut proc_chain_budget = 64usize;
-        while proc_chain_budget > 0 {
-            proc_chain_budget -= 1;
+        if let Some(vm) = self.vm.as_mut() {
+            vm.begin_script_proc_pump();
+        }
+
+        // Match the original C++ frame_main_proc(): keep advancing the proc
+        // stack until the active proc asks to break for this frame. Script
+        // execution itself is boundary-driven; there is no instruction quota.
+        loop {
             let Some(proc) = self.flow.top().cloned() else {
                 self.paused = true;
                 break;
@@ -1379,17 +1405,29 @@ impl App {
 
             match proc.ty {
                 ProcType::Script => {
-                    let (running, halted, cur_scene, pending, blocked, pop_script_proc) = {
+                    let (
+                        running,
+                        halted,
+                        cur_scene,
+                        pending,
+                        blocked,
+                        pop_script_proc,
+                        proc_boundary,
+                        boundary_kind,
+                    ) = {
                         let vm = self.vm.as_mut().expect("vm checked");
-                        let running =
-                            vm.run_script_proc_slice(self.steps_per_frame.max(1) as usize)?;
+                        let proc_gen_before = vm.proc_generation();
+                        let running = vm.run_script_proc_continue()?;
+                        let proc_boundary = vm.proc_generation() != proc_gen_before;
+                        let boundary_kind = vm.last_proc_kind();
                         let pop_script_proc = vm.take_script_proc_pop_request();
                         let halted = vm.is_halted();
                         let cur_scene = vm
                             .current_scene_name()
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| self.boot.start_scene.clone());
-                        let pending = vm.ctx.globals.syscom.pending_proc.is_some();
+                        let pending = vm.ctx.globals.syscom.pending_proc.is_some()
+                            || vm.ctx.globals.syscom.pending_scene_call.is_some();
                         let blocked = if pending { false } else { vm.is_blocked() };
                         (
                             running,
@@ -1398,6 +1436,8 @@ impl App {
                             pending,
                             blocked,
                             pop_script_proc,
+                            proc_boundary,
+                            boundary_kind,
                         )
                     };
                     if pop_script_proc {
@@ -1420,6 +1460,9 @@ impl App {
                         continue;
                     }
                     if pending {
+                        if self.consume_syscom_pending_scene_call()? {
+                            continue;
+                        }
                         if self.consume_syscom_pending_proc()? {
                             continue;
                         }
@@ -1429,6 +1472,34 @@ impl App {
                         }
                     } else if blocked {
                         break;
+                    } else if proc_boundary {
+                        match boundary_kind {
+                            // C++ frame_main_proc consumes DISP immediately and then breaks
+                            // out to the renderer. The SCRIPT proc remains underneath and is
+                            // resumed on the next frame.
+                            ProcKind::Disp => {
+                                self.script_resume_after_redraw = true;
+                                break;
+                            }
+                            // These proc kinds are explicit C++ proc-stack boundaries, but
+                            // when their runtime wait has already completed they do not consume
+                            // a frame by themselves. Continue the frame_main_proc loop instead
+                            // of deferring to a fixed per-frame slice.
+                            ProcKind::Command
+                            | ProcKind::MessageBlock
+                            | ProcKind::MessageWait
+                            | ProcKind::KeyWait
+                            | ProcKind::TimeWait
+                            | ProcKind::MovieWait
+                            | ProcKind::WipeWait
+                            | ProcKind::AudioWait
+                            | ProcKind::EventWait
+                            | ProcKind::Selection
+                            | ProcKind::SystemModal
+                            | ProcKind::Script => {
+                                continue;
+                            }
+                        }
                     }
                 }
                 ProcType::StartWarning => {
@@ -1495,21 +1566,29 @@ impl App {
             }
             break;
         }
-
-        if proc_chain_budget == 0 {
-            bail!("proc flow did not settle within one frame");
-        }
-
         self.step_once = false;
         Ok(())
     }
 
     fn redraw(&mut self) -> Result<()> {
+        let wait_poll_needed = self
+            .vm
+            .as_ref()
+            .map(|vm| vm.ctx.wait.needs_runtime_poll())
+            .unwrap_or(false);
         {
             let Some(vm) = self.vm.as_mut() else {
                 return Ok(());
             };
             vm.tick_frame()?;
+        }
+        if wait_poll_needed {
+            if let Some(vm) = self.vm.as_mut() {
+                if !vm.is_blocked() {
+                    self.script_needs_pump = true;
+                    self.next_frame_at = Instant::now();
+                }
+            }
         }
         self.ensure_requested_script_proc();
         let Some(vm) = self.vm.as_mut() else {
@@ -1524,8 +1603,15 @@ impl App {
             renderer.render_sprites(&vm.ctx.images, &list)?;
         }
 
+        if self.script_resume_after_redraw {
+            self.script_resume_after_redraw = false;
+            self.script_needs_pump = true;
+        }
+
         self.redraw_count = self.redraw_count.saturating_add(1);
+        self.next_frame_at = Instant::now() + FRAME_INTERVAL;
         self.maybe_capture_current_frame()?;
+
         Ok(())
     }
 
@@ -1654,10 +1740,25 @@ impl App {
         }
     }
     fn wake_for_input(&mut self) {
+        self.frame_dirty = true;
+        self.script_needs_pump = true;
         self.next_frame_at = Instant::now();
         if let Some(w) = self.window.as_ref() {
             w.request_redraw();
         }
+    }
+
+    fn needs_continuous_frame(&self) -> bool {
+        if self.pending_exit {
+            return false;
+        }
+        if self.flow.top().map(|p| p.ty == ProcType::TimeWait).unwrap_or(false) {
+            return true;
+        }
+        self.vm
+            .as_ref()
+            .map(|vm| vm.ctx.needs_continuous_frame())
+            .unwrap_or(false)
     }
 }
 
@@ -1995,11 +2096,22 @@ impl ApplicationHandler for App {
             return;
         }
 
-        // The original engine is frame-driven.  Do not request redraw unconditionally
-        // from AboutToWait, because winit will spin as fast as possible and peg one
-        // CPU core.  Pump the VM and request one redraw at the frame cadence instead.
+        let capture_pending = self.args.capture_png.is_some() && !self.captured;
+        let continuous_before = self.needs_continuous_frame();
         let now = Instant::now();
-        if now >= self.next_frame_at {
+        let wants_frame_or_script =
+            self.frame_dirty
+                || self.script_needs_pump
+                || self.script_resume_after_redraw
+                || continuous_before
+                || capture_pending;
+        if wants_frame_or_script && !capture_pending && now < self.next_frame_at {
+            elwt.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
+            return;
+        }
+
+        let should_pump_script = self.script_needs_pump || capture_pending;
+        if should_pump_script {
             if let Err(e) = self.pump_vm() {
                 let scene_name = self
                     .vm
@@ -2026,6 +2138,27 @@ impl ApplicationHandler for App {
                 eprintln!("capture error: {e:?}");
             }
             self.apply_syscom_window_config();
+            self.frame_dirty = true;
+        }
+
+        let continuous_after = self.needs_continuous_frame();
+        let now_after = Instant::now();
+        if !self.frame_dirty
+            && !self.script_needs_pump
+            && !self.script_resume_after_redraw
+            && !capture_pending
+            && continuous_after
+            && now_after < self.next_frame_at
+        {
+            elwt.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
+            return;
+        }
+        if self.frame_dirty
+            || self.script_needs_pump
+            || self.script_resume_after_redraw
+            || continuous_after
+            || capture_pending
+        {
             if let Some(w) = self.window.as_ref() {
                 w.request_redraw();
             }
@@ -2034,10 +2167,16 @@ impl ApplicationHandler for App {
                     w.request_redraw();
                 }
             }
-            self.next_frame_at = now + Duration::from_micros(16_667);
+            self.frame_dirty = false;
+            if capture_pending {
+                elwt.set_control_flow(ControlFlow::Wait);
+            } else {
+                let wake_at = self.next_frame_at.max(Instant::now());
+                elwt.set_control_flow(ControlFlow::WaitUntil(wake_at));
+            }
+        } else {
+            elwt.set_control_flow(ControlFlow::Wait);
         }
-
-        elwt.set_control_flow(ControlFlow::WaitUntil(self.next_frame_at));
     }
 }
 

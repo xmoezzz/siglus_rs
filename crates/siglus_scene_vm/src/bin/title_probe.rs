@@ -84,7 +84,7 @@ fn main() -> Result<()> {
             _ => {}
         }
 
-        let _running = vm.run_script_proc_slice(2000)?;
+        let _running = vm.run_script_proc()?;
         vm.tick_frame()?;
 
         if let Some(name) = vm.current_scene_name() {

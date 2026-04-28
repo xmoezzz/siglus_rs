@@ -37,7 +37,7 @@ use crate::layer::{
 };
 use crate::movie::MovieManager;
 use crate::soft_render;
-use crate::text_render::FontCache;
+use crate::text_render::{embedded_default_font_names, FontCache};
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -122,6 +122,24 @@ pub trait ExternalFormHandler: Send + Sync {
         args: &[Value],
     ) -> anyhow::Result<bool>;
 }
+/// Cooperative script-process boundary, mirroring Siglus' `TNM_PROC_TYPE_*`
+/// model at the VM/runtime boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcKind {
+    Script,
+    Disp,
+    Command,
+    MessageBlock,
+    MessageWait,
+    KeyWait,
+    TimeWait,
+    MovieWait,
+    WipeWait,
+    AudioWait,
+    EventWait,
+    Selection,
+    SystemModal,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct VmCallMeta {
@@ -193,6 +211,11 @@ pub struct CommandContext {
     /// VM blocking state (WAIT / WAIT_KEY).
     pub wait: wait::VmWait,
 
+    /// Cooperative proc boundary generation. Form handlers bump this when they
+    /// perform an original-engine proc switch/push.
+    proc_generation: u64,
+    last_proc_kind: ProcKind,
+
     /// Lightweight network/browser helper mirroring the engine's `tnm_net` slot.
     pub net: net::TnmNet,
 
@@ -232,12 +255,165 @@ pub struct CommandContext {
     /// relying on trailing wrapper arguments.
     pub vm_call: Option<VmCallMeta>,
 
+    /// Set by concrete message/voice command handlers when original C++ consumes
+    /// the following read-flag integer through Gp_lexer->pop_ret<int>().
+    pending_read_flag_no: bool,
+
     frame_clock_last: Option<std::time::Instant>,
+    last_button_hover_sound_pos: Option<(i32, i32)>,
 }
 
 impl CommandContext {
     pub fn sync_script_input_from_runtime(&mut self) {
         self.script_input = self.input.clone();
+    }
+
+    pub fn proc_generation(&self) -> u64 {
+        self.proc_generation
+    }
+
+    pub fn request_read_flag_no(&mut self) {
+        self.pending_read_flag_no = true;
+    }
+
+    pub fn take_read_flag_no_request(&mut self) -> bool {
+        std::mem::take(&mut self.pending_read_flag_no)
+    }
+
+    pub fn needs_continuous_frame(&self) -> bool {
+        fn frame_action_needs_tick(fa: &globals::ObjectFrameActionState) -> bool {
+            fa.counter.is_running() || (!fa.cmd_name.is_empty() && !fa.end_flag)
+        }
+
+        fn screen_effect_needs_tick(e: &globals::ScreenEffectState) -> bool {
+            e.x.check_event()
+                || e.y.check_event()
+                || e.z.check_event()
+                || e.mono.check_event()
+                || e.reverse.check_event()
+                || e.bright.check_event()
+                || e.dark.check_event()
+                || e.color_r.check_event()
+                || e.color_g.check_event()
+                || e.color_b.check_event()
+                || e.color_rate.check_event()
+                || e.color_add_r.check_event()
+                || e.color_add_g.check_event()
+                || e.color_add_b.check_event()
+        }
+
+        fn object_needs_tick(obj: &globals::ObjectState) -> bool {
+            obj.any_event_active()
+                || frame_action_needs_tick(&obj.frame_action)
+                || obj.frame_action_ch.iter().any(frame_action_needs_tick)
+                || obj.movie.playing
+                || obj.runtime.child_objects.iter().any(object_needs_tick)
+        }
+
+        if self.wait.needs_runtime_poll() {
+            return true;
+        }
+        if self.ui.needs_continuous_frame(&self.globals.script, &self.globals.syscom) {
+            return true;
+        }
+        if self.globals.mov.playing || self.globals.wipe.is_some() {
+            return true;
+        }
+        if self.globals.pending_frame_action_finishes.is_empty() == false
+            || self.globals.pending_button_actions.is_empty() == false
+        {
+            return true;
+        }
+        if self.globals.counter_lists.values().any(|v| v.iter().any(|c| c.is_running())) {
+            return true;
+        }
+        if self.globals.int_event_roots.values().any(|e| e.check_event())
+            || self
+                .globals
+                .int_event_lists
+                .values()
+                .any(|v| v.iter().any(|e| e.check_event()))
+        {
+            return true;
+        }
+        if self.globals.frame_actions.values().any(frame_action_needs_tick)
+            || self
+                .globals
+                .frame_action_lists
+                .values()
+                .any(|v| v.iter().any(frame_action_needs_tick))
+        {
+            return true;
+        }
+        if self.globals.screen_forms.values().any(|screen| {
+            screen.effect_list.iter().any(screen_effect_needs_tick)
+                || screen.quake_list.iter().any(|q| q.until.is_some())
+                || screen.shake.until.is_some()
+        }) {
+            return true;
+        }
+        let mwnd_ui_state = self
+            .ui
+            .current_mwnd_window_render_state(self.screen_w, self.screen_h);
+        self.globals.stage_forms.values().any(|stage| {
+            stage
+                .object_lists
+                .iter()
+                .any(|(&stage_idx, list)| {
+                    list.iter().enumerate().any(|(obj_idx, obj)| {
+                        !stage.is_embedded_object_slot(stage_idx, obj_idx) && object_needs_tick(obj)
+                    })
+                })
+                || stage.mwnd_lists.values().any(|list| {
+                    list.iter().any(|m| {
+                        let Some((window_x, window_y)) = m.window_pos else {
+                            return false;
+                        };
+                        let Some((window_w, window_h)) = m.window_size else {
+                            return false;
+                        };
+                        if window_w <= 0 || window_h <= 0 {
+                            return false;
+                        }
+                        let visible_or_animating = m.open
+                            || mwnd_ui_state.map_or(false, |ui| {
+                                ui.x as i64 == window_x
+                                    && ui.y as i64 == window_y
+                                    && ui.w as i64 == window_w
+                                    && ui.h as i64 == window_h
+                            });
+                        visible_or_animating
+                            && (m.object_list.iter().any(object_needs_tick)
+                                || m.button_list.iter().any(object_needs_tick)
+                                || m.face_list.iter().any(object_needs_tick))
+                    })
+                })
+        })
+    }
+
+    pub fn last_proc_kind(&self) -> ProcKind {
+        self.last_proc_kind
+    }
+
+    pub fn request_proc_boundary(&mut self, kind: ProcKind) {
+        self.last_proc_kind = kind;
+        self.proc_generation = self.proc_generation.wrapping_add(1);
+    }
+
+    pub fn request_disp_proc_boundary(&mut self) {
+        self.request_proc_boundary(ProcKind::Disp);
+    }
+
+    pub fn request_message_block_proc_boundary(&mut self) {
+        self.request_proc_boundary(ProcKind::MessageBlock);
+    }
+
+    pub fn request_message_wait_proc_boundary(&mut self) {
+        self.request_proc_boundary(ProcKind::MessageWait);
+    }
+
+    pub fn request_wait_proc_boundary(&mut self, kind: ProcKind) {
+        self.request_proc_boundary(kind);
     }
 
     pub fn notify_wait_key(&mut self) -> bool {
@@ -370,15 +546,55 @@ impl CommandContext {
         }
     }
 
-    fn advance_message_wait(&mut self, allow: bool) {
+    /// Advance the current message wait.
+    ///
+    /// Returns true when the input was consumed only to reveal the rest of the
+    /// typewriter text. In that case the VM key wait must stay blocked.
+    fn advance_message_wait(&mut self, allow: bool) -> bool {
         if !allow || !self.ui.mwnd.msg.waiting {
-            return;
+            return false;
         }
-        self.ui.end_wait_message();
+        if !self.ui.message_wait_text_fully_revealed() {
+            self.ui.reveal_message_now();
+            return true;
+        }
+        let clear_message_window = self.ui.end_wait_message();
+        if clear_message_window {
+            self.clear_current_mwnd_after_wait();
+        }
         if self.should_stop_koe_on_advance() {
             let _ = self.se.stop(None);
             let _ = self.pcm.stop_all(None);
         }
+        false
+    }
+
+    fn clear_current_mwnd_after_wait(&mut self) {
+        let default_form_id = if self.ids.form_global_stage != 0 {
+            self.ids.form_global_stage
+        } else {
+            constants::global_form::STAGE_ALT
+        };
+        let target = self.globals.focused_stage_mwnd.unwrap_or((
+            default_form_id,
+            self.globals.current_mwnd_stage_idx,
+            self.globals.current_mwnd_no.unwrap_or(0),
+        ));
+        let (form_id, stage_idx, mwnd_idx) = target;
+        if let Some(m) = self
+            .globals
+            .stage_forms
+            .get_mut(&form_id)
+            .and_then(|st| st.mwnd_lists.get_mut(&stage_idx))
+            .and_then(|list| list.get_mut(mwnd_idx))
+        {
+            m.msg_text.clear();
+            m.name_text.clear();
+            m.key_icon_appear = false;
+            m.key_icon_pos = None;
+            m.text_dirty = false;
+        }
+        self.ui.clear_name();
     }
     pub fn new(project_dir: PathBuf) -> Self {
         let mut unknown = unknown::UnknownOpRecorder::default();
@@ -391,7 +607,7 @@ impl CommandContext {
         let solid_white = images.solid_rgba((255, 255, 255, 255));
         let tonecurve = tonecurve::ToneCurveRuntime::new(&project_dir);
 
-        Self {
+        let mut ctx = Self {
             images,
             layers: LayerManager::default(),
             audio,
@@ -412,6 +628,8 @@ impl CommandContext {
             input: input::InputState::default(),
             script_input: input::InputState::default(),
             wait: wait::VmWait::default(),
+            proc_generation: 0,
+            last_proc_kind: ProcKind::Script,
             net: net::TnmNet::default(),
 
             screen_w: 1280,
@@ -428,8 +646,12 @@ impl CommandContext {
             current_scene_name: None,
             current_line_no: -1,
             vm_call: None,
+            pending_read_flag_no: false,
             frame_clock_last: None,
-        }
+            last_button_hover_sound_pos: None,
+        };
+        syscom_form::init_config_from_gameexe(&mut ctx);
+        ctx
     }
 
     pub fn lookup_scene_no(&self, scene_name: &str) -> Result<i64> {
@@ -461,6 +683,7 @@ impl CommandContext {
         self.wait = wait::VmWait::default();
         self.stack.clear();
         self.globals = globals::GlobalState::default();
+        syscom_form::init_config_from_gameexe(self);
         self.tonecurve = tonecurve::ToneCurveRuntime::new(&self.project_dir);
         self.excall_state = ExcallCompatState::default();
         self.last_presented_render_list.clear();
@@ -469,7 +692,9 @@ impl CommandContext {
         self.overlay_rt_image = None;
         self.input.clear_all();
         self.vm_call = None;
+        self.pending_read_flag_no = false;
         self.frame_clock_last = None;
+        self.last_button_hover_sound_pos = None;
     }
 
     /// Install or clear an external form handler.
@@ -575,6 +800,12 @@ impl CommandContext {
         }
         let mx = self.input.mouse_x;
         let my = self.input.mouse_y;
+        let play_hover_sound = match self.last_button_hover_sound_pos {
+            Some((last_x, last_y)) if last_x == mx && last_y == my => false,
+            Some(_) => true,
+            None => false,
+        };
+        self.last_button_hover_sound_pos = Some((mx, my));
         let Some(form_id) = self.active_button_stage_form_id() else {
             return;
         };
@@ -588,6 +819,15 @@ impl CommandContext {
                 return;
             };
 
+            let embedded_by_stage: HashMap<i64, HashSet<usize>> =
+                st.embedded_object_slots.iter().fold(HashMap::new(), |mut acc, (key, &slot)| {
+                    if let Some((stage, _)) = key.split_once(':') {
+                        if let Ok(stage_idx) = stage.parse::<i64>() {
+                            acc.entry(stage_idx).or_insert_with(HashSet::new).insert(slot);
+                        }
+                    }
+                    acc
+                });
             let images = &mut self.images;
             let layers = &self.layers;
             let gfx = &self.gfx;
@@ -600,7 +840,13 @@ impl CommandContext {
                 let Some(objs) = object_lists.get_mut(stage_idx) else {
                     continue;
                 };
-                for obj in objs.iter_mut() {
+                for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                    if embedded_by_stage
+                        .get(stage_idx)
+                        .map_or(false, |slots| slots.contains(&obj_idx))
+                    {
+                        continue;
+                    }
                     clear_button_hit_recursive(obj);
                 }
             }
@@ -626,6 +872,12 @@ impl CommandContext {
                     let mut best: Option<ButtonHitCandidate> = None;
                     let mut tied = false;
                     for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                        if embedded_by_stage
+                            .get(&stage_idx)
+                            .map_or(false, |slots| slots.contains(&obj_idx))
+                        {
+                            continue;
+                        }
                         if let Some(hit) = hit_test_object_button_recursive(
                             images, layers, gfx, ids, stage_idx, group_idx, mx, my, obj_idx, obj,
                             None,
@@ -644,10 +896,16 @@ impl CommandContext {
                                     stage_idx, group_idx, hit.button_no, hit.runtime_slot, hit.sort_key.display_tuple(), g.started, g.pushed_button_no, g.decided_button_no
                                 );
                             }
-                            if !hit.was_hit {
+                            if play_hover_sound && !hit.was_hit {
                                 hit_sounds.push(hit.se_no);
                             }
                             for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                                if embedded_by_stage
+                                    .get(&stage_idx)
+                                    .map_or(false, |slots| slots.contains(&obj_idx))
+                                {
+                                    continue;
+                                }
                                 set_button_hit_by_runtime_slot_recursive(
                                     obj_idx,
                                     obj,
@@ -684,6 +942,12 @@ impl CommandContext {
                     continue;
                 };
                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                    if embedded_by_stage
+                        .get(stage_idx)
+                        .map_or(false, |slots| slots.contains(&obj_idx))
+                    {
+                        continue;
+                    }
                     if let Some(hit) = hit_test_standalone_action_button_recursive(
                         images, layers, gfx, ids, *stage_idx, mx, my, obj_idx, obj, None,
                     ) {
@@ -693,14 +957,20 @@ impl CommandContext {
             }
             if !standalone_tied {
                 if let Some(hit) = standalone_best {
-                    if !hit.was_hit {
-                        hit_sounds.push(hit.se_no);
-                    }
+                    if play_hover_sound && !hit.was_hit {
+                                hit_sounds.push(hit.se_no);
+                            }
                     for stage_idx in &stage_ids {
                         let Some(objs) = object_lists.get_mut(stage_idx) else {
                             continue;
                         };
                         for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                            if embedded_by_stage
+                                .get(stage_idx)
+                                .map_or(false, |slots| slots.contains(&obj_idx))
+                            {
+                                continue;
+                            }
                             set_button_hit_by_runtime_slot_recursive(
                                 obj_idx,
                                 obj,
@@ -712,27 +982,134 @@ impl CommandContext {
             }
         }
 
+        {
+            let mwnd_ui_state = self
+                .ui
+                .current_mwnd_window_render_state(self.screen_w, self.screen_h);
+            let mwnd_hidden =
+                self.globals.script.mwnd_disp_off_flag || self.globals.syscom.hide_mwnd.onoff;
+            if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
+                let images = &mut self.images;
+                let layers = &self.layers;
+                let gfx = &self.gfx;
+                let ids = &self.ids;
+                let mut standalone_best: Option<ButtonHitCandidate> = None;
+                let mut standalone_tied = false;
+                let mut stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
+                stage_ids.sort_unstable();
+                for stage_idx in &stage_ids {
+                    let Some(mwnds) = st.mwnd_lists.get_mut(stage_idx) else {
+                        continue;
+                    };
+                    for mwnd in mwnds {
+                        for obj in &mut mwnd.button_list {
+                            clear_button_hit_recursive(obj);
+                        }
+                        let Some((window_x, window_y)) = mwnd.window_pos else {
+                            continue;
+                        };
+                        let Some((window_w, window_h)) = mwnd.window_size else {
+                            continue;
+                        };
+                        if window_w <= 0 || window_h <= 0 {
+                            continue;
+                        }
+                        let ui_state = mwnd_ui_state.filter(|ui| {
+                            ui.x as i64 == window_x
+                                && ui.y as i64 == window_y
+                                && ui.w as i64 == window_w
+                                && ui.h as i64 == window_h
+                        });
+                        if mwnd_hidden || (!mwnd.open && ui_state.is_none()) {
+                            continue;
+                        }
+                        let anim_parent = ui_state.map(|ui| mwnd_anim_parent_from_ui_state(mwnd, ui));
+                        let button_len = mwnd.button_list.len();
+                        for button_idx in 0..button_len {
+                            let parent = apply_mwnd_window_anim_parent(
+                                mwnd_button_parent_render_state(
+                                    mwnd,
+                                    button_idx,
+                                    window_x,
+                                    window_y,
+                                    window_w,
+                                    window_h,
+                                ),
+                                anim_parent,
+                            );
+                            let obj = &mut mwnd.button_list[button_idx];
+                            if let Some(hit) = hit_test_standalone_action_button_recursive(
+                                images,
+                                layers,
+                                gfx,
+                                ids,
+                                *stage_idx,
+                                mx,
+                                my,
+                                button_idx,
+                                obj,
+                                Some(parent),
+                            ) {
+                                merge_button_hit(&mut standalone_best, &mut standalone_tied, hit);
+                            }
+                        }
+                    }
+                }
+                if !standalone_tied {
+                    if let Some(hit) = standalone_best {
+                        if play_hover_sound && !hit.was_hit {
+                            hit_sounds.push(hit.se_no);
+                        }
+                        for stage_idx in &stage_ids {
+                            let Some(mwnds) = st.mwnd_lists.get_mut(stage_idx) else {
+                                continue;
+                            };
+                            for mwnd in mwnds {
+                                for (button_idx, obj) in mwnd.button_list.iter_mut().enumerate() {
+                                    set_button_hit_by_runtime_slot_recursive(
+                                        button_idx,
+                                        obj,
+                                        hit.runtime_slot,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         for se_no in hit_sounds {
             self.play_button_template_se(se_no, ButtonSeEvent::Hit);
         }
     }
 
-    fn handle_object_button_mouse_down(&mut self, b: input::VmMouseButton) {
+    fn handle_object_button_mouse_down(&mut self, b: input::VmMouseButton) -> bool {
         // The original button manager separates pushed_this_frame from decided_this_frame.
         // Press starts the push state; release inside the same button decides it.
         self.update_object_button_hover();
 
         let Some(form_id) = self.active_button_stage_form_id() else {
-            return;
+            return false;
         };
+        let mut handled = false;
         let mut template_sounds = Vec::new();
         let mut direct_sounds = Vec::new();
 
         {
             let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
-                return;
+                return false;
             };
 
+            let embedded_by_stage: HashMap<i64, HashSet<usize>> =
+                st.embedded_object_slots.iter().fold(HashMap::new(), |mut acc, (key, &slot)| {
+                    if let Some((stage, _)) = key.split_once(':') {
+                        if let Ok(stage_idx) = stage.parse::<i64>() {
+                            acc.entry(stage_idx).or_insert_with(HashSet::new).insert(slot);
+                        }
+                    }
+                    acc
+                });
             let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
 
             match b {
@@ -765,6 +1142,7 @@ impl CommandContext {
                             }
                             g.pushed_button_no = hit;
                             g.pushed_runtime_slot = Some(hit_slot);
+                            handled = true;
                             if let Some(objs) = object_lists.get_mut(&stage_idx) {
                                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
                                     set_button_pushed_by_runtime_slot_recursive(
@@ -782,9 +1160,16 @@ impl CommandContext {
                             continue;
                         };
                         for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                            if embedded_by_stage
+                                .get(&stage_idx)
+                                .map_or(false, |slots| slots.contains(&obj_idx))
+                            {
+                                continue;
+                            }
                             if let Some(se_no) =
                                 mark_standalone_button_pushed_from_hit_recursive(obj_idx, obj)
                             {
+                                handled = true;
                                 template_sounds.push(se_no);
                             }
                         }
@@ -821,6 +1206,7 @@ impl CommandContext {
                                         self.stack.push(Value::Int(globals::TNM_GROUP_CANCELED));
                                     }
                                     g.wait_flag = false;
+                                    handled = true;
                                     direct_sounds.push(cancel_se_no);
                                     if self.globals.focused_stage_group
                                         == Some((form_id, stage_idx, group_idx))
@@ -836,32 +1222,88 @@ impl CommandContext {
             }
         }
 
+        {
+            let mwnd_ui_state = self
+                .ui
+                .current_mwnd_window_render_state(self.screen_w, self.screen_h);
+            let mwnd_hidden =
+                self.globals.script.mwnd_disp_off_flag || self.globals.syscom.hide_mwnd.onoff;
+            if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
+                let mut stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
+                stage_ids.sort_unstable();
+                for stage_idx in stage_ids {
+                    let Some(mwnds) = st.mwnd_lists.get_mut(&stage_idx) else {
+                        continue;
+                    };
+                    for mwnd in mwnds {
+                        let Some((window_x, window_y)) = mwnd.window_pos else {
+                            continue;
+                        };
+                        let Some((window_w, window_h)) = mwnd.window_size else {
+                            continue;
+                        };
+                        if window_w <= 0 || window_h <= 0 {
+                            continue;
+                        }
+                        let ui_state = mwnd_ui_state.filter(|ui| {
+                                ui.x as i64 == window_x
+                                    && ui.y as i64 == window_y
+                                    && ui.w as i64 == window_w
+                                    && ui.h as i64 == window_h
+                            });
+                        if mwnd_hidden || (!mwnd.open && ui_state.is_none()) {
+                            continue;
+                        }
+                        for (button_idx, obj) in mwnd.button_list.iter_mut().enumerate() {
+                            if let Some(se_no) =
+                                mark_standalone_button_pushed_from_hit_recursive(button_idx, obj)
+                            {
+                                handled = true;
+                                template_sounds.push(se_no);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         for se_no in template_sounds {
             self.play_button_template_se(se_no, ButtonSeEvent::Push);
         }
         for se_no in direct_sounds {
             self.play_button_se_no(se_no);
         }
+        handled
     }
 
-    fn handle_object_button_mouse_up(&mut self, b: input::VmMouseButton) {
+    fn handle_object_button_mouse_up(&mut self, b: input::VmMouseButton) -> bool {
         if !matches!(b, input::VmMouseButton::Left) {
-            return;
+            return false;
         }
 
         self.update_object_button_hover();
 
         let Some(form_id) = self.active_button_stage_form_id() else {
-            return;
+            return false;
         };
+        let mut handled = false;
         let mut pending_button_actions = Vec::new();
         let mut sounds = Vec::new();
 
         {
             let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
-                return;
+                return false;
             };
 
+            let embedded_by_stage: HashMap<i64, HashSet<usize>> =
+                st.embedded_object_slots.iter().fold(HashMap::new(), |mut acc, (key, &slot)| {
+                    if let Some((stage, _)) = key.split_once(':') {
+                        if let Ok(stage_idx) = stage.parse::<i64>() {
+                            acc.entry(stage_idx).or_insert_with(HashSet::new).insert(slot);
+                        }
+                    }
+                    acc
+                });
             let (object_lists, group_lists) = (&mut st.object_lists, &mut st.group_lists);
 
             let mut group_stage_ids: Vec<i64> = group_lists.keys().copied().collect();
@@ -887,6 +1329,7 @@ impl CommandContext {
                         && pushed_slot.is_some()
                         && (g.hit_runtime_slot == pushed_slot || release_keeps_push);
                     if released_on_same_button {
+                        handled = true;
                         let was_waiting = g.wait_flag;
                         let action_slot = pushed_slot.unwrap();
                         if g.decide(pushed) {
@@ -903,6 +1346,12 @@ impl CommandContext {
                                     sounds.push(se_no);
                                 }
                                 for (obj_idx, obj) in objs.iter().enumerate() {
+                                    if embedded_by_stage
+                                        .get(&stage_idx)
+                                        .map_or(false, |slots| slots.contains(&obj_idx))
+                                    {
+                                        continue;
+                                    }
                                     collect_button_decided_action_by_runtime_slot_recursive(
                                         obj_idx,
                                         obj,
@@ -934,12 +1383,23 @@ impl CommandContext {
                 let Some(objs) = object_lists.get(stage_idx) else {
                     continue;
                 };
-                for obj in objs.iter() {
+                for (obj_idx, obj) in objs.iter().enumerate() {
+                    if embedded_by_stage
+                        .get(stage_idx)
+                        .map_or(false, |slots| slots.contains(&obj_idx))
+                    {
+                        continue;
+                    }
+                    let sound_len_before = sounds.len();
+                    let action_len_before = pending_button_actions.len();
                     collect_standalone_button_decided_actions_recursive(
                         obj,
                         &mut pending_button_actions,
                         &mut sounds,
                     );
+                    if sounds.len() != sound_len_before || pending_button_actions.len() != action_len_before {
+                        handled = true;
+                    }
                 }
             }
 
@@ -947,8 +1407,73 @@ impl CommandContext {
                 let Some(objs) = object_lists.get_mut(stage_idx) else {
                     continue;
                 };
-                for obj in objs.iter_mut() {
+                for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                    if embedded_by_stage
+                        .get(stage_idx)
+                        .map_or(false, |slots| slots.contains(&obj_idx))
+                    {
+                        continue;
+                    }
                     clear_button_pushed_recursive(obj);
+                }
+            }
+        }
+
+        {
+            let mwnd_ui_state = self
+                .ui
+                .current_mwnd_window_render_state(self.screen_w, self.screen_h);
+            let mwnd_hidden =
+                self.globals.script.mwnd_disp_off_flag || self.globals.syscom.hide_mwnd.onoff;
+            if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
+                let mut stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
+                stage_ids.sort_unstable();
+                for stage_idx in &stage_ids {
+                    let Some(mwnds) = st.mwnd_lists.get(stage_idx) else {
+                        continue;
+                    };
+                    for mwnd in mwnds {
+                        let Some((window_x, window_y)) = mwnd.window_pos else {
+                            continue;
+                        };
+                        let Some((window_w, window_h)) = mwnd.window_size else {
+                            continue;
+                        };
+                        if window_w <= 0 || window_h <= 0 {
+                            continue;
+                        }
+                        let ui_state = mwnd_ui_state.filter(|ui| {
+                                ui.x as i64 == window_x
+                                    && ui.y as i64 == window_y
+                                    && ui.w as i64 == window_w
+                                    && ui.h as i64 == window_h
+                            });
+                        if mwnd_hidden || (!mwnd.open && ui_state.is_none()) {
+                            continue;
+                        }
+                        for obj in &mwnd.button_list {
+                            let sound_len_before = sounds.len();
+                            let action_len_before = pending_button_actions.len();
+                            collect_standalone_button_decided_actions_recursive(
+                                obj,
+                                &mut pending_button_actions,
+                                &mut sounds,
+                            );
+                            if sounds.len() != sound_len_before || pending_button_actions.len() != action_len_before {
+                                handled = true;
+                            }
+                        }
+                    }
+                }
+                for stage_idx in &stage_ids {
+                    let Some(mwnds) = st.mwnd_lists.get_mut(stage_idx) else {
+                        continue;
+                    };
+                    for mwnd in mwnds {
+                        for obj in &mut mwnd.button_list {
+                            clear_button_pushed_recursive(obj);
+                        }
+                    }
                 }
             }
         }
@@ -959,6 +1484,7 @@ impl CommandContext {
         for se_no in sounds {
             self.play_button_template_se(se_no, ButtonSeEvent::Decide);
         }
+        handled
     }
     // ------------------------------------------------------------------
     // Input bridge (platform event -> VM state)
@@ -1053,8 +1579,9 @@ impl CommandContext {
             }
         }
 
-        self.advance_message_wait(true);
-        self.notify_wait_key();
+        if !self.advance_message_wait(true) {
+            self.notify_wait_key();
+        }
     }
 
     pub fn on_key_up(&mut self, k: input::VmKey) {
@@ -1122,11 +1649,16 @@ impl CommandContext {
         let handled_mwnd_selection = self.handle_mwnd_selection_click(b);
         self.input.on_mouse_down(b);
         self.update_editbox_focus_from_mouse_down(b);
-        if !handled_mwnd_selection {
-            self.handle_object_button_mouse_down(b);
+        let handled_object_button = if !handled_mwnd_selection {
+            self.handle_object_button_mouse_down(b)
+        } else {
+            false
+        };
+        if !handled_mwnd_selection && !handled_object_button {
+            if !self.advance_message_wait(true) {
+                self.notify_wait_key();
+            }
         }
-        self.advance_message_wait(true);
-        self.notify_wait_key();
     }
 
     fn update_editbox_focus_from_mouse_down(&mut self, b: input::VmMouseButton) {
@@ -1172,14 +1704,17 @@ impl CommandContext {
         if movie_skipped {
             return;
         }
-        self.handle_object_button_mouse_up(b);
-        self.notify_wait_key();
+        let handled_object_button = self.handle_object_button_mouse_up(b);
+        if !handled_object_button {
+            self.notify_wait_key();
+        }
     }
 
     pub fn on_mouse_wheel(&mut self, delta_y: i32) {
         self.input.on_mouse_wheel(delta_y);
-        self.advance_message_wait(self.should_wheel_advance_message());
-        self.notify_wait_key();
+        if !self.advance_message_wait(self.should_wheel_advance_message()) {
+            self.notify_wait_key();
+        }
     }
 
     fn finish_skipped_movie_waits(&mut self) {
@@ -1300,7 +1835,7 @@ impl CommandContext {
         let elapsed_ms = last
             .map(|t| now.saturating_duration_since(t).as_millis() as i32)
             .unwrap_or(16);
-        let real_delta_ms = elapsed_ms.max(16);
+        let real_delta_ms = elapsed_ms.max(0);
         let game_delta_ms = real_delta_ms;
         let trace = std::env::var_os("SG_CTX_TICK_TRACE").is_some();
         if trace {
@@ -1340,7 +1875,9 @@ impl CommandContext {
             .ui
             .auto_advance_due(&self.globals.script, &self.globals.syscom)
         {
-            self.advance_message_wait(true);
+            if !self.advance_message_wait(true) {
+                self.notify_wait_key();
+            }
         }
         // If scripts request message-window hide, enforce it after UI tick.
         if self.globals.script.mwnd_disp_off_flag {
@@ -1404,6 +1941,9 @@ impl CommandContext {
         let gfx = &mut self.gfx;
         let images = &mut self.images;
         let layers = &mut self.layers;
+        let mwnd_ui_state = self
+            .ui
+            .current_mwnd_window_render_state(self.screen_w, self.screen_h);
         let mut form_ids: Vec<u32> = self.globals.stage_forms.keys().copied().collect();
         form_ids.sort_unstable();
         for form_id in form_ids {
@@ -1413,10 +1953,19 @@ impl CommandContext {
             let mut stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
             stage_ids.sort_unstable();
             for stage_idx in stage_ids {
+                let embedded_prefix = format!("{stage_idx}:");
+                let embedded_slots: HashSet<usize> = st
+                    .embedded_object_slots
+                    .iter()
+                    .filter_map(|(key, &slot)| key.starts_with(&embedded_prefix).then_some(slot))
+                    .collect();
                 let Some(objs) = st.object_lists.get_mut(&stage_idx) else {
                     continue;
                 };
                 for (obj_idx, obj) in objs.iter_mut().enumerate() {
+                    if embedded_slots.contains(&obj_idx) {
+                        continue;
+                    }
                     apply_object_event_animations_recursive(
                         &ids,
                         gfx,
@@ -1426,6 +1975,68 @@ impl CommandContext {
                         object_runtime_slot(obj_idx, obj) as i64,
                         obj,
                     );
+                }
+            }
+
+            let mut mwnd_stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
+            mwnd_stage_ids.sort_unstable();
+            for stage_idx in mwnd_stage_ids {
+                let Some(mwnds) = st.mwnd_lists.get_mut(&stage_idx) else {
+                    continue;
+                };
+                for mwnd in mwnds {
+                    let Some((window_x, window_y)) = mwnd.window_pos else {
+                        continue;
+                    };
+                    let Some((window_w, window_h)) = mwnd.window_size else {
+                        continue;
+                    };
+                    if window_w <= 0 || window_h <= 0 {
+                        continue;
+                    }
+                    let visible_or_animating = mwnd.open
+                        || mwnd_ui_state.map_or(false, |ui| {
+                            ui.x as i64 == window_x
+                                && ui.y as i64 == window_y
+                                && ui.w as i64 == window_w
+                                && ui.h as i64 == window_h
+                        });
+                    if !visible_or_animating {
+                        continue;
+                    }
+                    for (obj_idx, obj) in mwnd.button_list.iter_mut().enumerate() {
+                        apply_object_event_animations_recursive(
+                            &ids,
+                            gfx,
+                            images,
+                            layers,
+                            stage_idx,
+                            object_runtime_slot(obj_idx, obj) as i64,
+                            obj,
+                        );
+                    }
+                    for (obj_idx, obj) in mwnd.face_list.iter_mut().enumerate() {
+                        apply_object_event_animations_recursive(
+                            &ids,
+                            gfx,
+                            images,
+                            layers,
+                            stage_idx,
+                            object_runtime_slot(obj_idx, obj) as i64,
+                            obj,
+                        );
+                    }
+                    for (obj_idx, obj) in mwnd.object_list.iter_mut().enumerate() {
+                        apply_object_event_animations_recursive(
+                            &ids,
+                            gfx,
+                            images,
+                            layers,
+                            stage_idx,
+                            object_runtime_slot(obj_idx, obj) as i64,
+                            obj,
+                        );
+                    }
                 }
             }
         }
@@ -1861,9 +2472,19 @@ impl CommandContext {
 
     fn activate_syscom_action(&mut self, kind: i32) {
         match kind {
+            syscom_op::CALL_CONFIG_MENU => {
+                if let Some((scene, z_no)) = syscom_form::gameexe_scene_entry(self, "CONFIG_SCENE") {
+                    self.globals.syscom.pending_scene_call = Some((scene, z_no));
+                    self.globals.syscom.last_menu_call = kind;
+                    self.close_syscom_menu();
+                } else {
+                    self.globals.syscom.menu_kind = Some(kind);
+                    self.globals.syscom.menu_cursor = 0;
+                    self.globals.syscom.last_menu_call = kind;
+                }
+            }
             syscom_op::CALL_SAVE_MENU
             | syscom_op::CALL_LOAD_MENU
-            | syscom_op::CALL_CONFIG_MENU
             | syscom_op::CALL_CONFIG_WINDOW_MODE_MENU
             | syscom_op::CALL_CONFIG_VOLUME_MENU
             | syscom_op::CALL_CONFIG_BGMFADE_MENU
@@ -2276,6 +2897,16 @@ impl CommandContext {
                     if !m.open {
                         continue;
                     }
+                    let key_icon_template = if m.icon_no >= 0 {
+                        self.tables.icon_templates.get(m.icon_no as usize)
+                    } else {
+                        None
+                    };
+                    let page_icon_template = if m.page_icon_no >= 0 {
+                        self.tables.icon_templates.get(m.page_icon_no as usize)
+                    } else {
+                        None
+                    };
                     let candidate = crate::runtime::ui::MwndProjectionState {
                         bg_file: if m.waku_file.is_empty() {
                             None
@@ -2287,6 +2918,10 @@ impl CommandContext {
                         } else {
                             Some(m.filter_file.clone())
                         },
+                        filter_margin: m.filter_margin,
+                        filter_color: m.filter_color,
+                        filter_config_color: m.filter_config_color,
+                        filter_config_tr: m.filter_config_tr,
                         face_file: if m.face_file.is_empty() {
                             None
                         } else {
@@ -2297,9 +2932,26 @@ impl CommandContext {
                         window_pos: m.window_pos,
                         window_size: m.window_size,
                         message_pos: m.message_pos,
+                        message_margin: m.message_margin,
                         window_moji_cnt: m.window_moji_cnt,
                         moji_size: m.moji_size,
+                        moji_space: m.moji_space,
+                        mwnd_extend_type: m.mwnd_extend_type,
                         moji_color: m.moji_color,
+                        key_icon_file: key_icon_template
+                            .and_then(|t| if t.file_name.is_empty() { None } else { Some(t.file_name.clone()) }),
+                        key_icon_pat_cnt: key_icon_template.map(|t| t.anime_pat_cnt).unwrap_or(1),
+                        key_icon_speed: key_icon_template.map(|t| t.anime_speed).unwrap_or(100),
+                        page_icon_file: page_icon_template
+                            .and_then(|t| if t.file_name.is_empty() { None } else { Some(t.file_name.clone()) }),
+                        page_icon_pat_cnt: page_icon_template.map(|t| t.anime_pat_cnt).unwrap_or(1),
+                        page_icon_speed: page_icon_template.map(|t| t.anime_speed).unwrap_or(100),
+                        key_icon_appear: m.key_icon_appear,
+                        key_icon_mode: m.key_icon_mode,
+                        key_icon_pos: m.key_icon_pos,
+                        icon_pos_type: m.icon_pos_type,
+                        icon_pos_base: m.icon_pos_base,
+                        icon_pos: m.icon_pos,
                         slide_enabled: m.slide_msg,
                         slide_time: m.slide_time,
                         name_text: m.name_text.clone(),
@@ -2392,9 +3044,7 @@ impl CommandContext {
                 }
             }
         }
-        if decoded_any {
-            self.frame_clock_last = Some(std::time::Instant::now());
-        }
+        let _ = decoded_any;
     }
 
     fn close_global_movie_runtime(&mut self) {
@@ -2405,6 +3055,9 @@ impl CommandContext {
 
         if let Some(id) = self.globals.mov.audio_id.take() {
             self.movie.stop_audio(id);
+        }
+        if was_active {
+            self.movie.stop();
         }
         if let (Some(layer_id), Some(sprite_id)) =
             (self.globals.mov.layer_id, self.globals.mov.sprite_id)
@@ -2438,6 +3091,13 @@ impl CommandContext {
             return;
         }
         let file_name = file_name.expect("checked global movie file name");
+
+        if let Some(id) = self.globals.mov.audio_id {
+            if self.movie.audio_playback_finished(id) {
+                self.globals.mov.audio_id = None;
+                self.globals.mov.audio_start_attempted = false;
+            }
+        }
 
         let (x, y, width, height, timer_ms, last_frame_idx, image_id, need_audio) = {
             let m = &self.globals.mov;
@@ -2476,79 +3136,49 @@ impl CommandContext {
             }
         };
 
-        let (frame, frame_idx, audio_track, asset_total_ms, decoded_now) = {
-            let (asset, decoded_now) = match self.movie.poll_asset(&file_name) {
-                Ok(Some((asset, decoded_now))) => (asset, decoded_now),
-                Ok(None) => {
-                    // Native Siglus starts the movie pipeline without blocking the UI thread.
-                    // Keep the MOV timer at the start until the async decoder has produced
-                    // the cached frame set; otherwise MOV_WAIT can complete before a frame is shown.
+        let polled = match self.movie.poll_global_movie_frame(&file_name, timer_ms) {
+            Ok(Some(frame)) => frame,
+            Ok(None) => {
+                // Native Siglus starts MOV playback without blocking the UI thread.
+                // Keep only the movie timer at the start until the first frame exists.
+                // Do not reset the global frame clock here, because that throttles all
+                // counters, frame actions, and object events while the decoder warms up.
+                if last_frame_idx.is_none() {
                     self.globals.mov.timer_ms = 0;
-                    self.frame_clock_last = Some(std::time::Instant::now());
-                    return;
-                }
-                Err(err) => {
-                    // Movie not found or decode failed: stop playback so
-                    // any MOV wait unblocks instead of hanging forever.
-                    eprintln!(
-                        "[SG_MOV] error file={} err={:#}",
-                        file_name, err
-                    );
-                    self.globals.mov.playing = false;
-                    return;
-                }
-            };
-            if asset.frames.is_empty() {
-                if trace || std::env::var_os("SG_DEBUG").is_some() {
-                    eprintln!(
-                        "[SG_DEBUG][MOV] asset has no video frames file={}",
-                        file_name
-                    );
                 }
                 return;
             }
-            let fps = asset.info.fps.unwrap_or_else(|| {
-                asset
-                    .info
-                    .duration_ms()
-                    .filter(|ms| *ms > 0)
-                    .map(|ms| (asset.frames.len() as f32) * 1000.0 / (ms as f32))
-                    .unwrap_or(0.0)
-            });
-            let mut idx = if fps > 0.0 {
-                ((timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize
-            } else {
-                0
-            };
-            if idx >= asset.frames.len() {
-                idx = asset.frames.len() - 1;
+            Err(err) => {
+                eprintln!("[SG_MOV] error file={} err={:#}", file_name, err);
+                self.globals.mov.playing = false;
+                return;
             }
-            (
-                asset.frames[idx].clone(),
-                idx,
-                asset.audio.clone(),
-                asset.info.duration_ms(),
-                decoded_now,
-            )
         };
 
-        if self.globals.mov.total_ms.is_none() {
-            self.globals.mov.total_ms = asset_total_ms;
+        if let Some(ms) = polled.clamped_timer_ms {
+            self.globals.mov.timer_ms = ms;
         }
-        if decoded_now {
-            // C++ native movie playback does not count blocking file open/decode latency as
-            // elapsed movie time.  The Rust renderer decodes on first sync, so reset the frame
-            // clock after that decode to prevent MOV_WAIT from completing before a visible frame.
-            self.globals.mov.timer_ms = 0;
-            self.frame_clock_last = Some(std::time::Instant::now());
+        if self.globals.mov.total_ms.is_none() || polled.total_ms.is_some() {
+            self.globals.mov.total_ms = polled.total_ms.or(self.globals.mov.total_ms);
         }
+        if let Some(total) = self.globals.mov.total_ms {
+            if total > 0 && self.globals.mov.timer_ms >= total {
+                self.globals.mov.timer_ms = total;
+                self.globals.mov.playing = false;
+            }
+        }
+        let waiting_for_movie_audio_start = need_audio && polled.audio.is_none() && !polled.audio_ready;
+        let _ = polled.decoded_now;
+
+        let frame = polled.frame.clone();
+        let frame_idx = polled.frame_idx;
 
         if need_audio {
-            self.globals.mov.audio_start_attempted = true;
-            if let Some(track) = audio_track.as_ref() {
-                match self.movie.start_audio(&mut self.audio, track, timer_ms) {
+            if let Some(track) = polled.audio.as_ref() {
+                match self.movie.start_audio(&mut self.audio, track, self.globals.mov.timer_ms) {
                     Ok(id) => {
                         self.globals.mov.audio_id = Some(id);
+                        self.globals.mov.audio_start_attempted = false;
                         if trace || sg_debug_enabled() {
                             eprintln!(
                                 "[SG_DEBUG][MOV] audio_start file={} samples={} channels={} rate={} offset_ms={}",
@@ -2556,7 +3186,7 @@ impl CommandContext {
                                 track.samples.len(),
                                 track.channels,
                                 track.sample_rate,
-                                timer_ms
+                                self.globals.mov.timer_ms
                             );
                         }
                     }
@@ -2571,8 +3201,11 @@ impl CommandContext {
                         );
                     }
                 }
-            } else if trace || sg_debug_enabled() {
-                eprintln!("[SG_DEBUG][MOV] audio_track.missing file={}", file_name);
+            } else if polled.audio_ready {
+                self.globals.mov.audio_start_attempted = true;
+                if trace || sg_debug_enabled() {
+                    eprintln!("[SG_DEBUG][MOV] audio_track.missing file={}", file_name);
+                }
             }
         }
 
@@ -2605,10 +3238,14 @@ impl CommandContext {
             sprite.order = i32::MAX - 16;
         }
 
+        if waiting_for_movie_audio_start && self.globals.mov.audio_id.is_none() {
+            self.globals.mov.timer_ms = 0;
+        }
+
         if trace {
             eprintln!(
                 "[SG_MOVIE_TRACE] global MOV frame file={} idx={} timer={} pos=({}, {}) size={}x{} layer={} sprite={}",
-                file_name, frame_idx, timer_ms, x, y, width, height, layer_id, sprite_id
+                file_name, frame_idx, self.globals.mov.timer_ms, x, y, width, height, layer_id, sprite_id
             );
         }
     }
@@ -2681,13 +3318,31 @@ impl CommandContext {
             let Some(st) = self.globals.stage_forms.get(&form_id) else {
                 continue;
             };
-            let mut stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
+            let mut stage_ids: Vec<i64> = st
+                .object_lists
+                .keys()
+                .chain(st.mwnd_lists.keys())
+                .chain(st.btnselitem_lists.keys())
+                .copied()
+                .collect();
             stage_ids.sort_unstable();
+            stage_ids.dedup();
             for stage_idx in stage_ids {
-                let Some(objs) = st.object_lists.get(&stage_idx) else {
-                    continue;
-                };
-                collect(&self.ids, stage_idx, objs, &mut tasks);
+                if let Some(objs) = st.object_lists.get(&stage_idx) {
+                    collect(&self.ids, stage_idx, objs, &mut tasks);
+                }
+                if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+                    for mwnd in mwnds {
+                        collect(&self.ids, stage_idx, &mwnd.button_list, &mut tasks);
+                        collect(&self.ids, stage_idx, &mwnd.face_list, &mut tasks);
+                        collect(&self.ids, stage_idx, &mwnd.object_list, &mut tasks);
+                    }
+                }
+                if let Some(items) = st.btnselitem_lists.get(&stage_idx) {
+                    for item in items {
+                        collect(&self.ids, stage_idx, &item.object_list, &mut tasks);
+                    }
+                }
             }
         }
 
@@ -2754,7 +3409,7 @@ impl CommandContext {
         self.apply_object_masks();
         self.apply_object_tonecurves();
         let base = self.layers.render_list();
-        let (mut list, debug_lines) = build_siglus_object_render_list(self, &base);
+        let (mut list, debug_lines) = build_siglus_object_render_list(self, &base, TNM_STAGE_FRONT_I64);
         apply_quake(&self.globals, &mut list);
         apply_button_visuals(self, &mut list);
         self.apply_gan_effects(&mut list);
@@ -2765,13 +3420,23 @@ impl CommandContext {
 
     pub fn render_list_with_effects(&mut self) -> Vec<RenderSprite> {
         let (pre_wipe_list, debug_lines) = self.build_render_list_pre_wipe();
-        let mut list = if let Some(composed) = build_dual_source_wipe_list(self, &pre_wipe_list) {
-            composed
+        let mut list = if self.globals.wipe.is_some() {
+            let base = self.layers.render_list();
+            let (next_list, _) = build_siglus_object_render_list(self, &base, TNM_STAGE_NEXT_I64);
+            if let Some(composed) = build_dual_source_wipe_list(self, &pre_wipe_list, &next_list) {
+                composed
+            } else if let Some(composed) = build_regular_stage_wipe_list(self, &pre_wipe_list, &next_list) {
+                composed
+            } else {
+                let mut l = pre_wipe_list.clone();
+                apply_wipe_effect(self, &mut l);
+                l.retain(render_sprite_visible_for_submit);
+                l
+            }
         } else {
-            let mut l = pre_wipe_list.clone();
-            apply_wipe_effect(self, &mut l);
-            l
+            pre_wipe_list.clone()
         };
+        list.retain(render_sprite_visible_for_submit);
         overlay_precompose_if_needed(self, &mut list);
         if self.globals.wipe.is_none() {
             self.last_presented_render_list = pre_wipe_list.clone();
@@ -2783,6 +3448,19 @@ impl CommandContext {
             eprintln!("[SG_DEBUG] ===== frame {} =====", frame_no);
             for line in debug_lines {
                 eprintln!("{}", line);
+            }
+            if let Some(wipe) = self.globals.wipe.as_ref() {
+                eprintln!(
+                    "[SG_DEBUG] wipe active type={} progress={:.3} range=({},{})->({},{}) with_low={} wait={}",
+                    wipe.wipe_type,
+                    wipe.progress(),
+                    wipe.begin_order,
+                    wipe.begin_layer,
+                    wipe.end_order,
+                    wipe.end_layer,
+                    wipe.with_low_order,
+                    wipe.wait_flag,
+                );
             }
             eprintln!("[SG_DEBUG] submitted_render_list len={}", list.len());
             for (i, rs) in list.iter().enumerate() {
@@ -3020,13 +3698,15 @@ fn sg_input_trace_enabled() -> bool {
 }
 
 fn sg_render_tree_debug_enabled() -> bool {
-    matches!(
-        std::env::var("SG_RENDER_TREE_TRACE")
-            .or_else(|_| std::env::var("SG_DEBUG_RENDER_TREE"))
-            .ok()
-            .as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
+    sg_debug_enabled()
+        || matches!(
+            std::env::var("SG_RENDER_TREE_TRACE")
+                .or_else(|_| std::env::var("SG_DEBUG_RENDER_TREE"))
+                .or_else(|_| std::env::var("SG_FRAME_DUMP"))
+                .ok()
+                .as_deref(),
+            Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+        )
 }
 
 #[derive(Debug, Clone, Default)]
@@ -3145,6 +3825,9 @@ impl ButtonSortKey {
 
 #[derive(Debug, Clone, Copy)]
 struct ButtonVisualState {
+    stage_idx: i64,
+    runtime_slot: i64,
+    base_pat_no: i64,
     state: i64,
     action_no: i64,
 }
@@ -3757,7 +4440,7 @@ fn button_object_render_info(
 ) -> ButtonObjectRenderInfo {
     let runtime_slot = object_runtime_slot(obj_idx, obj);
     let extra = |id: i32, default: i64| -> i64 {
-        if id == ids.obj_disp || id != 0 {
+        if id != 0 {
             obj.lookup_int_prop(ids, id).unwrap_or(default)
         } else {
             default
@@ -3793,44 +4476,20 @@ fn button_object_render_info(
             acc.saturating_mul(ev.get_total_value() as i64)
                 .div_euclid(255)
         });
-    let dst_clip = if extra(ids.obj_clip_use, 0) != 0 {
+    let dst_clip = if extra(ids.obj_clip_use, obj.base.clip_use) != 0 {
         Some(ClipRect {
-            left: extra(ids.obj_clip_left, 0) as i32,
-            top: extra(ids.obj_clip_top, 0) as i32,
-            right: extra(ids.obj_clip_right, 0) as i32,
-            bottom: extra(ids.obj_clip_bottom, 0) as i32,
+            left: extra(ids.obj_clip_left, obj.base.clip_left) as i32,
+            top: extra(ids.obj_clip_top, obj.base.clip_top) as i32,
+            right: extra(ids.obj_clip_right, obj.base.clip_right) as i32,
+            bottom: extra(ids.obj_clip_bottom, obj.base.clip_bottom) as i32,
         })
     } else {
         None
     };
     ButtonObjectRenderInfo {
-        disp: extra(
-            ids.obj_disp,
-            gfx.object_peek_disp(stage_idx, runtime_slot as i64)
-                .unwrap_or(obj.base.disp),
-        ) != 0,
-        x: object_event_value(
-            ids,
-            obj,
-            ids.obj_x_eve,
-            extra(
-                ids.obj_x,
-                gfx.object_peek_pos(stage_idx, runtime_slot as i64)
-                    .map(|v| v.0)
-                    .unwrap_or(obj.base.x),
-            ),
-        ),
-        y: object_event_value(
-            ids,
-            obj,
-            ids.obj_y_eve,
-            extra(
-                ids.obj_y,
-                gfx.object_peek_pos(stage_idx, runtime_slot as i64)
-                    .map(|v| v.1)
-                    .unwrap_or(obj.base.y),
-            ),
-        ),
+        disp: extra(ids.obj_disp, obj.base.disp) != 0,
+        x: object_event_value(ids, obj, ids.obj_x_eve, extra(ids.obj_x, obj.base.x)),
+        y: object_event_value(ids, obj, ids.obj_y_eve, extra(ids.obj_y, obj.base.y)),
         z: object_event_value(ids, obj, ids.obj_z_eve, extra(ids.obj_z, obj.base.z)),
         x_rep,
         y_rep,
@@ -4258,6 +4917,71 @@ fn find_object_by_runtime_slot_mut(
     None
 }
 
+fn intersect_clip_rect(lhs: ClipRect, rhs: ClipRect) -> Option<ClipRect> {
+    let left = lhs.left.max(rhs.left);
+    let top = lhs.top.max(rhs.top);
+    let right = lhs.right.min(rhs.right);
+    let bottom = lhs.bottom.min(rhs.bottom);
+    if left < right && top < bottom {
+        Some(ClipRect {
+            left,
+            top,
+            right,
+            bottom,
+        })
+    } else {
+        None
+    }
+}
+
+fn transform_clip_rect_by_parent(clip: ClipRect, parent: &ParentRenderState) -> ClipRect {
+    let (sin_z, cos_z) = parent.rotate_z.sin_cos();
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for (x, y) in [
+        (clip.left as f32, clip.top as f32),
+        (clip.right as f32, clip.top as f32),
+        (clip.left as f32, clip.bottom as f32),
+        (clip.right as f32, clip.bottom as f32),
+    ] {
+        let rel_x = (x - parent.center_rep_x) * parent.scale_x;
+        let rel_y = (y - parent.center_rep_y) * parent.scale_y;
+        let rot_x = rel_x * cos_z - rel_y * sin_z;
+        let rot_y = rel_x * sin_z + rel_y * cos_z;
+        let tx = parent.pos_x + parent.center_rep_x + rot_x;
+        let ty = parent.pos_y + parent.center_rep_y + rot_y;
+        min_x = min_x.min(tx);
+        min_y = min_y.min(ty);
+        max_x = max_x.max(tx);
+        max_y = max_y.max(ty);
+    }
+
+    ClipRect {
+        left: min_x.floor() as i32,
+        top: min_y.floor() as i32,
+        right: max_x.ceil() as i32,
+        bottom: max_y.ceil() as i32,
+    }
+}
+
+fn compose_clip_rect(
+    parent_clip: Option<ClipRect>,
+    child_clip: Option<ClipRect>,
+    parent: &ParentRenderState,
+) -> Option<ClipRect> {
+    match (parent_clip, child_clip) {
+        (Some(parent_clip), Some(child_clip)) => {
+            intersect_clip_rect(parent_clip, transform_clip_rect_by_parent(child_clip, parent))
+        }
+        (Some(parent_clip), None) => Some(parent_clip),
+        (None, Some(child_clip)) => Some(transform_clip_rect_by_parent(child_clip, parent)),
+        (None, None) => None,
+    }
+}
+
 fn compose_parent_render_state(
     parent: ParentRenderState,
     mut cur: ParentRenderState,
@@ -4265,6 +4989,8 @@ fn compose_parent_render_state(
     if cur.world_no < 0 {
         cur.world_no = parent.world_no;
     }
+
+    let child_clip = cur.dst_clip;
 
     cur.pos_x = (cur.pos_x - parent.center_rep_x) * parent.scale_x + parent.center_rep_x;
     cur.pos_y = (cur.pos_y - parent.center_rep_y) * parent.scale_y + parent.center_rep_y;
@@ -4288,18 +5014,7 @@ fn compose_parent_render_state(
     cur.rotate_x += parent.rotate_x;
     cur.rotate_y += parent.rotate_y;
     cur.rotate_z += parent.rotate_z;
-
-    if let Some(parent_clip) = parent.dst_clip {
-        cur.dst_clip = Some(match cur.dst_clip {
-            Some(child) => ClipRect {
-                left: child.left.min(parent_clip.left),
-                top: child.top.min(parent_clip.top),
-                right: child.right.max(parent_clip.right),
-                bottom: child.bottom.max(parent_clip.bottom),
-            },
-            None => parent_clip,
-        });
-    }
+    cur.dst_clip = compose_clip_rect(parent.dst_clip, child_clip, &parent);
 
     cur.tr = (cur.tr * parent.tr / 255).clamp(0, 255);
     cur.mono = combine_lerp(cur.mono as u8, parent.mono) as i32;
@@ -4869,10 +5584,13 @@ fn set_weather_sprite(
         .lookup_int_prop(ids, ids.obj_y)
         .unwrap_or(0)
         .saturating_add(y) as i32;
-    sprite.alpha = obj
-        .lookup_int_prop(ids, ids.obj_alpha)
-        .unwrap_or(255)
-        .clamp(0, 255) as u8;
+    sprite.alpha = if ids.obj_alpha != 0 {
+        obj.lookup_int_prop(ids, ids.obj_alpha)
+            .unwrap_or(obj.base.alpha)
+    } else {
+        obj.base.alpha
+    }
+    .clamp(0, 255) as u8;
     sprite.tr = ((obj
         .lookup_int_prop(ids, ids.obj_tr)
         .unwrap_or(255)
@@ -5233,18 +5951,22 @@ fn sync_movie_object_recursive(
 
                 if trace {
                     eprintln!(
-                        "[SG_MOVIE_TRACE] ensure_asset stage={} obj={} file={}",
+                        "[SG_MOVIE_TRACE] poll_stream stage={} obj={} file={}",
                         stage_idx, obj_idx, file
                     );
                 }
-                let (asset, decoded_now) = match movie_mgr.poll_asset(file) {
-                    Ok(Some((a, decoded_now))) => (a, decoded_now),
+                if let Some(id) = obj.movie.audio_id {
+                    if movie_mgr.audio_playback_finished(id) {
+                        obj.movie.audio_id = None;
+                    }
+                }
+                let polled = match movie_mgr.poll_global_movie_frame(file, obj.movie.timer_ms) {
+                    Ok(Some(frame)) => frame,
                     Ok(None) => {
-                        // Do not block the UI thread while decoding the movie. Until the first
-                        // decoded frame is available, keep this movie at its start so the
-                        // wait/auto-free logic cannot run ahead of visible playback.
-                        obj.movie.timer_ms = 0;
-                        obj.movie.last_tick = Some(std::time::Instant::now());
+                        if obj.movie.last_frame_idx.is_none() {
+                            obj.movie.timer_ms = 0;
+                            obj.movie.last_tick = Some(std::time::Instant::now());
+                        }
                         for (child_idx, child) in obj.runtime.child_objects.iter_mut().enumerate() {
                             sync_movie_object_recursive(
                                 ids,
@@ -5262,8 +5984,6 @@ fn sync_movie_object_recursive(
                         return;
                     }
                     Err(err) => {
-                        // Movie not found or decode failed. Stop playback so any
-                        // wait_movie unblocks instead of hanging forever.
                         eprintln!(
                             "[SG_MOVIE] object movie error stage={} obj={} file={}: {:#}",
                             stage_idx, obj_idx, file, err
@@ -5286,82 +6006,59 @@ fn sync_movie_object_recursive(
                         return;
                     }
                 };
-                if obj.movie.total_ms.is_none() {
-                    obj.movie.total_ms = asset.info.duration_ms();
+                if obj.movie.total_ms.is_none() || polled.total_ms.is_some() {
+                    obj.movie.total_ms = polled.total_ms.or(obj.movie.total_ms);
                 }
-                if decoded_now {
-                    obj.movie.timer_ms = 0;
-                    obj.movie.last_frame_idx = None;
-                    *decoded_any = true;
-                }
-                let pending_movie_audio = if obj.movie.playing && obj.movie.audio_id.is_none() {
-                    asset.audio.clone()
-                } else {
-                    None
-                };
-                if trace {
-                    eprintln!(
-                        "[SG_MOVIE_TRACE] asset ready stage={} obj={} file={} frames={} fps={:?}",
-                        stage_idx,
-                        obj_idx,
-                        file,
-                        asset.frames.len(),
-                        asset.info.fps
-                    );
-                }
-                if !asset.frames.is_empty() {
-                    let fps = asset.info.fps.unwrap_or(0.0);
-                    let mut frame_idx = if fps > 0.0 {
-                        ((obj.movie.timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize
-                    } else {
-                        0
-                    };
-                    if obj.movie.loop_flag {
-                        frame_idx %= asset.frames.len();
-                    } else if frame_idx >= asset.frames.len() {
-                        frame_idx = asset.frames.len() - 1;
-                    }
-                    if obj.movie.last_frame_idx != Some(frame_idx) {
-                        obj.movie.last_frame_idx = Some(frame_idx);
-                        let frame = asset.frames[frame_idx].clone();
-                        if let globals::ObjectBackend::Movie {
-                            layer_id,
-                            sprite_id,
-                            image_id,
-                            width,
-                            height,
-                        } = &mut obj.backend
-                        {
-                            let img_id = match image_id {
-                                Some(id) => {
-                                    let _ = images.replace_image_arc(*id, frame.clone());
-                                    *id
-                                }
-                                None => {
-                                    let id = images.insert_image_arc(frame.clone());
-                                    if let Some(layer) = layers.layer_mut(*layer_id) {
-                                        if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                            sprite.image_id = Some(id);
-                                        }
-                                    }
-                                    *image_id = Some(id);
-                                    id
-                                }
-                            };
-                            if let Some(layer) = layers.layer_mut(*layer_id) {
-                                if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                    sprite.image_id = Some(img_id);
-                                }
+                let frame_idx = polled.frame_idx;
+                if obj.movie.last_frame_idx != Some(frame_idx) {
+                    obj.movie.last_frame_idx = Some(frame_idx);
+                    let frame = polled.frame.clone();
+                    if let globals::ObjectBackend::Movie {
+                        layer_id,
+                        sprite_id,
+                        image_id,
+                        width,
+                        height,
+                    } = &mut obj.backend
+                    {
+                        let img_id = match image_id {
+                            Some(id) => {
+                                let _ = images.replace_image_arc(*id, frame.clone());
+                                *id
                             }
-                            *width = frame.width;
-                            *height = frame.height;
+                            None => {
+                                let id = images.insert_image_arc(frame.clone());
+                                if let Some(layer) = layers.layer_mut(*layer_id) {
+                                    if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+                                        sprite.image_id = Some(id);
+                                    }
+                                }
+                                *image_id = Some(id);
+                                id
+                            }
+                        };
+                        if let Some(layer) = layers.layer_mut(*layer_id) {
+                            if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+                                sprite.image_id = Some(img_id);
+                            }
+                        }
+                        *width = frame.width;
+                        *height = frame.height;
+                    }
+                }
+                let waiting_for_movie_audio_start = obj.movie.audio_id.is_none()
+                    && polled.audio.is_none()
+                    && !polled.audio_ready;
+                if obj.movie.playing && obj.movie.audio_id.is_none() {
+                    if let Some(track) = polled.audio.as_ref() {
+                        if let Ok(id) = movie_mgr.start_audio(audio, track, obj.movie.timer_ms) {
+                            obj.movie.audio_id = Some(id);
                         }
                     }
                 }
-                if let Some(track) = pending_movie_audio.as_ref() {
-                    if let Ok(id) = movie_mgr.start_audio(audio, track, obj.movie.timer_ms) {
-                        obj.movie.audio_id = Some(id);
-                    }
+                if waiting_for_movie_audio_start && obj.movie.audio_id.is_none() && obj.movie.last_frame_idx.is_none() {
+                    obj.movie.timer_ms = 0;
+                    obj.movie.last_tick = Some(std::time::Instant::now());
                 }
             }
         }
@@ -5740,7 +6437,11 @@ fn apply_parent_render_state_to_sprite(
         .color_add_b
         .saturating_add(state.color_add_b.clamp(0, 255) as u8);
     sprite.blend = state.blend;
-    sprite.dst_clip = state.dst_clip;
+    let child_clip = sprite.dst_clip;
+    sprite.dst_clip = compose_clip_rect(state.dst_clip, child_clip, state);
+    if state.dst_clip.is_some() && child_clip.is_some() && sprite.dst_clip.is_none() {
+        sprite.tr = 0;
+    }
     if sprite.mask_image_id.is_none() {
         sprite.mask_image_id = state.mask_image_id;
         sprite.mask_offset_x = state.mask_offset_x;
@@ -5958,7 +6659,7 @@ fn effective_object_info(
     let runtime_slot = object_runtime_slot(obj_idx, obj);
     let ids = &ctx.ids;
     let extra = |id: i32, default: i64| -> i64 {
-        if id == ids.obj_disp || id != 0 {
+        if id != 0 {
             obj.lookup_int_prop(ids, id).unwrap_or(default)
         } else {
             default
@@ -5972,12 +6673,12 @@ fn effective_object_info(
         }
     };
 
-    let dst_clip = if extra(ids.obj_clip_use, 0) != 0 {
+    let dst_clip = if extra(ids.obj_clip_use, obj.base.clip_use) != 0 {
         Some(ClipRect {
-            left: extra(ids.obj_clip_left, 0) as i32,
-            top: extra(ids.obj_clip_top, 0) as i32,
-            right: extra(ids.obj_clip_right, 0) as i32,
-            bottom: extra(ids.obj_clip_bottom, 0) as i32,
+            left: extra(ids.obj_clip_left, obj.base.clip_left) as i32,
+            top: extra(ids.obj_clip_top, obj.base.clip_top) as i32,
+            right: extra(ids.obj_clip_right, obj.base.clip_right) as i32,
+            bottom: extra(ids.obj_clip_bottom, obj.base.clip_bottom) as i32,
         })
     } else {
         None
@@ -6018,48 +6719,48 @@ fn effective_object_info(
         runtime_slot,
         used: obj.used,
         object_type: obj.object_type,
-        disp: extra(ids.obj_disp, 0) != 0,
-        x: extra(ids.obj_x, 0),
-        y: extra(ids.obj_y, 0),
+        disp: extra(ids.obj_disp, obj.base.disp) != 0,
+        x: extra(ids.obj_x, obj.base.x),
+        y: extra(ids.obj_y, obj.base.y),
         x_rep: x_rep_total,
         y_rep: y_rep_total,
         z_rep: z_rep_total,
-        order: extra(ids.obj_order, 0),
-        layer: extra(ids.obj_layer, 0),
-        alpha: extra(ids.obj_alpha, 255),
-        tr: extra(ids.obj_tr, 255),
+        order: extra(ids.obj_order, obj.base.order),
+        layer: extra(ids.obj_layer, obj.base.layer),
+        alpha: extra(ids.obj_alpha, obj.base.alpha),
+        tr: extra(ids.obj_tr, obj.base.tr),
         tr_rep: tr_rep_total,
-        mono: extra(ids.obj_mono, 0),
-        reverse: extra(ids.obj_reverse, 0),
-        bright: extra(ids.obj_bright, 0),
-        dark: extra(ids.obj_dark, 0),
-        color_rate: extra(ids.obj_color_rate, 0),
-        color_add_r: extra(ids.obj_color_add_r, 0),
-        color_add_g: extra(ids.obj_color_add_g, 0),
-        color_add_b: extra(ids.obj_color_add_b, 0),
-        color_r: extra(ids.obj_color_r, 0),
-        color_g: extra(ids.obj_color_g, 0),
-        color_b: extra(ids.obj_color_b, 0),
-        z: extra(ids.obj_z, 0),
-        world_no: extra(ids.obj_world, -1),
-        center_x: extra(ids.obj_center_x, 0),
-        center_y: extra(ids.obj_center_y, 0),
-        center_z: extra(ids.obj_center_z, 0),
-        center_rep_x: extra(ids.obj_center_rep_x, 0),
-        center_rep_y: extra(ids.obj_center_rep_y, 0),
-        center_rep_z: extra(ids.obj_center_rep_z, 0),
-        scale_x: extra(ids.obj_scale_x, 1000),
-        scale_y: extra(ids.obj_scale_y, 1000),
-        scale_z: extra(ids.obj_scale_z, 1000),
-        rotate_x: extra(ids.obj_rotate_x, 0),
-        rotate_y: extra(ids.obj_rotate_y, 0),
-        rotate_z: extra(ids.obj_rotate_z, 0),
-        culling: extra(ids.obj_culling, 0) != 0,
-        alpha_test: extra(ids.obj_alpha_test, 1) != 0,
-        alpha_blend: extra(ids.obj_alpha_blend, 1) != 0,
-        fog_use: extra(ids.obj_fog_use, 0) != 0,
-        light_no: extra(ids.obj_light_no, -1),
-        blend: crate::layer::SpriteBlend::from_i64(extra(ids.obj_blend, 0)),
+        mono: extra(ids.obj_mono, obj.base.mono),
+        reverse: extra(ids.obj_reverse, obj.base.reverse),
+        bright: extra(ids.obj_bright, obj.base.bright),
+        dark: extra(ids.obj_dark, obj.base.dark),
+        color_rate: extra(ids.obj_color_rate, obj.base.color_rate),
+        color_add_r: extra(ids.obj_color_add_r, obj.base.color_add_r),
+        color_add_g: extra(ids.obj_color_add_g, obj.base.color_add_g),
+        color_add_b: extra(ids.obj_color_add_b, obj.base.color_add_b),
+        color_r: extra(ids.obj_color_r, obj.base.color_r),
+        color_g: extra(ids.obj_color_g, obj.base.color_g),
+        color_b: extra(ids.obj_color_b, obj.base.color_b),
+        z: extra(ids.obj_z, obj.base.z),
+        world_no: extra(ids.obj_world, obj.base.world),
+        center_x: extra(ids.obj_center_x, obj.base.center_x),
+        center_y: extra(ids.obj_center_y, obj.base.center_y),
+        center_z: extra(ids.obj_center_z, obj.base.center_z),
+        center_rep_x: extra(ids.obj_center_rep_x, obj.base.center_rep_x),
+        center_rep_y: extra(ids.obj_center_rep_y, obj.base.center_rep_y),
+        center_rep_z: extra(ids.obj_center_rep_z, obj.base.center_rep_z),
+        scale_x: extra(ids.obj_scale_x, obj.base.scale_x),
+        scale_y: extra(ids.obj_scale_y, obj.base.scale_y),
+        scale_z: extra(ids.obj_scale_z, obj.base.scale_z),
+        rotate_x: extra(ids.obj_rotate_x, obj.base.rotate_x),
+        rotate_y: extra(ids.obj_rotate_y, obj.base.rotate_y),
+        rotate_z: extra(ids.obj_rotate_z, obj.base.rotate_z),
+        culling: extra(ids.obj_culling, obj.base.culling) != 0,
+        alpha_test: extra(ids.obj_alpha_test, obj.base.alpha_test) != 0,
+        alpha_blend: extra(ids.obj_alpha_blend, obj.base.alpha_blend) != 0,
+        fog_use: extra(ids.obj_fog_use, obj.base.fog_use) != 0,
+        light_no: extra(ids.obj_light_no, obj.base.light_no),
+        blend: crate::layer::SpriteBlend::from_i64(extra(ids.obj_blend, obj.base.blend)),
         child_sort_type: obj.base.child_sort_type,
         dst_clip,
         billboard: obj.object_type == 7,
@@ -6069,29 +6770,40 @@ fn effective_object_info(
 
     match &obj.backend {
         globals::ObjectBackend::Gfx => {
-            if let Some(v) = ctx.gfx.object_peek_disp(stage_idx, runtime_slot as i64) {
-                info.disp = v != 0;
+            // C_elm_mwnd_waku::m_btn_list and OBJECT.CHILD entries are internal
+            // object trees, not top-level C_elm_stage::m_obj_list entries. Their
+            // Gfx layer sprite is only backing storage. Do not read the backing
+            // sprite's cached visible/pos/order/layer state here, because it can be
+            // hidden to prevent raw LayerManager leakage and because the authoritative
+            // state for tree rendering is the C_elm_object property block.
+            let embedded_tree_object = obj.nested_runtime_slot.is_some();
+            if !embedded_tree_object {
+                if let Some(v) = ctx.gfx.object_peek_disp(stage_idx, runtime_slot as i64) {
+                    info.disp = v != 0;
+                }
+                if let Some((x, y)) = ctx.gfx.object_peek_pos(stage_idx, runtime_slot as i64) {
+                    info.x = x;
+                    info.y = y;
+                }
+                if let Some(v) = ctx.gfx.object_peek_order(stage_idx, runtime_slot as i64) {
+                    info.order = v;
+                }
+                if let Some(v) = ctx.gfx.object_peek_layer(stage_idx, runtime_slot as i64) {
+                    info.layer = v;
+                }
+                if let Some(v) = ctx.gfx.object_peek_alpha(stage_idx, runtime_slot as i64) {
+                    info.alpha = v;
+                }
             }
-            if let Some((x, y)) = ctx.gfx.object_peek_pos(stage_idx, runtime_slot as i64) {
-                info.x = x;
-                info.y = y;
-            }
-            if let Some(v) = ctx.gfx.object_peek_order(stage_idx, runtime_slot as i64) {
-                info.order = v;
-            }
-            if let Some(v) = ctx.gfx.object_peek_layer(stage_idx, runtime_slot as i64) {
-                info.layer = v;
-            }
-            if let Some(v) = ctx.gfx.object_peek_alpha(stage_idx, runtime_slot as i64) {
-                info.alpha = v;
-            }
-            if let Some((lid, sid)) = ctx
-                .gfx
-                .object_sprite_binding(stage_idx, runtime_slot as i64)
-            {
-                if let Some(layer) = ctx.layers.layer(lid) {
-                    if let Some(sprite) = layer.sprite(sid) {
-                        info.tr = sprite.tr as i64;
+            if !embedded_tree_object {
+                if let Some((lid, sid)) = ctx
+                    .gfx
+                    .object_sprite_binding(stage_idx, runtime_slot as i64)
+                {
+                    if let Some(layer) = ctx.layers.layer(lid) {
+                        if let Some(sprite) = layer.sprite(sid) {
+                            info.tr = sprite.tr as i64;
+                        }
                     }
                 }
             }
@@ -6329,7 +7041,7 @@ fn append_object_tree_sprites(
             globals::ObjectBackend::None => None,
         };
         debug_lines.push(format!(
-            "[SG_DEBUG]     obj[{obj_idx}] slot={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) order={} layer={} alpha={} tr={} z={} child_sort={} bind={:?}",
+            "[SG_DEBUG]     obj[{obj_idx}] slot={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) order={} layer={} alpha={} tr={} z={} child_sort={} wipe_copy={} wipe_erase={} bind={:?}",
             info.runtime_slot,
             obj.used,
             obj.object_type,
@@ -6344,6 +7056,8 @@ fn append_object_tree_sprites(
             info.tr,
             info.z,
             info.child_sort_type,
+            obj.get_int_prop(&ctx.ids, ctx.ids.obj_wipe_copy),
+            obj.get_int_prop(&ctx.ids, ctx.ids.obj_wipe_erase),
             bind_dbg,
         ));
     }
@@ -6502,7 +7216,7 @@ fn append_object_tree_sprites(
 
     let mut children: Vec<(usize, &globals::ObjectState)> = Vec::new();
     for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
-        if child.used {
+        if object_participates_in_tree(child) {
             children.push((child_idx, child));
         }
     }
@@ -6758,12 +7472,11 @@ fn mark_mwnd_owned_sprite_keys(
     }
 }
 
-fn mwnd_parent_render_state(m: &globals::MwndState) -> ParentRenderState {
-    let (x, y) = m.window_pos.unwrap_or((0, 0));
+fn mwnd_parent_render_state_at(m: &globals::MwndState, window_x: i64, window_y: i64) -> ParentRenderState {
     ParentRenderState {
         world_no: m.world,
-        pos_x: x as f32,
-        pos_y: y as f32,
+        pos_x: window_x as f32,
+        pos_y: window_y as f32,
         pos_z: 0.0,
         center_rep_x: 0.0,
         center_rep_y: 0.0,
@@ -6797,18 +7510,74 @@ fn mwnd_parent_render_state(m: &globals::MwndState) -> ParentRenderState {
     }
 }
 
+fn mwnd_parent_render_state(m: &globals::MwndState) -> ParentRenderState {
+    let (x, y) = m.window_pos.unwrap_or((0, 0));
+    mwnd_parent_render_state_at(m, x, y)
+}
+
+fn mwnd_window_rect_for_embedded(
+    ctx: &CommandContext,
+    m: &globals::MwndState,
+) -> Option<(i64, i64, i64, i64, Option<crate::runtime::ui::MwndWindowRenderState>)> {
+    let (x, y) = m.window_pos?;
+    let (w, h) = m.window_size?;
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    let ui_state = ctx
+        .ui
+        .current_mwnd_window_render_state(ctx.screen_w, ctx.screen_h)
+        .filter(|ui| {
+            ui.x as i64 == x
+                && ui.y as i64 == y
+                && ui.w as i64 == w
+                && ui.h as i64 == h
+        });
+    Some((x, y, w, h, ui_state))
+}
+
+fn mwnd_anim_parent_from_ui_state(
+    m: &globals::MwndState,
+    ui: crate::runtime::ui::MwndWindowRenderState,
+) -> ParentRenderState {
+    let mut parent = mwnd_parent_render_state_at(m, 0, 0);
+    parent.pos_x = ui.dx as f32;
+    parent.pos_y = ui.dy as f32;
+    parent.center_rep_x = ui.pivot_abs_x - ui.dx as f32;
+    parent.center_rep_y = ui.pivot_abs_y - ui.dy as f32;
+    parent.scale_x = ui.scale_x;
+    parent.scale_y = ui.scale_y;
+    parent.rotate_z = ui.rotate;
+    parent.tr = ui.alpha as i32;
+    parent
+}
+
+fn apply_mwnd_window_anim_parent(
+    parent: ParentRenderState,
+    anim_parent: Option<ParentRenderState>,
+) -> ParentRenderState {
+    match anim_parent {
+        Some(anim) => compose_parent_render_state(anim, parent),
+        None => parent,
+    }
+}
+
 fn append_mwnd_embedded_object_list_sprites(
     ctx: &CommandContext,
     worlds: Option<&Vec<globals::WorldState>>,
     stage_idx: i64,
     list: &[globals::ObjectState],
     parent: ParentRenderState,
+    parent_order: i64,
     parent_layer: i64,
     out: &mut Vec<RenderSprite>,
     object_keys: &mut HashSet<(LayerId, SpriteId)>,
     debug: &mut Vec<String>,
 ) {
     for (obj_idx, obj) in list.iter().enumerate() {
+        if !object_participates_in_tree(obj) {
+            continue;
+        }
         append_object_tree_sprites(
             ctx,
             worlds,
@@ -6816,7 +7585,7 @@ fn append_mwnd_embedded_object_list_sprites(
             obj_idx,
             obj,
             true,
-            0,
+            parent_order,
             parent_layer,
             Some(parent),
             out,
@@ -6824,6 +7593,53 @@ fn append_mwnd_embedded_object_list_sprites(
             debug,
         );
     }
+}
+
+fn mwnd_button_parent_render_state(
+    m: &globals::MwndState,
+    button_idx: usize,
+    window_x: i64,
+    window_y: i64,
+    window_w: i64,
+    window_h: i64,
+) -> ParentRenderState {
+    let mut parent = mwnd_parent_render_state_at(m, window_x, window_y);
+    let Some(&(pos_base, x, y)) = m.waku_button_layout.get(button_idx) else {
+        return parent;
+    };
+    match pos_base {
+        1 => {
+            parent.pos_x += (window_w - x) as f32;
+            parent.pos_y += y as f32;
+        }
+        2 => {
+            parent.pos_x += x as f32;
+            parent.pos_y += (window_h - y) as f32;
+        }
+        3 => {
+            parent.pos_x += (window_w - x) as f32;
+            parent.pos_y += (window_h - y) as f32;
+        }
+        _ => {
+            parent.pos_x += x as f32;
+            parent.pos_y += y as f32;
+        }
+    }
+    parent
+}
+
+fn mwnd_face_parent_render_state(
+    m: &globals::MwndState,
+    face_idx: usize,
+    window_x: i64,
+    window_y: i64,
+) -> ParentRenderState {
+    let mut parent = mwnd_parent_render_state_at(m, window_x, window_y);
+    if let Some(&(x, y)) = m.waku_face_pos.get(face_idx) {
+        parent.pos_x += x as f32;
+        parent.pos_y += y as f32;
+    }
+    parent
 }
 
 fn append_mwnd_embedded_sprites(
@@ -6835,41 +7651,81 @@ fn append_mwnd_embedded_sprites(
     object_keys: &mut HashSet<(LayerId, SpriteId)>,
     debug: &mut Vec<String>,
 ) {
-    if !m.open || ctx.globals.script.mwnd_disp_off_flag || ctx.globals.syscom.hide_mwnd.onoff {
+    if ctx.globals.script.mwnd_disp_off_flag || ctx.globals.syscom.hide_mwnd.onoff {
         return;
     }
-    let parent = mwnd_parent_render_state(m);
-    append_mwnd_embedded_object_list_sprites(
-        ctx,
-        worlds,
-        stage_idx,
-        &m.button_list,
-        parent,
-        m.layer,
-        out,
-        object_keys,
-        debug,
-    );
-    if !m.face_file.is_empty() {
-        append_mwnd_embedded_object_list_sprites(
+    let Some((window_x, window_y, window_w, window_h, ui_state)) =
+        mwnd_window_rect_for_embedded(ctx, m)
+    else {
+        return;
+    };
+    if !m.open && ui_state.is_none() {
+        return;
+    }
+    // UI MWND sprites in this renderer use the same coarse sorter band as the original
+    // C++ MWND parent sorter, represented here as order*1024+layer.
+    const MWND_UI_ORDER_SCALE: i64 = 976;
+    const MWND_UI_LAYER_BASE: i64 = 576;
+    let mwnd_order = ctx.tables.mwnd_render.order.saturating_mul(MWND_UI_ORDER_SCALE);
+    let anim_parent = ui_state.map(|ui| mwnd_anim_parent_from_ui_state(m, ui));
+    for (button_idx, obj) in m.button_list.iter().enumerate() {
+        if !object_participates_in_tree(obj) {
+            continue;
+        }
+        let parent = apply_mwnd_window_anim_parent(
+            mwnd_button_parent_render_state(m, button_idx, window_x, window_y, window_w, window_h),
+            anim_parent,
+        );
+        append_object_tree_sprites(
             ctx,
             worlds,
             stage_idx,
-            &m.face_list,
-            parent,
-            m.layer,
+            button_idx,
+            obj,
+            true,
+            mwnd_order,
+            MWND_UI_LAYER_BASE.saturating_add(ctx.tables.mwnd_render.waku_layer_rep),
+            Some(parent),
             out,
             object_keys,
             debug,
         );
     }
+    for (face_idx, obj) in m.face_list.iter().enumerate() {
+        if !object_participates_in_tree(obj) {
+            continue;
+        }
+        let parent = apply_mwnd_window_anim_parent(
+            mwnd_face_parent_render_state(m, face_idx, window_x, window_y),
+            anim_parent,
+        );
+        append_object_tree_sprites(
+            ctx,
+            worlds,
+            stage_idx,
+            face_idx,
+            obj,
+            true,
+            mwnd_order,
+            MWND_UI_LAYER_BASE.saturating_add(ctx.tables.mwnd_render.face_layer_rep),
+            Some(parent),
+            out,
+            object_keys,
+            debug,
+        );
+    }
+    let parent = apply_mwnd_window_anim_parent(
+        mwnd_parent_render_state_at(m, window_x, window_y),
+        anim_parent,
+    );
     append_mwnd_embedded_object_list_sprites(
         ctx,
         worlds,
         stage_idx,
         &m.object_list,
         parent,
-        m.layer,
+        mwnd_order,
+        MWND_UI_LAYER_BASE.saturating_add(ctx.tables.mwnd_render.waku_layer_rep),
         out,
         object_keys,
         debug,
@@ -6877,12 +7733,65 @@ fn append_mwnd_embedded_sprites(
 }
 
 
+const TNM_STAGE_FRONT_I64: i64 = 1;
+const TNM_STAGE_NEXT_I64: i64 = 2;
+
+fn mark_all_stage_owned_sprite_keys(
+    ctx: &CommandContext,
+    object_keys: &mut HashSet<(LayerId, SpriteId)>,
+) {
+    let mut form_ids: Vec<u32> = ctx.globals.stage_forms.keys().copied().collect();
+    form_ids.sort_unstable();
+    for form_id in form_ids {
+        let Some(st) = ctx.globals.stage_forms.get(&form_id) else {
+            continue;
+        };
+
+        let mut stage_ids: Vec<i64> = st
+            .object_lists
+            .keys()
+            .chain(st.mwnd_lists.keys())
+            .chain(st.btnselitem_lists.keys())
+            .copied()
+            .collect();
+        stage_ids.sort_unstable();
+        stage_ids.dedup();
+
+        for stage_idx in stage_ids {
+            if let Some(list) = st.object_lists.get(&stage_idx) {
+                for (obj_idx, obj) in list.iter().enumerate() {
+                    mark_object_tree_sprite_keys(ctx, stage_idx, obj_idx, obj, object_keys);
+                }
+            }
+            if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+                for m in mwnds {
+                    mark_mwnd_owned_sprite_keys(ctx, stage_idx, m, object_keys);
+                }
+            }
+            if let Some(items) = st.btnselitem_lists.get(&stage_idx) {
+                for item in items {
+                    for (obj_idx, obj) in item.object_list.iter().enumerate() {
+                        mark_object_tree_sprite_keys(ctx, stage_idx, obj_idx, obj, object_keys);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn build_siglus_object_render_list(
     ctx: &CommandContext,
     base: &[RenderSprite],
+    selected_stage: i64,
 ) -> (Vec<RenderSprite>, Vec<String>) {
     let debug_enabled = sg_render_tree_debug_enabled();
     let mut object_keys: HashSet<(LayerId, SpriteId)> = HashSet::new();
+    // Original Siglus builds the draw list from C_elm_stage::get_sprite_tree()
+    // for the selected stage. LayerManager is only a backend storage cache here;
+    // object-owned backing sprites from BACK/NEXT or hidden objects must not leak
+    // through the generic layer render list.
+    mark_all_stage_owned_sprite_keys(ctx, &mut object_keys);
+    let focused_mwnd = ctx.globals.focused_stage_mwnd;
     let mut object_list = Vec::new();
     let mut debug = Vec::new();
 
@@ -6899,6 +7808,11 @@ fn build_siglus_object_render_list(
             .object_lists
             .keys()
             .chain(st.mwnd_lists.keys())
+            .chain(st.group_lists.keys())
+            .chain(st.btnselitem_lists.keys())
+            .chain(st.world_lists.keys())
+            .chain(st.effect_lists.keys())
+            .chain(st.quake_lists.keys())
             .copied()
             .collect();
         stage_ids.sort_unstable();
@@ -6916,7 +7830,11 @@ fn build_siglus_object_render_list(
                 .get(&stage_idx)
                 .map(|list| {
                     list.iter()
-                        .filter(|o| object_participates_in_tree(o))
+                        .enumerate()
+                        .filter(|(obj_idx, o)| {
+                            !st.is_embedded_object_slot(stage_idx, *obj_idx)
+                                && object_participates_in_tree(o)
+                        })
                         .count()
                 })
                 .unwrap_or(0);
@@ -6930,20 +7848,91 @@ fn build_siglus_object_render_list(
                         .sum::<usize>()
                 })
                 .unwrap_or(0);
-            if active_cnt == 0 && mwnd_embedded_cnt == 0 {
+            let group_cnt = st.group_lists.get(&stage_idx).map(|v| v.len()).unwrap_or(0);
+            let btnselitem_cnt = st.btnselitem_lists.get(&stage_idx).map(|v| v.len()).unwrap_or(0);
+            let world_cnt = st.world_lists.get(&stage_idx).map(|v| v.len()).unwrap_or(0);
+            let effect_cnt = st.effect_lists.get(&stage_idx).map(|v| v.len()).unwrap_or(0);
+            let quake_cnt = st.quake_lists.get(&stage_idx).map(|v| v.len()).unwrap_or(0);
+            if active_cnt == 0
+                && mwnd_embedded_cnt == 0
+                && group_cnt == 0
+                && btnselitem_cnt == 0
+                && world_cnt == 0
+                && effect_cnt == 0
+                && quake_cnt == 0
+            {
                 continue;
             }
             if debug_enabled {
                 debug.push(format!(
-                    "[SG_DEBUG]   stage {} active_objects={}",
-                    stage_idx, active_cnt
+                    "[SG_DEBUG]   stage {} active_objects={} mwnd_embedded={} groups={} btnselitems={} worlds={} effects={} quakes={}",
+                    stage_idx, active_cnt, mwnd_embedded_cnt, group_cnt, btnselitem_cnt, world_cnt, effect_cnt, quake_cnt
                 ));
+                if let Some(effects) = st.effect_lists.get(&stage_idx) {
+                    for (effect_idx, effect) in effects.iter().enumerate() {
+                        debug.push(format!(
+                            "[SG_DEBUG]     effect[{}] range=({},{})->({},{}) wipe_copy={} wipe_erase={} xy=({}, {}) color_rate={} bright={} dark={} tr-like-mono={}",
+                            effect_idx,
+                            effect.begin_order,
+                            effect.begin_layer,
+                            effect.end_order,
+                            effect.end_layer,
+                            effect.wipe_copy,
+                            effect.wipe_erase,
+                            effect.x.get_total_value(),
+                            effect.y.get_total_value(),
+                            effect.color_rate.get_total_value(),
+                            effect.bright.get_total_value(),
+                            effect.dark.get_total_value(),
+                            effect.mono.get_total_value(),
+                        ));
+                    }
+                }
+                if let Some(quakes) = st.quake_lists.get(&stage_idx) {
+                    for (quake_idx, quake) in quakes.iter().enumerate() {
+                        debug.push(format!(
+                            "[SG_DEBUG]     quake[{}] type={} power={} vec={} center=({}, {}) order_range={}..{} active={}",
+                            quake_idx,
+                            quake.quake_type,
+                            quake.power,
+                            quake.vec,
+                            quake.center_x,
+                            quake.center_y,
+                            quake.begin_order,
+                            quake.end_order,
+                            quake.until.is_some(),
+                        ));
+                    }
+                }
+            }
+            if stage_idx != selected_stage {
+                if let Some((focused_form, focused_stage, focused_idx)) = focused_mwnd {
+                    if focused_form == form_id && focused_stage == stage_idx {
+                        if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+                            if let Some(m) = mwnds.get(focused_idx) {
+                                append_mwnd_embedded_sprites(
+                                    ctx,
+                                    worlds,
+                                    stage_idx,
+                                    m,
+                                    &mut object_list,
+                                    &mut object_keys,
+                                    &mut debug,
+                                );
+                            }
+                        }
+                    }
+                }
+                continue;
             }
             if let Some(list) = st.object_lists.get(&stage_idx) {
                 let mut top: Vec<(usize, &globals::ObjectState)> = list
                     .iter()
                     .enumerate()
-                    .filter(|(_, o)| object_participates_in_tree(o))
+                    .filter(|(obj_idx, o)| {
+                        !st.is_embedded_object_slot(stage_idx, *obj_idx)
+                            && object_participates_in_tree(o)
+                    })
                     .collect();
                 top.sort_by(|(lhs_idx, lhs), (rhs_idx, rhs)| {
                     let l = effective_object_info(ctx, stage_idx, *lhs_idx, lhs);
@@ -6968,7 +7957,34 @@ fn build_siglus_object_render_list(
                 }
             }
             if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
-                for m in mwnds {
+                for (mwnd_idx, m) in mwnds.iter().enumerate() {
+                    if debug_enabled {
+                        let embedded_cnt = m.button_list.len() + m.face_list.len() + m.object_list.len();
+                        if m.open || embedded_cnt != 0 || !m.msg_text.is_empty() || !m.name_text.is_empty() || m.selection.is_some() {
+                            debug.push(format!(
+                                "[SG_DEBUG]     mwnd[{mwnd_idx}] open={} layer={} world={} msg_len={} name_len={} embedded={} button={} face={} object={} waku={} filter={} face_file={} open_anim=({}, {}) close_anim=({}, {}) selection={} hide_flags=(script:{},sys:{})",
+                                m.open,
+                                m.layer,
+                                m.world,
+                                m.msg_text.chars().count(),
+                                m.name_text.chars().count(),
+                                embedded_cnt,
+                                m.button_list.len(),
+                                m.face_list.len(),
+                                m.object_list.len(),
+                                if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+                                if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+                                if m.face_file.is_empty() { "-" } else { m.face_file.as_str() },
+                                m.open_anime_type,
+                                m.open_anime_time,
+                                m.close_anime_type,
+                                m.close_anime_time,
+                                m.selection.is_some(),
+                                ctx.globals.script.mwnd_disp_off_flag,
+                                ctx.globals.syscom.hide_mwnd.onoff,
+                            ));
+                        }
+                    }
                     append_mwnd_embedded_sprites(
                         ctx,
                         worlds,
@@ -6988,15 +8004,32 @@ fn build_siglus_object_render_list(
     for rs in base {
         match (rs.layer_id, rs.sprite_id) {
             (Some(lid), Some(sid)) if object_keys.contains(&(lid, sid)) => {}
-            (None, None) => bg.push(rs.clone()),
-            _ => rest.push(rs.clone()),
+            (None, None) if render_sprite_visible_for_submit(rs) => bg.push(rs.clone()),
+            (None, None) => {}
+            _ if render_sprite_visible_for_submit(rs) => rest.push(rs.clone()),
+            _ => {}
         }
     }
 
-    let mut final_list = Vec::with_capacity(bg.len() + object_list.len() + rest.len());
+    let rest_len = rest.len();
+    let mut ordered: Vec<(i32, usize, RenderSprite)> = Vec::with_capacity(rest.len() + object_list.len());
+    for (idx, rs) in rest.into_iter().enumerate() {
+        // LayerManager ids are storage handles. They are not Siglus script-layer
+        // values, so non-object sprites must keep the order already assigned by
+        // their producer instead of deriving a new key from the backing layer id.
+        ordered.push((rs.sprite.order, idx, rs));
+    }
+    for (idx, rs) in object_list.into_iter().enumerate() {
+        // Object tree sprites already store the original C++ S_tnm_sorter
+        // (order, layer) as order*1024 + layer.  Do not mix in the backing
+        // LayerManager id here; it is only a storage handle, not the script layer.
+        ordered.push((rs.sprite.order, rest_len.saturating_add(idx), rs));
+    }
+    ordered.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+
+    let mut final_list = Vec::with_capacity(bg.len() + ordered.len());
     final_list.extend(bg);
-    final_list.extend(object_list);
-    final_list.extend(rest);
+    final_list.extend(ordered.into_iter().map(|(_, _, rs)| rs));
     (final_list, debug)
 }
 
@@ -7078,7 +8111,7 @@ pub fn dispatch(ctx: &mut CommandContext, cmd: &Command) -> Result<()> {
     Ok(())
 }
 
-fn apply_button_visuals(ctx: &CommandContext, sprites: &mut [RenderSprite]) {
+fn apply_button_visuals(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
     let mut map: HashMap<(LayerId, SpriteId), ButtonVisualState> = HashMap::new();
 
     let mut form_ids: Vec<u32> = ctx.globals.stage_forms.keys().copied().collect();
@@ -7095,6 +8128,19 @@ fn apply_button_visuals(ctx: &CommandContext, sprites: &mut [RenderSprite]) {
             };
             for (obj_idx, obj) in objs.iter().enumerate() {
                 collect_button_visuals_recursive(ctx, st, stage_idx, obj_idx, obj, &mut map, None);
+            }
+            if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+                for m in mwnds {
+                    for (obj_idx, obj) in m.button_list.iter().enumerate() {
+                        collect_button_visuals_recursive(ctx, st, stage_idx, obj_idx, obj, &mut map, None);
+                    }
+                    for (obj_idx, obj) in m.face_list.iter().enumerate() {
+                        collect_button_visuals_recursive(ctx, st, stage_idx, obj_idx, obj, &mut map, None);
+                    }
+                    for (obj_idx, obj) in m.object_list.iter().enumerate() {
+                        collect_button_visuals_recursive(ctx, st, stage_idx, obj_idx, obj, &mut map, None);
+                    }
+                }
             }
         }
     }
@@ -7154,7 +8200,20 @@ fn collect_button_visuals_recursive(
                 state = TNM_BTN_STATE_HIT;
             }
         }
+        let runtime_slot = object_runtime_slot(obj_idx, obj);
+        let base_pat_no = if ctx.ids.obj_patno != 0 {
+            obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_patno)
+                .or_else(|| ctx.gfx.object_peek_patno(stage_idx, runtime_slot as i64))
+                .unwrap_or(obj.base.patno)
+        } else {
+            ctx.gfx
+                .object_peek_patno(stage_idx, runtime_slot as i64)
+                .unwrap_or(obj.base.patno)
+        };
         effective_visual = Some(ButtonVisualState {
+            stage_idx,
+            runtime_slot: runtime_slot as i64,
+            base_pat_no,
             state,
             action_no: obj.button.action_no,
         });
@@ -7162,6 +8221,22 @@ fn collect_button_visuals_recursive(
 
     if let Some(visual) = effective_visual {
         let runtime_slot = object_runtime_slot(obj_idx, obj);
+        let base_pat_no = if ctx.ids.obj_patno != 0 {
+            obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_patno)
+                .or_else(|| ctx.gfx.object_peek_patno(stage_idx, runtime_slot as i64))
+                .unwrap_or(obj.base.patno)
+        } else {
+            ctx.gfx
+                .object_peek_patno(stage_idx, runtime_slot as i64)
+                .unwrap_or(obj.base.patno)
+        };
+        let visual = ButtonVisualState {
+            stage_idx,
+            runtime_slot: runtime_slot as i64,
+            base_pat_no,
+            state: visual.state,
+            action_no: visual.action_no,
+        };
         match &obj.backend {
             ObjectBackend::Gfx => {
                 if let Some((lid, sid)) = ctx
@@ -7235,14 +8310,69 @@ fn button_action_pattern(
     tables::ButtonActionTemplate::default().state[state_idx]
 }
 
-fn apply_button_state_visual(ctx: &CommandContext, sprite: &mut Sprite, visual: ButtonVisualState) {
+fn apply_button_state_visual(ctx: &mut CommandContext, sprite: &mut Sprite, visual: ButtonVisualState) {
     let pat = button_action_pattern(ctx, visual.action_no, visual.state);
+
+    if pat.rep_pat_no != 0 {
+        let base_pat_no = ctx
+            .gfx
+            .object_peek_patno(visual.stage_idx, visual.runtime_slot)
+            .unwrap_or(visual.base_pat_no);
+        let pat_no = base_pat_no.saturating_add(pat.rep_pat_no).max(0) as u32;
+        let mut loaded = None;
+        if let Some(file) = ctx.gfx.object_peek_file(visual.stage_idx, visual.runtime_slot) {
+            loaded = match ctx.images.load_g00(&file, pat_no) {
+                Ok(image_id) => Some(image_id),
+                Err(_) => ctx.images.load_bg_frame(&file, pat_no as usize).ok(),
+            };
+        }
+        if loaded.is_none() {
+            if let Some(image_id) = sprite.image_id {
+                if let Some(info) = ctx.images.debug_image_info(image_id) {
+                    if let Some(path) = info.source_path {
+                        loaded = ctx.images.load_file(&path, pat_no as usize).ok();
+                    }
+                }
+            }
+        }
+        if let Some(image_id) = loaded {
+            sprite.image_id = Some(image_id);
+        }
+    }
 
     sprite.x = sprite.x.saturating_add(pat.rep_pos_x as i32);
     sprite.y = sprite.y.saturating_add(pat.rep_pos_y as i32);
     sprite.tr = ((sprite.tr as i64 * pat.rep_tr.clamp(0, 255)) / 255).clamp(0, 255) as u8;
     sprite.bright = (sprite.bright as i64 + pat.rep_bright).clamp(0, 255) as u8;
     sprite.dark = (sprite.dark as i64 + pat.rep_dark).clamp(0, 255) as u8;
+}
+
+fn sprite_sorter_order(sprite_order_key: i32) -> i32 {
+    if sprite_order_key.abs() >= 1024 {
+        sprite_order_key.div_euclid(1024)
+    } else {
+        0
+    }
+}
+
+fn sorter_key(order: i32, layer: i32) -> i64 {
+    (order as i64)
+        .saturating_mul(1024)
+        .saturating_add(layer.clamp(-1023, 1023) as i64)
+}
+
+fn sprite_sorter_key(rs: &RenderSprite) -> i64 {
+    rs.sprite.order as i64
+}
+
+fn quake_order_affects_sprite(quake: &globals::ScreenQuakeState, rs: &RenderSprite) -> bool {
+    let order = sprite_sorter_order(rs.sprite.order);
+    let (lo, hi) = if quake.begin_order <= quake.end_order {
+        (quake.begin_order, quake.end_order)
+    } else {
+        (quake.end_order, quake.begin_order)
+    };
+    lo <= order && order <= hi
 }
 
 fn apply_quake(globals: &globals::GlobalState, sprites: &mut [RenderSprite]) {
@@ -7291,13 +8421,63 @@ fn apply_quake(globals: &globals::GlobalState, sprites: &mut [RenderSprite]) {
             dy_total += dy;
         }
     }
-    if dx_total == 0.0 && dy_total == 0.0 {
+
+    let mut stage_quakes: Vec<globals::ScreenQuakeState> = Vec::new();
+    let mut stage_form_ids: Vec<u32> = globals.stage_forms.keys().copied().collect();
+    stage_form_ids.sort_unstable();
+    for form_id in stage_form_ids {
+        let Some(st) = globals.stage_forms.get(&form_id) else {
+            continue;
+        };
+        let mut stage_ids: Vec<i64> = st.quake_lists.keys().copied().collect();
+        stage_ids.sort_unstable();
+        for stage_idx in stage_ids {
+            if stage_idx != TNM_STAGE_FRONT_I64 {
+                continue;
+            }
+            if let Some(quakes) = st.quake_lists.get(&stage_idx) {
+                stage_quakes.extend(quakes.iter().filter(|q| q.until.is_some()).cloned());
+            }
+        }
+    }
+
+    let apply_to_all = dx_total != 0.0 || dy_total != 0.0;
+    if !apply_to_all && stage_quakes.is_empty() {
         return;
     }
 
     for rs in sprites.iter_mut() {
-        rs.sprite.x = rs.sprite.x.saturating_add(dx_total as i32);
-        rs.sprite.y = rs.sprite.y.saturating_add(dy_total as i32);
+        let mut dx = if apply_to_all { dx_total } else { 0.0 };
+        let mut dy = if apply_to_all { dy_total } else { 0.0 };
+        for quake in &stage_quakes {
+            if !quake_order_affects_sprite(quake, rs) {
+                continue;
+            }
+            let power = quake.power.min(32) as f32;
+            if power <= 0.0 {
+                continue;
+            }
+            let t = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as f32;
+            let mut qdx = (t * 0.02).sin() * power;
+            let mut qdy = (t * 0.017).cos() * power;
+            if quake.vec != 0 {
+                let angle = (quake.vec as f32) * std::f32::consts::PI / 180.0;
+                let (s, c) = angle.sin_cos();
+                let rx = qdx * c - qdy * s;
+                let ry = qdx * s + qdy * c;
+                qdx = rx;
+                qdy = ry;
+            }
+            dx += qdx;
+            dy += qdy;
+        }
+        if dx != 0.0 || dy != 0.0 {
+            rs.sprite.x = rs.sprite.x.saturating_add(dx as i32);
+            rs.sprite.y = rs.sprite.y.saturating_add(dy as i32);
+        }
     }
 }
 
@@ -7333,9 +8513,7 @@ fn apply_screen_effects(
     }
     for effect in &effects {
         for rs in sprites.iter_mut() {
-            let layer = rs.layer_id.map(|v| v as i32).unwrap_or(0);
-            let order = rs.sprite.order;
-            if !in_range(layer, order, effect) {
+            if !in_sorter_range(rs, effect) {
                 continue;
             }
             apply_effect_to_sprite(&mut rs.sprite, effect);
@@ -7345,6 +8523,28 @@ fn apply_screen_effects(
 
 fn read_effect_event(ev: &crate::runtime::int_event::IntEvent) -> i32 {
     ev.get_total_value() as i32
+}
+
+fn effect_param_from_state(effect: &globals::ScreenEffectState) -> EffectParam {
+    EffectParam {
+        x: read_effect_event(&effect.x),
+        y: read_effect_event(&effect.y),
+        mono: read_effect_event(&effect.mono),
+        reverse: read_effect_event(&effect.reverse),
+        bright: read_effect_event(&effect.bright),
+        dark: read_effect_event(&effect.dark),
+        color_r: read_effect_event(&effect.color_r),
+        color_g: read_effect_event(&effect.color_g),
+        color_b: read_effect_event(&effect.color_b),
+        color_rate: read_effect_event(&effect.color_rate),
+        color_add_r: read_effect_event(&effect.color_add_r),
+        color_add_g: read_effect_event(&effect.color_add_g),
+        color_add_b: read_effect_event(&effect.color_add_b),
+        begin_order: effect.begin_order,
+        begin_layer: effect.begin_layer,
+        end_order: effect.end_order,
+        end_layer: effect.end_layer,
+    }
 }
 
 fn collect_screen_effects(
@@ -7359,31 +8559,33 @@ fn collect_screen_effects(
             continue;
         };
         for effect in &st.effect_list {
-            let mut rp = EffectParam {
-                x: read_effect_event(&effect.x),
-                y: read_effect_event(&effect.y),
-                mono: read_effect_event(&effect.mono),
-                reverse: read_effect_event(&effect.reverse),
-                bright: read_effect_event(&effect.bright),
-                dark: read_effect_event(&effect.dark),
-                color_r: read_effect_event(&effect.color_r),
-                color_g: read_effect_event(&effect.color_g),
-                color_b: read_effect_event(&effect.color_b),
-                color_rate: read_effect_event(&effect.color_rate),
-                color_add_r: read_effect_event(&effect.color_add_r),
-                color_add_g: read_effect_event(&effect.color_add_g),
-                color_add_b: read_effect_event(&effect.color_add_b),
-                begin_order: effect.begin_order,
-                begin_layer: effect.begin_layer,
-                end_order: effect.end_order,
-                end_layer: effect.end_layer,
-            };
-            if rp.begin_layer == 0 && rp.end_layer == 0 {
-                rp.begin_layer = i32::MIN;
-                rp.end_layer = i32::MAX;
-            }
+            let rp = effect_param_from_state(effect);
             if effect_is_use(&rp) {
                 out.push(rp);
+            }
+        }
+    }
+
+    let mut stage_form_ids: Vec<u32> = globals.stage_forms.keys().copied().collect();
+    stage_form_ids.sort_unstable();
+    for form_id in stage_form_ids {
+        let Some(st) = globals.stage_forms.get(&form_id) else {
+            continue;
+        };
+        let mut stage_ids: Vec<i64> = st.effect_lists.keys().copied().collect();
+        stage_ids.sort_unstable();
+        for stage_idx in stage_ids {
+            if stage_idx != TNM_STAGE_FRONT_I64 {
+                continue;
+            }
+            let Some(effects) = st.effect_lists.get(&stage_idx) else {
+                continue;
+            };
+            for effect in effects {
+                let rp = effect_param_from_state(effect);
+                if effect_is_use(&rp) {
+                    out.push(rp);
+                }
             }
         }
     }
@@ -7406,18 +8608,15 @@ fn effect_is_use(effect: &EffectParam) -> bool {
         || effect.color_add_b != 0
 }
 
-fn in_range(layer: i32, order: i32, effect: &EffectParam) -> bool {
-    let (lo_layer, hi_layer) = if effect.begin_layer <= effect.end_layer {
-        (effect.begin_layer, effect.end_layer)
+fn in_sorter_range(rs: &RenderSprite, effect: &EffectParam) -> bool {
+    let key = sprite_sorter_key(rs);
+    let begin = sorter_key(effect.begin_order, effect.begin_layer);
+    let end = sorter_key(effect.end_order, effect.end_layer);
+    if begin <= end {
+        begin <= key && key <= end
     } else {
-        (effect.end_layer, effect.begin_layer)
-    };
-    let (lo_order, hi_order) = if effect.begin_order <= effect.end_order {
-        (effect.begin_order, effect.end_order)
-    } else {
-        (effect.end_order, effect.begin_order)
-    };
-    layer >= lo_layer && layer <= hi_layer && order >= lo_order && order <= hi_order
+        end <= key && key <= begin
+    }
 }
 
 fn apply_effect_to_sprite(sprite: &mut Sprite, effect: &EffectParam) {
@@ -7472,6 +8671,13 @@ enum WipePartition {
     Over,
 }
 
+fn render_sprite_sorter(rs: &RenderSprite) -> (i32, i32) {
+    // Object-tree sprites store the C++ S_tnm_sorter as order * 1024 + layer.
+    // LayerId/SpriteId are only backend storage handles and must not be used for wipe ranges.
+    let packed = rs.sprite.order;
+    (packed / 1024, packed % 1024)
+}
+
 fn classify_wipe_partition(
     rs: &RenderSprite,
     begin_layer: i32,
@@ -7480,8 +8686,7 @@ fn classify_wipe_partition(
     end_order: i32,
     with_low: bool,
 ) -> WipePartition {
-    let layer = rs.layer_id.map(|v| v as i32).unwrap_or(-1);
-    let order = rs.sprite.order;
+    let (order, layer) = render_sprite_sorter(rs);
     if layer < begin_layer {
         return WipePartition::Under;
     }
@@ -7718,9 +8923,81 @@ fn apply_runtime_light_and_fog(ctx: &CommandContext, sprite: &mut Sprite) {
     }
 }
 
+fn render_sprite_visible_for_submit(rs: &RenderSprite) -> bool {
+    rs.sprite.visible && rs.sprite.image_id.is_some() && rs.sprite.alpha > 0 && rs.sprite.tr > 0
+}
+
+fn scale_sprite_tr(sprite: &mut Sprite, rate: f32) {
+    sprite.tr = ((sprite.tr as f32) * rate.clamp(0.0, 1.0)).round().clamp(0.0, 255.0) as u8;
+}
+
+fn build_regular_stage_wipe_list(
+    ctx: &mut CommandContext,
+    front_stage: &[RenderSprite],
+    next_stage: &[RenderSprite],
+) -> Option<Vec<RenderSprite>> {
+    let wipe = ctx.globals.wipe.as_ref()?;
+    let wipe_type = wipe.wipe_type;
+    if (220..=243).contains(&wipe_type) {
+        return None;
+    }
+
+    let begin_layer = wipe.begin_layer;
+    let end_layer = wipe.end_layer;
+    let begin_order = wipe.begin_order;
+    let end_order = wipe.end_order;
+    let with_low = wipe.with_low_order != 0;
+    let raw_progress = wipe.progress();
+    let progress = match wipe.speed_mode {
+        1 => raw_progress * raw_progress,
+        2 => 1.0 - (1.0 - raw_progress) * (1.0 - raw_progress),
+        3 => raw_progress * raw_progress * (3.0 - 2.0 * raw_progress),
+        _ => raw_progress,
+    };
+
+    let mut under = Vec::new();
+    let mut front_target = Vec::new();
+    let mut over = Vec::new();
+    for rs in front_stage.iter().cloned() {
+        match classify_wipe_partition(&rs, begin_layer, end_layer, begin_order, end_order, with_low) {
+            WipePartition::Under => under.push(rs),
+            WipePartition::Target => front_target.push(rs),
+            WipePartition::Over => over.push(rs),
+        }
+    }
+
+    let mut next_target = Vec::new();
+    for rs in next_stage.iter().cloned() {
+        if matches!(
+            classify_wipe_partition(&rs, begin_layer, end_layer, begin_order, end_order, with_low),
+            WipePartition::Target
+        ) {
+            next_target.push(rs);
+        }
+    }
+
+    let mut out = Vec::new();
+    out.extend(under);
+    match wipe_type {
+        1 => out.extend(front_target),
+        2 => out.extend(next_target),
+        _ => {
+            out.extend(next_target);
+            for mut rs in front_target {
+                scale_sprite_tr(&mut rs.sprite, progress);
+                out.push(rs);
+            }
+        }
+    }
+    out.extend(over);
+    out.retain(render_sprite_visible_for_submit);
+    Some(out)
+}
+
 fn build_dual_source_wipe_list(
     ctx: &mut CommandContext,
     current: &[RenderSprite],
+    next_stage: &[RenderSprite],
 ) -> Option<Vec<RenderSprite>> {
     let wipe = ctx.globals.wipe.as_ref()?;
     let wipe_type = wipe.wipe_type;
@@ -7728,10 +9005,10 @@ fn build_dual_source_wipe_list(
         return None;
     }
 
-    let front = if ctx.last_presented_render_list.is_empty() {
+    let front = if next_stage.is_empty() {
         current.to_vec()
     } else {
-        ctx.last_presented_render_list.clone()
+        next_stage.to_vec()
     };
 
     let begin_layer = wipe.begin_layer;
@@ -7978,8 +9255,7 @@ fn apply_wipe_effect(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
     let fade = (progress * 255.0).clamp(0.0, 255.0) as u8;
 
     for rs in sprites.iter_mut() {
-        let layer = rs.layer_id.map(|v| v as i32).unwrap_or(0);
-        let order = rs.sprite.order;
+        let (order, layer) = render_sprite_sorter(rs);
         if layer < begin_layer || layer > end_layer {
             continue;
         }
@@ -8303,10 +9579,10 @@ fn sprite_bounds(sprite: &Sprite, ctx: &CommandContext) -> Option<(i32, i32, i32
 }
 
 fn apply_syscom_filter(ctx: &CommandContext, sprites: &mut Vec<RenderSprite>) {
-    const GET_FILTER_COLOR_R: i32 = 272;
-    const GET_FILTER_COLOR_G: i32 = 273;
-    const GET_FILTER_COLOR_B: i32 = 274;
-    const GET_FILTER_COLOR_A: i32 = 275;
+    const GET_FILTER_COLOR_R: i32 = 84;
+    const GET_FILTER_COLOR_G: i32 = 91;
+    const GET_FILTER_COLOR_B: i32 = 92;
+    const GET_FILTER_COLOR_A: i32 = 93;
     let cfg = &ctx.globals.syscom.config_int;
     let a = cfg
         .get(&GET_FILTER_COLOR_A)
@@ -8933,24 +10209,35 @@ fn ensure_font_list(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path
     if !syscom.font_list.is_empty() {
         return;
     }
-    let dir = project_dir.join("font");
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
+
+    let mut seen = HashSet::new();
+    for dir in [project_dir.join("font"), project_dir.join("fonts")] {
+        let Ok(entries) = fs::read_dir(dir) else {
             continue;
-        }
-        let ext = path
-            .extension()
-            .and_then(|s| s.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if ext == "ttf" || ext == "otf" || ext == "ttc" {
-            if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                syscom.font_list.push(name.to_string());
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
             }
+            let ext = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if ext == "ttf" || ext == "otf" || ext == "ttc" {
+                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    if seen.insert(name.to_string()) {
+                        syscom.font_list.push(name.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    for name in embedded_default_font_names() {
+        if seen.insert((*name).to_string()) {
+            syscom.font_list.push((*name).to_string());
         }
     }
     syscom.font_list.sort();

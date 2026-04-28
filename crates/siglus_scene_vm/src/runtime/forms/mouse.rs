@@ -23,7 +23,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     let op = chain[1] as i64;
     match op {
         o if o == ctx.ids.mouse_op_clear as i64 => {
-            ctx.script_input.clear_mouse();
+            ctx.script_input.use_mouse_stocks();
             Ok(true)
         }
         o if o == ctx.ids.mouse_op_next as i64 => {

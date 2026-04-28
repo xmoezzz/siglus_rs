@@ -1,6 +1,9 @@
 use anyhow::Result;
 
+use std::path::{Path, PathBuf};
+
 use crate::runtime::{constants, forms, CommandContext, Value};
+use crate::runtime::globals::WipeState;
 
 use crate::runtime::forms::{
     cgtable, counter, database, editbox, file, frame_action, frame_action_ch, g00buf, input,
@@ -103,14 +106,45 @@ fn named_i64(args: &[Value], id: i32) -> Option<i64> {
     })
 }
 
-fn mwnd_no_from_value(v: &Value) -> Option<usize> {
+fn positional_i64(args: &[Value], idx: usize) -> Option<i64> {
+    args.iter()
+        .filter(|v| !matches!(v, Value::NamedArg { .. }))
+        .filter_map(Value::as_i64)
+        .nth(idx)
+}
+
+fn global_stage_alias_to_index(form_id: i32) -> Option<i64> {
+    let form_id = form_id as u32;
+    if form_id == constants::global_form::BACK {
+        Some(0)
+    } else if form_id == constants::global_form::FRONT {
+        Some(1)
+    } else if form_id == constants::global_form::NEXT {
+        Some(2)
+    } else {
+        None
+    }
+}
+
+fn mwnd_ref_from_value(v: &Value) -> Option<(i64, usize)> {
     match v.unwrap_named() {
-        Value::Int(n) if *n >= 0 => Some(*n as usize),
-        Value::Element(chain) => chain
-            .windows(2)
-            .find_map(|w| (w[0] == forms::codes::ELM_ARRAY && w[1] >= 0).then_some(w[1] as usize)),
+        Value::Int(n) if *n >= 0 => Some((1, *n as usize)),
+        Value::Element(chain) => {
+            let stage = chain
+                .first()
+                .and_then(|head| global_stage_alias_to_index(*head))
+                .unwrap_or(1);
+            let no = chain
+                .windows(2)
+                .find_map(|w| (w[0] == forms::codes::ELM_ARRAY && w[1] >= 0).then_some(w[1] as usize))?;
+            Some((stage, no))
+        }
         _ => None,
     }
+}
+
+fn mwnd_no_from_value(v: &Value) -> Option<usize> {
+    mwnd_ref_from_value(v).map(|(_, no)| no)
 }
 
 fn parse_selbtn_choices(
@@ -233,15 +267,31 @@ fn dispatch_global_koe_command(
     let ret_form: Option<i64> = crate::runtime::forms::prop_access::current_vm_meta(ctx).1;
     match op {
         constants::elm_value::GLOBAL_KOE | constants::elm_value::GLOBAL_EXKOE => {
-            let koe_no = args.get(0).and_then(Value::as_i64).unwrap_or(0);
-            let chara_no = args.get(1).and_then(Value::as_i64).unwrap_or(0);
+            ctx.request_read_flag_no();
             let is_ex = op == constants::elm_value::GLOBAL_EXKOE;
+            let koe_no = if is_ex {
+                named_i64(args, 0).or_else(|| positional_i64(args, 0))
+            } else {
+                positional_i64(args, 0)
+            }
+            .unwrap_or(0);
+            let chara_no = if is_ex {
+                named_i64(args, 1).or_else(|| positional_i64(args, 1))
+            } else {
+                positional_i64(args, 1)
+            }
+            .unwrap_or(0);
             remember_global_koe(ctx, koe_no, chara_no, is_ex);
             if let Err(err) = {
                 let (koe, audio) = (&mut ctx.koe, &mut ctx.audio);
                 koe.play_koe_no(audio, koe_no)
             } {
                 eprintln!("[SG_AUDIO] koe.play failed koe_no={koe_no}: {err:#}");
+            }
+            if is_ex && named_i64(args, 2).unwrap_or(0) != 0 {
+                let key_skip = named_i64(args, 3).unwrap_or(0) != 0;
+                ctx.wait
+                    .wait_audio(crate::runtime::wait::AudioWait::KoeAny, key_skip);
             }
             if ret_form.unwrap_or(0) != 0 {
                 ctx.push(Value::Int(0));
@@ -252,10 +302,21 @@ fn dispatch_global_koe_command(
         | constants::elm_value::GLOBAL_KOE_PLAY_WAIT_KEY
         | constants::elm_value::GLOBAL_EXKOE_PLAY_WAIT
         | constants::elm_value::GLOBAL_EXKOE_PLAY_WAIT_KEY => {
-            let koe_no = args.get(0).and_then(Value::as_i64).unwrap_or(0);
-            let chara_no = args.get(1).and_then(Value::as_i64).unwrap_or(0);
+            ctx.request_read_flag_no();
             let is_ex = op == constants::elm_value::GLOBAL_EXKOE_PLAY_WAIT
                 || op == constants::elm_value::GLOBAL_EXKOE_PLAY_WAIT_KEY;
+            let koe_no = if is_ex {
+                named_i64(args, 0).or_else(|| positional_i64(args, 0))
+            } else {
+                positional_i64(args, 0)
+            }
+            .unwrap_or(0);
+            let chara_no = if is_ex {
+                named_i64(args, 1).or_else(|| positional_i64(args, 1))
+            } else {
+                positional_i64(args, 1)
+            }
+            .unwrap_or(0);
             remember_global_koe(ctx, koe_no, chara_no, is_ex);
             if let Err(err) = {
                 let (koe, audio) = (&mut ctx.koe, &mut ctx.audio);
@@ -323,6 +384,145 @@ fn dispatch_global_koe_command(
         }
         _ => Ok(false),
     }
+}
+
+fn parse_i32_value(v: &Value) -> Option<i32> {
+    v.unwrap_named().as_i64().and_then(|n| i32::try_from(n).ok())
+}
+
+fn parse_bool_value(v: &Value) -> Option<bool> {
+    parse_i32_value(v).map(|n| n != 0)
+}
+
+fn parse_list_i32_value(v: &Value) -> Vec<i32> {
+    match v.unwrap_named() {
+        Value::List(xs) => xs.iter().filter_map(|x| x.as_i64().and_then(|n| i32::try_from(n).ok())).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn resolve_wipe_mask_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
+    if raw.is_empty() { return None; }
+    let norm = raw.replace('\\', "/");
+    let p = Path::new(&norm);
+    if p.is_absolute() && p.is_file() { return Some(p.to_path_buf()); }
+    let mut candidates = Vec::new();
+    candidates.push(project_dir.join(&norm));
+    candidates.push(project_dir.join("dat").join(&norm));
+    if p.extension().is_none() {
+        for ext in ["png", "bmp", "jpg"] {
+            candidates.push(project_dir.join(format!("{}.{}", norm, ext)));
+            candidates.push(project_dir.join("dat").join(format!("{}.{}", norm, ext)));
+        }
+    }
+    candidates.into_iter().find(|c| c.is_file())
+}
+
+fn dispatch_global_wipe_command(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+    let op = form_id as i32;
+    let is_mask = matches!(op, constants::elm_value::GLOBAL_MASK_WIPE | constants::elm_value::GLOBAL_MASK_WIPE_ALL);
+    let is_all = matches!(op, constants::elm_value::GLOBAL_WIPE_ALL | constants::elm_value::GLOBAL_MASK_WIPE_ALL);
+
+    if op == constants::elm_value::GLOBAL_WIPE_END {
+        ctx.globals.finish_wipe();
+        return Ok(true);
+    }
+    if op == constants::elm_value::GLOBAL_WAIT_WIPE {
+        let key_wait_mode = args.iter().find_map(|v| match v {
+            Value::NamedArg { id, value } if *id == 0 => parse_i32_value(value),
+            _ => None,
+        }).unwrap_or(-1);
+        let key_skip = match key_wait_mode {
+            0 => false,
+            1 => true,
+            _ => ctx.globals.syscom.config_int.get(&197).copied().unwrap_or(0) != 0,
+        };
+        ctx.wait.wait_wipe(key_skip);
+        return Ok(true);
+    }
+    if op == constants::elm_value::GLOBAL_CHECK_WIPE {
+        ctx.push(Value::Int(if ctx.globals.wipe_done() { 0 } else { 1 }));
+        return Ok(true);
+    }
+
+    if !matches!(op,
+        constants::elm_value::GLOBAL_WIPE
+        | constants::elm_value::GLOBAL_WIPE_ALL
+        | constants::elm_value::GLOBAL_MASK_WIPE
+        | constants::elm_value::GLOBAL_MASK_WIPE_ALL
+    ) { return Ok(false); }
+
+    let mut positional: Vec<&Value> = Vec::new();
+    let mut named: Vec<(i32, &Value)> = Vec::new();
+    for a in args {
+        match a {
+            Value::NamedArg { id, value } => named.push((*id, value.as_ref())),
+            _ => positional.push(a),
+        }
+    }
+
+    let mut mask_file: Option<String> = None;
+    let mut wipe_type: i32 = 0;
+    let mut wipe_time: i32 = 500;
+    let mut speed_mode: i32 = 0;
+    let mut start_time: i32 = 0;
+    let mut option: Vec<i32> = Vec::new();
+    let mut begin_order: i32 = 0;
+    let mut end_order: i32 = if is_all { i32::MAX } else { 0 };
+    let mut begin_layer: i32 = i32::MIN;
+    let mut end_layer: i32 = i32::MAX;
+    let mut wait_flag = true;
+    let mut key_wait_mode: i32 = -1;
+    let mut with_low_order: i32 = 0;
+
+    if is_mask {
+        mask_file = positional.get(0).and_then(|v| v.unwrap_named().as_str()).map(str::to_string);
+        if let Some(v) = positional.get(1).and_then(|v| parse_i32_value(v)) { wipe_type = v; }
+        if let Some(v) = positional.get(2).and_then(|v| parse_i32_value(v)) { wipe_time = v; }
+        if let Some(v) = positional.get(3).and_then(|v| parse_i32_value(v)) { speed_mode = v; }
+        if let Some(v) = positional.get(4) { option = parse_list_i32_value(v); }
+    } else {
+        if let Some(v) = positional.get(0).and_then(|v| parse_i32_value(v)) { wipe_type = v; }
+        if let Some(v) = positional.get(1).and_then(|v| parse_i32_value(v)) { wipe_time = v; }
+        if let Some(v) = positional.get(2).and_then(|v| parse_i32_value(v)) { speed_mode = v; }
+        if let Some(v) = positional.get(3) { option = parse_list_i32_value(v); }
+    }
+
+    for (id, v) in named {
+        match id {
+            0 => if let Some(x) = parse_i32_value(v) { wipe_type = x; },
+            1 => if let Some(x) = parse_i32_value(v) { wipe_time = x; },
+            2 => if let Some(x) = parse_i32_value(v) { speed_mode = x; },
+            3 => option = parse_list_i32_value(v),
+            4 => if let Some(x) = parse_i32_value(v) { begin_order = x; },
+            5 => if let Some(x) = parse_i32_value(v) { end_order = x; },
+            6 => if let Some(x) = parse_i32_value(v) { begin_layer = x; },
+            7 => if let Some(x) = parse_i32_value(v) { end_layer = x; },
+            8 => if let Some(x) = parse_bool_value(v) { wait_flag = x; },
+            9 => if let Some(x) = parse_i32_value(v) { key_wait_mode = x; },
+            10 => if let Some(x) = parse_i32_value(v) { with_low_order = x; },
+            11 => if let Some(x) = parse_i32_value(v) { start_time = x; },
+            _ => {}
+        }
+    }
+    if is_all { end_order = i32::MAX; }
+
+    let mask_image_id = mask_file.as_ref().and_then(|f| {
+        resolve_wipe_mask_path(&ctx.project_dir, f).and_then(|p| ctx.images.load_file(&p, 0).ok())
+    });
+
+    stage::apply_stage_wipe(ctx, begin_order, end_order, begin_layer, end_layer);
+    ctx.globals.start_wipe(WipeState::new(mask_file, mask_image_id, wipe_type, wipe_time, start_time, speed_mode, option, begin_order, end_order, begin_layer, end_layer, wait_flag, key_wait_mode, with_low_order));
+
+    if wait_flag {
+        let key_skip = match key_wait_mode {
+            0 => false,
+            1 => true,
+            _ => ctx.globals.syscom.config_int.get(&197).copied().unwrap_or(0) != 0,
+        };
+        ctx.wait.wait_wipe(key_skip);
+    }
+    Ok(true)
 }
 
 fn dispatch_capture_command(
@@ -453,8 +653,9 @@ fn dispatch_global_message_command(
         }
         constants::elm_value::GLOBAL_MSG_BLOCK
         | constants::elm_value::GLOBAL_MSG_PP_BLOCK => {
-            // Message block commands are accepted here; key waits remain in
-            // WAIT_MSG/PP/R/PAGE.
+            // Message block commands update/forward message state only. They must not
+            // create a script-proc boundary; WAIT_MSG / PP / R / PAGE are the commands
+            // that actually stop the running script.
             push_global_message_ok(ctx);
             Ok(true)
         }
@@ -470,6 +671,7 @@ fn dispatch_global_message_command(
             Ok(true)
         }
         constants::elm_value::GLOBAL_PRINT => {
+            ctx.request_read_flag_no();
             if let Some(s) = global_message_arg_str(args) {
                 if !s.is_empty() {
                     ctx.ui.show_message_bg(true);
@@ -487,13 +689,19 @@ fn dispatch_global_message_command(
         constants::elm_value::GLOBAL_WAIT_MSG | constants::elm_value::GLOBAL_PP => {
             ctx.ui.begin_wait_message();
             ctx.wait.wait_key();
+            ctx.request_message_wait_proc_boundary();
             push_global_message_ok(ctx);
             Ok(true)
         }
         constants::elm_value::GLOBAL_R | constants::elm_value::GLOBAL_PAGE => {
-            ctx.ui.begin_wait_message();
+            if (form_id as i32) == constants::elm_value::GLOBAL_PAGE {
+                ctx.ui.begin_wait_page_message();
+            } else {
+                ctx.ui.begin_wait_message();
+            }
             ctx.ui.request_clear_message_on_wait_end();
             ctx.wait.wait_key();
+            ctx.request_message_wait_proc_boundary();
             push_global_message_ok(ctx);
             Ok(true)
         }
@@ -530,6 +738,9 @@ pub fn dispatch_global_form(
 ) -> Result<bool> {
     let form_id = canonical_global_form_id(ctx, form_id);
 
+    if dispatch_global_wipe_command(ctx, form_id, args)? {
+        return Ok(true);
+    }
     if dispatch_capture_command(ctx, form_id, args)? {
         return Ok(true);
     }
@@ -579,17 +790,20 @@ pub fn dispatch_global_form(
     }
     if form_id == 6 || form_id == 96 {
         ctx.wait.wait_next_frame(ctx.globals.render_frame);
+        ctx.request_disp_proc_boundary();
         return Ok(true);
     }
     if form_id == constants::elm_value::GLOBAL_SET_MWND as u32
         || form_id == constants::elm_value::GLOBAL_SET_SEL_MWND as u32
     {
-        let next = args.iter().find_map(mwnd_no_from_value);
+        let next = args.iter().find_map(mwnd_ref_from_value);
         if form_id == constants::elm_value::GLOBAL_SET_SEL_MWND as u32 {
-            if let Some(no) = next {
+            if let Some((stage, no)) = next {
+                ctx.globals.current_sel_mwnd_stage_idx = stage;
                 ctx.globals.current_sel_mwnd_no = Some(no);
             }
-        } else if let Some(no) = next {
+        } else if let Some((stage, no)) = next {
+            ctx.globals.current_mwnd_stage_idx = stage;
             ctx.globals.current_mwnd_no = Some(no);
         }
         return Ok(true);

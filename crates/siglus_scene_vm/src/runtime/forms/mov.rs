@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 
-use crate::runtime::{CommandContext, Value};
+use crate::runtime::{CommandContext, ProcKind, Value};
 
 use super::codes::mov_op;
 
@@ -95,6 +95,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             if let Some(id) = ctx.globals.mov.audio_id.take() {
                 ctx.movie.stop_audio(id);
             }
+            ctx.movie.stop();
             let info = ctx.movie.play(name, wait, key_skip)?;
             // C++ C_elm_mov::play starts native playback immediately and MOV_WAIT observes
             // is_playing().  Do not synchronously decode the whole movie here: doing so makes
@@ -118,6 +119,7 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
                     .unwrap_or(0);
                 let return_value_flag = ret_form != super::codes::FM_VOID as i64;
                 ctx.wait.wait_global_movie(key_skip, return_value_flag);
+                ctx.request_wait_proc_boundary(ProcKind::MovieWait);
             }
             Ok(true)
         }

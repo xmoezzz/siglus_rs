@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use crate::audio::{BgmEngine, KoeEngine, PcmEngine, SeEngine};
 
 use super::constants::RuntimeConstants;
-use super::globals::{GlobalState, ObjectState};
+use super::globals::{GlobalState, ObjectState, StageFormState};
 use super::int_event::IntEvent;
 use super::Value;
 
@@ -138,6 +138,44 @@ fn object_event_list_for_wait_mut<'a>(
     }
 }
 
+fn object_active_in_stage_state_by_runtime_slot(
+    st: &StageFormState,
+    stage_idx: i64,
+    runtime_slot: usize,
+) -> Option<&ObjectState> {
+    if let Some(obj) = st
+        .object_lists
+        .get(&stage_idx)
+        .and_then(|list| find_object_by_runtime_slot(list, runtime_slot))
+    {
+        return Some(obj);
+    }
+
+    if let Some(items) = st.btnselitem_lists.get(&stage_idx) {
+        for item in items {
+            if let Some(obj) = find_object_by_runtime_slot(&item.object_list, runtime_slot) {
+                return Some(obj);
+            }
+        }
+    }
+
+    if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+        for mwnd in mwnds {
+            if let Some(obj) = find_object_by_runtime_slot(&mwnd.button_list, runtime_slot) {
+                return Some(obj);
+            }
+            if let Some(obj) = find_object_by_runtime_slot(&mwnd.face_list, runtime_slot) {
+                return Some(obj);
+            }
+            if let Some(obj) = find_object_by_runtime_slot(&mwnd.object_list, runtime_slot) {
+                return Some(obj);
+            }
+        }
+    }
+
+    None
+}
+
 fn object_active_by_runtime_slot(
     globals: &GlobalState,
     stage_form_id: u32,
@@ -147,8 +185,14 @@ fn object_active_by_runtime_slot(
     globals
         .stage_forms
         .get(&stage_form_id)
-        .and_then(|st| st.object_lists.get(&stage_idx))
-        .and_then(|list| find_object_by_runtime_slot(list, runtime_slot))
+        .and_then(|st| object_active_in_stage_state_by_runtime_slot(st, stage_idx, runtime_slot))
+}
+
+fn find_object_by_runtime_slot_mut_ptr(
+    objects: &mut [ObjectState],
+    runtime_slot: usize,
+) -> Option<*mut ObjectState> {
+    find_object_by_runtime_slot_mut(objects, runtime_slot).map(|obj| obj as *mut ObjectState)
 }
 
 fn object_active_by_runtime_slot_mut(
@@ -157,11 +201,39 @@ fn object_active_by_runtime_slot_mut(
     stage_idx: i64,
     runtime_slot: usize,
 ) -> Option<&mut ObjectState> {
-    globals
-        .stage_forms
-        .get_mut(&stage_form_id)
-        .and_then(|st| st.object_lists.get_mut(&stage_idx))
-        .and_then(|list| find_object_by_runtime_slot_mut(list, runtime_slot))
+    let st = globals.stage_forms.get_mut(&stage_form_id)?;
+
+    if let Some(ptr) = st
+        .object_lists
+        .get_mut(&stage_idx)
+        .and_then(|list| find_object_by_runtime_slot_mut_ptr(list, runtime_slot))
+    {
+        return unsafe { Some(&mut *ptr) };
+    }
+
+    if let Some(items) = st.btnselitem_lists.get_mut(&stage_idx) {
+        for item in items {
+            if let Some(ptr) = find_object_by_runtime_slot_mut_ptr(&mut item.object_list, runtime_slot) {
+                return unsafe { Some(&mut *ptr) };
+            }
+        }
+    }
+
+    if let Some(mwnds) = st.mwnd_lists.get_mut(&stage_idx) {
+        for mwnd in mwnds {
+            if let Some(ptr) = find_object_by_runtime_slot_mut_ptr(&mut mwnd.button_list, runtime_slot) {
+                return unsafe { Some(&mut *ptr) };
+            }
+            if let Some(ptr) = find_object_by_runtime_slot_mut_ptr(&mut mwnd.face_list, runtime_slot) {
+                return unsafe { Some(&mut *ptr) };
+            }
+            if let Some(ptr) = find_object_by_runtime_slot_mut_ptr(&mut mwnd.object_list, runtime_slot) {
+                return unsafe { Some(&mut *ptr) };
+            }
+        }
+    }
+
+    None
 }
 
 fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &RuntimeConstants) {
@@ -274,6 +346,16 @@ pub struct VmWait {
 impl VmWait {
     pub fn block_generation(&self) -> u64 {
         self.block_generation
+    }
+
+    pub fn needs_runtime_poll(&self) -> bool {
+        self.until.is_some()
+            || self.until_frame.is_some()
+            || self.audio.is_some()
+            || self.event.is_some()
+            || self.movie.is_some()
+            || self.global_movie
+            || self.wipe
     }
 
     fn mark_block_request(&mut self) {

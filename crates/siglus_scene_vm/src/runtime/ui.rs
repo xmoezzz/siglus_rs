@@ -34,6 +34,22 @@ struct UiWindowAnim {
     pivot_abs_y: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct MwndWindowRenderState {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+    pub dx: i32,
+    pub dy: i32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub rotate: f32,
+    pub alpha: u8,
+    pub pivot_abs_x: f32,
+    pub pivot_abs_y: f32,
+}
+
 /// UI-side sprite cache for the message-window family and related overlays.
 #[derive(Debug, Default)]
 pub struct MwndWakuRuntime {
@@ -41,9 +57,15 @@ pub struct MwndWakuRuntime {
     pub filter_sprite: Option<SpriteId>,
     pub bg_image: Option<ImageId>,
     pub filter_image: Option<ImageId>,
+    pub solid_filter_image: Option<ImageId>,
     pub bg_file: Option<String>,
     pub filter_file: Option<String>,
     pub bg_size: Option<(u32, u32)>,
+    pub filter_size: Option<(u32, u32)>,
+    pub filter_margin: (i64, i64, i64, i64),
+    pub filter_color: (u8, u8, u8, u8),
+    pub filter_config_color: bool,
+    pub filter_config_tr: bool,
 }
 
 #[derive(Debug, Default)]
@@ -61,6 +83,28 @@ pub struct MwndNameRuntime {
     pub text_image: Option<ImageId>,
     pub text: Option<String>,
     pub text_dirty: bool,
+}
+
+#[derive(Debug, Default)]
+pub struct MwndKeyIconRuntime {
+    pub sprite: Option<SpriteId>,
+    pub image: Option<ImageId>,
+    pub file: Option<String>,
+    pub cached_mode: i64,
+    pub cached_pat: i64,
+    pub size: Option<(u32, u32)>,
+    pub key_file: Option<String>,
+    pub key_pat_cnt: i64,
+    pub key_speed: i64,
+    pub page_file: Option<String>,
+    pub page_pat_cnt: i64,
+    pub page_speed: i64,
+    pub appear: bool,
+    pub mode: i64,
+    pub anime_start: Option<Instant>,
+    pub icon_pos_type: i64,
+    pub icon_pos_base: i64,
+    pub icon_pos: (i64, i64, i64),
 }
 
 #[derive(Debug, Default)]
@@ -86,8 +130,11 @@ pub struct MwndWindowRuntime {
     pub pos: Option<(i32, i32)>,
     pub size: Option<(u32, u32)>,
     pub message_pos: Option<(i32, i32)>,
+    pub message_margin: Option<(i64, i64, i64, i64)>,
     pub moji_cnt: Option<(i64, i64)>,
     pub moji_size: Option<i64>,
+    pub moji_space: Option<(i64, i64)>,
+    pub extend_type: i64,
     pub moji_color: Option<i64>,
 }
 
@@ -111,6 +158,7 @@ pub struct MwndRuntime {
     pub waku: MwndWakuRuntime,
     pub face: MwndFaceRuntime,
     pub name: MwndNameRuntime,
+    pub key_icon: MwndKeyIconRuntime,
     pub msg: MwndMsgRuntime,
     pub window: MwndWindowRuntime,
     pub anim: MwndAnimRuntime,
@@ -151,15 +199,34 @@ pub struct EditBoxOverlayRuntime {
 pub struct MwndProjectionState {
     pub bg_file: Option<String>,
     pub filter_file: Option<String>,
+    pub filter_margin: Option<(i64, i64, i64, i64)>,
+    pub filter_color: Option<(u8, u8, u8, u8)>,
+    pub filter_config_color: bool,
+    pub filter_config_tr: bool,
     pub face_file: Option<String>,
     pub face_no: i64,
     pub rep_pos: Option<(i64, i64)>,
     pub window_pos: Option<(i64, i64)>,
     pub window_size: Option<(i64, i64)>,
     pub message_pos: Option<(i64, i64)>,
+    pub message_margin: Option<(i64, i64, i64, i64)>,
     pub window_moji_cnt: Option<(i64, i64)>,
     pub moji_size: Option<i64>,
+    pub moji_space: Option<(i64, i64)>,
+    pub mwnd_extend_type: i64,
     pub moji_color: Option<i64>,
+    pub key_icon_file: Option<String>,
+    pub key_icon_pat_cnt: i64,
+    pub key_icon_speed: i64,
+    pub page_icon_file: Option<String>,
+    pub page_icon_pat_cnt: i64,
+    pub page_icon_speed: i64,
+    pub key_icon_appear: bool,
+    pub key_icon_mode: i64,
+    pub key_icon_pos: Option<(i64, i64)>,
+    pub icon_pos_type: i64,
+    pub icon_pos_base: i64,
+    pub icon_pos: Option<(i64, i64, i64)>,
     pub slide_enabled: bool,
     pub slide_time: i64,
     pub name_text: String,
@@ -242,6 +309,24 @@ impl UiRuntime {
             .expect("ui_layer exists")
             .create_sprite();
         self.mwnd.face.sprite = Some(sprite_id);
+        sprite_id
+    }
+
+    fn ensure_key_icon_sprite(
+        &mut self,
+        layers: &mut crate::layer::LayerManager,
+        ui_layer: LayerId,
+    ) -> SpriteId {
+        if let Some(id) = self.mwnd.key_icon.sprite {
+            if layers.layer(ui_layer).and_then(|l| l.sprite(id)).is_some() {
+                return id;
+            }
+        }
+        let sprite_id = layers
+            .layer_mut(ui_layer)
+            .expect("ui_layer exists")
+            .create_sprite();
+        self.mwnd.key_icon.sprite = Some(sprite_id);
         sprite_id
     }
 
@@ -387,6 +472,15 @@ impl UiRuntime {
         let rect = self.window_rect(w, h);
         let pad = self.base_padding();
         let name_h = self.name_band_height();
+        if self.mwnd.window.extend_type == 1 {
+            let (l, t, r, b) = self.mwnd.window.message_margin.unwrap_or((20, 20, 20, 20));
+            let x = rect.x + l as i32;
+            let y = rect.y + t as i32;
+            let width = (rect.w as i32 - l as i32 - r as i32).max(1) as u32;
+            let height = (rect.h as i32 - t as i32 - b as i32).max(1) as u32;
+            return (x, y, width, height);
+        }
+
         let face_pad = if self.mwnd.face.file.is_some() || self.mwnd.face.image.is_some() {
             self.face_reserved_width(rect) + pad / 2
         } else {
@@ -395,12 +489,26 @@ impl UiRuntime {
         let fallback_x = rect.x + pad + face_pad;
         let fallback_y = rect.y + pad + name_h;
         let (x, y) = if let Some((mx, my)) = self.mwnd.window.message_pos {
-            (rect.x + mx + face_pad, rect.y + my)
+            (rect.x + mx, rect.y + my)
         } else {
             (fallback_x, fallback_y)
         };
-        let width = (rect.x + rect.w as i32 - x - pad).max(1) as u32;
-        let height = (rect.y + rect.h as i32 - y - pad).max(1) as u32;
+
+        if let Some((cols, rows)) = self.mwnd.window.moji_cnt {
+            let font_px = self.message_font_px() as i32;
+            let (space_x, space_y) = self.mwnd.window.moji_space.unwrap_or((-1, 10));
+            let cols = cols.max(1) as i32;
+            let rows = rows.max(1) as i32;
+            let width = (font_px * cols + space_x as i32 * (cols - 1)).max(1) as u32;
+            let height = (font_px * rows + space_y as i32 * (rows - 1)).max(font_px) as u32;
+            return (x, y, width, height);
+        }
+
+        let (l, t, r, b) = self.mwnd.window.message_margin.unwrap_or((pad as i64, pad as i64, pad as i64, pad as i64));
+        let right_pad = if self.mwnd.window.message_pos.is_some() { r as i32 } else { l as i32 };
+        let bottom_pad = if self.mwnd.window.message_pos.is_some() { b as i32 } else { t as i32 };
+        let width = (rect.x + rect.w as i32 - x - right_pad).max(1) as u32;
+        let height = (rect.y + rect.h as i32 - y - bottom_pad).max(1) as u32;
         (x, y, width, height)
     }
 
@@ -433,6 +541,47 @@ impl UiRuntime {
             y = rect.y + ry as i32;
         }
         UiRect::new(x, y, fw, fh)
+    }
+
+    fn key_icon_rect(&self, w: u32, h: u32) -> Option<UiRect> {
+        let rect = self.window_rect(w, h);
+        let (iw, ih) = self.mwnd.key_icon.size?;
+        let (ix, iy, _iz) = self.mwnd.key_icon.icon_pos;
+        let x;
+        let y;
+        if self.mwnd.key_icon.icon_pos_type == 0 {
+            match self.mwnd.key_icon.icon_pos_base {
+                1 => {
+                    x = rect.x + rect.w as i32 - ix as i32 - iw as i32;
+                    y = rect.y + iy as i32;
+                }
+                2 => {
+                    x = rect.x + ix as i32;
+                    y = rect.y + rect.h as i32 - iy as i32 - ih as i32;
+                }
+                3 => {
+                    x = rect.x + rect.w as i32 - ix as i32 - iw as i32;
+                    y = rect.y + rect.h as i32 - iy as i32 - ih as i32;
+                }
+                _ => {
+                    x = rect.x + ix as i32;
+                    y = rect.y + iy as i32;
+                }
+            }
+        } else {
+            x = rect.x + ix as i32;
+            y = rect.y + iy as i32;
+        }
+        Some(UiRect::new(x, y, iw, ih))
+    }
+
+    fn message_has_text(&self) -> bool {
+        self.mwnd.msg.text.as_deref().unwrap_or("").chars().next().is_some()
+    }
+
+    fn message_fully_revealed(&self) -> bool {
+        let total = self.mwnd.msg.text.as_deref().unwrap_or("").chars().count();
+        total == 0 || self.mwnd.msg.visible_chars >= total
     }
 
     fn begin_message_window_anim(
@@ -892,6 +1041,32 @@ impl UiRuntime {
         }
     }
 
+    pub fn current_mwnd_window_render_state(
+        &self,
+        screen_w: u32,
+        screen_h: u32,
+    ) -> Option<MwndWindowRenderState> {
+        if !self.mwnd.projection_active && !self.mwnd.anim.visible {
+            return None;
+        }
+        let rect = self.window_rect(screen_w, screen_h);
+        let anim = self.current_window_anim(rect, screen_w, screen_h);
+        Some(MwndWindowRenderState {
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+            dx: anim.dx,
+            dy: anim.dy,
+            scale_x: anim.scale_x,
+            scale_y: anim.scale_y,
+            rotate: anim.rotate,
+            alpha: anim.alpha,
+            pivot_abs_x: anim.pivot_abs_x,
+            pivot_abs_y: anim.pivot_abs_y,
+        })
+    }
+
     fn current_slide_offset_px(&self) -> i32 {
         if !self.mwnd.msg.slide_enabled {
             return 0;
@@ -913,6 +1088,7 @@ impl UiRuntime {
         let bg_sprite = self.ensure_msg_bg_sprite(layers, ui_layer);
         let filter_sprite = self.ensure_msg_filter_sprite(layers, ui_layer);
         let face_sprite = self.ensure_msg_face_sprite(layers, ui_layer);
+        let key_icon_sprite = self.ensure_key_icon_sprite(layers, ui_layer);
         let msg_text_sprite =
             Self::ensure_text_sprite(layers, ui_layer, &mut self.mwnd.msg.text_sprite);
         let name_text_sprite =
@@ -947,11 +1123,17 @@ impl UiRuntime {
             .layer_mut(ui_layer)
             .and_then(|l| l.sprite_mut(filter_sprite))
         {
-            s.size_mode = SpriteSizeMode::Explicit {
-                width: rect.w,
-                height: rect.h,
-            };
-            apply_anim(s, rect.x, rect.y, 1_000_005);
+            let (ml, mt, mr, mb) = self.mwnd.waku.filter_margin;
+            let fx = rect.x + ml as i32;
+            let fy = rect.y + mt as i32;
+            if self.mwnd.waku.filter_image.is_some() {
+                s.size_mode = SpriteSizeMode::Intrinsic;
+            } else {
+                let width = (rect.w as i64 - ml - mr).max(1) as u32;
+                let height = (rect.h as i64 - mt - mb).max(1) as u32;
+                s.size_mode = SpriteSizeMode::Explicit { width, height };
+            }
+            apply_anim(s, fx, fy, 1_000_005);
         }
 
         let face_rect = self.face_rect(w, h);
@@ -994,6 +1176,16 @@ impl UiRuntime {
             };
             apply_anim(s, nx, ny, 1_000_020);
         }
+
+        if let Some(icon_rect) = self.key_icon_rect(w, h) {
+            if let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(key_icon_sprite))
+            {
+                s.size_mode = SpriteSizeMode::Intrinsic;
+                apply_anim(s, icon_rect.x, icon_rect.y, 1_000_030);
+            }
+        }
     }
 
     /// Called once per frame to update UI and apply visibility.
@@ -1014,10 +1206,11 @@ impl UiRuntime {
         if !self.font_cache.is_loaded() {
             let _ = self
                 .font_cache
-                .load_from_font_dir(&project_dir.join("font"));
+                .load_for_project(project_dir);
         }
         self.refresh_waku_images(images, project_dir);
         self.refresh_face_image(images, project_dir);
+        self.refresh_key_icon_image(images, project_dir);
         self.sync_layout(layers, w, h);
         self.update_message_reveal(script, syscom);
         self.refresh_text_images(images, w, h);
@@ -1046,44 +1239,60 @@ impl UiRuntime {
                 .layer_mut(ui_layer)
                 .and_then(|l| l.sprite_mut(sprite_id))
             {
-                let visible = self.mwnd.anim.visible && self.mwnd.waku.filter_image.is_some();
+                let image_id = self
+                    .mwnd
+                    .waku
+                    .filter_image
+                    .or(self.mwnd.waku.solid_filter_image);
+                let visible = self.mwnd.anim.visible && image_id.is_some();
                 s.visible = visible;
-                s.image_id = self.mwnd.waku.filter_image;
-                s.alpha = anim_alpha;
-
-                const GET_FILTER_COLOR_R: i32 = 272;
-                const GET_FILTER_COLOR_G: i32 = 273;
-                const GET_FILTER_COLOR_B: i32 = 274;
-                const GET_FILTER_COLOR_A: i32 = 275;
+                s.image_id = image_id;
+                const GET_FILTER_COLOR_R: i32 = 84;
+                const GET_FILTER_COLOR_G: i32 = 91;
+                const GET_FILTER_COLOR_B: i32 = 92;
+                const GET_FILTER_COLOR_A: i32 = 93;
                 let cfg = &syscom.config_int;
-                let r = cfg
-                    .get(&GET_FILTER_COLOR_R)
-                    .copied()
-                    .unwrap_or(0)
-                    .clamp(0, 255) as u8;
-                let g = cfg
-                    .get(&GET_FILTER_COLOR_G)
-                    .copied()
-                    .unwrap_or(0)
-                    .clamp(0, 255) as u8;
-                let b = cfg
-                    .get(&GET_FILTER_COLOR_B)
-                    .copied()
-                    .unwrap_or(0)
-                    .clamp(0, 255) as u8;
-                let a = cfg
-                    .get(&GET_FILTER_COLOR_A)
-                    .copied()
-                    .unwrap_or(0)
-                    .clamp(0, 255) as u8;
+                let (_filter_r, _filter_g, _filter_b, filter_a) = self.mwnd.waku.filter_color;
+                let has_filter_texture = self.mwnd.waku.filter_image.is_some();
 
-                s.alpha = ((a as u16 * anim_alpha as u16) / 255) as u8;
-                s.tr = 255;
-                s.color_rate = 255;
-                s.color_r = r;
-                s.color_g = g;
-                s.color_b = b;
-                s.mask_mode = 1;
+                s.alpha = anim_alpha;
+                s.tr = if self.mwnd.waku.filter_config_tr {
+                    cfg.get(&GET_FILTER_COLOR_A)
+                        .copied()
+                        .unwrap_or(128)
+                        .clamp(0, 255) as u8
+                } else if has_filter_texture {
+                    255
+                } else {
+                    filter_a
+                };
+
+                s.color_rate = 0;
+                s.color_r = 255;
+                s.color_g = 255;
+                s.color_b = 255;
+                s.mask_mode = 0;
+                if self.mwnd.waku.filter_config_color {
+                    s.color_add_r = cfg
+                        .get(&GET_FILTER_COLOR_R)
+                        .copied()
+                        .unwrap_or(0)
+                        .clamp(0, 255) as u8;
+                    s.color_add_g = cfg
+                        .get(&GET_FILTER_COLOR_G)
+                        .copied()
+                        .unwrap_or(0)
+                        .clamp(0, 255) as u8;
+                    s.color_add_b = cfg
+                        .get(&GET_FILTER_COLOR_B)
+                        .copied()
+                        .unwrap_or(0)
+                        .clamp(0, 255) as u8;
+                } else {
+                    s.color_add_r = 0;
+                    s.color_add_g = 0;
+                    s.color_add_b = 0;
+                }
             }
         }
 
@@ -1116,6 +1325,19 @@ impl UiRuntime {
             {
                 s.visible = self.mwnd.anim.visible && self.mwnd.name.text_image.is_some();
                 s.image_id = self.mwnd.name.text_image;
+                s.alpha = anim_alpha;
+            }
+        }
+
+        if let Some(sprite_id) = self.mwnd.key_icon.sprite {
+            if let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(sprite_id))
+            {
+                s.visible = self.mwnd.anim.visible
+                    && self.mwnd.key_icon.appear
+                    && self.mwnd.key_icon.image.is_some();
+                s.image_id = self.mwnd.key_icon.image;
                 s.alpha = anim_alpha;
             }
         }
@@ -1178,6 +1400,7 @@ impl UiRuntime {
     }
 
     pub fn begin_mwnd_close(&mut self, anime_type: i64, duration_ms: i64) {
+        self.mwnd.key_icon.appear = false;
         self.begin_message_window_anim(false, anime_type, duration_ms.max(0) as u64, true);
     }
 
@@ -1207,14 +1430,58 @@ impl UiRuntime {
         if self.mwnd.waku.filter_file != filter_file {
             self.mwnd.waku.filter_file = filter_file;
             self.mwnd.waku.filter_image = None;
+            self.mwnd.waku.filter_size = None;
+            self.mwnd.waku.solid_filter_image = None;
         }
+        self.mwnd.waku.filter_margin = proj.filter_margin.unwrap_or((0, 0, 0, 0));
+        let next_filter_color = proj.filter_color.unwrap_or((0, 0, 255, 128));
+        if self.mwnd.waku.filter_color != next_filter_color {
+            self.mwnd.waku.solid_filter_image = None;
+        }
+        self.mwnd.waku.filter_color = next_filter_color;
+        self.mwnd.waku.filter_config_color = proj.filter_config_color;
+        self.mwnd.waku.filter_config_tr = proj.filter_config_tr;
+
+        if self.mwnd.key_icon.key_file != proj.key_icon_file
+            || self.mwnd.key_icon.page_file != proj.page_icon_file
+        {
+            self.mwnd.key_icon.image = None;
+            self.mwnd.key_icon.file = None;
+            self.mwnd.key_icon.size = None;
+            self.mwnd.key_icon.anime_start = None;
+        }
+        self.mwnd.key_icon.key_file = proj.key_icon_file.clone();
+        self.mwnd.key_icon.key_pat_cnt = proj.key_icon_pat_cnt.max(1);
+        self.mwnd.key_icon.key_speed = proj.key_icon_speed.max(1);
+        self.mwnd.key_icon.page_file = proj.page_icon_file.clone();
+        self.mwnd.key_icon.page_pat_cnt = proj.page_icon_pat_cnt.max(1);
+        self.mwnd.key_icon.page_speed = proj.page_icon_speed.max(1);
+        self.mwnd.key_icon.appear = proj.key_icon_appear;
+        if self.mwnd.key_icon.mode != proj.key_icon_mode {
+            self.mwnd.key_icon.mode = proj.key_icon_mode;
+            self.mwnd.key_icon.anime_start = None;
+            self.mwnd.key_icon.image = None;
+        }
+        self.mwnd.key_icon.icon_pos_type = proj.icon_pos_type;
+        self.mwnd.key_icon.icon_pos_base = proj.icon_pos_base;
+        self.mwnd.key_icon.icon_pos = if proj.icon_pos_type == 1 {
+            proj.key_icon_pos
+                .map(|(x, y)| (x, y, 0))
+                .or(proj.icon_pos)
+                .unwrap_or((0, 0, 0))
+        } else {
+            proj.icon_pos.unwrap_or((0, 0, 0))
+        };
 
         self.set_mwnd_window_state(
             proj.window_pos,
             proj.window_size,
             proj.message_pos,
+            proj.message_margin,
             proj.window_moji_cnt,
             proj.moji_size,
+            proj.moji_space,
+            proj.mwnd_extend_type,
             proj.moji_color,
             proj.face_file.as_deref(),
             proj.face_no,
@@ -1237,8 +1504,11 @@ impl UiRuntime {
         window_pos: Option<(i64, i64)>,
         window_size: Option<(i64, i64)>,
         message_pos: Option<(i64, i64)>,
+        message_margin: Option<(i64, i64, i64, i64)>,
         window_moji_cnt: Option<(i64, i64)>,
         moji_size: Option<i64>,
+        moji_space: Option<(i64, i64)>,
+        mwnd_extend_type: i64,
         moji_color: Option<i64>,
         face_file: Option<&str>,
         face_no: i64,
@@ -1249,8 +1519,11 @@ impl UiRuntime {
         self.mwnd.window.pos = window_pos.map(|(x, y)| (x as i32, y as i32));
         self.mwnd.window.size = window_size.map(|(w, h)| (w.max(1) as u32, h.max(1) as u32));
         self.mwnd.window.message_pos = message_pos.map(|(x, y)| (x as i32, y as i32));
+        self.mwnd.window.message_margin = message_margin;
         self.mwnd.window.moji_cnt = window_moji_cnt;
         self.mwnd.window.moji_size = moji_size;
+        self.mwnd.window.moji_space = moji_space;
+        self.mwnd.window.extend_type = mwnd_extend_type;
         self.mwnd.window.moji_color = moji_color;
         self.mwnd.face.rep_pos = rep_pos;
         self.mwnd.msg.slide_enabled = slide_enabled;
@@ -1269,15 +1542,25 @@ impl UiRuntime {
         self.mwnd.window.pos = None;
         self.mwnd.window.size = None;
         self.mwnd.window.message_pos = None;
+        self.mwnd.window.message_margin = None;
         self.mwnd.window.moji_cnt = None;
         self.mwnd.window.moji_size = None;
+        self.mwnd.window.moji_space = None;
+        self.mwnd.window.extend_type = 0;
         self.mwnd.window.moji_color = None;
         self.mwnd.waku.bg_file = None;
         self.mwnd.waku.filter_file = None;
         self.mwnd.projection_active = false;
         self.mwnd.waku.bg_image = None;
         self.mwnd.waku.filter_image = None;
+        self.mwnd.waku.solid_filter_image = None;
         self.mwnd.waku.bg_size = None;
+        self.mwnd.waku.filter_size = None;
+        self.mwnd.waku.filter_margin = (0, 0, 0, 0);
+        self.mwnd.waku.filter_color = (0, 0, 255, 128);
+        self.mwnd.waku.filter_config_color = true;
+        self.mwnd.waku.filter_config_tr = true;
+        self.mwnd.key_icon = MwndKeyIconRuntime::default();
         self.mwnd.face.file = None;
         self.mwnd.face.no = 0;
         self.mwnd.face.rep_pos = None;
@@ -1352,6 +1635,7 @@ impl UiRuntime {
     }
 
     pub fn clear_message(&mut self) {
+        self.mwnd.key_icon.appear = false;
         if self.mwnd.msg.text.is_none() {
             return;
         }
@@ -1364,19 +1648,79 @@ impl UiRuntime {
     }
 
     pub fn begin_wait_message(&mut self) {
+        self.begin_wait_message_with_icon_mode(0);
+    }
+
+    pub fn begin_wait_page_message(&mut self) {
+        self.begin_wait_message_with_icon_mode(1);
+    }
+
+    fn begin_wait_message_with_icon_mode(&mut self, icon_mode: i64) {
         self.mwnd.msg.waiting = true;
         self.mwnd.msg.wait_started_at = Some(Instant::now());
         self.mwnd.msg.wait_message_len =
             self.mwnd.msg.text.as_deref().unwrap_or("").chars().count();
+        self.mwnd.key_icon.appear = true;
+        if self.mwnd.key_icon.mode != icon_mode {
+            self.mwnd.key_icon.mode = icon_mode;
+            self.mwnd.key_icon.anime_start = None;
+            self.mwnd.key_icon.image = None;
+        }
     }
 
-    pub fn end_wait_message(&mut self) {
+    pub fn reveal_message_now(&mut self) {
+        let total = self.mwnd.msg.text.as_deref().unwrap_or("").chars().count();
+        if self.mwnd.msg.visible_chars != total {
+            self.mwnd.msg.visible_chars = total;
+            self.mwnd.msg.reveal_base = total;
+            self.mwnd.msg.reveal_start = None;
+            self.mwnd.msg.text_dirty = true;
+        }
+    }
+
+    pub fn message_wait_text_fully_revealed(&self) -> bool {
+        self.message_fully_revealed()
+    }
+
+    pub fn needs_continuous_frame(
+        &self,
+        script: &ScriptRuntimeState,
+        syscom: &SyscomRuntimeState,
+    ) -> bool {
+        if self.mwnd.anim.started_at.is_some() {
+            return true;
+        }
+        if self.mwnd.msg.slide_started_at.is_some() {
+            return true;
+        }
+        if self.mwnd.msg.reveal_start.is_some() && message_speed_ms(script, syscom).is_some() {
+            return true;
+        }
+        if self.mwnd.msg.waiting && !self.message_fully_revealed() {
+            return true;
+        }
+        if self.mwnd.key_icon.appear {
+            let pat_cnt = if self.mwnd.key_icon.mode == 1 {
+                self.mwnd.key_icon.page_pat_cnt
+            } else {
+                self.mwnd.key_icon.key_pat_cnt
+            };
+            return pat_cnt > 1;
+        }
+        false
+    }
+
+    pub fn end_wait_message(&mut self) -> bool {
         self.mwnd.msg.waiting = false;
         self.mwnd.msg.wait_started_at = None;
+        self.mwnd.key_icon.appear = false;
 
         if self.mwnd.msg.clear_on_wait_end {
             self.mwnd.msg.clear_on_wait_end = false;
             self.clear_message();
+            true
+        } else {
+            false
         }
     }
 
@@ -1526,9 +1870,22 @@ impl UiRuntime {
                         self.mwnd.waku.filter_image = Some(id);
                     } else if let Ok(id) = images.load_file(&path, 0) {
                         self.mwnd.waku.filter_image = Some(id);
+                    } else if let Ok(id) = images.load_g00(raw, 0) {
+                        self.mwnd.waku.filter_image = Some(id);
+                    } else if let Ok(id) = images.load_bg(raw) {
+                        self.mwnd.waku.filter_image = Some(id);
+                    }
+                    if let Some(id) = self.mwnd.waku.filter_image {
+                        if let Some(img) = images.get(id) {
+                            self.mwnd.waku.filter_size = Some((img.width, img.height));
+                        }
                     }
                 }
             }
+        }
+        if self.mwnd.waku.filter_image.is_none() && self.mwnd.waku.solid_filter_image.is_none() {
+            let (r, g, b, _a) = self.mwnd.waku.filter_color;
+            self.mwnd.waku.solid_filter_image = Some(images.solid_rgba((r, g, b, 255)));
         }
     }
 
@@ -1565,6 +1922,72 @@ impl UiRuntime {
         }
     }
 
+    fn refresh_key_icon_image(
+        &mut self,
+        images: &mut crate::image_manager::ImageManager,
+        project_dir: &Path,
+    ) {
+        let (file, pat_cnt, speed) = if self.mwnd.key_icon.mode == 1 {
+            (
+                self.mwnd.key_icon.page_file.clone(),
+                self.mwnd.key_icon.page_pat_cnt,
+                self.mwnd.key_icon.page_speed,
+            )
+        } else {
+            (
+                self.mwnd.key_icon.key_file.clone(),
+                self.mwnd.key_icon.key_pat_cnt,
+                self.mwnd.key_icon.key_speed,
+            )
+        };
+        let Some(raw) = file.filter(|s| !s.is_empty()) else {
+            self.mwnd.key_icon.image = None;
+            self.mwnd.key_icon.file = None;
+            self.mwnd.key_icon.size = None;
+            return;
+        };
+
+        if self.mwnd.key_icon.anime_start.is_none() {
+            self.mwnd.key_icon.anime_start = Some(Instant::now());
+        }
+        let elapsed_ms = self
+            .mwnd
+            .key_icon
+            .anime_start
+            .map(|t| t.elapsed().as_millis() as i64)
+            .unwrap_or(0);
+        let pat_cnt = pat_cnt.max(1);
+        let speed = speed.max(1);
+        let pat = (elapsed_ms / speed) % pat_cnt;
+        if self.mwnd.key_icon.file.as_deref() == Some(raw.as_str())
+            && self.mwnd.key_icon.cached_mode == self.mwnd.key_icon.mode
+            && self.mwnd.key_icon.cached_pat == pat
+            && self.mwnd.key_icon.image.is_some()
+        {
+            return;
+        }
+
+        let mut loaded = None;
+        if let Ok(id) = images.load_g00(&raw, pat.max(0) as u32) {
+            loaded = Some(id);
+        } else if let Ok(id) = images.load_bg_frame(&raw, pat.max(0) as usize) {
+            loaded = Some(id);
+        } else {
+            let path = project_dir.join(&raw);
+            if path.exists() {
+                if let Ok(id) = images.load_file(&path, pat.max(0) as usize) {
+                    loaded = Some(id);
+                }
+            }
+        }
+
+        self.mwnd.key_icon.image = loaded;
+        self.mwnd.key_icon.file = Some(raw);
+        self.mwnd.key_icon.cached_mode = self.mwnd.key_icon.mode;
+        self.mwnd.key_icon.cached_pat = pat;
+        self.mwnd.key_icon.size = loaded.and_then(|id| images.get(id).map(|img| (img.width, img.height)));
+    }
+
     fn refresh_text_images(
         &mut self,
         images: &mut crate::image_manager::ImageManager,
@@ -1575,12 +1998,13 @@ impl UiRuntime {
             let (x, y, mw, mh) = self.msg_rect(w, h);
             let _ = (x, y);
             let font_size = self.message_font_px() as f32;
-            self.mwnd.msg.text_image = self.font_cache.render_text(
+            self.mwnd.msg.text_image = self.font_cache.render_mwnd_text(
                 images,
                 &self.visible_message_text(),
                 font_size,
                 mw,
                 mh,
+                self.mwnd.window.moji_space,
             );
             self.mwnd.msg.text_dirty = false;
         }
@@ -1589,12 +2013,13 @@ impl UiRuntime {
             let (x, y, mw, mh) = self.name_rect(w, h);
             let _ = (x, y);
             let font_size = self.name_font_px() as f32;
-            self.mwnd.name.text_image = self.font_cache.render_text(
+            self.mwnd.name.text_image = self.font_cache.render_mwnd_text(
                 images,
                 self.mwnd.name.text.as_deref().unwrap_or(""),
                 font_size,
                 mw,
                 mh,
+                self.mwnd.window.moji_space,
             );
             self.mwnd.name.text_dirty = false;
         }
@@ -1859,21 +2284,22 @@ fn auto_mode_timing(script: &ScriptRuntimeState, syscom: &SyscomRuntimeState) ->
 }
 
 fn message_speed_ms(script: &ScriptRuntimeState, syscom: &SyscomRuntimeState) -> Option<u64> {
-    const GET_MESSAGE_SPEED: i32 = 248;
+    const GET_MESSAGE_SPEED: i32 = crate::runtime::constants::elm_value::SYSCOM_GET_MESSAGE_SPEED;
+    const GET_MESSAGE_NOWAIT: i32 = crate::runtime::constants::elm_value::SYSCOM_GET_MESSAGE_NOWAIT;
 
+    if script.msg_nowait || *syscom.config_int.get(&GET_MESSAGE_NOWAIT).unwrap_or(&0) != 0 {
+        return None;
+    }
     let speed = if script.msg_speed >= 0 {
         script.msg_speed
     } else {
-        *syscom.config_int.get(&GET_MESSAGE_SPEED).unwrap_or(&0)
+        *syscom.config_int.get(&GET_MESSAGE_SPEED).unwrap_or(&20)
     };
     if speed <= 0 {
-        return None;
+        None
+    } else {
+        Some(speed as u64)
     }
-    let s = speed.clamp(0, 100) as u64;
-    let base = 80u64;
-    let span = 70u64;
-    let ms = base.saturating_sub(span.saturating_mul(s) / 100).max(5);
-    Some(ms)
 }
 
 impl UiRuntime {
@@ -1882,22 +2308,23 @@ impl UiRuntime {
             return;
         }
         self.font_scanned = true;
-        let dir = project_dir.join("font");
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
+        for dir in [project_dir.join("font"), project_dir.join("fonts")] {
+            let Ok(entries) = std::fs::read_dir(dir) else {
                 continue;
-            }
-            let ext = path
-                .extension()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            if ext == "ttf" || ext == "otf" || ext == "ttc" {
-                self.font_paths.push(path);
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                let ext = path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("")
+                    .to_ascii_lowercase();
+                if ext == "ttf" || ext == "otf" || ext == "ttc" {
+                    self.font_paths.push(path);
+                }
             }
         }
     }
