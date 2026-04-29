@@ -12,6 +12,7 @@ env:
   CARGO_PACKAGE: siglus_scene_vm
   BIN_NAME: siglus_engine
   RUST_BACKTRACE: '1'
+  RUSTFLAGS: '--cap-lints=allow'
 
 jobs:
   build-linux-x86_64:
