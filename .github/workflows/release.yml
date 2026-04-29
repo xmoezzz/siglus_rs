@@ -87,13 +87,13 @@ jobs:
           set -euo pipefail
           if [ ! -f Cross.toml ]; then
             cat > Cross.toml <<'EOF'
-[target.aarch64-unknown-linux-gnu]
-pre-build = [
-  "dpkg --add-architecture arm64",
-  "apt-get update",
-  "apt-get install -y --no-install-recommends pkg-config cmake clang libasound2-dev:arm64 libudev-dev:arm64 libx11-dev:arm64 libxi-dev:arm64 libxcursor-dev:arm64 libxrandr-dev:arm64 libxinerama-dev:arm64 libgl1-mesa-dev:arm64"
-]
-EOF
+          [target.aarch64-unknown-linux-gnu]
+          pre-build = [
+            "dpkg --add-architecture arm64",
+            "apt-get update",
+            "apt-get install -y --no-install-recommends pkg-config cmake clang libasound2-dev:arm64 libudev-dev:arm64 libx11-dev:arm64 libxi-dev:arm64 libxcursor-dev:arm64 libxrandr-dev:arm64 libxinerama-dev:arm64 libgl1-mesa-dev:arm64"
+          ]
+          EOF
           fi
 
       - name: Build
