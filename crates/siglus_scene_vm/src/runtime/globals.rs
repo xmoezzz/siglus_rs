@@ -402,7 +402,6 @@ pub struct SyscomRuntimeState {
     pub capture_buffer: Option<RgbaImage>,
     pub capture_size: Option<(u32, u32)>,
     pub return_scene_once: Option<(String, i64)>,
-    pub pending_scene_call: Option<(String, i64)>,
     pub pending_proc: Option<SyscomPendingProc>,
     pub msg_back_load_tid: i64,
 }
@@ -4212,6 +4211,15 @@ pub struct MwndState {
     pub world: i64,
     pub moji_size: Option<i64>,
     pub moji_color: Option<i64>,
+    pub shadow_color: Option<i64>,
+    pub fuchi_color: Option<i64>,
+    pub chara_color_mod: Option<i64>,
+    pub chara_moji_color: Option<i64>,
+    pub chara_shadow_color: Option<i64>,
+    pub chara_fuchi_color: Option<i64>,
+    pub name_moji_color: Option<i64>,
+    pub name_shadow_color: Option<i64>,
+    pub name_fuchi_color: Option<i64>,
     pub indent: bool,
     pub slide_msg: bool,
     pub slide_time: i64,
@@ -4222,6 +4230,8 @@ pub struct MwndState {
     pub selection: Option<MwndSelectionState>,
 
     pub text_dirty: bool,
+    pub clear_ready: bool,
+    pub msg_block_started: bool,
 
     pub button_list: Vec<ObjectState>,
     pub button_list_strict: bool,

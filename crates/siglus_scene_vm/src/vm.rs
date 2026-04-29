@@ -2125,29 +2125,10 @@ impl<'a> SceneVm<'a> {
             13 | 15 => vec![Value::Int(sys_type_opt), Value::Int(mode + 1)],
             _ => Vec::new(),
         };
-        let saved_vm_call = self.ctx.vm_call.take();
-        self.ctx.vm_call = Some(runtime::VmCallMeta {
-            element: vec![FM_SYSCOM, op],
-            al_id: 0,
-            ret_form: self.cfg.fm_void as i64,
-        });
-        let result = runtime::dispatch_form_code(&mut self.ctx, FM_SYSCOM as u32, &params);
-        self.ctx.vm_call = saved_vm_call;
-        result?;
+        let mut args = vec![Value::Element(vec![FM_SYSCOM, op])];
+        args.extend(params);
+        runtime::dispatch_form_code(&mut self.ctx, FM_SYSCOM as u32, &args)?;
         Ok(())
-    }
-
-    fn drain_pending_syscom_scene_call(&mut self) -> Result<bool> {
-        let Some((scene_name, z_no)) = self.ctx.globals.syscom.pending_scene_call.take() else {
-            return Ok(false);
-        };
-        self.ctx.globals.syscom.menu_open = false;
-        self.ctx.globals.syscom.menu_kind = None;
-        self.ctx.globals.syscom.menu_result = None;
-        self.ctx.globals.syscom.menu_cursor = 0;
-        self.ctx.globals.syscom.msg_back_open = false;
-        self.farcall_scene_name_ex(&scene_name, z_no as i32, self.cfg.fm_void, true, &[])?;
-        Ok(true)
     }
 
     fn drain_pending_button_actions(&mut self) -> Result<()> {
@@ -2192,9 +2173,6 @@ impl<'a> SceneVm<'a> {
             );
         }
         self.drain_pending_button_actions()?;
-        if self.drain_pending_syscom_scene_call()? {
-            return Ok(());
-        }
         if self.ctx.globals.script.frame_action_time_stop_flag && trace {
             eprintln!(
                 "[SG_TICK_TRACE] frame_action_time_stop_flag set; executing callbacks with frozen frame-action time"
@@ -2483,10 +2461,6 @@ impl<'a> SceneVm<'a> {
         self.halted = false;
         self.delayed_ret_form = None;
         Ok(())
-    }
-
-    pub fn call_scene_name_from_system(&mut self, scene_name: &str, z_no: i32) -> Result<()> {
-        self.farcall_scene_name_ex(scene_name, z_no, self.cfg.fm_void, true, &[])
     }
 
     fn make_resume_point(&self) -> VmResumePoint<'a> {
@@ -4896,42 +4870,96 @@ impl<'a> SceneVm<'a> {
         if chain.len() < 6
             || chain[0] != stage_form
             || chain[1] != elm_array
-            || chain[3] != stage_object
-            || chain[4] != elm_array
             || chain[2] < 0
-            || chain[5] < 0
         {
             return false;
         }
 
         let stage_idx = chain[2] as i64;
-        let top_idx = chain[5] as usize;
         let Some(stage_state) = self.ctx.globals.stage_forms.get(&(stage_form as u32)) else {
             return false;
         };
-        let Some(list) = stage_state.object_lists.get(&stage_idx) else {
-            return false;
-        };
-        let Some(mut obj) = list.get(top_idx) else {
-            return false;
-        };
 
-        let object_child = crate::runtime::forms::codes::elm_value::OBJECT_CHILD;
-        let mut pos = 6usize;
-        while pos + 2 < chain.len() {
-            if chain[pos] == object_child && chain[pos + 1] == elm_array && chain[pos + 2] >= 0 {
-                let idx = chain[pos + 2] as usize;
-                let Some(next) = obj.runtime.child_objects.get(idx) else {
-                    return false;
-                };
-                obj = next;
-                pos += 3;
-            } else {
-                break;
+        fn descend_child_chain<'a>(
+            mut obj: &'a crate::runtime::globals::ObjectState,
+            chain: &[i32],
+            mut pos: usize,
+            elm_array: i32,
+        ) -> Option<&'a crate::runtime::globals::ObjectState> {
+            let object_child = crate::runtime::forms::codes::elm_value::OBJECT_CHILD;
+            while pos + 2 < chain.len() {
+                if chain[pos] == object_child && chain[pos + 1] == elm_array && chain[pos + 2] >= 0 {
+                    let idx = chain[pos + 2] as usize;
+                    obj = obj.runtime.child_objects.get(idx)?;
+                    pos += 3;
+                } else {
+                    break;
+                }
             }
+            Some(obj)
         }
 
-        (child_idx as usize) < obj.runtime.child_objects.len()
+        let current_obj = (|| -> Option<&crate::runtime::globals::ObjectState> {
+            if chain[3] == stage_object {
+                if chain[4] != elm_array || chain[5] < 0 {
+                    return None;
+                }
+                let top_idx = chain[5] as usize;
+                let list = stage_state.object_lists.get(&stage_idx)?;
+                let obj = list.get(top_idx)?;
+                descend_child_chain(obj, chain, 6, elm_array)
+            } else if chain[3] == crate::runtime::forms::codes::STAGE_ELM_MWND {
+                if chain.len() < 9
+                    || chain[4] != elm_array
+                    || chain[5] < 0
+                    || chain[7] != elm_array
+                    || chain[8] < 0
+                {
+                    return None;
+                }
+                let mwnd_idx = chain[5] as usize;
+                let selector = chain[6];
+                let obj_idx = chain[8] as usize;
+                let mwnds = stage_state.mwnd_lists.get(&stage_idx)?;
+                let mwnd = mwnds.get(mwnd_idx)?;
+                let list = if selector == constants::MWND_BUTTON {
+                    &mwnd.button_list
+                } else if selector == constants::MWND_FACE {
+                    &mwnd.face_list
+                } else if selector == constants::MWND_OBJECT {
+                    &mwnd.object_list
+                } else {
+                    return None;
+                };
+                let obj = list.get(obj_idx)?;
+                descend_child_chain(obj, chain, 9, elm_array)
+            } else if chain[3] == crate::runtime::forms::codes::STAGE_ELM_BTNSELITEM {
+                if chain.len() < 9
+                    || chain[4] != elm_array
+                    || chain[5] < 0
+                    || chain[7] != elm_array
+                    || chain[8] < 0
+                {
+                    return None;
+                }
+                if chain[6] != crate::runtime::forms::codes::ELM_BTNSELITEM_OBJECT {
+                    return None;
+                }
+                let item_idx = chain[5] as usize;
+                let obj_idx = chain[8] as usize;
+                let items = stage_state.btnselitem_lists.get(&stage_idx)?;
+                let item = items.get(item_idx)?;
+                let obj = item.object_list.get(obj_idx)?;
+                descend_child_chain(obj, chain, 9, elm_array)
+            } else {
+                None
+            }
+        })();
+
+        let Some(current_obj) = current_obj else {
+            return false;
+        };
+        (child_idx as usize) < current_obj.runtime.child_objects.len()
     }
 
     fn is_current_object_child_tail(&self, elm: &[i32]) -> bool {

@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use crate::runtime::{Command, CommandContext, Value};
+use crate::runtime::forms::stage;
 
 use super::util::strip_vm_meta;
 
@@ -55,7 +56,9 @@ pub fn handle(ctx: &mut CommandContext, cmd: &Command) -> Result<bool> {
         "NAME" => {
             if let Some(Value::Str(s)) = args.first() {
                 ctx.ui.show_message_bg(true);
-                ctx.ui.set_name(s.clone());
+                if !stage::cd_name_current_mwnd(ctx, s) {
+                    ctx.ui.set_name(s.clone());
+                }
             }
             ctx.push(Value::Int(0));
         }

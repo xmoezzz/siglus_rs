@@ -706,7 +706,10 @@ fn dispatch_global_message_command(
             Ok(true)
         }
         constants::elm_value::GLOBAL_SET_NAMAE => {
-            ctx.ui.set_name(global_message_arg_str(args).unwrap_or("").to_string());
+            let name = global_message_arg_str(args).unwrap_or("");
+            if !stage::cd_name_current_mwnd(ctx, name) {
+                ctx.ui.set_name(name.to_string());
+            }
             push_global_message_ok(ctx);
             Ok(true)
         }

@@ -266,15 +266,6 @@ impl InputState {
         self.last_mouse_down = None;
     }
 
-    /// Consumes mouse edge/flick stocks while preserving held button state.
-    pub fn use_mouse_stocks(&mut self) {
-        for vk in [0x01usize, 0x02usize, 0x04usize] {
-            self.keys[vk].use_stocks();
-        }
-        self.wheel_delta = 0;
-        self.last_mouse_down = None;
-    }
-
     /// Consumes current input edges while preserving held-down state.
     ///
     /// Mirrors tona3 C_input_state::use(): clear down/up/down_up/flick stocks

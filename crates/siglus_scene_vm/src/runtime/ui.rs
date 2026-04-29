@@ -3,7 +3,7 @@
 use crate::image_manager::ImageId;
 use crate::layer::{LayerId, SpriteFit, SpriteId, SpriteSizeMode};
 use crate::runtime::globals::{EditBoxListState, ScriptRuntimeState, SyscomRuntimeState};
-use crate::text_render::FontCache;
+use crate::text_render::{FontCache, TextStyle};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -136,6 +136,8 @@ pub struct MwndWindowRuntime {
     pub moji_space: Option<(i64, i64)>,
     pub extend_type: i64,
     pub moji_color: Option<i64>,
+    pub shadow_color: Option<i64>,
+    pub fuchi_color: Option<i64>,
 }
 
 #[derive(Debug, Default)]
@@ -215,6 +217,14 @@ pub struct MwndProjectionState {
     pub moji_space: Option<(i64, i64)>,
     pub mwnd_extend_type: i64,
     pub moji_color: Option<i64>,
+    pub shadow_color: Option<i64>,
+    pub fuchi_color: Option<i64>,
+    pub chara_moji_color: Option<i64>,
+    pub chara_shadow_color: Option<i64>,
+    pub chara_fuchi_color: Option<i64>,
+    pub name_moji_color: Option<i64>,
+    pub name_shadow_color: Option<i64>,
+    pub name_fuchi_color: Option<i64>,
     pub key_icon_file: Option<String>,
     pub key_icon_pat_cnt: i64,
     pub key_icon_speed: i64,
@@ -238,12 +248,47 @@ pub struct UiRuntime {
     pub mwnd: MwndRuntime,
     pub sys: SysOverlayRuntime,
     pub editbox: EditBoxOverlayRuntime,
+    text_color: (u8, u8, u8),
+    shadow_color: (u8, u8, u8),
+    fuchi_color: (u8, u8, u8),
+    fuchi_enabled: bool,
     font_paths: Vec<PathBuf>,
     font_scanned: bool,
     font_cache: FontCache,
 }
 
 impl UiRuntime {
+    pub fn set_text_colors(&mut self, text_color: (u8, u8, u8), shadow_color: (u8, u8, u8)) {
+        self.set_text_colors_full(text_color, shadow_color, None);
+    }
+
+    pub fn set_text_colors_full(
+        &mut self,
+        text_color: (u8, u8, u8),
+        shadow_color: (u8, u8, u8),
+        fuchi_color: Option<(u8, u8, u8)>,
+    ) {
+        self.text_color = text_color;
+        self.shadow_color = shadow_color;
+        self.fuchi_enabled = fuchi_color.is_some();
+        if let Some(color) = fuchi_color {
+            self.fuchi_color = color;
+        }
+        self.mwnd.msg.text_dirty = true;
+        self.mwnd.name.text_dirty = true;
+    }
+
+    fn mwnd_text_style(&self, script: &ScriptRuntimeState) -> TextStyle {
+        TextStyle {
+            color: self.text_color,
+            shadow_color: self.shadow_color,
+            fuchi_color: self.fuchi_color,
+            shadow: script.font_shadow != 0,
+            fuchi: self.fuchi_enabled,
+            bold: script.font_bold != 0,
+        }
+    }
+
     fn ensure_layer(
         layers: &mut crate::layer::LayerManager,
         want: &mut Option<LayerId>,
@@ -1213,7 +1258,7 @@ impl UiRuntime {
         self.refresh_key_icon_image(images, project_dir);
         self.sync_layout(layers, w, h);
         self.update_message_reveal(script, syscom);
-        self.refresh_text_images(images, w, h);
+        self.refresh_text_images(images, w, h, script);
         self.sync_sys_overlay(layers, images, w, h);
         self.sync_editbox_overlay(layers, images, editbox_lists, focused_editbox);
 
@@ -1483,6 +1528,8 @@ impl UiRuntime {
             proj.moji_space,
             proj.mwnd_extend_type,
             proj.moji_color,
+            proj.shadow_color,
+            proj.fuchi_color,
             proj.face_file.as_deref(),
             proj.face_no,
             proj.rep_pos,
@@ -1510,6 +1557,8 @@ impl UiRuntime {
         moji_space: Option<(i64, i64)>,
         mwnd_extend_type: i64,
         moji_color: Option<i64>,
+        shadow_color: Option<i64>,
+        fuchi_color: Option<i64>,
         face_file: Option<&str>,
         face_no: i64,
         rep_pos: Option<(i64, i64)>,
@@ -1525,6 +1574,8 @@ impl UiRuntime {
         self.mwnd.window.moji_space = moji_space;
         self.mwnd.window.extend_type = mwnd_extend_type;
         self.mwnd.window.moji_color = moji_color;
+        self.mwnd.window.shadow_color = shadow_color;
+        self.mwnd.window.fuchi_color = fuchi_color;
         self.mwnd.face.rep_pos = rep_pos;
         self.mwnd.msg.slide_enabled = slide_enabled;
         self.mwnd.msg.slide_time_ms = slide_time.max(0) as u64;
@@ -1548,6 +1599,8 @@ impl UiRuntime {
         self.mwnd.window.moji_space = None;
         self.mwnd.window.extend_type = 0;
         self.mwnd.window.moji_color = None;
+        self.mwnd.window.shadow_color = None;
+        self.mwnd.window.fuchi_color = None;
         self.mwnd.waku.bg_file = None;
         self.mwnd.waku.filter_file = None;
         self.mwnd.projection_active = false;
@@ -1993,18 +2046,21 @@ impl UiRuntime {
         images: &mut crate::image_manager::ImageManager,
         w: u32,
         h: u32,
+        script: &ScriptRuntimeState,
     ) {
+        let style = self.mwnd_text_style(script);
         if self.mwnd.msg.text_dirty {
             let (x, y, mw, mh) = self.msg_rect(w, h);
             let _ = (x, y);
             let font_size = self.message_font_px() as f32;
-            self.mwnd.msg.text_image = self.font_cache.render_mwnd_text(
+            self.mwnd.msg.text_image = self.font_cache.render_mwnd_text_styled(
                 images,
                 &self.visible_message_text(),
                 font_size,
                 mw,
                 mh,
                 self.mwnd.window.moji_space,
+                style,
             );
             self.mwnd.msg.text_dirty = false;
         }
@@ -2013,13 +2069,14 @@ impl UiRuntime {
             let (x, y, mw, mh) = self.name_rect(w, h);
             let _ = (x, y);
             let font_size = self.name_font_px() as f32;
-            self.mwnd.name.text_image = self.font_cache.render_mwnd_text(
+            self.mwnd.name.text_image = self.font_cache.render_mwnd_text_styled(
                 images,
                 self.mwnd.name.text.as_deref().unwrap_or(""),
                 font_size,
                 mw,
                 mh,
                 self.mwnd.window.moji_space,
+                style,
             );
             self.mwnd.name.text_dirty = false;
         }

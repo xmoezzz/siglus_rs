@@ -15,6 +15,29 @@ mod embedded_font {
     include!(concat!(env!("OUT_DIR"), "/siglus_embedded_font.rs"));
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct TextStyle {
+    pub color: (u8, u8, u8),
+    pub shadow_color: (u8, u8, u8),
+    pub fuchi_color: (u8, u8, u8),
+    pub shadow: bool,
+    pub fuchi: bool,
+    pub bold: bool,
+}
+
+impl Default for TextStyle {
+    fn default() -> Self {
+        Self {
+            color: (255, 255, 255),
+            shadow_color: (0, 0, 0),
+            fuchi_color: (0, 0, 0),
+            shadow: true,
+            fuchi: false,
+            bold: false,
+        }
+    }
+}
+
 
 #[derive(Debug, Default)]
 pub struct FontCache {
@@ -164,6 +187,20 @@ impl FontCache {
         Some(images.insert_image(img))
     }
 
+    pub fn render_mwnd_text_styled(
+        &self,
+        images: &mut ImageManager,
+        text: &str,
+        font_px: f32,
+        max_w: u32,
+        max_h: u32,
+        moji_space: Option<(i64, i64)>,
+        style: TextStyle,
+    ) -> Option<ImageId> {
+        let img = self.render_mwnd_text_rgba_styled(text, font_px, max_w, max_h, moji_space, style)?;
+        Some(images.insert_image(img))
+    }
+
     pub fn render_text_into(
         &self,
         images: &mut ImageManager,
@@ -204,10 +241,22 @@ impl FontCache {
         max_h: u32,
         moji_space: Option<(i64, i64)>,
     ) -> Option<RgbaImage> {
+        self.render_mwnd_text_rgba_styled(text, font_px, max_w, max_h, moji_space, TextStyle::default())
+    }
+
+    pub fn render_mwnd_text_rgba_styled(
+        &self,
+        text: &str,
+        font_px: f32,
+        max_w: u32,
+        max_h: u32,
+        moji_space: Option<(i64, i64)>,
+        style: TextStyle,
+    ) -> Option<RgbaImage> {
         let Some(font) = self.font.as_ref() else {
             return render_text_image_basic_rgba(text, font_px as u32, max_w, max_h);
         };
-        render_mwnd_text_fontdue_rgba(font, text, font_px, max_w, max_h, moji_space)
+        render_mwnd_text_fontdue_rgba_styled(font, text, font_px, max_w, max_h, moji_space, style)
     }
 }
 
@@ -281,6 +330,18 @@ fn render_mwnd_text_fontdue_rgba(
     max_h: u32,
     moji_space: Option<(i64, i64)>,
 ) -> Option<RgbaImage> {
+    render_mwnd_text_fontdue_rgba_styled(font, text, font_px, max_w, max_h, moji_space, TextStyle::default())
+}
+
+fn render_mwnd_text_fontdue_rgba_styled(
+    font: &Font,
+    text: &str,
+    font_px: f32,
+    max_w: u32,
+    max_h: u32,
+    moji_space: Option<(i64, i64)>,
+    style: TextStyle,
+) -> Option<RgbaImage> {
     if text.is_empty() || max_w == 0 || max_h == 0 {
         return None;
     }
@@ -334,17 +395,34 @@ fn render_mwnd_text_fontdue_rgba(
         let draw_x = x + cell_inner_x + metrics.xmin.min(0);
         let draw_y = y + cell_inner_y;
 
-        draw_glyph_bitmap(
-            &mut rgba,
-            max_w,
-            max_h,
-            draw_x + 1,
-            draw_y + 1,
-            metrics.width,
-            metrics.height,
-            &glyph,
-            (0, 0, 0, 180),
-        );
+        if style.fuchi {
+            for (ox, oy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                draw_glyph_bitmap(
+                    &mut rgba,
+                    max_w,
+                    max_h,
+                    draw_x + ox,
+                    draw_y + oy,
+                    metrics.width,
+                    metrics.height,
+                    &glyph,
+                    (style.fuchi_color.0, style.fuchi_color.1, style.fuchi_color.2, 220),
+                );
+            }
+        }
+        if style.shadow {
+            draw_glyph_bitmap(
+                &mut rgba,
+                max_w,
+                max_h,
+                draw_x + 1,
+                draw_y + 1,
+                metrics.width,
+                metrics.height,
+                &glyph,
+                (style.shadow_color.0, style.shadow_color.1, style.shadow_color.2, 180),
+            );
+        }
         draw_glyph_bitmap(
             &mut rgba,
             max_w,
@@ -354,8 +432,21 @@ fn render_mwnd_text_fontdue_rgba(
             metrics.width,
             metrics.height,
             &glyph,
-            (255, 255, 255, 255),
+            (style.color.0, style.color.1, style.color.2, 255),
         );
+        if style.bold {
+            draw_glyph_bitmap(
+                &mut rgba,
+                max_w,
+                max_h,
+                draw_x + 1,
+                draw_y,
+                metrics.width,
+                metrics.height,
+                &glyph,
+                (style.color.0, style.color.1, style.color.2, 220),
+            );
+        }
 
         x += advance;
     }

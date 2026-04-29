@@ -21,9 +21,10 @@ const INIDEF_BTN_ACTION_CNT: usize = 16;
 const INIMAX_BTN_ACTION_CNT: usize = 256;
 const TNM_BTN_STATE_MAX: usize = 5;
 const INIDEF_SE_CNT: usize = 16;
+const INIMIN_SE_CNT: usize = 8;
 const INIMAX_SE_CNT: usize = 256;
 const INIDEF_MWND_CNT: usize = 2;
-const INIMAX_MWND_CNT: usize = 64;
+const INIMAX_MWND_CNT: usize = 256;
 const INIDEF_WAKU_CNT: usize = 4;
 const INIMAX_WAKU_CNT: usize = 256;
 const INIDEF_MWND_WAKU_BTN_CNT: usize = 8;
@@ -93,6 +94,7 @@ impl Default for ButtonActionTemplate {
 
 #[derive(Debug, Clone)]
 pub struct MwndTemplate {
+    pub novel_mode: i64,
     pub extend_type: i64,
     pub window_pos: (i64, i64),
     pub window_size: (i64, i64),
@@ -101,8 +103,31 @@ pub struct MwndTemplate {
     pub moji_cnt: (i64, i64),
     pub moji_size: i64,
     pub moji_space: (i64, i64),
+    pub moji_color: i64,
+    pub shadow_color: i64,
+    pub fuchi_color: i64,
+    pub ruby_size: i64,
+    pub ruby_space: i64,
     pub waku_no: i64,
+    pub waku_pos: (i64, i64),
+    pub name_disp_mode: i64,
+    pub name_newline: i64,
+    pub name_bracket: i64,
+    pub name_moji_size: i64,
+    pub name_moji_space: (i64, i64),
+    pub name_moji_cnt: (i64, i64),
+    pub name_window_pos: (i64, i64),
+    pub name_window_size: (i64, i64),
+    pub name_msg_pos: (i64, i64),
+    pub name_msg_margin: (i64, i64, i64, i64),
+    pub name_moji_color: i64,
+    pub name_shadow_color: i64,
+    pub name_fuchi_color: i64,
     pub name_waku_no: i64,
+    pub face_hide_name: i64,
+    pub talk_margin: (i64, i64, i64, i64),
+    pub overflow_check_size: i64,
+    pub msg_back_insert_nl: i64,
     pub open_anime_type: i64,
     pub open_anime_time: i64,
     pub close_anime_type: i64,
@@ -112,6 +137,7 @@ pub struct MwndTemplate {
 impl Default for MwndTemplate {
     fn default() -> Self {
         Self {
+            novel_mode: 0,
             extend_type: 0,
             window_pos: (50, 400),
             window_size: (700, 150),
@@ -120,8 +146,31 @@ impl Default for MwndTemplate {
             moji_cnt: (26, 3),
             moji_size: 25,
             moji_space: (-1, 10),
+            moji_color: -1,
+            shadow_color: -1,
+            fuchi_color: -1,
+            ruby_size: 10,
+            ruby_space: 1,
             waku_no: 0,
+            waku_pos: (0, 0),
+            name_disp_mode: 0,
+            name_newline: 0,
+            name_bracket: 0,
+            name_moji_size: 25,
+            name_moji_space: (-1, 10),
+            name_moji_cnt: (10, 1),
+            name_window_pos: (0, 0),
+            name_window_size: (0, 0),
+            name_msg_pos: (0, 0),
+            name_msg_margin: (0, 0, 0, 0),
+            name_moji_color: -1,
+            name_shadow_color: -1,
+            name_fuchi_color: -1,
             name_waku_no: -1,
+            face_hide_name: 0,
+            talk_margin: (0, 0, 0, 0),
+            overflow_check_size: 0,
+            msg_back_insert_nl: 0,
             open_anime_type: 0,
             open_anime_time: 0,
             close_anime_type: 0,
@@ -132,6 +181,8 @@ impl Default for MwndTemplate {
 
 #[derive(Debug, Clone, Copy)]
 pub struct MwndRenderTemplate {
+    pub default_mwnd_no: i64,
+    pub default_sel_mwnd_no: i64,
     pub order: i64,
     pub filter_layer_rep: i64,
     pub waku_layer_rep: i64,
@@ -139,11 +190,16 @@ pub struct MwndRenderTemplate {
     pub shadow_layer_rep: i64,
     pub fuchi_layer_rep: i64,
     pub moji_layer_rep: i64,
+    pub shadow_color: i64,
+    pub fuchi_color: i64,
+    pub moji_color: i64,
 }
 
 impl Default for MwndRenderTemplate {
     fn default() -> Self {
         Self {
+            default_mwnd_no: 0,
+            default_sel_mwnd_no: 1,
             order: 1,
             filter_layer_rep: 0,
             waku_layer_rep: 1,
@@ -151,6 +207,9 @@ impl Default for MwndRenderTemplate {
             shadow_layer_rep: 3,
             fuchi_layer_rep: 4,
             moji_layer_rep: 5,
+            shadow_color: 1,
+            fuchi_color: 1,
+            moji_color: 0,
         }
     }
 }
@@ -168,6 +227,33 @@ impl Default for IconTemplate {
             file_name: String::new(),
             anime_pat_cnt: 1,
             anime_speed: 100,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NamaeEntry {
+    pub source: String,
+    pub display: String,
+    pub color_mod: i64,
+    pub moji_color_no: i64,
+    pub shadow_color_no: i64,
+    pub fuchi_color_no: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct FontConfigDefaults {
+    pub font_type: i64,
+    pub futoku: i64,
+    pub shadow: i64,
+}
+
+impl Default for FontConfigDefaults {
+    fn default() -> Self {
+        Self {
+            font_type: 0,
+            futoku: 0,
+            shadow: 0,
         }
     }
 }
@@ -264,6 +350,9 @@ pub struct AssetTables {
     pub mwnd_templates: Vec<MwndTemplate>,
     pub waku_templates: Vec<WakuTemplate>,
     pub icon_templates: Vec<IconTemplate>,
+    pub namae_entries: Vec<NamaeEntry>,
+    pub color_table: Vec<(u8, u8, u8)>,
+    pub font_defaults: FontConfigDefaults,
 
     pub cgtable: Option<CgTableData>,
     pub cgtable_flag_cnt: Option<usize>,
@@ -286,6 +375,9 @@ impl Default for AssetTables {
             mwnd_templates: vec![MwndTemplate::default(); INIDEF_MWND_CNT],
             waku_templates: vec![WakuTemplate::default(); INIDEF_WAKU_CNT],
             icon_templates: vec![IconTemplate::default(); INIDEF_ICON_CNT],
+            namae_entries: Vec::new(),
+            color_table: default_color_table(),
+            font_defaults: FontConfigDefaults::default(),
             cgtable: None,
             cgtable_flag_cnt: None,
             cg_flags: Vec::new(),
@@ -312,25 +404,39 @@ impl AssetTables {
             }
         };
 
-        let opt = match GameexeDecodeOptions::from_project_dir(project_dir) {
-            Ok(v) => v,
-            Err(e) => {
-                // Keep going with defaults.
-                unknown.record_note(&format!("gameexe.key_toml.invalid:{e}"));
-                GameexeDecodeOptions::default()
+        let (text, report): (String, Option<GameexeDecodeReport>) = if gameexe_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ini"))
+        {
+            match String::from_utf8(raw) {
+                Ok(text) => (text, None),
+                Err(e) => {
+                    unknown.record_note(&format!("gameexe.ini.decode.failed:{e}"));
+                    return out;
+                }
             }
-        };
+        } else {
+            let opt = match GameexeDecodeOptions::from_project_dir(project_dir) {
+                Ok(v) => v,
+                Err(e) => {
+                    // Keep going with defaults.
+                    unknown.record_note(&format!("gameexe.key_toml.invalid:{e}"));
+                    GameexeDecodeOptions::default()
+                }
+            };
 
-        let (text, report) = match decode_gameexe_dat_bytes(&raw, &opt) {
-            Ok(v) => v,
-            Err(e) => {
-                unknown.record_note(&format!("gameexe.decode.failed:{e}"));
-                return out;
+            match decode_gameexe_dat_bytes(&raw, &opt) {
+                Ok((text, report)) => (text, Some(report)),
+                Err(e) => {
+                    unknown.record_note(&format!("gameexe.decode.failed:{e}"));
+                    return out;
+                }
             }
         };
 
         let cfg = GameexeConfig::from_text(&text);
-        out.gameexe_report = Some(report);
+        out.gameexe_report = report;
         out.button_se_templates = load_button_se_templates(&cfg);
         out.button_action_templates = load_button_action_templates(&cfg);
         out.se_file_names = load_se_file_names(&cfg);
@@ -338,6 +444,9 @@ impl AssetTables {
         out.mwnd_templates = load_mwnd_templates(&cfg);
         out.waku_templates = load_waku_templates(&cfg, Some(&text));
         out.icon_templates = load_icon_templates(&cfg);
+        out.namae_entries = load_namae_entries(Some(&text));
+        out.color_table = load_color_table(&cfg);
+        out.font_defaults = load_font_config_defaults(&cfg);
         out.gameexe = Some(cfg);
 
         // Drive table loading from the parsed config.
@@ -414,6 +523,12 @@ fn parse_i64_tuple(raw: Option<&str>) -> Vec<i64> {
 
 fn load_mwnd_render_template(cfg: &GameexeConfig) -> MwndRenderTemplate {
     let mut t = MwndRenderTemplate::default();
+    if let Some(v) = cfg.get_unquoted("MWND.DEFAULT_MWND_NO").and_then(parse_i64_like_local) {
+        t.default_mwnd_no = v;
+    }
+    if let Some(v) = cfg.get_unquoted("MWND.DEFAULT_SEL_MWND_NO").and_then(parse_i64_like_local) {
+        t.default_sel_mwnd_no = v;
+    }
     if let Some(v) = cfg.get_unquoted("MWND.ORDER").and_then(parse_i64_like_local) {
         t.order = v;
     }
@@ -435,6 +550,15 @@ fn load_mwnd_render_template(cfg: &GameexeConfig) -> MwndRenderTemplate {
     if let Some(v) = cfg.get_unquoted("MWND.MOJI_LAYER_REP").and_then(parse_i64_like_local) {
         t.moji_layer_rep = v;
     }
+    if let Some(v) = cfg.get_unquoted("MWND.SHADOW_COLOR").and_then(parse_i64_like_local) {
+        t.shadow_color = v;
+    }
+    if let Some(v) = cfg.get_unquoted("MWND.FUCHI_COLOR").and_then(parse_i64_like_local) {
+        t.fuchi_color = v;
+    }
+    if let Some(v) = cfg.get_unquoted("MWND.MOJI_COLOR").and_then(parse_i64_like_local) {
+        t.moji_color = v;
+    }
     t
 }
 
@@ -447,78 +571,61 @@ fn load_mwnd_templates(cfg: &GameexeConfig) -> Vec<MwndTemplate> {
 
     for i in 0..cnt {
         let mut t = MwndTemplate::default();
-        if let Some(v) = cfg
-            .get_indexed_field("MWND", i, "EXTEND_TYPE")
-            .and_then(parse_i64_like_local)
-        {
-            t.extend_type = v;
-        }
-        let window_pos = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "WINDOW_POS"));
-        if window_pos.len() >= 2 {
-            t.window_pos = (window_pos[0], window_pos[1]);
-        }
-        let window_size = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "WINDOW_SIZE"));
-        if window_size.len() >= 2 {
-            t.window_size = (window_size[0], window_size[1]);
-        }
-        let message_pos = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "MESSAGE_POS"));
-        if message_pos.len() >= 2 {
-            t.message_pos = (message_pos[0], message_pos[1]);
-        }
-        let message_margin = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "MESSAGE_MARGIN"));
-        if message_margin.len() >= 4 {
-            t.message_margin = (message_margin[0], message_margin[1], message_margin[2], message_margin[3]);
-        }
-        let moji_cnt = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "MOJI_CNT"));
-        if moji_cnt.len() >= 2 {
-            t.moji_cnt = (moji_cnt[0], moji_cnt[1]);
-        }
-        if let Some(v) = cfg
-            .get_indexed_field("MWND", i, "MOJI_SIZE")
-            .and_then(parse_i64_like_local)
-        {
-            t.moji_size = v;
-        }
-        let moji_space = parse_i64_tuple(cfg.get_indexed_field("MWND", i, "MOJI_SPACE"));
-        if moji_space.len() >= 2 {
-            t.moji_space = (moji_space[0], moji_space[1]);
-        }
-        if let Some(v) = cfg
-            .get_indexed_field("MWND", i, "WAKU_NO")
-            .and_then(parse_i64_like_local)
-        {
-            t.waku_no = v;
-        }
-        if let Some(v) = cfg
-            .get_indexed_field("MWND", i, "NAME_WAKU_NO")
-            .and_then(parse_i64_like_local)
-        {
-            t.name_waku_no = v;
-        }
-        if let Some(v) = cfg
-            .get_indexed_field("MWND", i, "OPEN_ANIME_TYPE")
-            .and_then(parse_i64_like_local)
-        {
-            t.open_anime_type = v;
-        }
-        if let Some(v) = cfg
-            .get_indexed_field("MWND", i, "OPEN_ANIME_TIME")
-            .and_then(parse_i64_like_local)
-        {
-            t.open_anime_time = v;
-        }
-        if let Some(v) = cfg
-            .get_indexed_field("MWND", i, "CLOSE_ANIME_TYPE")
-            .and_then(parse_i64_like_local)
-        {
-            t.close_anime_type = v;
-        }
-        if let Some(v) = cfg
-            .get_indexed_field("MWND", i, "CLOSE_ANIME_TIME")
-            .and_then(parse_i64_like_local)
-        {
-            t.close_anime_time = v;
-        }
+        let get_i64 = |field: &str| cfg.get_indexed_field("MWND", i, field).and_then(parse_i64_like_local);
+        let get_tuple = |field: &str| parse_i64_tuple(cfg.get_indexed_field("MWND", i, field));
+
+        if let Some(v) = get_i64("NOVEL_MODE") { t.novel_mode = v; }
+        if let Some(v) = get_i64("EXTEND_TYPE") { t.extend_type = v; }
+        let window_pos = get_tuple("WINDOW_POS");
+        if window_pos.len() >= 2 { t.window_pos = (window_pos[0], window_pos[1]); }
+        let window_size = get_tuple("WINDOW_SIZE");
+        if window_size.len() >= 2 { t.window_size = (window_size[0], window_size[1]); }
+        let message_pos = get_tuple("MESSAGE_POS");
+        if message_pos.len() >= 2 { t.message_pos = (message_pos[0], message_pos[1]); }
+        let message_margin = get_tuple("MESSAGE_MARGIN");
+        if message_margin.len() >= 4 { t.message_margin = (message_margin[0], message_margin[1], message_margin[2], message_margin[3]); }
+        let moji_cnt = get_tuple("MOJI_CNT");
+        if moji_cnt.len() >= 2 { t.moji_cnt = (moji_cnt[0], moji_cnt[1]); }
+        if let Some(v) = get_i64("MOJI_SIZE") { t.moji_size = v; }
+        let moji_space = get_tuple("MOJI_SPACE");
+        if moji_space.len() >= 2 { t.moji_space = (moji_space[0], moji_space[1]); }
+        if let Some(v) = get_i64("MOJI_COLOR") { t.moji_color = v; }
+        if let Some(v) = get_i64("SHADOW_COLOR") { t.shadow_color = v; }
+        if let Some(v) = get_i64("FUCHI_COLOR") { t.fuchi_color = v; }
+        if let Some(v) = get_i64("RUBY_SIZE") { t.ruby_size = v; }
+        if let Some(v) = get_i64("RUBY_SPACE") { t.ruby_space = v; }
+        if let Some(v) = get_i64("WAKU_NO") { t.waku_no = v; }
+        let waku_pos = get_tuple("WAKU_POS");
+        if waku_pos.len() >= 2 { t.waku_pos = (waku_pos[0], waku_pos[1]); }
+        if let Some(v) = get_i64("NAME_DISP_MODE") { t.name_disp_mode = v; }
+        if let Some(v) = get_i64("NAME_NEWLINE") { t.name_newline = v; }
+        if let Some(v) = get_i64("NAME_BRACKET") { t.name_bracket = v; }
+        if let Some(v) = get_i64("NAME_MOJI_SIZE") { t.name_moji_size = v; }
+        let name_moji_space = get_tuple("NAME_MOJI_SPACE");
+        if name_moji_space.len() >= 2 { t.name_moji_space = (name_moji_space[0], name_moji_space[1]); }
+        let name_moji_cnt = get_tuple("NAME_MOJI_CNT");
+        if name_moji_cnt.len() >= 2 { t.name_moji_cnt = (name_moji_cnt[0], name_moji_cnt[1]); }
+        let name_window_pos = get_tuple("NAME_WINDOW_POS");
+        if name_window_pos.len() >= 2 { t.name_window_pos = (name_window_pos[0], name_window_pos[1]); }
+        let name_window_size = get_tuple("NAME_WINDOW_SIZE");
+        if name_window_size.len() >= 2 { t.name_window_size = (name_window_size[0], name_window_size[1]); }
+        let name_msg_pos = get_tuple("NAME_MSG_POS");
+        if name_msg_pos.len() >= 2 { t.name_msg_pos = (name_msg_pos[0], name_msg_pos[1]); }
+        let name_msg_margin = get_tuple("NAME_MSG_MARGIN");
+        if name_msg_margin.len() >= 4 { t.name_msg_margin = (name_msg_margin[0], name_msg_margin[1], name_msg_margin[2], name_msg_margin[3]); }
+        if let Some(v) = get_i64("NAME_MOJI_COLOR") { t.name_moji_color = v; }
+        if let Some(v) = get_i64("NAME_SHADOW_COLOR") { t.name_shadow_color = v; }
+        if let Some(v) = get_i64("NAME_FUCHI_COLOR") { t.name_fuchi_color = v; }
+        if let Some(v) = get_i64("NAME_WAKU_NO") { t.name_waku_no = v; }
+        if let Some(v) = get_i64("FACE_HIDE_NAME") { t.face_hide_name = v; }
+        let talk_margin = get_tuple("TALK_MARGIN");
+        if talk_margin.len() >= 4 { t.talk_margin = (talk_margin[0], talk_margin[1], talk_margin[2], talk_margin[3]); }
+        if let Some(v) = get_i64("OVERFLOW_CHECK_SIZE") { t.overflow_check_size = v; }
+        if let Some(v) = get_i64("MSG_BACK_INSERT_NL") { t.msg_back_insert_nl = v; }
+        if let Some(v) = get_i64("OPEN_ANIME_TYPE") { t.open_anime_type = v; }
+        if let Some(v) = get_i64("OPEN_ANIME_TIME") { t.open_anime_time = v; }
+        if let Some(v) = get_i64("CLOSE_ANIME_TYPE") { t.close_anime_type = v; }
+        if let Some(v) = get_i64("CLOSE_ANIME_TIME") { t.close_anime_time = v; }
         out[i] = t;
     }
 
@@ -631,10 +738,7 @@ fn raw_gameexe_field(raw_text: Option<&str>, key: &str) -> Option<String> {
         if !lhs.trim().eq_ignore_ascii_case(key) {
             continue;
         }
-        let mut v = rhs.trim();
-        if let Some(comment) = v.find("//") {
-            v = &v[..comment];
-        }
+        let v = rhs.trim();
         return Some(v.trim().trim_end_matches(';').trim().to_string());
     }
     None
@@ -946,7 +1050,6 @@ fn load_waku_templates(cfg: &GameexeConfig, raw_text: Option<&str>) -> Vec<WakuT
                         b.z_no = z;
                     } else {
                         b.cmd_name = parts[1].to_string();
-                        b.z_no = -1;
                     }
                 }
             }
@@ -989,6 +1092,143 @@ fn load_waku_templates(cfg: &GameexeConfig, raw_text: Option<&str>) -> Vec<WakuT
     }
 
     out
+}
+
+
+fn default_color_table() -> Vec<(u8, u8, u8)> {
+    let mut out = vec![(255, 255, 255); 256];
+    out[0] = (255, 255, 255);
+    out[1] = (0, 0, 0);
+    out[2] = (255, 0, 0);
+    out[3] = (0, 255, 0);
+    out[4] = (0, 0, 255);
+    out[5] = (255, 255, 0);
+    out[6] = (255, 0, 255);
+    out[7] = (0, 255, 255);
+    out
+}
+
+fn load_color_table(cfg: &GameexeConfig) -> Vec<(u8, u8, u8)> {
+    let cnt = cfg.get_usize("COLOR_TABLE.CNT").unwrap_or(256).max(1).min(4096);
+    let mut out = default_color_table();
+    if out.len() < cnt {
+        out.resize(cnt, (255, 255, 255));
+    }
+
+    for i in 0..cnt {
+        let Some(raw) = cfg.get_indexed_unquoted("COLOR_TABLE", i)
+            .or_else(|| cfg.get_indexed_field("COLOR_TABLE", i, "RGB"))
+            .or_else(|| cfg.get_indexed_field("COLOR_TABLE", i, "COLOR"))
+        else {
+            continue;
+        };
+        let vals = parse_i64_tuple(Some(raw));
+        if vals.len() >= 3 {
+            out[i] = (
+                vals[0].clamp(0, 255) as u8,
+                vals[1].clamp(0, 255) as u8,
+                vals[2].clamp(0, 255) as u8,
+            );
+        }
+    }
+    out
+}
+
+fn load_font_config_defaults(cfg: &GameexeConfig) -> FontConfigDefaults {
+    FontConfigDefaults {
+        font_type: cfg.get_unquoted("CONFIG.FONT.TYPE").and_then(parse_i64_like_local).unwrap_or(0),
+        futoku: cfg.get_unquoted("CONFIG.FONT.FUTOKU").and_then(parse_i64_like_local).unwrap_or(0),
+        shadow: cfg.get_unquoted("CONFIG.FONT.SHADOW").and_then(parse_i64_like_local).unwrap_or(0),
+    }
+}
+
+fn load_namae_entries(raw_text: Option<&str>) -> Vec<NamaeEntry> {
+    let Some(text) = raw_text else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let mut t = line.trim();
+        if t.is_empty() {
+            continue;
+        }
+        if let Some(rest) = t.strip_prefix('#') {
+            t = rest.trim_start();
+        }
+        let Some(rhs) = t.strip_prefix("NAMAE") else {
+            continue;
+        };
+        let Some(rhs) = rhs.trim_start().strip_prefix('=') else {
+            continue;
+        };
+        let fields = split_gameexe_fields(rhs);
+        if fields.len() < 5 {
+            continue;
+        }
+        let source = trim_gameexe_scalar(&fields[0]).to_string();
+        let display = trim_gameexe_scalar(&fields[1]).to_string();
+        if source.is_empty() {
+            continue;
+        }
+        let color_mod = fields
+            .get(2)
+            .and_then(|v| parse_i64_like_local(v))
+            .unwrap_or(0);
+        let moji_color_no = fields
+            .get(3)
+            .and_then(|v| parse_i64_like_local(v))
+            .unwrap_or(-1);
+        let shadow_color_no = fields
+            .get(4)
+            .and_then(|v| parse_i64_like_local(v))
+            .unwrap_or(-1);
+        let fuchi_color_no = fields
+            .get(5)
+            .and_then(|v| parse_i64_like_local(v))
+            .unwrap_or(-1);
+        out.push(NamaeEntry {
+            source,
+            display,
+            color_mod,
+            moji_color_no,
+            shadow_color_no,
+            fuchi_color_no,
+        });
+    }
+    out
+}
+
+fn split_gameexe_fields(raw: &str) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut cur = String::new();
+    let mut in_quote = false;
+    let mut paren_depth = 0i32;
+    let mut chars = raw.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '"' => {
+                in_quote = !in_quote;
+                cur.push(ch);
+            }
+            '(' if !in_quote => {
+                paren_depth += 1;
+                cur.push(ch);
+            }
+            ')' if !in_quote => {
+                paren_depth = (paren_depth - 1).max(0);
+                cur.push(ch);
+            }
+            ',' if !in_quote && paren_depth == 0 => {
+                fields.push(cur.trim().to_string());
+                cur.clear();
+            }
+            _ => cur.push(ch),
+        }
+    }
+    if !cur.trim().is_empty() {
+        fields.push(cur.trim().to_string());
+    }
+    fields
 }
 
 fn load_icon_templates(cfg: &GameexeConfig) -> Vec<IconTemplate> {
@@ -1075,7 +1315,7 @@ fn load_se_file_names(cfg: &GameexeConfig) -> Vec<Option<String>> {
     let cnt = cfg
         .get_usize("SE.CNT")
         .unwrap_or(INIDEF_SE_CNT)
-        .min(INIMAX_SE_CNT);
+        .clamp(INIMIN_SE_CNT, INIMAX_SE_CNT);
     let mut out = vec![None; cnt];
 
     for i in 0..cnt {
@@ -1133,13 +1373,23 @@ fn parse_i64_like_local(s: &str) -> Option<i64> {
 fn find_gameexe_path(project_dir: &Path) -> Option<PathBuf> {
     const CANDIDATES: &[&str] = &[
         "Gameexe.dat",
+        "Gameexe.ini",
+        "gameexe.dat",
+        "gameexe.ini",
         "GameexeEN.dat",
+        "GameexeEN.ini",
         "GameexeZH.dat",
+        "GameexeZH.ini",
         "GameexeZHTW.dat",
+        "GameexeZHTW.ini",
         "GameexeDE.dat",
+        "GameexeDE.ini",
         "GameexeES.dat",
+        "GameexeES.ini",
         "GameexeFR.dat",
+        "GameexeFR.ini",
         "GameexeID.dat",
+        "GameexeID.ini",
     ];
     for name in CANDIDATES {
         let p = project_dir.join(name);

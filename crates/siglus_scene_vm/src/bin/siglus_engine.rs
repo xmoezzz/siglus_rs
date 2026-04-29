@@ -1203,13 +1203,23 @@ impl App {
     fn find_gameexe_path(project_dir: &Path) -> Option<PathBuf> {
         let candidates = [
             "Gameexe.dat",
+            "Gameexe.ini",
+            "gameexe.dat",
+            "gameexe.ini",
             "GameexeEN.dat",
+            "GameexeEN.ini",
             "GameexeZH.dat",
+            "GameexeZH.ini",
             "GameexeZHTW.dat",
+            "GameexeZHTW.ini",
             "GameexeDE.dat",
+            "GameexeDE.ini",
             "GameexeES.dat",
+            "GameexeES.ini",
             "GameexeFR.dat",
+            "GameexeFR.ini",
             "GameexeID.dat",
+            "GameexeID.ini",
         ];
         for name in candidates {
             let p = project_dir.join(name);
@@ -1220,9 +1230,18 @@ impl App {
         None
     }
 
+
     fn try_load_gameexe(project_dir: &Path) -> Option<GameexeConfig> {
         let path = Self::find_gameexe_path(project_dir)?;
         let raw = std::fs::read(&path).ok()?;
+        if path
+            .extension()
+            .and_then(|s| s.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("ini"))
+        {
+            let text = String::from_utf8(raw).ok()?;
+            return Some(GameexeConfig::from_text(&text));
+        }
         let opt = GameexeDecodeOptions::from_project_dir(project_dir).ok()?;
         let (text, _report) = decode_gameexe_dat_bytes(&raw, &opt).ok()?;
         Some(GameexeConfig::from_text(&text))
@@ -1273,27 +1292,6 @@ impl App {
             vm.restart_scene_name(&scene_name, start_z)?;
         }
         Ok(vm)
-    }
-
-    fn consume_syscom_pending_scene_call(&mut self) -> Result<bool> {
-        let Some((scene_name, z_no)) = self
-            .vm
-            .as_mut()
-            .and_then(|vm| vm.ctx.globals.syscom.pending_scene_call.take())
-        else {
-            return Ok(false);
-        };
-
-        {
-            let vm = self.vm.as_mut().expect("vm checked");
-            vm.ctx.globals.syscom.menu_open = false;
-            vm.ctx.globals.syscom.menu_kind = None;
-            vm.ctx.globals.syscom.msg_back_open = false;
-            vm.call_scene_name_from_system(&scene_name, z_no as i32)?;
-        }
-
-        self.ensure_requested_script_proc();
-        Ok(true)
     }
 
     fn consume_syscom_pending_proc(&mut self) -> Result<bool> {
@@ -1426,8 +1424,7 @@ impl App {
                             .current_scene_name()
                             .map(|s| s.to_string())
                             .unwrap_or_else(|| self.boot.start_scene.clone());
-                        let pending = vm.ctx.globals.syscom.pending_proc.is_some()
-                            || vm.ctx.globals.syscom.pending_scene_call.is_some();
+                        let pending = vm.ctx.globals.syscom.pending_proc.is_some();
                         let blocked = if pending { false } else { vm.is_blocked() };
                         (
                             running,
@@ -1460,9 +1457,6 @@ impl App {
                         continue;
                     }
                     if pending {
-                        if self.consume_syscom_pending_scene_call()? {
-                            continue;
-                        }
                         if self.consume_syscom_pending_proc()? {
                             continue;
                         }

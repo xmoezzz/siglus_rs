@@ -25,6 +25,55 @@ use super::codes::{int_event_list_op, int_event_op, intlist_op};
 use super::prop_access;
 use super::syscom;
 
+#[derive(Debug, Clone)]
+struct ResolvedGameexeNamae {
+    display: String,
+    color_mod: Option<i64>,
+    moji_color_no: Option<i64>,
+    shadow_color_no: Option<i64>,
+    fuchi_color_no: Option<i64>,
+}
+
+fn non_negative_color_no(v: i64) -> Option<i64> {
+    (v >= 0).then_some(v)
+}
+
+fn resolve_gameexe_namae(
+    tables: &crate::runtime::tables::AssetTables,
+    raw: &str,
+) -> ResolvedGameexeNamae {
+    for ent in &tables.namae_entries {
+        if ent.source == raw {
+            return ResolvedGameexeNamae {
+                display: ent.display.clone(),
+                color_mod: Some(ent.color_mod),
+                moji_color_no: Some(if ent.moji_color_no >= 0 {
+                    ent.moji_color_no
+                } else {
+                    tables.mwnd_render.moji_color
+                }),
+                shadow_color_no: Some(if ent.shadow_color_no >= 0 {
+                    ent.shadow_color_no
+                } else {
+                    tables.mwnd_render.shadow_color
+                }),
+                fuchi_color_no: Some(if ent.fuchi_color_no >= 0 {
+                    ent.fuchi_color_no
+                } else {
+                    tables.mwnd_render.fuchi_color
+                }),
+            };
+        }
+    }
+    ResolvedGameexeNamae {
+        display: raw.to_string(),
+        color_mod: None,
+        moji_color_no: None,
+        shadow_color_no: None,
+        fuchi_color_no: None,
+    }
+}
+
 fn global_stage_alias_to_index(form_id: u32) -> Option<i64> {
     if form_id == constants::global_form::BACK {
         Some(0)
@@ -1762,6 +1811,12 @@ fn ensure_mwnd(ctx: &mut CommandContext, st: &mut StageFormState, stage_idx: i64
                 m.window_moji_cnt = (t.moji_cnt.0 > 0 && t.moji_cnt.1 > 0).then_some(t.moji_cnt);
                 m.moji_size = (t.moji_size > 0).then_some(t.moji_size);
                 m.moji_space = Some(t.moji_space);
+                m.moji_color = non_negative_color_no(t.moji_color);
+                m.shadow_color = non_negative_color_no(t.shadow_color);
+                m.fuchi_color = non_negative_color_no(t.fuchi_color);
+                m.name_moji_color = non_negative_color_no(t.name_moji_color);
+                m.name_shadow_color = non_negative_color_no(t.name_shadow_color);
+                m.name_fuchi_color = non_negative_color_no(t.name_fuchi_color);
                 m.open_anime_type = t.open_anime_type;
                 m.open_anime_time = t.open_anime_time;
                 m.close_anime_type = t.close_anime_type;
@@ -1955,6 +2010,15 @@ fn create_mwnd_template_button_object(
     obj.button.decided_action_scn_name = button.scn_name.clone();
     obj.button.decided_action_cmd_name = button.cmd_name.clone();
     obj.button.decided_action_z_no = button.z_no;
+    obj.frame_action = ObjectFrameActionState::default();
+    if !button.frame_action_cmd_name.is_empty() {
+        obj.frame_action.scn_name = button.frame_action_scn_name.clone();
+        obj.frame_action.cmd_name = button.frame_action_cmd_name.clone();
+        obj.frame_action.end_time = -1;
+        obj.frame_action.real_time_flag = false;
+        obj.frame_action.end_flag = false;
+        obj.frame_action.counter.start();
+    }
     mark_cgtable_look_from_object_create(&mut ctx.tables, ctx.globals.cg_table_off, &button.file_name);
 }
 
@@ -2133,6 +2197,54 @@ fn dispatch_embedded_object_list_op(
         return Some(true);
     }
     None
+}
+
+
+
+fn dispatch_embedded_object_item_ref(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    list: &mut Vec<ObjectState>,
+    strict: bool,
+    child_idx: i64,
+    ret_form: Option<i64>,
+    al_id: Option<i64>,
+    slot_key: &str,
+    element_prefix: Vec<i32>,
+) -> bool {
+    if child_idx < 0 {
+        match ret_form {
+            Some(rf) => ctx.stack.push(default_for_ret_form(rf)),
+            None => ctx.stack.push(Value::Int(0)),
+        }
+        return true;
+    }
+    let idx = child_idx as usize;
+    if idx >= list.len() {
+        if strict {
+            match ret_form {
+                Some(rf) => ctx.stack.push(default_for_ret_form(rf)),
+                None => ctx.stack.push(Value::Int(0)),
+            }
+            return true;
+        }
+        list.resize_with(idx + 1, ObjectState::default);
+    }
+
+    let indexed_slot_key = format!("{slot_key}_{idx}");
+    let runtime_slot = next_embedded_object_slot(st, stage_idx, &indexed_slot_key);
+    list[idx].nested_runtime_slot = Some(runtime_slot);
+
+    ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
+    ctx.globals.current_object_chain = Some(element_prefix.clone());
+
+    if al_id == Some(1) {
+        ctx.stack.push(Value::Int(0));
+    } else {
+        ctx.stack.push(Value::Element(element_prefix));
+    }
+    true
 }
 
 fn dispatch_embedded_object_item_op(
@@ -3309,6 +3421,145 @@ impl Drop for ObjectWriteBack {
     }
 }
 
+fn object_child_tail_to_clone(
+    ctx: &CommandContext,
+    obj: &ObjectState,
+    tail: &[i32],
+) -> Option<ObjectState> {
+    if tail.len() < 2 || !(tail[0] == -1 || tail[0] == ctx.ids.elm_array || tail[0] == super::codes::ELM_ARRAY) {
+        return None;
+    }
+    let child_idx = tail[1].max(0) as usize;
+    let child = obj.runtime.child_objects.get(child_idx)?;
+    if tail.len() == 2 {
+        return Some(child.clone());
+    }
+    object_op_tail_to_clone(ctx, child, tail[2], &tail[3..])
+}
+
+fn object_op_tail_to_clone(
+    ctx: &CommandContext,
+    obj: &ObjectState,
+    op: i32,
+    tail: &[i32],
+) -> Option<ObjectState> {
+    if op == crate::runtime::forms::codes::elm_value::OBJECT_CHILD {
+        return object_child_tail_to_clone(ctx, obj, tail);
+    }
+    if tail.is_empty() {
+        return Some(obj.clone());
+    }
+    None
+}
+
+fn object_list_tail_to_clone(
+    ctx: &CommandContext,
+    list: &[ObjectState],
+    tail: &[i32],
+) -> Option<ObjectState> {
+    if tail.len() < 2 || !(tail[0] == -1 || tail[0] == ctx.ids.elm_array || tail[0] == super::codes::ELM_ARRAY) {
+        return None;
+    }
+    let idx = tail[1].max(0) as usize;
+    let obj = list.get(idx)?;
+    if tail.len() == 2 {
+        return Some(obj.clone());
+    }
+    object_op_tail_to_clone(ctx, obj, tail[2], &tail[3..])
+}
+
+fn embedded_object_list_for_selector<'a>(
+    ctx: &CommandContext,
+    st: &'a StageFormState,
+    stage: i64,
+    child: i32,
+    idx: i64,
+    op: i32,
+) -> Option<&'a Vec<ObjectState>> {
+    if idx < 0 {
+        return None;
+    }
+    if child == crate::runtime::forms::codes::STAGE_ELM_MWND {
+        let m = st
+            .mwnd_lists
+            .get(&stage)
+            .and_then(|list| list.get(idx as usize))?;
+        if op == crate::runtime::forms::codes::elm_value::MWND_BUTTON {
+            return Some(&m.button_list);
+        }
+        if op == crate::runtime::forms::codes::elm_value::MWND_FACE {
+            return Some(&m.face_list);
+        }
+        if op == crate::runtime::forms::codes::elm_value::MWND_OBJECT {
+            return Some(&m.object_list);
+        }
+    }
+    if child == crate::runtime::forms::codes::STAGE_ELM_BTNSELITEM
+        && op == crate::runtime::forms::codes::ELM_BTNSELITEM_OBJECT
+    {
+        return st
+            .btnselitem_lists
+            .get(&stage)
+            .and_then(|list| list.get(idx as usize))
+            .map(|item| &item.object_list);
+    }
+    let _ = ctx;
+    None
+}
+
+fn clone_object_from_element_common(
+    ctx: &CommandContext,
+    st: &StageFormState,
+    current_stage: Option<i64>,
+    current_obj_idx: Option<usize>,
+    current_obj: Option<&ObjectState>,
+    element: &[i32],
+) -> Option<ObjectState> {
+    let stage_object = if ctx.ids.stage_elm_object != 0 {
+        ctx.ids.stage_elm_object
+    } else {
+        crate::runtime::forms::codes::STAGE_ELM_OBJECT
+    };
+    match parse_target(ctx, element)? {
+        StageTarget::ChildItemRef { stage, child, idx } if child == stage_object && idx >= 0 => {
+            if current_stage == Some(stage) && current_obj_idx == Some(idx as usize) {
+                return current_obj.cloned();
+            }
+            st.object_lists
+                .get(&stage)
+                .and_then(|list| list.get(idx as usize))
+                .cloned()
+        }
+        StageTarget::ChildItemOp {
+            stage,
+            child,
+            idx,
+            op,
+            tail,
+        } if child == stage_object && idx >= 0 => {
+            let base = if current_stage == Some(stage) && current_obj_idx == Some(idx as usize) {
+                current_obj
+            } else {
+                st.object_lists
+                    .get(&stage)
+                    .and_then(|list| list.get(idx as usize))
+            }?;
+            object_op_tail_to_clone(ctx, base, op as i32, &tail)
+        }
+        StageTarget::ChildItemOp {
+            stage,
+            child,
+            idx,
+            op,
+            tail,
+        } => {
+            let list = embedded_object_list_for_selector(ctx, st, stage, child, idx, op as i32)?;
+            object_list_tail_to_clone(ctx, list, &tail)
+        }
+        _ => None,
+    }
+}
+
 fn clone_object_from_element_for_child_ref(
     ctx: &CommandContext,
     st: &StageFormState,
@@ -3317,49 +3568,14 @@ fn clone_object_from_element_for_child_ref(
     current_obj: &ObjectState,
     element: &[i32],
 ) -> Option<ObjectState> {
-    let stage_object = if ctx.ids.stage_elm_object != 0 {
-        ctx.ids.stage_elm_object
-    } else {
-        crate::runtime::forms::codes::STAGE_ELM_OBJECT
-    };
-    match parse_target(ctx, element)? {
-        StageTarget::ChildItemRef { stage, child, idx } if child == stage_object && idx >= 0 => st
-            .object_lists
-            .get(&stage)
-            .and_then(|list| list.get(idx as usize))
-            .cloned(),
-        StageTarget::ChildItemOp {
-            stage,
-            child,
-            idx,
-            op,
-            tail,
-        } if child == stage_object && idx >= 0 => {
-            if op as i32 == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
-                && tail.len() == 2
-                && (tail[0] == -1 || tail[0] == ctx.ids.elm_array)
-            {
-                let child_idx = tail[1].max(0) as usize;
-                if stage == current_stage && idx as usize == current_obj_idx {
-                    current_obj.runtime.child_objects.get(child_idx).cloned()
-                } else {
-                    st.object_lists
-                        .get(&stage)
-                        .and_then(|list| list.get(idx as usize))
-                        .and_then(|obj| obj.runtime.child_objects.get(child_idx))
-                        .cloned()
-                }
-            } else if tail.is_empty() {
-                st.object_lists
-                    .get(&stage)
-                    .and_then(|list| list.get(idx as usize))
-                    .cloned()
-            } else {
-                None
-            }
-        }
-        _ => None,
-    }
+    clone_object_from_element_common(
+        ctx,
+        st,
+        Some(current_stage),
+        Some(current_obj_idx),
+        Some(current_obj),
+        element,
+    )
 }
 
 fn clone_object_from_element_for_create_copy(
@@ -3367,47 +3583,7 @@ fn clone_object_from_element_for_create_copy(
     st: &StageFormState,
     element: &[i32],
 ) -> Option<ObjectState> {
-    let stage_object = if ctx.ids.stage_elm_object != 0 {
-        ctx.ids.stage_elm_object
-    } else {
-        crate::runtime::forms::codes::STAGE_ELM_OBJECT
-    };
-    match parse_target(ctx, element)? {
-        StageTarget::ChildItemRef { stage, child, idx } if child == stage_object && idx >= 0 => st
-            .object_lists
-            .get(&stage)
-            .and_then(|list| list.get(idx as usize))
-            .cloned(),
-        StageTarget::ChildItemOp {
-            stage,
-            child,
-            idx,
-            op,
-            tail,
-        } if child == stage_object && idx >= 0 => {
-            if tail.is_empty() {
-                return st
-                    .object_lists
-                    .get(&stage)
-                    .and_then(|list| list.get(idx as usize))
-                    .cloned();
-            }
-            if op as i32 == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
-                && tail.len() == 2
-                && (tail[0] == -1 || tail[0] == ctx.ids.elm_array)
-            {
-                let child_idx = tail[1].max(0) as usize;
-                return st
-                    .object_lists
-                    .get(&stage)
-                    .and_then(|list| list.get(idx as usize))
-                    .and_then(|obj| obj.runtime.child_objects.get(child_idx))
-                    .cloned();
-            }
-            None
-        }
-        _ => None,
-    }
+    clone_object_from_element_common(ctx, st, None, None, None, element)
 }
 
 fn dispatch_object_op(
@@ -8614,11 +8790,61 @@ fn start_mwnd_auto_message(ctx: &mut CommandContext, m: &mut MwndState) {
     }
 }
 
+fn clear_mwnd_message_block_now(ctx: &mut CommandContext, m: &mut MwndState) {
+    m.msg_text.clear();
+    m.name_text.clear();
+    m.chara_color_mod = None;
+    m.chara_moji_color = None;
+    m.chara_shadow_color = None;
+    m.chara_fuchi_color = None;
+    m.key_icon_appear = false;
+    m.key_icon_pos = None;
+    ctx.ui.clear_message();
+    ctx.ui.clear_name();
+    m.multi_msg = false;
+    m.text_dirty = false;
+    m.clear_ready = false;
+    m.msg_block_started = false;
+}
+
+fn clear_mwnd_for_novel_one_msg(m: &mut MwndState) {
+    m.chara_color_mod = None;
+    m.chara_moji_color = None;
+    m.chara_shadow_color = None;
+    m.chara_fuchi_color = None;
+    m.koe = None;
+}
+
+fn start_mwnd_msg_block_if_needed(ctx: &mut CommandContext, m: &mut MwndState) {
+    if m.msg_block_started {
+        return;
+    }
+
+    let had_message = !m.msg_text.is_empty() || !m.name_text.is_empty() || m.text_dirty;
+    if m.clear_ready {
+        clear_mwnd_message_block_now(ctx, m);
+    }
+    clear_mwnd_for_novel_one_msg(m);
+    if had_message {
+        msgbk_next(ctx);
+    }
+    m.clear_ready = false;
+    m.msg_block_started = true;
+}
+
+fn mark_mwnd_clear_ready(ctx: &mut CommandContext, m: &mut MwndState) {
+    m.clear_ready = true;
+    m.msg_block_started = false;
+    m.multi_msg = false;
+    m.text_dirty = false;
+    let _ = ctx;
+}
+
 fn wait_after_mwnd_print_if_needed(ctx: &mut CommandContext, m: &mut MwndState) {
     if !ctx.globals.script.async_msg_mode && !m.multi_msg {
         set_mwnd_key_icon_wait(ctx, m, 0);
         ctx.wait.wait_key();
-        m.text_dirty = false;
+        mark_mwnd_clear_ready(ctx, m);
     }
 }
 
@@ -8634,6 +8860,7 @@ pub fn cd_text_current_mwnd(ctx: &mut CommandContext, text: &str, _rf_flag_no: i
         };
 
         if !text.is_empty() {
+            start_mwnd_msg_block_if_needed(ctx, m);
             m.msg_text.push_str(text);
             start_mwnd_auto_message(ctx, m);
             ctx.ui.append_message(text);
@@ -8656,11 +8883,18 @@ pub fn cd_name_current_mwnd(ctx: &mut CommandContext, name: &str) -> bool {
             return false;
         };
 
+        start_mwnd_msg_block_if_needed(ctx, m);
         if m.name_text.is_empty() {
-            m.name_text = name.to_string();
-            ctx.ui.set_name(name.to_string());
-            if !name.is_empty() {
-                msgbk_add_name(ctx, name);
+            let resolved_name = resolve_gameexe_namae(&ctx.tables, name);
+            let display_name = resolved_name.display;
+            m.chara_color_mod = resolved_name.color_mod;
+            m.chara_moji_color = resolved_name.moji_color_no;
+            m.chara_shadow_color = resolved_name.shadow_color_no;
+            m.chara_fuchi_color = resolved_name.fuchi_color_no;
+            m.name_text = display_name.clone();
+            ctx.ui.set_name(display_name.clone());
+            if !display_name.is_empty() {
+                msgbk_add_name(ctx, &display_name);
             }
         }
         true
@@ -8708,6 +8942,25 @@ fn dispatch_mwnd_item_op(
         let handled = if tail.is_empty() {
             push_ok(ctx, ret_form);
             true
+        } else if tail.len() == 2
+            && (tail[0] == -1
+                || tail[0] == ctx.ids.elm_array
+                || tail[0] == super::codes::ELM_ARRAY)
+        {
+            let child_idx = tail[1] as i64;
+            let element_prefix = mwnd_embedded_object_prefix(ctx, stage_idx, mwnd_idx, op, child_idx);
+            dispatch_embedded_object_item_ref(
+                ctx,
+                st,
+                stage_idx,
+                &mut child_list,
+                strict,
+                child_idx,
+                ret_form,
+                al_id,
+                &format!("mwnd_{selector_key}_{stage_idx}_{mwnd_idx}"),
+                element_prefix,
+            )
         } else if tail.len() == 1 {
             dispatch_embedded_object_list_op(
                 ctx,
@@ -8864,10 +9117,7 @@ fn dispatch_mwnd_item_op(
 
     match k {
         MwndOpKind::MsgBlock => {
-            if !m.msg_text.is_empty() || !m.name_text.is_empty() || m.text_dirty {
-                msgbk_next(ctx);
-            }
-            m.text_dirty = false;
+            start_mwnd_msg_block_if_needed(ctx, m);
             push_ok(ctx, ret_form);
             true
         }
@@ -8882,10 +9132,12 @@ fn dispatch_mwnd_item_op(
         MwndOpKind::Close => {
             m.open = false;
             m.key_icon_appear = false;
-    m.key_icon_pos = None;
+            m.key_icon_pos = None;
             ctx.ui.show_message_bg(false);
             m.multi_msg = false;
             m.text_dirty = false;
+            m.clear_ready = false;
+            m.msg_block_started = false;
             m.selection = None;
             if ctx.globals.focused_stage_mwnd
                 == Some((ctx.ids.form_global_stage, stage_idx, mwnd_idx))
@@ -8903,25 +9155,20 @@ fn dispatch_mwnd_item_op(
             true
         }
         MwndOpKind::Clear => {
-            m.msg_text.clear();
-            m.name_text.clear();
-            m.key_icon_appear = false;
-    m.key_icon_pos = None;
-            ctx.ui.clear_message();
-            ctx.ui.clear_name();
-            m.multi_msg = false;
-            m.text_dirty = false;
+            mark_mwnd_clear_ready(ctx, m);
             push_ok(ctx, ret_form);
             true
         }
         MwndOpKind::NovelClear => {
             m.msg_text.clear();
             m.key_icon_appear = false;
-    m.key_icon_pos = None;
+            m.key_icon_pos = None;
             ctx.ui.clear_message();
             m.msg_text.push('\n');
             m.multi_msg = false;
             m.text_dirty = false;
+            m.clear_ready = false;
+            m.msg_block_started = false;
             push_ok(ctx, ret_form);
             true
         }
@@ -9015,14 +9262,24 @@ fn dispatch_mwnd_item_op(
             true
         }
         MwndOpKind::SetName => {
+            if !m.name_text.is_empty() {
+                push_ok(ctx, ret_form);
+                return true;
+            }
             let s = rhs
                 .and_then(|v| v.as_str())
                 .or_else(|| script_args.iter().find_map(|v| v.as_str()))
                 .unwrap_or("");
-            m.name_text = s.to_string();
-            ctx.ui.set_name(s.to_string());
-            if !s.is_empty() {
-                msgbk_add_name(ctx, s);
+            let resolved_name = resolve_gameexe_namae(&ctx.tables, s);
+            let display_name = resolved_name.display.clone();
+            m.chara_color_mod = resolved_name.color_mod;
+            m.chara_moji_color = resolved_name.moji_color_no;
+            m.chara_shadow_color = resolved_name.shadow_color_no;
+            m.chara_fuchi_color = resolved_name.fuchi_color_no;
+            m.name_text = display_name.clone();
+            ctx.ui.set_name(display_name.clone());
+            if !display_name.is_empty() {
+                msgbk_add_name(ctx, &display_name);
             }
             push_ok(ctx, ret_form);
             true
@@ -9253,6 +9510,10 @@ fn dispatch_mwnd_item_op(
         }
         MwndOpKind::ClearName => {
             m.name_text.clear();
+            m.chara_color_mod = None;
+            m.chara_moji_color = None;
+            m.chara_shadow_color = None;
+            m.chara_fuchi_color = None;
             push_ok(ctx, ret_form);
             true
         }
@@ -9505,6 +9766,23 @@ fn dispatch_btnselitem_item_op(
     let handled = if tail.is_empty() {
         push_ok(ctx, ret_form);
         true
+    } else if tail.len() == 2
+        && (tail[0] == -1 || tail[0] == ctx.ids.elm_array || tail[0] == super::codes::ELM_ARRAY)
+    {
+        let child_idx = tail[1] as i64;
+        let element_prefix = btnselitem_embedded_object_prefix(ctx, stage_idx, item_idx, child_idx);
+        dispatch_embedded_object_item_ref(
+            ctx,
+            st,
+            stage_idx,
+            &mut child_list,
+            strict,
+            child_idx,
+            ret_form,
+            al_id,
+            &format!("btnselitem_{}_{}_{}", stage_idx, item_idx, op),
+            element_prefix,
+        )
     } else if tail.len() == 1 {
         dispatch_embedded_object_list_op(
             ctx,
