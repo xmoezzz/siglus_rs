@@ -1,13 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/siglus_scene_vm",
-  "crates/siglus_assets",
-  "crates/na_mpeg2_decoder",
-  "crates/siglus_omv_decoder",
-  "crates/theora-rs",
-  "crates/siglus_ss_decompiler",
-  "crates/siglus_gameexe_ini",
+  "crates/*",
 ]
 
 [workspace.package]

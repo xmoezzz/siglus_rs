@@ -3815,16 +3815,13 @@ fn sg_input_trace_enabled() -> bool {
     )
 }
 
+
+fn sg_mwnd_object_trace_enabled() -> bool {
+    sg_debug_enabled()
+}
+
 fn sg_render_tree_debug_enabled() -> bool {
     sg_debug_enabled()
-        || matches!(
-            std::env::var("SG_RENDER_TREE_TRACE")
-                .or_else(|_| std::env::var("SG_DEBUG_RENDER_TREE"))
-                .or_else(|_| std::env::var("SG_FRAME_DUMP"))
-                .ok()
-                .as_deref(),
-            Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-        )
 }
 
 #[derive(Debug, Clone, Default)]
@@ -7405,6 +7402,46 @@ fn append_object_tree_sprites(
             "[SG_DEBUG]       child_list op=93 len={}",
             obj.runtime.child_objects.len()
         ));
+    }
+    if sg_mwnd_object_trace_enabled() && !obj.runtime.child_objects.is_empty() {
+        for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+            let child_info = effective_object_info(ctx, stage_idx, child_idx, child);
+            let child_bind = match &child.backend {
+                globals::ObjectBackend::Gfx => ctx
+                    .gfx
+                    .object_sprite_binding(stage_idx, child_info.runtime_slot as i64),
+                globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
+                | globals::ObjectBackend::String { layer_id, sprite_id, .. }
+                | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => Some((*layer_id, *sprite_id)),
+                globals::ObjectBackend::Number { layer_id, sprite_ids }
+                | globals::ObjectBackend::Weather { layer_id, sprite_ids } => {
+                    sprite_ids.first().copied().map(|sid| (*layer_id, sid))
+                }
+                globals::ObjectBackend::None => None,
+            };
+            debug_lines.push(format!(
+                "[SG_DEBUG][MWND_OBJECT_TRACE]       child parent_slot={} parent_obj_idx={} child[{}] slot={} participates={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) order={} layer={} alpha={} tr={} nested_slot={:?} bind={:?} grandchildren={}",
+                info.runtime_slot,
+                obj_idx,
+                child_idx,
+                child_info.runtime_slot,
+                object_participates_in_tree(child),
+                child.used,
+                child.object_type,
+                child.backend,
+                child.file_name.as_deref().unwrap_or("-"),
+                child_info.disp,
+                child_info.x,
+                child_info.y,
+                child_info.order,
+                child_info.layer,
+                child_info.alpha,
+                child_info.tr,
+                child.nested_runtime_slot,
+                child_bind,
+                child.runtime.child_objects.len()
+            ));
+        }
     }
 
     let mut children: Vec<(usize, &globals::ObjectState)> = Vec::new();

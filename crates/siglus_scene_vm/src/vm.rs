@@ -1615,7 +1615,10 @@ impl<'a> SceneVm<'a> {
             }
         }
         for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
-            if child.used {
+            let child_has_frame_action = !child.frame_action.cmd_name.is_empty()
+                || child.frame_action_ch.iter().any(|ch| !ch.cmd_name.is_empty());
+            let child_has_nested_work = !child.runtime.child_objects.is_empty();
+            if child.used || child_has_frame_action || child_has_nested_work {
                 let mut child_chain = object_chain.clone();
                 child_chain.push(crate::runtime::forms::codes::elm_value::OBJECT_CHILD);
                 child_chain.push(crate::runtime::forms::codes::ELM_ARRAY);
@@ -1861,7 +1864,11 @@ impl<'a> SceneVm<'a> {
         {
             let mwnd_idx = chain.get(5).copied().unwrap_or(0).max(0) as usize;
             let selector = chain.get(6).copied().unwrap_or(0);
-            let obj_idx = chain.get(8).copied().unwrap_or(fallback_obj_idx as i32).max(0) as usize;
+            let obj_idx = chain
+                .get(8)
+                .copied()
+                .unwrap_or(fallback_obj_idx as i32)
+                .max(0) as usize;
             let Some(mwnds) = st.mwnd_lists.get_mut(&stage_idx) else {
                 return obj_idx;
             };
@@ -1872,21 +1879,51 @@ impl<'a> SceneVm<'a> {
                 let Some(obj) = mwnd.button_list.get_mut(obj_idx) else {
                     return obj_idx;
                 };
-                return Self::runtime_slot_from_object_children(obj, obj_idx, chain, 9, elm_array, next_slot);
+                return Self::runtime_slot_from_object_children(
+                    obj, obj_idx, chain, 9, elm_array, next_slot,
+                );
             }
             if selector == crate::runtime::forms::codes::elm_value::MWND_FACE {
                 let Some(obj) = mwnd.face_list.get_mut(obj_idx) else {
                     return obj_idx;
                 };
-                return Self::runtime_slot_from_object_children(obj, obj_idx, chain, 9, elm_array, next_slot);
+                return Self::runtime_slot_from_object_children(
+                    obj, obj_idx, chain, 9, elm_array, next_slot,
+                );
             }
             if selector == crate::runtime::forms::codes::elm_value::MWND_OBJECT {
                 let Some(obj) = mwnd.object_list.get_mut(obj_idx) else {
                     return obj_idx;
                 };
-                return Self::runtime_slot_from_object_children(obj, obj_idx, chain, 9, elm_array, next_slot);
+                return Self::runtime_slot_from_object_children(
+                    obj, obj_idx, chain, 9, elm_array, next_slot,
+                );
             }
             return obj_idx;
+        }
+
+        if chain.get(3).copied() == Some(crate::runtime::forms::codes::STAGE_ELM_BTNSELITEM)
+            && chain.len() >= 9
+            && chain.get(6).copied() == Some(crate::runtime::forms::codes::ELM_BTNSELITEM_OBJECT)
+        {
+            let item_idx = chain.get(5).copied().unwrap_or(0).max(0) as usize;
+            let obj_idx = chain
+                .get(8)
+                .copied()
+                .unwrap_or(fallback_obj_idx as i32)
+                .max(0) as usize;
+            let Some(items) = st.btnselitem_lists.get_mut(&stage_idx) else {
+                return obj_idx;
+            };
+            let Some(item) = items.get_mut(item_idx) else {
+                return obj_idx;
+            };
+            let Some(obj) = item.object_list.get_mut(obj_idx) else {
+                return obj_idx;
+            };
+            return Self::runtime_slot_from_object_children(
+                obj, obj_idx, chain, 9, elm_array, next_slot,
+            );
         }
 
         let top_idx = chain
@@ -2343,17 +2380,9 @@ impl<'a> SceneVm<'a> {
         if trace {
             eprintln!("[SG_TICK_TRACE] frame_action work items={}", work.len());
         }
-        if self.call_stack.len() > 1 {
-            if trace {
-                eprintln!(
-                    "[SG_TICK_TRACE] defer frame_action work during nested script call depth={}",
-                    self.call_stack.len()
-                );
-            }
-            self.ctx.tick_frame();
-            self.script_input_synced_this_frame = false;
-            return Ok(());
-        }
+        // C++ drives FRAME_ACTION from the engine proc loop independently of the
+        // current script call depth. Do not stall object callbacks while a user
+        // command/excall is active; MWND child setup relies on these callbacks.
         for item in work {
             if trace {
                 eprintln!(
@@ -4629,6 +4658,22 @@ impl<'a> SceneVm<'a> {
             );
         }
         let slice = self.int_stack[start..].to_vec();
+        if Self::sg_mwnd_object_trace_enabled() && Self::sg_mwnd_chain_interesting(&slice) {
+            self.sg_mwnd_object_trace(format!(
+                "COPY_ELM slice={:?} before_current_chain={:?} before_current_stage_object={:?}",
+                slice,
+                self.ctx.globals.current_object_chain,
+                self.ctx.globals.current_stage_object
+            ));
+        }
+        self.update_compact_context_from_element(&slice);
+        if Self::sg_mwnd_object_trace_enabled() && Self::sg_mwnd_chain_interesting(&slice) {
+            self.sg_mwnd_object_trace(format!(
+                "COPY_ELM after_current_chain={:?} after_current_stage_object={:?}",
+                self.ctx.globals.current_object_chain,
+                self.ctx.globals.current_stage_object
+            ));
+        }
         self.element_points.push(self.int_stack.len());
         self.int_stack.extend_from_slice(&slice);
         self.vm_trace(None, format!("COPY_ELM copied {:?}", slice));
@@ -4829,6 +4874,34 @@ impl<'a> SceneVm<'a> {
         form_id
     }
 
+
+    fn sg_mwnd_object_trace_enabled() -> bool {
+        std::env::var_os("SG_DEBUG").is_some()
+    }
+
+    fn sg_mwnd_object_trace(&self, msg: impl AsRef<str>) {
+        if Self::sg_mwnd_object_trace_enabled() {
+            eprintln!("[SG_DEBUG][MWND_OBJECT_TRACE][VM] {}", msg.as_ref());
+        }
+    }
+
+    fn sg_mwnd_chain_interesting(elm: &[i32]) -> bool {
+        elm.iter().any(|v| {
+            *v == crate::runtime::forms::codes::STAGE_ELM_MWND
+                || *v == crate::runtime::forms::codes::STAGE_ELM_BTNSELITEM
+                || *v == crate::runtime::forms::codes::elm_value::MWND_OBJECT
+                || *v == crate::runtime::forms::codes::elm_value::MWND_BUTTON
+                || *v == crate::runtime::forms::codes::elm_value::MWND_FACE
+                || *v == crate::runtime::forms::codes::ELM_BTNSELITEM_OBJECT
+                || *v == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
+                || *v == crate::runtime::forms::codes::elm_value::OBJECT_CREATE
+                || *v == crate::runtime::forms::codes::elm_value::OBJECT_CREATE_RECT
+                || *v == crate::runtime::forms::codes::elm_value::OBJECT_CREATE_STRING
+                || *v == crate::runtime::forms::codes::elm_value::OBJECT_FRAME_ACTION
+                || *v == crate::runtime::forms::codes::elm_value::OBJECT_FRAME_ACTION_CH
+        })
+    }
+
     fn is_global_indexed_list_head(&self, head: i32) -> bool {
         if head < 0 {
             return false;
@@ -4962,18 +5035,35 @@ impl<'a> SceneVm<'a> {
         (child_idx as usize) < current_obj.runtime.child_objects.len()
     }
 
+    fn object_array_property_op(&self, op: i32) -> bool {
+        let ids = &self.ctx.ids;
+        op == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
+            || (ids.obj_x_rep != 0 && op == ids.obj_x_rep)
+            || (ids.obj_y_rep != 0 && op == ids.obj_y_rep)
+            || (ids.obj_z_rep != 0 && op == ids.obj_z_rep)
+            || (ids.obj_tr_rep != 0 && op == ids.obj_tr_rep)
+            || (ids.obj_f != 0 && op == ids.obj_f)
+            || (ids.obj_frame_action_ch != 0 && op == ids.obj_frame_action_ch)
+    }
+
     fn is_current_object_child_tail(&self, elm: &[i32]) -> bool {
         if elm.len() < 2 {
+            return false;
+        }
+        if elm[0] < 0 {
             return false;
         }
         if elm[1] != self.ctx.ids.elm_array && elm[1] != crate::runtime::forms::codes::ELM_ARRAY {
             return false;
         }
-        if !self.current_object_chain_has_child_index(elm[0]) {
+        if self.object_array_property_op(elm[0]) {
             return false;
         }
         if elm.len() == 2 {
             return true;
+        }
+        if self.object_array_property_op(elm[2]) {
+            return elm[2] == crate::runtime::forms::codes::elm_value::OBJECT_CHILD;
         }
         elm[2] == self.ctx.ids.elm_array
             || elm[2] == crate::runtime::forms::codes::ELM_ARRAY
@@ -5114,113 +5204,18 @@ impl<'a> SceneVm<'a> {
     }
 
     fn compact_object_op_allowed(&self, op: i32) -> bool {
-        if op < 0 {
-            return false;
-        }
-        // Compact object continuation is only valid for object-family element codes.
-        // Do not reinterpret real form ids / global aliases (e.g. syscom/system/script)
-        // as object ops, otherwise title loops get stuck inside the wrong dispatch path.
-        if self.looks_like_runtime_form_id(op)
-            || constants::is_stage_global_form(op as u32, self.ctx.ids.form_global_stage)
-        {
-            return false;
-        }
-        if op <= 187 {
-            return true;
-        }
-        false
+        op >= 0 && op <= 187
     }
 
-    fn looks_like_runtime_form_id(&self, op: i32) -> bool {
-        let known = [
-            self.cfg.fm_void,
-            self.cfg.fm_int,
-            self.cfg.fm_str,
-            self.cfg.fm_label,
-            self.cfg.fm_list,
-            self.ctx.ids.form_global_stage as i32,
-            self.ctx.ids.form_global_mov as i32,
-            self.ctx.ids.form_global_bgm as i32,
-            self.ctx.ids.form_global_bgm_table as i32,
-            self.ctx.ids.form_global_pcm as i32,
-            self.ctx.ids.form_global_pcmch as i32,
-            self.ctx.ids.form_global_se as i32,
-            self.ctx.ids.form_global_pcm_event as i32,
-            self.ctx.ids.form_global_excall as i32,
-            self.ctx.ids.form_global_koe_st as i32,
-            self.ctx.ids.form_global_screen as i32,
-            self.ctx.ids.form_global_msgbk as i32,
-            self.ctx.ids.form_global_input as i32,
-            self.ctx.ids.form_global_mouse as i32,
-            self.ctx.ids.form_global_keylist as i32,
-            self.ctx.ids.form_global_key as i32,
-            self.ctx.ids.form_global_syscom as i32,
-            self.ctx.ids.form_global_script as i32,
-            self.ctx.ids.form_global_system as i32,
-            self.ctx.ids.form_global_frame_action as i32,
-            self.ctx.ids.form_global_frame_action_ch as i32,
-            self.ctx.ids.form_global_math as i32,
-            self.ctx.ids.form_global_cgtable as i32,
-            self.ctx.ids.form_global_database as i32,
-            self.ctx.ids.form_global_g00buf as i32,
-            self.ctx.ids.form_global_mask as i32,
-            self.ctx.ids.form_global_editbox as i32,
-            self.ctx.ids.form_global_file as i32,
-            self.ctx.ids.form_global_steam as i32,
-            6,
-            24,
-            40,
-            46,
-            63,
-            64,
-            86,
-            92,
-            96,
-            crate::runtime::forms::codes::FM_CALL,
-            crate::runtime::forms::codes::FM_CALLLIST,
-            crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32,
-            crate::runtime::forms::codes::FORM_GLOBAL_SYSCOM as i32,
-            crate::runtime::forms::codes::FORM_GLOBAL_SYSTEM as i32,
-            crate::runtime::forms::codes::FORM_GLOBAL_SCRIPT as i32,
-            crate::runtime::forms::codes::FM_COUNTER,
-            crate::runtime::forms::codes::FM_COUNTERLIST,
-            crate::runtime::forms::codes::FM_FRAMEACTION,
-            crate::runtime::forms::codes::FM_FRAMEACTIONLIST,
-            crate::runtime::forms::codes::FM_STAGE,
-            crate::runtime::forms::codes::FM_STAGELIST,
-            crate::runtime::forms::codes::FM_OBJECT,
-            crate::runtime::forms::codes::FM_OBJECTLIST,
-            crate::runtime::forms::codes::FM_OBJECTEVENT,
-            crate::runtime::forms::codes::FM_OBJECTEVENTLIST,
-            crate::runtime::forms::codes::FM_MWND,
-            crate::runtime::forms::codes::FM_MWNDLIST,
-            crate::runtime::forms::codes::FM_GROUP,
-            crate::runtime::forms::codes::FM_GROUPLIST,
-            crate::runtime::forms::codes::FM_BTNSELITEM,
-            crate::runtime::forms::codes::FM_BTNSELITEMLIST,
-            crate::runtime::forms::codes::FM_SCREEN,
-            crate::runtime::forms::codes::FM_QUAKE,
-            crate::runtime::forms::codes::FM_QUAKELIST,
-            crate::runtime::forms::codes::FM_EFFECT,
-            crate::runtime::forms::codes::FM_EFFECTLIST,
-            crate::runtime::forms::codes::FM_BGM,
-            crate::runtime::forms::codes::FM_BGMLIST,
-            crate::runtime::forms::codes::FM_PCM,
-            crate::runtime::forms::codes::FM_PCMCH,
-            crate::runtime::forms::codes::FM_PCMCHLIST,
-            crate::runtime::forms::codes::FM_SE,
-            crate::runtime::forms::codes::FM_MOV,
-            crate::runtime::forms::codes::FM_MOUSE,
-            crate::runtime::forms::codes::FM_KEY,
-            crate::runtime::forms::codes::FM_KEYLIST,
-            crate::runtime::forms::codes::FM_INPUT,
-            crate::runtime::forms::codes::FM_EDITBOX,
-            crate::runtime::forms::codes::FM_EDITBOXLIST,
-            crate::runtime::forms::codes::FM_WORLD,
-            crate::runtime::forms::codes::FM_WORLDLIST,
-            crate::runtime::forms::codes::FM_EXCALL,
-        ];
-        known.contains(&op)
+    fn compact_object_op_allowed_for_element(
+        &self,
+        elm: &[i32],
+        _allow_ambiguous_single_token_object_op: bool,
+    ) -> bool {
+        elm.first()
+            .copied()
+            .map(|op| self.compact_object_op_allowed(op))
+            .unwrap_or(false)
     }
 
     fn current_object_has_child_index(&self, child_idx: i32) -> bool {
@@ -5246,13 +5241,20 @@ impl<'a> SceneVm<'a> {
         (child_idx as usize) < obj.runtime.child_objects.len()
     }
 
-    fn try_compact_object_chain(&self, elm: &[i32]) -> Option<Vec<i32>> {
+    fn try_compact_object_chain(
+        &self,
+        elm: &[i32],
+        allow_ambiguous_single_token_object_op: bool,
+    ) -> Option<Vec<i32>> {
         if elm.is_empty() {
             return None;
         }
 
         let op = elm[0];
-        if !self.compact_object_op_allowed(op) {
+        if !self.compact_object_op_allowed_for_element(
+            elm,
+            allow_ambiguous_single_token_object_op,
+        ) {
             return None;
         }
 
@@ -5283,18 +5285,42 @@ impl<'a> SceneVm<'a> {
 
         if !looks_like_full_stage_object {
             if let Some(prefix) = &self.ctx.globals.current_object_chain {
-                if looks_like_current_object_child && self.current_object_has_child_index(elm[0]) {
+                if looks_like_current_object_child && self.is_current_object_child_tail(elm) {
                     let mut synthetic = prefix.clone();
                     synthetic.push(crate::runtime::forms::codes::elm_value::OBJECT_CHILD);
                     synthetic.push(elm_array);
                     synthetic.push(elm[0]);
                     if elm.len() > 2 {
-                        synthetic.extend_from_slice(&elm[2..]);
+                        if elm[2] == crate::runtime::forms::codes::elm_value::OBJECT_CHILD {
+                            synthetic.extend_from_slice(&elm[3..]);
+                        } else {
+                            synthetic.extend_from_slice(&elm[2..]);
+                        }
+                    }
+                    if Self::sg_mwnd_object_trace_enabled()
+                        && (Self::sg_mwnd_chain_interesting(elm) || Self::sg_mwnd_chain_interesting(&synthetic))
+                    {
+                        eprintln!(
+                            "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact child-shorthand elm={:?} prefix={:?} synthetic={:?}",
+                            elm,
+                            prefix,
+                            synthetic
+                        );
                     }
                     return Some(synthetic);
                 }
                 let mut synthetic = prefix.clone();
                 synthetic.extend_from_slice(elm);
+                if Self::sg_mwnd_object_trace_enabled()
+                    && (Self::sg_mwnd_chain_interesting(elm) || Self::sg_mwnd_chain_interesting(&synthetic))
+                {
+                    eprintln!(
+                        "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact prefix-append elm={:?} prefix={:?} synthetic={:?}",
+                        elm,
+                        prefix,
+                        synthetic
+                    );
+                }
                 return Some(synthetic);
             }
         }
@@ -5304,18 +5330,14 @@ impl<'a> SceneVm<'a> {
         }
 
         let stage_idx = elm[1];
+        if !(0..3).contains(&stage_idx) {
+            return None;
+        }
         let stage_form = if self.ctx.ids.form_global_stage != 0 {
             self.ctx.ids.form_global_stage as i32
         } else {
             crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32
         };
-
-        if elm.len() >= 4
-            && self.looks_like_runtime_form_id(op)
-            && !constants::is_stage_global_form(op as u32, self.ctx.ids.form_global_stage)
-        {
-            return None;
-        }
 
         if elm.len() >= 4 {
             let obj_idx = elm[3];
@@ -5334,6 +5356,15 @@ impl<'a> SceneVm<'a> {
             if elm.len() > 4 {
                 synthetic.extend_from_slice(&elm[4..]);
             }
+            if Self::sg_mwnd_object_trace_enabled()
+                && (Self::sg_mwnd_chain_interesting(elm) || Self::sg_mwnd_chain_interesting(&synthetic))
+            {
+                eprintln!(
+                    "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact absolute elm={:?} synthetic={:?}",
+                    elm,
+                    synthetic
+                );
+            }
             return Some(synthetic);
         }
 
@@ -5341,6 +5372,16 @@ impl<'a> SceneVm<'a> {
             if prefix.len() >= 3 && prefix[2] == stage_idx {
                 let mut synthetic = prefix.clone();
                 synthetic.push(op);
+                if Self::sg_mwnd_object_trace_enabled()
+                    && (Self::sg_mwnd_chain_interesting(elm) || Self::sg_mwnd_chain_interesting(&synthetic))
+                {
+                    eprintln!(
+                        "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact stage-op elm={:?} prefix={:?} synthetic={:?}",
+                        elm,
+                        prefix,
+                        synthetic
+                    );
+                }
                 return Some(synthetic);
             }
         }
@@ -5489,7 +5530,7 @@ impl<'a> SceneVm<'a> {
             );
             return Ok(());
         }
-        if let Some(synthetic) = self.try_compact_object_chain(&elm) {
+        if let Some(synthetic) = self.try_compact_object_chain(&elm, false) {
             self.vm_trace(
                 None,
                 format!(
@@ -5512,6 +5553,7 @@ impl<'a> SceneVm<'a> {
                 );
             }
             self.ctx.vm_call = None;
+            self.update_compact_context_from_object_dispatch_chain(&synthetic);
             if let Some(v) = self.ctx.pop() {
                 self.push_return_value_raw(v);
             } else {
@@ -5611,7 +5653,7 @@ impl<'a> SceneVm<'a> {
         if self.try_parent_slot_assign(&elm, &rhs) {
             return Ok(());
         }
-        if let Some(synthetic) = self.try_compact_object_chain(&elm) {
+        if let Some(synthetic) = self.try_compact_object_chain(&elm, true) {
             self.vm_trace(
                 None,
                 format!(
@@ -5635,6 +5677,7 @@ impl<'a> SceneVm<'a> {
                 );
             }
             self.ctx.vm_call = None;
+            self.update_compact_context_from_object_dispatch_chain(&synthetic);
             self.ctx.stack.clear();
             self.drain_pending_frame_action_finishes()?;
             return Ok(());
@@ -5842,7 +5885,7 @@ impl<'a> SceneVm<'a> {
                 if self.dispatch_global_indexed_list_command_direct(&elm, al_id, ret_form, args)? {
                     return Ok(());
                 }
-                if let Some(synthetic) = self.try_compact_object_chain(&elm) {
+                if let Some(synthetic) = self.try_compact_object_chain(&elm, true) {
                     self.vm_trace(
                         None,
                         format!(
@@ -5850,6 +5893,20 @@ impl<'a> SceneVm<'a> {
                             elm, synthetic, al_id, ret_form, args
                         ),
                     );
+                    if Self::sg_mwnd_object_trace_enabled()
+                        && (Self::sg_mwnd_chain_interesting(&elm) || Self::sg_mwnd_chain_interesting(&synthetic))
+                    {
+                        self.sg_mwnd_object_trace(format!(
+                            "exec_command compact elm={:?} synthetic={:?} al_id={} ret_form={} args={:?} current_chain={:?} current_stage_object={:?}",
+                            elm,
+                            synthetic,
+                            al_id,
+                            ret_form,
+                            args,
+                            self.ctx.globals.current_object_chain,
+                            self.ctx.globals.current_stage_object
+                        ));
+                    }
                     self.ctx.vm_call = Some(runtime::VmCallMeta {
                         element: synthetic.clone(),
                         al_id: al_id as i64,
@@ -5865,6 +5922,7 @@ impl<'a> SceneVm<'a> {
                         );
                     }
                     self.ctx.vm_call = None;
+                    self.update_compact_context_from_object_dispatch_chain(&synthetic);
                     self.drain_pending_frame_action_finishes()?;
                     if ret_form != self.cfg.fm_void {
                         if self.ctx.wait_poll() {
@@ -6357,30 +6415,184 @@ impl<'a> SceneVm<'a> {
         } else {
             crate::runtime::forms::codes::STAGE_ELM_OBJECT
         };
-        let object_child = crate::runtime::forms::codes::elm_value::OBJECT_CHILD;
+        let stage_mwnd = crate::runtime::forms::codes::STAGE_ELM_MWND;
+        let stage_btnselitem = crate::runtime::forms::codes::STAGE_ELM_BTNSELITEM;
 
-        if elm.len() >= 6
-            && elm[0] == stage_form
-            && elm[1] == elm_array
-            && elm[3] == stage_object
-            && elm[4] == elm_array
-            && elm[5] >= 0
-        {
-            let mut pos = 6usize;
-            while pos + 2 < elm.len() && elm[pos] == object_child && elm[pos + 1] == elm_array {
+        fn is_array_token(token: i32, elm_array: i32) -> bool {
+            token == elm_array || token == crate::runtime::forms::codes::ELM_ARRAY
+        }
+
+        fn object_chain_tail_is_plain_object_ref(
+            elm: &[i32],
+            mut pos: usize,
+            elm_array: i32,
+        ) -> bool {
+            let object_child = crate::runtime::forms::codes::elm_value::OBJECT_CHILD;
+            while pos + 2 < elm.len()
+                && elm[pos] == object_child
+                && is_array_token(elm[pos + 1], elm_array)
+            {
+                if elm[pos + 2] < 0 {
+                    return false;
+                }
                 pos += 3;
             }
-            // Only plain object references should become compact continuation context.
-            // Property references like OBJECT.COLOR_RATE_EVE must not overwrite the base
-            // object chain, otherwise a follow-up compact property duplicates the op.
-            if pos != elm.len() {
-                return;
-            }
-            let stage_idx = elm[2] as i64;
-            let runtime_slot = self.runtime_slot_from_object_chain(stage_idx, elm[5] as usize, elm);
-            self.ctx.globals.current_object_chain = Some(elm.to_vec());
-            self.ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
+            pos == elm.len()
         }
+
+        let resolved = if elm.len() >= 6
+            && elm[0] == stage_form
+            && is_array_token(elm[1], elm_array)
+            && elm[2] >= 0
+            && elm[3] == stage_object
+            && is_array_token(elm[4], elm_array)
+            && elm[5] >= 0
+            && object_chain_tail_is_plain_object_ref(elm, 6, elm_array)
+        {
+            Some((elm[2] as i64, elm[5] as usize))
+        } else if elm.len() >= 9
+            && elm[0] == stage_form
+            && is_array_token(elm[1], elm_array)
+            && elm[2] >= 0
+            && elm[3] == stage_mwnd
+            && is_array_token(elm[4], elm_array)
+            && elm[5] >= 0
+            && matches!(
+                elm[6],
+                crate::runtime::forms::codes::elm_value::MWND_OBJECT
+                    | crate::runtime::forms::codes::elm_value::MWND_BUTTON
+                    | crate::runtime::forms::codes::elm_value::MWND_FACE
+            )
+            && is_array_token(elm[7], elm_array)
+            && elm[8] >= 0
+            && object_chain_tail_is_plain_object_ref(elm, 9, elm_array)
+        {
+            Some((elm[2] as i64, elm[8] as usize))
+        } else if elm.len() >= 9
+            && elm[0] == stage_form
+            && is_array_token(elm[1], elm_array)
+            && elm[2] >= 0
+            && elm[3] == stage_btnselitem
+            && is_array_token(elm[4], elm_array)
+            && elm[5] >= 0
+            && elm[6] == crate::runtime::forms::codes::ELM_BTNSELITEM_OBJECT
+            && is_array_token(elm[7], elm_array)
+            && elm[8] >= 0
+            && object_chain_tail_is_plain_object_ref(elm, 9, elm_array)
+        {
+            Some((elm[2] as i64, elm[8] as usize))
+        } else {
+            None
+        };
+
+        let Some((stage_idx, fallback_obj_idx)) = resolved else {
+            return;
+        };
+        let runtime_slot = self.runtime_slot_from_object_chain(stage_idx, fallback_obj_idx, elm);
+        let prev_chain = self.ctx.globals.current_object_chain.clone();
+        let prev_stage_object = self.ctx.globals.current_stage_object;
+        self.ctx.globals.current_object_chain = Some(elm.to_vec());
+        self.ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
+        if Self::sg_mwnd_object_trace_enabled() && Self::sg_mwnd_chain_interesting(elm) {
+            self.sg_mwnd_object_trace(format!(
+                "update_compact_context elm={:?} resolved_stage={} fallback_idx={} runtime_slot={} prev_chain={:?} prev_stage_object={:?}",
+                elm,
+                stage_idx,
+                fallback_obj_idx,
+                runtime_slot,
+                prev_chain,
+                prev_stage_object
+            ));
+        }
+    }
+
+    fn update_compact_context_from_object_dispatch_chain(&mut self, elm: &[i32]) {
+        if elm.is_empty() {
+            return;
+        }
+        let stage_form = if self.ctx.ids.form_global_stage != 0 {
+            self.ctx.ids.form_global_stage as i32
+        } else {
+            crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32
+        };
+        let elm_array = if self.ctx.ids.elm_array != 0 {
+            self.ctx.ids.elm_array
+        } else {
+            crate::runtime::forms::codes::ELM_ARRAY
+        };
+        let stage_object = if self.ctx.ids.stage_elm_object != 0 {
+            self.ctx.ids.stage_elm_object
+        } else {
+            crate::runtime::forms::codes::STAGE_ELM_OBJECT
+        };
+        let stage_mwnd = crate::runtime::forms::codes::STAGE_ELM_MWND;
+        let stage_btnselitem = crate::runtime::forms::codes::STAGE_ELM_BTNSELITEM;
+        let object_child = crate::runtime::forms::codes::elm_value::OBJECT_CHILD;
+
+        fn is_array_token(token: i32, elm_array: i32) -> bool {
+            token == elm_array || token == crate::runtime::forms::codes::ELM_ARRAY
+        }
+
+        let mut pos = if elm.len() >= 6
+            && elm[0] == stage_form
+            && is_array_token(elm[1], elm_array)
+            && elm[2] >= 0
+            && elm[3] == stage_object
+            && is_array_token(elm[4], elm_array)
+            && elm[5] >= 0
+        {
+            6usize
+        } else if elm.len() >= 9
+            && elm[0] == stage_form
+            && is_array_token(elm[1], elm_array)
+            && elm[2] >= 0
+            && elm[3] == stage_mwnd
+            && is_array_token(elm[4], elm_array)
+            && elm[5] >= 0
+            && matches!(
+                elm[6],
+                crate::runtime::forms::codes::elm_value::MWND_OBJECT
+                    | crate::runtime::forms::codes::elm_value::MWND_BUTTON
+                    | crate::runtime::forms::codes::elm_value::MWND_FACE
+            )
+            && is_array_token(elm[7], elm_array)
+            && elm[8] >= 0
+        {
+            9usize
+        } else if elm.len() >= 9
+            && elm[0] == stage_form
+            && is_array_token(elm[1], elm_array)
+            && elm[2] >= 0
+            && elm[3] == stage_btnselitem
+            && is_array_token(elm[4], elm_array)
+            && elm[5] >= 0
+            && elm[6] == crate::runtime::forms::codes::ELM_BTNSELITEM_OBJECT
+            && is_array_token(elm[7], elm_array)
+            && elm[8] >= 0
+        {
+            9usize
+        } else {
+            return;
+        };
+
+        while pos + 2 < elm.len()
+            && elm[pos] == object_child
+            && is_array_token(elm[pos + 1], elm_array)
+            && elm[pos + 2] >= 0
+        {
+            pos += 3;
+        }
+
+        let object_ref = elm[..pos].to_vec();
+        if Self::sg_mwnd_object_trace_enabled() && Self::sg_mwnd_chain_interesting(elm) {
+            self.sg_mwnd_object_trace(format!(
+                "update_context_from_dispatch elm={:?} object_ref={:?} pos={}",
+                elm,
+                object_ref,
+                pos
+            ));
+        }
+        self.update_compact_context_from_element(&object_ref);
     }
 
     fn push_return_value_raw(&mut self, v: Value) {

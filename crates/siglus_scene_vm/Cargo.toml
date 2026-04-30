@@ -20,6 +20,7 @@ siglus_omv_decoder = { path = "../siglus_omv_decoder" }
 na_mpeg2_decoder = { path = "../na_mpeg2_decoder" }
 
 siglus_assets = { path = "../siglus_assets" }
+shion-xfile = { path = "../shion-xfile" }
 
 wgpu.workspace = true
 winit.workspace = true

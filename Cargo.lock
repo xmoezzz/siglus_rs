@@ -2681,6 +2681,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "shion-render"
+version = "0.1.0"
+dependencies = [
+ "shion-xfile",
+]
+
+[[package]]
+name = "shion-xfile"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+]
+
+[[package]]
+name = "shion-xscene"
+version = "0.1.0"
+dependencies = [
+ "shion-xfile",
+]
+
+[[package]]
 name = "shlex"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2697,6 +2718,10 @@ dependencies = [
  "lewton",
  "na_mpeg2_decoder",
 ]
+
+[[package]]
+name = "siglus_cfx_decompiler"
+version = "0.1.0"
 
 [[package]]
 name = "siglus_gameexe_ini"
@@ -2734,6 +2759,7 @@ dependencies = [
  "log",
  "na_mpeg2_decoder",
  "pollster",
+ "shion-xfile",
  "siglus_assets",
  "siglus_omv_decoder",
  "ureq",
@@ -2747,6 +2773,21 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "siglus_assets",
+]
+
+[[package]]
+name = "siglus_x_viewer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "clap",
+ "env_logger",
+ "log",
+ "pollster",
+ "shion-render",
+ "wgpu 0.20.1",
+ "winit 0.30.12",
 ]
 
 [[package]]

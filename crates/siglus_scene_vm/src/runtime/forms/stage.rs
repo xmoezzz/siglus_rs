@@ -363,12 +363,23 @@ fn named_i64(args: &[Value], id: i32) -> Option<i64> {
 }
 
 fn sg_debug_enabled_local() -> bool {
-    std::env::var_os("SG_STAGE_TRACE").is_some() || std::env::var_os("SG_DEBUG_STAGE").is_some()
+    std::env::var_os("SG_DEBUG").is_some()
 }
 
 fn sg_debug_stage(msg: impl AsRef<str>) {
     if sg_debug_enabled_local() {
         eprintln!("[SG_DEBUG][STAGE] {}", msg.as_ref());
+    }
+}
+
+
+fn sg_mwnd_object_trace_enabled() -> bool {
+    std::env::var_os("SG_DEBUG").is_some()
+}
+
+fn sg_mwnd_object_trace(msg: impl AsRef<str>) {
+    if sg_mwnd_object_trace_enabled() {
+        eprintln!("[SG_DEBUG][MWND_OBJECT_TRACE][STAGE] {}", msg.as_ref());
     }
 }
 
@@ -1513,7 +1524,8 @@ fn stage_wipe_mwnd_lists(
         let Some(front) = st.mwnd_lists.get(&1).and_then(|list| list.get(idx)).cloned() else {
             continue;
         };
-        if sorter_in_range(0, front.layer, begin_order, begin_layer, end_order, end_layer) {
+        let mwnd_order = ctx.tables.mwnd_render.order;
+        if sorter_in_range(mwnd_order, front.layer, begin_order, begin_layer, end_order, end_layer) {
             let back = st
                 .mwnd_lists
                 .get(&0)
@@ -2234,6 +2246,18 @@ fn dispatch_embedded_object_item_ref(
 
     let indexed_slot_key = format!("{slot_key}_{idx}");
     let runtime_slot = next_embedded_object_slot(st, stage_idx, &indexed_slot_key);
+    sg_mwnd_object_trace(format!(
+        "embedded_item_op resolved idx={} runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
+        idx,
+        runtime_slot,
+        indexed_slot_key,
+        list[idx].used,
+        list[idx].object_type,
+        list[idx].backend,
+        list[idx].file_name.as_deref().unwrap_or("-"),
+        list[idx].runtime.child_objects.len(),
+        list[idx].nested_runtime_slot
+    ));
     list[idx].nested_runtime_slot = Some(runtime_slot);
 
     ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
@@ -2245,6 +2269,124 @@ fn dispatch_embedded_object_item_ref(
         ctx.stack.push(Value::Element(element_prefix));
     }
     true
+}
+
+fn dispatch_embedded_object_child_item_op(
+    ctx: &mut CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    parent: &mut ObjectState,
+    parent_runtime_slot: usize,
+    child_idx: i64,
+    child_op: i32,
+    child_tail: &[i32],
+    script_args: &[Value],
+    ret_form: Option<i64>,
+    rhs: Option<&Value>,
+    al_id: Option<i64>,
+    parent_prefix: Option<Vec<i32>>,
+) -> bool {
+    if child_idx < 0 {
+        match ret_form {
+            Some(rf) => ctx.stack.push(default_for_ret_form(rf)),
+            None => ctx.stack.push(Value::Int(0)),
+        }
+        return true;
+    }
+
+    let child_u = child_idx as usize;
+    if parent.runtime.child_objects.len() <= child_u {
+        parent
+            .runtime
+            .child_objects
+            .resize_with(child_u + 1, ObjectState::default);
+    }
+    parent.used = true;
+    if !parent.has_int_prop(ctx.ids.obj_disp) {
+        parent.set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
+    }
+
+    let child_runtime_slot = nested_object_slot(st, stage_idx, &mut parent.runtime.child_objects[child_u]);
+    if !parent.runtime.child_objects[child_u].has_int_prop(ctx.ids.obj_disp) {
+        parent.runtime.child_objects[child_u].set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
+    }
+    parent.runtime.child_objects[child_u].used = true;
+
+    let scratch_slot = 0usize;
+    {
+        let stage_list = st.object_lists.entry(stage_idx).or_default();
+        if stage_list.len() <= scratch_slot {
+            stage_list.resize_with(scratch_slot + 1, ObjectState::default);
+        }
+    }
+
+    let child_snapshot = std::mem::take(&mut parent.runtime.child_objects[child_u]);
+    let slot_snapshot = {
+        let stage_list = st.object_lists.get_mut(&stage_idx).unwrap();
+        std::mem::replace(&mut stage_list[scratch_slot], child_snapshot)
+    };
+
+    let prev_chain = ctx.globals.current_object_chain.clone();
+    let prev_stage_object = ctx.globals.current_stage_object;
+    if let Some(mut prefix) = parent_prefix {
+        prefix.push(crate::runtime::forms::codes::elm_value::OBJECT_CHILD);
+        prefix.push(ctx.ids.elm_array);
+        prefix.push(child_u as i32);
+        ctx.globals.current_object_chain = Some(prefix);
+    }
+    ctx.globals.current_stage_object = Some((stage_idx, child_runtime_slot));
+
+    sg_mwnd_object_trace(format!(
+        "embedded_child_direct enter parent_slot={} child_idx={} child_runtime_slot={} child_op={} child_tail={:?}",
+        parent_runtime_slot,
+        child_u,
+        child_runtime_slot,
+        child_op,
+        child_tail
+    ));
+
+    let handled = dispatch_object_op(
+        ctx,
+        st,
+        stage_idx,
+        scratch_slot as i64,
+        child_op,
+        child_tail,
+        script_args,
+        ret_form,
+        rhs,
+        al_id,
+    );
+
+    ctx.globals.current_object_chain = prev_chain;
+    ctx.globals.current_stage_object = prev_stage_object;
+
+    let mut child_after = {
+        let stage_list = st.object_lists.get_mut(&stage_idx).unwrap();
+        std::mem::replace(&mut stage_list[scratch_slot], slot_snapshot)
+    };
+    child_after.nested_runtime_slot = Some(child_runtime_slot);
+
+    sg_mwnd_object_trace(format!(
+        "embedded_child_direct exit parent_slot={} child_idx={} child_runtime_slot={} handled={} after_child used={} type={} backend={:?} file={} disp={} pos=({}, {}) tr={} alpha={} nested_slot={:?}",
+        parent_runtime_slot,
+        child_u,
+        child_runtime_slot,
+        handled,
+        child_after.used,
+        child_after.object_type,
+        child_after.backend,
+        child_after.file_name.as_deref().unwrap_or("-"),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_disp),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_x),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_y),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_alpha),
+        child_after.nested_runtime_slot
+    ));
+
+    parent.runtime.child_objects[child_u] = child_after;
+    handled
 }
 
 fn dispatch_embedded_object_item_op(
@@ -2263,6 +2405,22 @@ fn dispatch_embedded_object_item_op(
     slot_key: &str,
     element_prefix: Option<Vec<i32>>,
 ) -> bool {
+    let trace_prefix = element_prefix.clone();
+    sg_mwnd_object_trace(format!(
+        "embedded_item_op enter stage={} list_len={} strict={} child_idx={} op={} tail={:?} al_id={:?} ret_form={:?} args={:?} rhs={:?} slot_key={} prefix={:?}",
+        stage_idx,
+        list.len(),
+        strict,
+        child_idx,
+        op,
+        tail,
+        al_id,
+        ret_form,
+        script_args,
+        rhs,
+        slot_key,
+        trace_prefix
+    ));
     if child_idx < 0 {
         match ret_form {
             Some(rf) => ctx.stack.push(default_for_ret_form(rf)),
@@ -2283,6 +2441,43 @@ fn dispatch_embedded_object_item_op(
     }
     let indexed_slot_key = format!("{slot_key}_{idx}");
     let runtime_slot = next_embedded_object_slot(st, stage_idx, &indexed_slot_key);
+    sg_mwnd_object_trace(format!(
+        "embedded_item_op resolved idx={} runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
+        idx,
+        runtime_slot,
+        indexed_slot_key,
+        list[idx].used,
+        list[idx].object_type,
+        list[idx].backend,
+        list[idx].file_name.as_deref().unwrap_or("-"),
+        list[idx].runtime.child_objects.len(),
+        list[idx].nested_runtime_slot
+    ));
+
+    if op == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
+        && tail.len() >= 3
+        && (tail[0] == -1 || tail[0] == ctx.ids.elm_array || tail[0] == super::codes::ELM_ARRAY)
+    {
+        list[idx].nested_runtime_slot = Some(runtime_slot);
+        let nested_child_idx = tail[1] as i64;
+        let nested_child_op = tail[2];
+        let nested_child_tail = &tail[3..];
+        return dispatch_embedded_object_child_item_op(
+            ctx,
+            st,
+            stage_idx,
+            &mut list[idx],
+            runtime_slot,
+            nested_child_idx,
+            nested_child_op,
+            nested_child_tail,
+            script_args,
+            ret_form,
+            rhs,
+            al_id,
+            element_prefix,
+        );
+    }
 
     // Embedded MWND/BTNSELITEM objects are not C_elm_stage::m_obj_list entries.
     // This scratch cell adapts the existing OBJECT dispatcher without exposing
@@ -2323,6 +2518,17 @@ fn dispatch_embedded_object_item_op(
         rhs,
         al_id,
     );
+    sg_mwnd_object_trace(format!(
+        "embedded_item_op dispatched idx={} runtime_slot={} scratch_slot={} handled={} op={} tail={:?} current_chain_after_dispatch={:?} current_stage_object_after_dispatch={:?}",
+        idx,
+        runtime_slot,
+        scratch_slot,
+        handled,
+        op,
+        tail,
+        ctx.globals.current_object_chain,
+        ctx.globals.current_stage_object
+    ));
     ctx.globals.current_object_chain = prev_chain;
     ctx.globals.current_stage_object = prev_stage_object;
     let mut child_after = {
@@ -2330,6 +2536,23 @@ fn dispatch_embedded_object_item_op(
         std::mem::take(&mut stage_list[scratch_slot])
     };
     child_after.nested_runtime_slot = Some(runtime_slot);
+    sg_mwnd_object_trace(format!(
+        "embedded_item_op exit idx={} runtime_slot={} handled={} after_child used={} type={} backend={:?} file={} disp={} pos=({}, {}) tr={} alpha={} child_len={} nested_slot={:?}",
+        idx,
+        runtime_slot,
+        handled,
+        child_after.used,
+        child_after.object_type,
+        child_after.backend,
+        child_after.file_name.as_deref().unwrap_or("-"),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_disp),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_x),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_y),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+        child_after.get_int_prop(&ctx.ids, ctx.ids.obj_alpha),
+        child_after.runtime.child_objects.len(),
+        child_after.nested_runtime_slot
+    ));
     {
         let stage_list = st.object_lists.get_mut(&stage_idx).unwrap();
         stage_list[scratch_slot] = slot_snapshot;
@@ -3068,6 +3291,16 @@ fn object_reinit_finish_free_like_cpp(
     obj.init_param_like();
 }
 
+fn object_init_type_free_self_like_cpp(
+    ctx: &mut CommandContext,
+    obj: &mut ObjectState,
+    stage_idx: i64,
+    obj_idx: usize,
+) {
+    object_clear_backend(ctx, obj, stage_idx, obj_idx);
+    obj.init_type_like();
+}
+
 fn object_dst_clip_from_props(
     ids: &crate::runtime::constants::RuntimeConstants,
     obj: &ObjectState,
@@ -3603,6 +3836,33 @@ fn dispatch_object_op(
         return true;
     }
     let obj_u = obj_idx as usize;
+    if sg_mwnd_object_trace_enabled()
+        && (op == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
+            || op == constants::elm_value::OBJECT_CREATE
+            || op == constants::OBJECT_CREATE_RECT
+            || op == constants::elm_value::OBJECT_CREATE_STRING
+            || op == ctx.ids.obj_set_pos
+            || op == ctx.ids.obj_x
+            || op == ctx.ids.obj_y
+            || op == ctx.ids.obj_disp
+            || op == ctx.ids.obj_tr
+            || op == ctx.ids.obj_frame_action
+            || op == ctx.ids.obj_frame_action_ch)
+    {
+        sg_mwnd_object_trace(format!(
+            "object_op enter stage={} obj={} op={} tail={:?} al_id={:?} ret_form={:?} args={:?} rhs={:?} current_chain={:?} current_stage_object={:?}",
+            stage_idx,
+            obj_u,
+            op,
+            tail,
+            al_id,
+            ret_form,
+            script_args,
+            rhs,
+            ctx.globals.current_object_chain,
+            ctx.globals.current_stage_object
+        ));
+    }
     if let Some(raw) = std::env::var_os("SG_TRACE_OBJECT_SLOT") {
         let raw = raw.to_string_lossy();
         let targets = raw
@@ -3951,6 +4211,20 @@ fn dispatch_object_op(
                 ctx.globals.current_object_chain = Some(prefix);
             }
             ctx.globals.current_stage_object = Some((stage_idx, scratch_slot));
+            sg_mwnd_object_trace(format!(
+                "object_child dispatch enter parent_stage={} parent_obj={} child_idx={} child_runtime_slot={} child_op={} child_tail={:?} before_child used={} type={} backend={:?} file={} nested_slot={:?}",
+                stage_idx,
+                obj_u,
+                child_idx,
+                runtime_slot,
+                tail[2],
+                &tail[3..],
+                true,
+                0,
+                "<scratch-before>",
+                "-",
+                Some(runtime_slot)
+            ));
             let handled = dispatch_object_op(
                 ctx,
                 st,
@@ -3963,6 +4237,18 @@ fn dispatch_object_op(
                 rhs,
                 al_id,
             );
+            sg_mwnd_object_trace(format!(
+                "object_child dispatch returned parent_stage={} parent_obj={} child_idx={} child_runtime_slot={} handled={} child_op={} child_tail={:?} current_chain={:?} current_stage_object={:?}",
+                stage_idx,
+                obj_u,
+                child_idx,
+                runtime_slot,
+                handled,
+                tail[2],
+                &tail[3..],
+                ctx.globals.current_object_chain,
+                ctx.globals.current_stage_object
+            ));
             ctx.globals.current_object_chain = prev_chain;
             ctx.globals.current_stage_object = prev_stage_object;
             let mut child_after = {
@@ -4459,25 +4745,29 @@ fn dispatch_object_op(
         };
 
         let argc = script_args.len();
+        let old_disp = obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp) != 0;
+        let old_x = obj.get_int_prop(&ctx.ids, ctx.ids.obj_x);
+        let old_y = obj.get_int_prop(&ctx.ids, ctx.ids.obj_y);
+        let old_patno = obj.get_int_prop(&ctx.ids, ctx.ids.obj_patno);
         let disp = if overload_at_least(al_id, argc, 1, 2) {
             script_i64(script_args, 1, 0) != 0
         } else {
-            false
+            old_disp
         };
         let x = if overload_at_least(al_id, argc, 2, 4) {
             script_i64(script_args, 2, 0)
         } else {
-            0
+            old_x
         };
         let y = if overload_at_least(al_id, argc, 2, 4) {
             script_i64(script_args, 3, 0)
         } else {
-            0
+            old_y
         };
         let patno = if overload_at_least(al_id, argc, 3, 5) {
             script_i64(script_args, 4, 0)
         } else {
-            0
+            old_patno
         };
 
         sg_debug_stage(format!(
@@ -4485,8 +4775,7 @@ fn dispatch_object_op(
             stage_idx, obj_u, file, al_id, disp, x, y, patno
         ));
 
-        object_reinit_finish_free_like_cpp(ctx, obj, stage_idx, obj_runtime_slot);
-        obj.init_param_like();
+        object_init_type_free_self_like_cpp(ctx, obj, stage_idx, obj_runtime_slot);
 
         let create_result = {
             let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
@@ -4502,11 +4791,22 @@ fn dispatch_object_op(
                 patno,
             )
         };
-        if let Err(err) = create_result {
+        let create_ok = create_result.is_ok();
+        if let Err(ref err) = create_result {
             ctx.unknown.record_note(&format!(
                 "OBJECT.CREATE.image.failed:stage={stage_idx}:slot={obj_u}:file={file}:patno={patno}:{err}"
             ));
         }
+        sg_mwnd_object_trace(format!(
+            "object_create result stage={} obj={} runtime_slot={} file={} create_ok={} nested_slot={:?} before_hide_bind={:?}",
+            stage_idx,
+            obj_u,
+            obj_runtime_slot,
+            file,
+            create_ok,
+            obj.nested_runtime_slot,
+            ctx.gfx.object_sprite_binding(stage_idx, obj_runtime_slot as i64)
+        ));
         if obj.nested_runtime_slot.is_some() {
             hide_embedded_gfx_backing(ctx, stage_idx, obj_runtime_slot);
         }
@@ -7320,34 +7620,36 @@ fn dispatch_object_op(
             //   al_id==2 => disp,x,y
             //   al_id==3 => disp,x,y,patno
             let argc = script_args.len();
+            let old_disp = obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp) != 0;
+            let old_x = obj.get_int_prop(&ctx.ids, ctx.ids.obj_x);
+            let old_y = obj.get_int_prop(&ctx.ids, ctx.ids.obj_y);
+            let old_patno = obj.get_int_prop(&ctx.ids, ctx.ids.obj_patno);
             let disp = if overload_at_least(al_id, argc, 1, 2) {
                 script_i64(script_args, 1, 0) != 0
             } else {
-                false
+                old_disp
             };
             let x = if overload_at_least(al_id, argc, 2, 4) {
                 script_i64(script_args, 2, 0)
             } else {
-                0
+                old_x
             };
             let y = if overload_at_least(al_id, argc, 2, 4) {
                 script_i64(script_args, 3, 0)
             } else {
-                0
+                old_y
             };
             let patno = if overload_at_least(al_id, argc, 3, 5) {
                 script_i64(script_args, 4, 0)
             } else {
-                0
+                old_patno
             };
             sg_debug_stage(format!(
                 "stage={} obj={} CREATE file={} al_id={:?} disp={} x={} y={} patno={}",
                 stage_idx, obj_u, file, al_id, disp, x, y, patno
             ));
 
-            object_reinit_finish_free_like_cpp(ctx, obj, stage_idx, obj_runtime_slot);
-            obj.init_type_like();
-            obj.init_param_like();
+            object_init_type_free_self_like_cpp(ctx, obj, stage_idx, obj_runtime_slot);
 
             {
                 let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);

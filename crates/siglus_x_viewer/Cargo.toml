@@ -1,0 +1,20 @@
+[package]
+name = "siglus_x_viewer"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bytemuck.workspace = true
+clap.workspace = true
+env_logger.workspace = true
+log.workspace = true
+pollster.workspace = true
+wgpu.workspace = true
+winit.workspace = true
+shion-render = { path = "../shion-render" }
+
+[[bin]]
+name = "siglus_x_viewer"
+path = "src/main.rs"

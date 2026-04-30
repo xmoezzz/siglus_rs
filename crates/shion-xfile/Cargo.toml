@@ -1,0 +1,12 @@
+[package]
+name = "shion-xfile"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "shion_xfile"
+path = "src/lib.rs"
+
+[dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }

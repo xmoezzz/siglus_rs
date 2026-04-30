@@ -1,0 +1,12 @@
+[package]
+name = "shion-xscene"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+shion-xfile = { path = "../shion-xfile" }
+
+[lib]
+name = "shion_xscene"
+path = "src/lib.rs"

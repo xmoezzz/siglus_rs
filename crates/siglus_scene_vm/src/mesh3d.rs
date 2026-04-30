@@ -494,12 +494,7 @@ impl MeshAsset {
                 .unwrap_or(Mat4::identity());
             let mut bone_cols = Vec::with_capacity(prim.bones.len());
             for bone in &prim.bones {
-                let combined = pose
-                    .combined
-                    .get(bone.frame_index)
-                    .copied()
-                    .unwrap_or(Mat4::identity());
-                bone_cols.push(bone.offset_matrix.mul(&combined).m);
+                bone_cols.push(skin_matrix_for_bone(bone, &pose).m);
             }
             out.push(MeshGpuPrimitiveBatch {
                 vertices: prim.vertices.clone(),
@@ -549,12 +544,7 @@ impl MeshAsset {
                 .unwrap_or(Mat4::identity());
             let mut bone_cols = Vec::with_capacity(prim.bones.len());
             for bone in &prim.bones {
-                let combined = pose
-                    .combined
-                    .get(bone.frame_index)
-                    .copied()
-                    .unwrap_or(Mat4::identity());
-                bone_cols.push(bone.offset_matrix.mul(&combined).m);
+                bone_cols.push(skin_matrix_for_bone(bone, &pose).m);
             }
             out.push(MeshGpuPrimitiveBatch {
                 vertices: prim.vertices.clone(),
@@ -920,6 +910,15 @@ fn find_key_pair_mat(keys: &[MatKey], t: i64) -> (MatKey, MatKey, f32) {
     }
 }
 
+fn skin_matrix_for_bone(bone: &BoneBinding, pose: &PoseState) -> Mat4 {
+    let combined = pose
+        .combined
+        .get(bone.frame_index)
+        .copied()
+        .unwrap_or(Mat4::identity());
+    bone.offset_matrix.mul(&combined)
+}
+
 fn skin_vertex(
     src: &MeshTriVertex,
     prim: &MeshPrimitive,
@@ -937,12 +936,7 @@ fn skin_vertex(
         let Some(bone) = prim.bones.get(bone_idx) else {
             continue;
         };
-        let combined = pose
-            .combined
-            .get(bone.frame_index)
-            .copied()
-            .unwrap_or(Mat4::identity());
-        let skin_mat = bone.offset_matrix.mul(&combined);
+        let skin_mat = skin_matrix_for_bone(bone, pose);
         let p = skin_mat.transform_point(src.pos);
         let n = skin_mat.transform_vector(src.normal);
         for i in 0..3 {
@@ -2577,6 +2571,453 @@ struct ImportedXScene {
     ticks_per_second: f32,
 }
 
+
+fn import_x_scene_bytes_shion(bytes: &[u8], path: &Path) -> Result<ImportedXScene> {
+    let file = shion_xfile::parse_x(bytes)
+        .with_context(|| format!("parse DirectX .x file with Shion parser: {:?}", path))?;
+    let scene = shion_xfile::Scene::from_xfile(&file)
+        .with_context(|| format!("lift DirectX .x semantic scene: {:?}", path))?;
+    import_x_scene_from_shion_scene(&scene, path)
+}
+
+fn import_x_scene_from_shion_scene(
+    scene: &shion_xfile::Scene,
+    path: &Path,
+) -> Result<ImportedXScene> {
+    let loose_materials = shion_loose_material_lookup(scene);
+    let mut out = ImportedXScene {
+        frames: vec![ImportedXFrame {
+            name: "__root__".to_string(),
+            parent: None,
+            base_local: Mat4::identity(),
+        }],
+        primitives: Vec::new(),
+        animations: shion_animation_clips(scene),
+        ticks_per_second: scene.anim_ticks_per_second.unwrap_or(4800).max(1) as f32,
+    };
+
+    for frame in &scene.frames {
+        import_shion_frame(frame, path, &loose_materials, &mut out, 0)?;
+    }
+    for mesh in &scene.loose_meshes {
+        out.primitives.extend(shion_mesh_primitives(
+            mesh,
+            path,
+            0,
+            &loose_materials,
+        )?);
+    }
+    Ok(out)
+}
+
+fn shion_loose_material_lookup(
+    scene: &shion_xfile::Scene,
+) -> HashMap<String, shion_xfile::Material> {
+    let mut out = HashMap::new();
+    for material in &scene.loose_materials {
+        if let Some(name) = &material.name {
+            out.insert(name.clone(), material.clone());
+        }
+    }
+    out
+}
+
+fn import_shion_frame(
+    frame: &shion_xfile::Frame,
+    path: &Path,
+    loose_materials: &HashMap<String, shion_xfile::Material>,
+    scene: &mut ImportedXScene,
+    parent_frame: usize,
+) -> Result<usize> {
+    let frame_idx = scene.frames.len();
+    scene.frames.push(ImportedXFrame {
+        name: frame
+            .name
+            .clone()
+            .unwrap_or_else(|| format!("frame_{}", frame_idx)),
+        parent: Some(parent_frame),
+        base_local: frame
+            .transform
+            .map(Mat4::from_x_values)
+            .unwrap_or_else(Mat4::identity),
+    });
+
+    for mesh in &frame.meshes {
+        scene.primitives.extend(shion_mesh_primitives(
+            mesh,
+            path,
+            frame_idx,
+            loose_materials,
+        )?);
+    }
+    for child in &frame.child_frames {
+        import_shion_frame(child, path, loose_materials, scene, frame_idx)?;
+    }
+    Ok(frame_idx)
+}
+
+fn shion_mesh_primitives(
+    mesh: &shion_xfile::Mesh,
+    path: &Path,
+    frame_index: usize,
+    loose_materials: &HashMap<String, shion_xfile::Material>,
+) -> Result<Vec<ImportedXPrimitive>> {
+    let material_slots = shion_material_slots(mesh, path, loose_materials);
+    let face_material_indices = mesh
+        .material_list
+        .as_ref()
+        .map(|list| list.face_indexes.as_slice())
+        .unwrap_or(&[]);
+    let texcoords = mesh.texcoords.as_deref().unwrap_or(&[]);
+    let vertex_colors = shion_vertex_color_lookup(mesh);
+    let (influences, bones) = shion_skin_bindings(mesh);
+    let mut groups: HashMap<usize, Vec<MeshTriVertex>> = HashMap::new();
+
+    for (face_idx, face) in mesh.faces.iter().enumerate() {
+        if face.len() < 3 {
+            continue;
+        }
+        let material_index = face_material_indices
+            .get(face_idx)
+            .copied()
+            .unwrap_or(0) as usize;
+        for tri in 1..face.len() - 1 {
+            let face_corners = [0usize, tri, tri + 1];
+            let vertex_indices = [
+                face[face_corners[0]] as usize,
+                face[face_corners[1]] as usize,
+                face[face_corners[2]] as usize,
+            ];
+            let tri_n = triangle_normal(
+                mesh.vertices
+                    .get(vertex_indices[0])
+                    .copied()
+                    .unwrap_or([0.0, 0.0, 0.0]),
+                mesh.vertices
+                    .get(vertex_indices[1])
+                    .copied()
+                    .unwrap_or([0.0, 0.0, 0.0]),
+                mesh.vertices
+                    .get(vertex_indices[2])
+                    .copied()
+                    .unwrap_or([0.0, 0.0, 0.0]),
+            );
+            let group = groups.entry(material_index).or_default();
+            for (&vertex_index, &corner_index) in vertex_indices.iter().zip(face_corners.iter()) {
+                let pos = mesh
+                    .vertices
+                    .get(vertex_index)
+                    .copied()
+                    .unwrap_or([0.0, 0.0, 0.0]);
+                let uv = texcoords.get(vertex_index).copied().unwrap_or([0.0, 0.0]);
+                let normal = shion_face_corner_normal(mesh, face_idx, corner_index)
+                    .or_else(|| shion_vertex_normal(mesh, vertex_index))
+                    .unwrap_or(tri_n);
+                let color = vertex_colors
+                    .get(&vertex_index)
+                    .copied()
+                    .unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                let (bone_indices, bone_weights) = packed_influences(influences.get(&vertex_index));
+                group.push(MeshTriVertex {
+                    pos,
+                    uv,
+                    normal,
+                    tangent: [0.0, 0.0, 0.0],
+                    binormal: [0.0, 0.0, 0.0],
+                    color,
+                    bone_indices,
+                    bone_weights,
+                });
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    for (material_index, vertices) in groups {
+        if vertices.is_empty() {
+            continue;
+        }
+        let slot = material_slots
+            .get(material_index)
+            .cloned()
+            .unwrap_or_else(|| ParsedXMaterial {
+                name: None,
+                material: default_mesh_material(),
+                texture_path: None,
+            });
+        let mut vertices = vertices;
+        apply_tangent_space(&mut vertices);
+        out.push(ImportedXPrimitive {
+            frame_node: frame_index,
+            texture_path: slot.texture_path.clone(),
+            material: slot.material,
+            vertices,
+            bones: bones.clone(),
+        });
+    }
+    Ok(out)
+}
+
+fn shion_material_slots(
+    mesh: &shion_xfile::Mesh,
+    path: &Path,
+    loose_materials: &HashMap<String, shion_xfile::Material>,
+) -> Vec<ParsedXMaterial> {
+    let mut slots = Vec::new();
+    if let Some(list) = &mesh.material_list {
+        for material in &list.materials {
+            slots.push(shion_material_to_parsed(material, path));
+        }
+        for reference in &list.material_references {
+            if let Some(name) = &reference.name {
+                if let Some(material) = loose_materials.get(name) {
+                    slots.push(shion_material_to_parsed(material, path));
+                    continue;
+                }
+            }
+            slots.push(ParsedXMaterial {
+                name: reference.name.clone(),
+                material: default_mesh_material(),
+                texture_path: None,
+            });
+        }
+        while slots.len() < list.material_count as usize {
+            slots.push(ParsedXMaterial {
+                name: None,
+                material: default_mesh_material(),
+                texture_path: None,
+            });
+        }
+    }
+    if slots.is_empty() {
+        slots.push(ParsedXMaterial {
+            name: None,
+            material: default_mesh_material(),
+            texture_path: None,
+        });
+    }
+
+    for effect in &mesh.effect_instances {
+        for slot in &mut slots {
+            shion_apply_effect_instance(&mut slot.material, path, effect);
+        }
+    }
+    slots
+}
+
+fn shion_material_to_parsed(
+    material: &shion_xfile::Material,
+    path: &Path,
+) -> ParsedXMaterial {
+    let mut out = default_mesh_material();
+    out.diffuse = material.face_color;
+    out.ambient = material.face_color;
+    out.specular = [
+        material.specular_color[0],
+        material.specular_color[1],
+        material.specular_color[2],
+        1.0,
+    ];
+    out.emissive = [
+        material.emissive_color[0],
+        material.emissive_color[1],
+        material.emissive_color[2],
+        1.0,
+    ];
+    out.power = material.power.max(1.0);
+
+    let mut texture_path = material
+        .texture_filenames
+        .iter()
+        .find_map(|tex| resolve_texture_path(path, tex));
+    for effect in &material.effect_instances {
+        shion_apply_effect_instance(&mut out, path, effect);
+    }
+    if texture_path.is_none() {
+        texture_path = material.effect_instances.iter().find_map(|effect| {
+            effect
+                .strings
+                .iter()
+                .find_map(|param| resolve_texture_path(path, &param.value))
+                .or_else(|| {
+                    effect
+                        .legacy_strings
+                        .iter()
+                        .find_map(|param| resolve_texture_path(path, &param.value))
+                })
+        });
+    }
+
+    ParsedXMaterial {
+        name: material.name.clone(),
+        material: out,
+        texture_path,
+    }
+}
+
+fn shion_apply_effect_instance(
+    material: &mut MeshMaterial,
+    path: &Path,
+    effect: &shion_xfile::EffectInstance,
+) {
+    if !effect.effect_filename.trim().is_empty() {
+        apply_effect_filename(material, &effect.effect_filename);
+    }
+    for param in &effect.strings {
+        assign_effect_param(material, path, &param.param_name, Some(&param.value), &[]);
+    }
+    for param in &effect.dwords {
+        assign_effect_param(
+            material,
+            path,
+            &param.param_name,
+            None,
+            &[param.value as f32],
+        );
+    }
+    for param in &effect.floats {
+        assign_effect_param(material, path, &param.param_name, None, &param.values);
+    }
+    for param in &effect.legacy_strings {
+        assign_effect_param(material, path, "effect_string", Some(&param.value), &[]);
+    }
+    for param in &effect.legacy_dwords {
+        assign_effect_param(material, path, "effect_dword", None, &[param.value as f32]);
+    }
+    for param in &effect.legacy_floats {
+        assign_effect_param(material, path, "effect_floats", None, &param.values);
+    }
+}
+
+fn shion_vertex_color_lookup(mesh: &shion_xfile::Mesh) -> HashMap<usize, [f32; 4]> {
+    let mut out = HashMap::new();
+    if let Some(colors) = &mesh.vertex_colors {
+        for color in colors {
+            out.insert(color.index as usize, color.rgba);
+        }
+    }
+    out
+}
+
+fn shion_face_corner_normal(
+    mesh: &shion_xfile::Mesh,
+    face_index: usize,
+    corner_index: usize,
+) -> Option<[f32; 3]> {
+    let normals = mesh.normals.as_ref()?;
+    let normal_index = (*normals.face_normals.get(face_index)?.get(corner_index)?) as usize;
+    normals.normals.get(normal_index).copied()
+}
+
+fn shion_vertex_normal(mesh: &shion_xfile::Mesh, vertex_index: usize) -> Option<[f32; 3]> {
+    let normals = mesh.normals.as_ref()?;
+    normals.normals.get(vertex_index).copied()
+}
+
+fn shion_skin_bindings(
+    mesh: &shion_xfile::Mesh,
+) -> (
+    HashMap<usize, Vec<(usize, f32)>>,
+    Vec<ImportedXBoneBinding>,
+) {
+    let mut influences: HashMap<usize, Vec<(usize, f32)>> = HashMap::new();
+    let mut bones = Vec::new();
+    for skin in &mesh.skin_weights {
+        let bone_index = bones.len();
+        bones.push(ImportedXBoneBinding {
+            frame_name: skin.transform_node_name.clone(),
+            offset_matrix: Mat4::from_x_values(skin.matrix_offset),
+        });
+        for (&vertex_index, &weight) in skin.vertex_indices.iter().zip(skin.weights.iter()) {
+            influences
+                .entry(vertex_index as usize)
+                .or_default()
+                .push((bone_index, weight));
+        }
+    }
+    (influences, bones)
+}
+
+fn shion_animation_clips(scene: &shion_xfile::Scene) -> Vec<AnimationClip> {
+    let mut clips = Vec::new();
+    for (set_index, set) in scene.animation_sets.iter().enumerate() {
+        let mut clip = AnimationClip {
+            name: set
+                .name
+                .clone()
+                .unwrap_or_else(|| format!("anim_{}", set_index)),
+            open_closed: true,
+            ..Default::default()
+        };
+        for animation in &set.animations {
+            if let Some(options) = &animation.options {
+                clip.open_closed = options.open_closed != 0;
+            }
+            let Some(target_name) = animation.target_name.as_deref() else {
+                continue;
+            };
+            let track = clip.tracks.entry(target_name.to_string()).or_default();
+            for block in &animation.keys {
+                for key in &block.keys {
+                    let time = key.time as i64;
+                    clip.max_time = clip.max_time.max(time);
+                    match block.key_type {
+                        0 => {
+                            if key.values.len() >= 4 {
+                                track.rotation_keys.push(QuatKey {
+                                    time,
+                                    value: Quat {
+                                        x: key.values[1],
+                                        y: key.values[2],
+                                        z: key.values[3],
+                                        w: key.values[0],
+                                    }
+                                    .normalize(),
+                                });
+                            }
+                        }
+                        1 => {
+                            track.scale_keys.push(Vec3Key {
+                                time,
+                                value: [
+                                    key.values.get(0).copied().unwrap_or(1.0),
+                                    key.values.get(1).copied().unwrap_or(1.0),
+                                    key.values.get(2).copied().unwrap_or(1.0),
+                                ],
+                            });
+                        }
+                        2 => {
+                            track.position_keys.push(Vec3Key {
+                                time,
+                                value: [
+                                    key.values.get(0).copied().unwrap_or(0.0),
+                                    key.values.get(1).copied().unwrap_or(0.0),
+                                    key.values.get(2).copied().unwrap_or(0.0),
+                                ],
+                            });
+                        }
+                        4 => {
+                            let mut m = [0.0f32; 16];
+                            for (dst, src) in m.iter_mut().zip(key.values.iter().copied()) {
+                                *dst = src;
+                            }
+                            track.matrix_keys.push(MatKey {
+                                time,
+                                value: Mat4::from_x_values(m),
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        if !clip.tracks.is_empty() {
+            clips.push(clip);
+        }
+    }
+    clips
+}
+
 impl ImportedXScene {
     fn into_mesh_asset(self, path: &Path) -> Result<MeshAsset> {
         let mut children_map: Vec<Vec<usize>> = vec![Vec::new(); self.frames.len().max(1)];
@@ -2701,28 +3142,7 @@ fn import_x_scene_binary(bytes: &[u8], path: &Path, float_bits: u32) -> Result<I
 }
 
 fn import_x_scene_bytes(bytes: &[u8], path: &Path) -> Result<ImportedXScene> {
-    if bytes.len() >= 16 && &bytes[..4] == b"xof " {
-        let header = String::from_utf8_lossy(&bytes[..16]).to_string();
-        let kind = header
-            .get(8..12)
-            .unwrap_or("txt ")
-            .trim()
-            .to_ascii_lowercase();
-        let float_bits = header
-            .get(12..16)
-            .unwrap_or("0032")
-            .trim()
-            .parse::<u32>()
-            .unwrap_or(32);
-        let payload = &bytes[16..];
-        if kind == "bin" {
-            return import_x_scene_binary(payload, path, float_bits);
-        }
-        if kind == "txt" {
-            return import_x_scene_text(&decode_text(payload), path);
-        }
-    }
-    import_x_scene_text(&decode_text(bytes), path)
+    import_x_scene_bytes_shion(bytes, path)
 }
 
 fn parse_x_text(text: &str, path: &Path) -> Result<MeshAsset> {

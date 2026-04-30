@@ -4101,25 +4101,33 @@ fn apply_frame_normal(local: vec3<f32>) -> vec3<f32> {
   return normalize(n);
 }
 
+fn apply_bone_point(m: mat4x4<f32>, local: vec3<f32>) -> vec3<f32> {
+  return m[0].xyz * local.x + m[1].xyz * local.y + m[2].xyz * local.z + m[3].xyz;
+}
+
 fn skin_local(local: vec3<f32>, bone_indices: vec4<f32>, bone_weights: vec4<f32>) -> vec3<f32> {
   let sum_w = bone_weights.x + bone_weights.y + bone_weights.z + bone_weights.w;
   if (vs_u.flags.w <= 0.5 || sum_w <= 1e-6) {
     return apply_frame(local);
   }
-  var out = vec4<f32>(0.0, 0.0, 0.0, 0.0);
+  var out = vec3<f32>(0.0, 0.0, 0.0);
   if (bone_weights.x > 0.0) {
-    out = out + (bone_u.matrices[min(u32(max(bone_indices.x, 0.0)), 63u)] * vec4<f32>(local, 1.0)) * bone_weights.x;
+    let m = bone_u.matrices[min(u32(max(bone_indices.x, 0.0)), 63u)];
+    out = out + apply_bone_point(m, local) * bone_weights.x;
   }
   if (bone_weights.y > 0.0) {
-    out = out + (bone_u.matrices[min(u32(max(bone_indices.y, 0.0)), 63u)] * vec4<f32>(local, 1.0)) * bone_weights.y;
+    let m = bone_u.matrices[min(u32(max(bone_indices.y, 0.0)), 63u)];
+    out = out + apply_bone_point(m, local) * bone_weights.y;
   }
   if (bone_weights.z > 0.0) {
-    out = out + (bone_u.matrices[min(u32(max(bone_indices.z, 0.0)), 63u)] * vec4<f32>(local, 1.0)) * bone_weights.z;
+    let m = bone_u.matrices[min(u32(max(bone_indices.z, 0.0)), 63u)];
+    out = out + apply_bone_point(m, local) * bone_weights.z;
   }
   if (bone_weights.w > 0.0) {
-    out = out + (bone_u.matrices[min(u32(max(bone_indices.w, 0.0)), 63u)] * vec4<f32>(local, 1.0)) * bone_weights.w;
+    let m = bone_u.matrices[min(u32(max(bone_indices.w, 0.0)), 63u)];
+    out = out + apply_bone_point(m, local) * bone_weights.w;
   }
-  return out.xyz;
+  return out;
 }
 
 fn skin_normal(local: vec3<f32>, bone_indices: vec4<f32>, bone_weights: vec4<f32>) -> vec3<f32> {
