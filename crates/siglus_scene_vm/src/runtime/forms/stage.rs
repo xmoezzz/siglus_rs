@@ -1060,6 +1060,36 @@ fn extend_stage_object_list_with_use_flags(
             entry.push(obj);
         }
     }
+
+    let slot_use = st.object_slot_use.entry(stage_idx).or_default();
+    if slot_use.len() < object_use.len() {
+        slot_use.extend_from_slice(&object_use[slot_use.len()..]);
+    }
+}
+
+fn resize_stage_object_slot_use_like_cpp(
+    ctx: &CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    new_len: usize,
+) {
+    let slot_use = st.object_slot_use.entry(stage_idx).or_default();
+    let old_len = slot_use.len();
+    if new_len < old_len {
+        slot_use.truncate(new_len);
+    } else if new_len > old_len {
+        for i in old_len..new_len {
+            slot_use.push(stage_object_use_at(ctx, i));
+        }
+    }
+}
+
+fn stage_object_slot_use_at(ctx: &CommandContext, st: &StageFormState, stage_idx: i64, idx: usize) -> bool {
+    st.object_slot_use
+        .get(&stage_idx)
+        .and_then(|flags| flags.get(idx))
+        .copied()
+        .unwrap_or_else(|| stage_object_use_at(ctx, idx))
 }
 
 fn stage_object_use_at(ctx: &CommandContext, idx: usize) -> bool {
@@ -1104,6 +1134,7 @@ fn resize_stage_object_list_like_cpp(
             push_stage_object_initialized_from_gameexe(ctx, list, i);
         }
     }
+    resize_stage_object_slot_use_like_cpp(ctx, st, stage_idx, new_len);
     st.object_list_strict.insert(stage_idx, true);
 }
 
@@ -1144,7 +1175,7 @@ fn ensure_stage_form_initialized_from_gameexe(ctx: &CommandContext, st: &mut Sta
     let mut object_use = stage_object_use_flags(ctx, object_cnt);
     for list in st.object_lists.values() {
         for (idx, obj) in list.iter().enumerate().take(object_cnt) {
-            if obj.used {
+            if obj.used || object_is_prepared_for_stage_wipe(obj) {
                 object_use[idx] = true;
             }
         }
@@ -1233,6 +1264,10 @@ fn extend_stage_object_list_at_least(st: &mut StageFormState, stage_idx: i64, cn
     if entry.len() < cnt {
         entry.extend((0..(cnt - entry.len())).map(|_| ObjectState::default()));
     }
+    let slot_use = st.object_slot_use.entry(stage_idx).or_default();
+    if slot_use.len() < cnt {
+        slot_use.extend((0..(cnt - slot_use.len())).map(|_| true));
+    }
 }
 
 fn extend_stage_mwnd_list_at_least(st: &mut StageFormState, stage_idx: i64, cnt: usize) {
@@ -1285,12 +1320,14 @@ fn object_slot_is_enabled_for_stage_wipe(
     st: &StageFormState,
     idx: usize,
 ) -> bool {
-   // C++ C_elm_stage_list::wipe checks C_elm_object::is_use(), the fixed
-   // object-slot enable flag initialized from Gp_ini. Rust ObjectState::used
-   // is an active/runtime flag, so FRONT.used can be false for an initialized
-   // empty slot even when BACK has prepared content for that same slot.
-   // A prepared peer slot is direct runtime evidence that this slot must pass
-   // the wipe gate; otherwise fall back to the Gameexe slot flag.
+    // C++ C_elm_stage_list::wipe checks C_elm_object::is_use(), the fixed
+    // object-slot enable flag initialized from Gp_ini.  Rust ObjectState::used
+    // is an active/runtime flag, so FRONT.used can be false for an initialized
+    // empty slot even when BACK has prepared content for that same slot.
+    // A prepared peer slot is direct runtime evidence that this slot must pass
+    // the wipe gate; otherwise fall back to the Gameexe slot flag.  Do not gate
+    // solely on FRONT slot-use: scripts often prepare BACK objects and then
+    // WIPE them into FRONT.
     for stage_idx in TNM_STAGE_BACK..TNM_STAGE_CNT {
         if let Some(obj) = st.object_lists.get(&stage_idx).and_then(|list| list.get(idx)) {
             if obj.used || object_is_prepared_for_stage_wipe(obj) {
@@ -1298,7 +1335,7 @@ fn object_slot_is_enabled_for_stage_wipe(
             }
         }
     }
-    stage_object_use_at(ctx, idx)
+    stage_object_slot_use_at(ctx, st, TNM_STAGE_FRONT, idx)
 }
 
 fn object_wipe_copy_value(ctx: &CommandContext, obj: &ObjectState) -> i64 {
@@ -1524,8 +1561,7 @@ fn stage_wipe_mwnd_lists(
         let Some(front) = st.mwnd_lists.get(&1).and_then(|list| list.get(idx)).cloned() else {
             continue;
         };
-        let mwnd_order = ctx.tables.mwnd_render.order;
-        if sorter_in_range(mwnd_order, front.layer, begin_order, begin_layer, end_order, end_layer) {
+        if sorter_in_range(front.order, front.layer, begin_order, begin_layer, end_order, end_layer) {
             let back = st
                 .mwnd_lists
                 .get(&0)
@@ -1815,6 +1851,7 @@ fn ensure_mwnd(ctx: &mut CommandContext, st: &mut StageFormState, stage_idx: i64
     let fallback_waku_no = if let Some(t) = ctx.tables.mwnd_templates.get(mwnd_idx).cloned() {
         if let Some(list) = st.mwnd_lists.get_mut(&stage_idx) {
             if let Some(m) = list.get_mut(mwnd_idx) {
+                m.order = ctx.tables.mwnd_render.order;
                 m.mwnd_extend_type = t.extend_type;
                 m.window_pos = Some(t.window_pos);
                 m.window_size = (t.window_size.0 > 0 && t.window_size.1 > 0).then_some(t.window_size);
@@ -2245,11 +2282,13 @@ fn dispatch_embedded_object_item_ref(
     }
 
     let indexed_slot_key = format!("{slot_key}_{idx}");
-    let runtime_slot = next_embedded_object_slot(st, stage_idx, &indexed_slot_key);
+    let allocated_runtime_slot = next_embedded_object_slot(st, stage_idx, &indexed_slot_key);
+    let runtime_slot = list[idx].nested_runtime_slot.unwrap_or(allocated_runtime_slot);
     sg_mwnd_object_trace(format!(
-        "embedded_item_op resolved idx={} runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
+        "embedded_item_op resolved idx={} runtime_slot={} allocated_runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
         idx,
         runtime_slot,
+        allocated_runtime_slot,
         indexed_slot_key,
         list[idx].used,
         list[idx].object_type,
@@ -2258,7 +2297,9 @@ fn dispatch_embedded_object_item_ref(
         list[idx].runtime.child_objects.len(),
         list[idx].nested_runtime_slot
     ));
-    list[idx].nested_runtime_slot = Some(runtime_slot);
+    if list[idx].nested_runtime_slot.is_none() {
+        list[idx].nested_runtime_slot = Some(runtime_slot);
+    }
 
     ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
     ctx.globals.current_object_chain = Some(element_prefix.clone());
@@ -2440,11 +2481,13 @@ fn dispatch_embedded_object_item_op(
         list.resize_with(idx + 1, ObjectState::default);
     }
     let indexed_slot_key = format!("{slot_key}_{idx}");
-    let runtime_slot = next_embedded_object_slot(st, stage_idx, &indexed_slot_key);
+    let allocated_runtime_slot = next_embedded_object_slot(st, stage_idx, &indexed_slot_key);
+    let runtime_slot = list[idx].nested_runtime_slot.unwrap_or(allocated_runtime_slot);
     sg_mwnd_object_trace(format!(
-        "embedded_item_op resolved idx={} runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
+        "embedded_item_op resolved idx={} runtime_slot={} allocated_runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
         idx,
         runtime_slot,
+        allocated_runtime_slot,
         indexed_slot_key,
         list[idx].used,
         list[idx].object_type,
@@ -2458,7 +2501,9 @@ fn dispatch_embedded_object_item_op(
         && tail.len() >= 3
         && (tail[0] == -1 || tail[0] == ctx.ids.elm_array || tail[0] == super::codes::ELM_ARRAY)
     {
-        list[idx].nested_runtime_slot = Some(runtime_slot);
+        if list[idx].nested_runtime_slot.is_none() {
+            list[idx].nested_runtime_slot = Some(runtime_slot);
+        }
         let nested_child_idx = tail[1] as i64;
         let nested_child_op = tail[2];
         let nested_child_tail = &tail[3..];
@@ -2491,7 +2536,9 @@ fn dispatch_embedded_object_item_op(
         }
     }
     let mut child_snapshot = std::mem::take(&mut list[idx]);
-    child_snapshot.nested_runtime_slot = Some(runtime_slot);
+    if child_snapshot.nested_runtime_slot.is_none() {
+        child_snapshot.nested_runtime_slot = Some(runtime_slot);
+    }
     let slot_snapshot = {
         let stage_list = st.object_lists.get_mut(&stage_idx).unwrap();
         std::mem::take(&mut stage_list[scratch_slot])
@@ -2535,7 +2582,9 @@ fn dispatch_embedded_object_item_op(
         let stage_list = st.object_lists.get_mut(&stage_idx).unwrap();
         std::mem::take(&mut stage_list[scratch_slot])
     };
-    child_after.nested_runtime_slot = Some(runtime_slot);
+    if child_after.nested_runtime_slot.is_none() {
+        child_after.nested_runtime_slot = Some(runtime_slot);
+    }
     sg_mwnd_object_trace(format!(
         "embedded_item_op exit idx={} runtime_slot={} handled={} after_child used={} type={} backend={:?} file={} disp={} pos=({}, {}) tr={} alpha={} child_len={} nested_slot={:?}",
         idx,
@@ -5941,28 +5990,56 @@ fn dispatch_object_op(
             );
 
             // Optional (disp, x, y) via al_id.
+            // Use the raw argument vector when al_id selects a positional overload.
+            // CD_COMMAND can wrap trailing values as NamedArg before dispatch; if we
+            // only look at split_pos_named(), create_movie_loop(file, 1, 0, 0) can
+            // lose disp and stay invisible while frames are decoding correctly.
             let argc = pos.len();
-            let disp_i = if overload_at_least(al_id, argc, 1, 2) {
+            let raw_arg_i64 = |index: usize, default: i64| -> i64 {
+                script_args
+                    .get(index)
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(default)
+            };
+            let disp_i = if al_id.unwrap_or(-1) >= 1 {
+                raw_arg_i64(1, 0)
+            } else if argc >= 2 {
                 positional_ref_i64(&pos, 1, 0)
             } else {
                 0
             };
             obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-            if overload_at_least(al_id, argc, 2, 4) {
+            if al_id.unwrap_or(-1) >= 2 || argc >= 4 {
+                let x = if al_id.unwrap_or(-1) >= 2 {
+                    raw_arg_i64(2, 0)
+                } else {
+                    pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0)
+                };
+                let y = if al_id.unwrap_or(-1) >= 2 {
+                    raw_arg_i64(3, 0)
+                } else {
+                    pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0)
+                };
                 if ctx.ids.obj_x != 0 {
-                    obj.set_int_prop(
-                        &ctx.ids,
-                        ctx.ids.obj_x,
-                        pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
-                    );
+                    obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
                 }
                 if ctx.ids.obj_y != 0 {
-                    obj.set_int_prop(
-                        &ctx.ids,
-                        ctx.ids.obj_y,
-                        pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0),
-                    );
+                    obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
                 }
+            }
+            if std::env::var_os("SG_DEBUG").is_some() {
+                eprintln!(
+                    "[SG_DEBUG][MOV] object_movie.create_args stage={} obj={} file={} al_id={:?} raw_argc={} pos_argc={} disp={} x={} y={}",
+                    stage_idx,
+                    obj_u,
+                    file,
+                    al_id,
+                    script_args.len(),
+                    argc,
+                    obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp),
+                    obj.get_int_prop(&ctx.ids, ctx.ids.obj_x),
+                    obj.get_int_prop(&ctx.ids, ctx.ids.obj_y),
+                );
             }
 
             if wait_flag {

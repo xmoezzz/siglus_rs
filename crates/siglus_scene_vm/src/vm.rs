@@ -588,6 +588,92 @@ impl<'a> SceneVm<'a> {
             ),
         );
     }
+    fn sg_debug_enabled() -> bool {
+        std::env::var_os("SG_DEBUG").is_some()
+    }
+
+    fn sg_omv_trace(&self, msg: impl AsRef<str>) {
+        if !Self::sg_debug_enabled() {
+            return;
+        }
+        let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
+        let scene_no = self
+            .current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        eprintln!(
+            "[SG_DEBUG][OMV_TRACE] scene={} scene_no={} line={} pc=0x{:x} {}",
+            scene,
+            scene_no,
+            self.current_line_no,
+            self.stream.get_prg_cntr(),
+            msg.as_ref()
+        );
+    }
+
+    fn sg_omv_trace_command(
+        &self,
+        phase: &str,
+        elm: &[i32],
+        form_id: i32,
+        op_id: i32,
+        al_id: i32,
+        ret_form: i32,
+        args: &[Value],
+    ) {
+        if !Self::sg_debug_enabled() {
+            return;
+        }
+
+        let label = if form_id == crate::runtime::forms::codes::elm_value::GLOBAL_JUMP
+            || (form_id == crate::runtime::forms::codes::FM_GLOBAL
+                && op_id == crate::runtime::forms::codes::elm_value::GLOBAL_JUMP)
+        {
+            Some("GLOBAL.JUMP")
+        } else if form_id == crate::runtime::forms::codes::elm_value::GLOBAL_FARCALL
+            || (form_id == crate::runtime::forms::codes::FM_GLOBAL
+                && op_id == crate::runtime::forms::codes::elm_value::GLOBAL_FARCALL)
+        {
+            Some("GLOBAL.FARCALL")
+        } else if form_id as u32 == constants::global_form::MOV || form_id == constants::fm::MOV {
+            Some("MOV")
+        } else if form_id == constants::fm::OBJECT
+            && matches!(
+                op_id,
+                crate::runtime::forms::codes::object_op::CREATE_MOVIE
+                    | crate::runtime::forms::codes::object_op::CREATE_MOVIE_LOOP
+                    | crate::runtime::forms::codes::object_op::CREATE_MOVIE_WAIT
+                    | crate::runtime::forms::codes::object_op::CREATE_MOVIE_WAIT_KEY
+            )
+        {
+            Some("OBJECT.CREATE_MOVIE")
+        } else {
+            None
+        };
+        let Some(label) = label else {
+            return;
+        };
+
+        let args_dbg = args
+            .iter()
+            .take(8)
+            .map(|v| format!("{v:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.sg_omv_trace(format!(
+            "{} {} form={} op={} al_id={} ret_form={} elm={:?} argc={} args=[{}]",
+            phase,
+            label,
+            form_id,
+            op_id,
+            al_id,
+            ret_form,
+            elm,
+            args.len(),
+            args_dbg
+        ));
+    }
+
 
     fn vm_scn_cmd_context(&self, pc: usize) -> String {
         let cnt = self.stream.header.scn_cmd_cnt.max(0) as usize;
@@ -2817,19 +2903,24 @@ impl<'a> SceneVm<'a> {
 
             CD_GOTO => {
                 let label_no = self.stream.pop_i32()?;
+                self.sg_omv_trace(format!("GOTO label={} taken=true", label_no));
                 self.stream.jump_to_label(label_no.max(0) as usize)?;
             }
             CD_GOTO_TRUE => {
                 let label_no = self.stream.pop_i32()?;
                 let cond = self.pop_int()?;
-                if cond != 0 {
+                let taken = cond != 0;
+                self.sg_omv_trace(format!("GOTO_TRUE label={} cond={} taken={}", label_no, cond, taken));
+                if taken {
                     self.stream.jump_to_label(label_no.max(0) as usize)?;
                 }
             }
             CD_GOTO_FALSE => {
                 let label_no = self.stream.pop_i32()?;
                 let cond = self.pop_int()?;
-                if cond == 0 {
+                let taken = cond == 0;
+                self.sg_omv_trace(format!("GOTO_FALSE label={} cond={} taken={}", label_no, cond, taken));
+                if taken {
                     self.stream.jump_to_label(label_no.max(0) as usize)?;
                 }
             }
@@ -2897,6 +2988,7 @@ impl<'a> SceneVm<'a> {
             }
             CD_RETURN => {
                 let args = self.pop_arg_list()?;
+                self.sg_omv_trace(format!("RETURN argc={} args={:?} call_depth={} scene_stack={}", args.len(), args, self.call_stack.len(), self.scene_stack.len()));
                 if self.call_stack.len() == 1 {
                     if self.return_from_scene(args.clone())? {
                         return Ok(true);
@@ -2959,6 +3051,11 @@ impl<'a> SceneVm<'a> {
                 }
 
                 let ret_form = self.stream.pop_i32()?;
+                if let Some(raw_head) = elm.first().copied() {
+                    let form_id = self.canonical_runtime_form_id(raw_head as u32) as i32;
+                    let op_id = if elm.len() >= 2 { elm[1] } else { arg_list_id };
+                    self.sg_omv_trace_command("CD_COMMAND", &elm, form_id, op_id, arg_list_id, ret_form, &args);
+                }
                 let _ = self.ctx.take_read_flag_no_request();
                 let block_generation = self.ctx.wait.block_generation();
                 let proc_generation = self.ctx.proc_generation();
@@ -5756,10 +5853,30 @@ impl<'a> SceneVm<'a> {
                 cmd_no - inc_cmd_cnt
             };
 
-            let Some(_name) = self.user_cmd_names.get(&local_cmd_no).cloned() else {
+            let Some(name) = self.user_cmd_names.get(&local_cmd_no).cloned() else {
+                self.sg_omv_trace(format!(
+                    "USER_CMD unresolved raw_head={} cmd_no={} local_cmd_no={} inc_cmd_cnt={} ret_form={} argc={}",
+                    raw_head,
+                    cmd_no,
+                    local_cmd_no,
+                    inc_cmd_cnt,
+                    ret_form,
+                    args.len()
+                ));
                 return Ok(false);
             };
             let offset = self.stream.scn_cmd_offset(local_cmd_no as usize)?;
+            self.sg_omv_trace(format!(
+                "USER_CMD enter name={} raw_head={} cmd_no={} local_cmd_no={} offset=0x{:x} ret_form={} argc={} current_pc=0x{:x}",
+                name,
+                raw_head,
+                cmd_no,
+                local_cmd_no,
+                offset,
+                ret_form,
+                args.len(),
+                self.stream.get_prg_cntr()
+            ));
             return self.enter_current_scene_user_cmd_proc_at_offset(
                 offset,
                 ret_form,
@@ -5913,6 +6030,16 @@ impl<'a> SceneVm<'a> {
                         ret_form: ret_form as i64,
                     });
                     let form_id = self.canonical_runtime_form_id(synthetic[0] as u32) as i32;
+                    let op_id = if synthetic.len() >= 2 { synthetic[1] } else { al_id };
+                    self.sg_omv_trace_command(
+                        "compact",
+                        &synthetic,
+                        form_id,
+                        op_id,
+                        al_id,
+                        ret_form,
+                        args,
+                    );
                     if !runtime::dispatch_form_code(&mut self.ctx, form_id as u32, args)? {
                         self.ctx.vm_call = None;
                         bail!(
@@ -5976,6 +6103,16 @@ impl<'a> SceneVm<'a> {
                         args_dbg
                     );
                 }
+
+                self.sg_omv_trace_command(
+                    "dispatch",
+                    &elm,
+                    form_id,
+                    op_id,
+                    al_id,
+                    ret_form,
+                    args,
+                );
 
                 if !runtime::dispatch_form_code(&mut self.ctx, form_id as u32, args)? {
                     self.ctx.vm_call = None;
@@ -6110,6 +6247,14 @@ impl<'a> SceneVm<'a> {
             .find_scene_no(scene_name)
             .ok_or_else(|| anyhow!("scene not found: {}", scene_name))?;
         let mut stream = self.cached_scene_stream(scene_no)?;
+        self.sg_omv_trace(format!(
+            "load_scene_stream resolved target={} scene_no={} z={} initial_pc=0x{:x} scn_len=0x{:x}",
+            scene_name,
+            scene_no,
+            z_no,
+            stream.get_prg_cntr(),
+            stream.scn.len()
+        ));
         self.call_cmd_names = self
             .scene_pck_cache
             .as_ref()
@@ -6117,29 +6262,49 @@ impl<'a> SceneVm<'a> {
             .inc_cmd_name_map
             .clone();
         self.user_cmd_names = stream.scn_cmd_name_map.clone();
-        stream.jump_to_z_label(z_no.max(0) as usize)?;
+        match stream.jump_to_z_label(z_no.max(0) as usize) {
+            Ok(()) => {
+                self.sg_omv_trace(format!(
+                    "load_scene_stream entered target={} scene_no={} z={} target_pc=0x{:x} user_cmd_cnt={} call_cmd_cnt={}",
+                    scene_name,
+                    scene_no,
+                    z_no,
+                    stream.get_prg_cntr(),
+                    stream.scn_cmd_name_map.len(),
+                    self.call_cmd_names.len()
+                ));
+            }
+            Err(e) => {
+                self.sg_omv_trace(format!(
+                    "load_scene_stream failed target={} scene_no={} z={} error={}",
+                    scene_name,
+                    scene_no,
+                    z_no,
+                    e
+                ));
+                return Err(e);
+            }
+        }
         Ok((stream, scene_no))
     }
 
     fn jump_to_scene_name(&mut self, scene_name: &str, z_no: i32) -> Result<()> {
-        if std::env::var_os("SIGLUS_TRACE_SCENE_SWITCH").is_some() {
-            eprintln!("[vm scene jump] scene={} z={}", scene_name, z_no);
-        }
+        self.sg_omv_trace(format!("scene_jump target={} z={}", scene_name, z_no));
         let (stream, scene_no) = self.load_scene_stream(scene_name, z_no)?;
         self.stream = stream;
-        self.int_stack.clear();
-        self.str_stack.clear();
-        self.element_points.clear();
-        self.call_stack.clear();
-        self.call_stack.push(self.scene_base_call());
-        self.gosub_return_stack.clear();
-        self.user_props.clear();
         self.current_scene_no = Some(scene_no);
         self.current_scene_name = Some(scene_name.to_string());
         self.current_line_no = -1;
         self.ctx.current_scene_no = Some(scene_no as i64);
         self.ctx.current_scene_name = Some(scene_name.to_string());
         self.ctx.current_line_no = -1;
+        self.sg_omv_trace(format!(
+            "scene_jump_entered target={} scene_no={} z={} pc=0x{:x}",
+            scene_name,
+            scene_no,
+            z_no,
+            self.stream.get_prg_cntr()
+        ));
         Ok(())
     }
 
@@ -6151,12 +6316,14 @@ impl<'a> SceneVm<'a> {
         ex_call_proc: bool,
         scratch_source_args: &[Value],
     ) -> Result<()> {
-        if std::env::var_os("SIGLUS_TRACE_SCENE_SWITCH").is_some() {
-            eprintln!(
-                "[vm scene farcall] scene={} z={} ret_form={}",
-                scene_name, z_no, ret_form
-            );
-        }
+        self.sg_omv_trace(format!(
+            "scene_farcall target={} z={} ret_form={} ex_call_proc={} scratch_argc={}",
+            scene_name,
+            z_no,
+            ret_form,
+            ex_call_proc,
+            scratch_source_args.len()
+        ));
         let saved = SceneExecFrame {
             stream: self.stream.clone(),
             user_cmd_names: self.user_cmd_names.clone(),
@@ -6190,6 +6357,15 @@ impl<'a> SceneVm<'a> {
         self.ctx.current_scene_no = Some(scene_no as i64);
         self.ctx.current_scene_name = Some(scene_name.to_string());
         self.ctx.current_line_no = -1;
+        self.sg_omv_trace(format!(
+            "scene_farcall_entered target={} scene_no={} z={} pc=0x{:x} call_depth={} scene_stack={}",
+            scene_name,
+            scene_no,
+            z_no,
+            self.stream.get_prg_cntr(),
+            self.call_stack.len(),
+            self.scene_stack.len()
+        ));
         if ex_call_proc {
             self.mark_excall_script_proc_requested();
         }
@@ -6200,12 +6376,13 @@ impl<'a> SceneVm<'a> {
         let Some(saved) = self.scene_stack.pop() else {
             return Ok(false);
         };
-        if std::env::var_os("SIGLUS_TRACE_SCENE_SWITCH").is_some() {
-            eprintln!(
-                "[vm scene return] ret_form={} args={:?}",
-                saved.ret_form, args
-            );
-        }
+        self.sg_omv_trace(format!(
+            "scene_return restore_scene={:?} restore_line={} ret_form={} args={:?}",
+            saved.current_scene_name,
+            saved.current_line_no,
+            saved.ret_form,
+            args
+        ));
         self.stream = saved.stream;
         self.int_stack = saved.int_stack;
         self.str_stack = saved.str_stack;
@@ -6240,6 +6417,15 @@ impl<'a> SceneVm<'a> {
         if was_excall_proc {
             self.mark_excall_script_proc_pop_requested();
         }
+        self.sg_omv_trace(format!(
+            "scene_return_restored scene={:?} scene_no={:?} line={} pc=0x{:x} call_depth={} scene_stack={}",
+            self.current_scene_name,
+            self.current_scene_no,
+            self.current_line_no,
+            self.stream.get_prg_cntr(),
+            self.call_stack.len(),
+            self.scene_stack.len()
+        ));
         Ok(true)
     }
 
@@ -6298,9 +6484,10 @@ impl<'a> SceneVm<'a> {
         ret_form: i32,
         args: &[Value],
     ) -> Result<bool> {
-        const FORM_GLOBAL_JUMP: i32 = 4;
-        const FORM_GLOBAL_FARCALL: i32 = 5;
+        const FORM_GLOBAL_JUMP: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_JUMP;
+        const FORM_GLOBAL_FARCALL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_FARCALL;
         if form_id == FORM_GLOBAL_JUMP {
+            self.sg_omv_trace_command("builtin", &[], form_id, form_id, al_id, ret_form, args);
             let scene_name = args.get(0).and_then(|v| v.as_str()).unwrap_or("");
             let z_no = if al_id >= 1 {
                 args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32
@@ -6310,10 +6497,10 @@ impl<'a> SceneVm<'a> {
             if !scene_name.is_empty() {
                 self.jump_to_scene_name(scene_name, z_no)?;
             }
-            self.push_default_for_ret(ret_form);
             return Ok(true);
         }
         if form_id == FORM_GLOBAL_FARCALL {
+            self.sg_omv_trace_command("builtin", &[], form_id, form_id, al_id, ret_form, args);
             let scene_name = args.get(0).and_then(|v| v.as_str()).unwrap_or("");
             let z_no = if al_id >= 1 {
                 args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32
@@ -6324,7 +6511,7 @@ impl<'a> SceneVm<'a> {
                 self.farcall_scene_name_ex(
                     scene_name,
                     z_no,
-                    ret_form,
+                    self.cfg.fm_int,
                     false,
                     if al_id >= 1 && args.len() > 2 {
                         &args[2..]
@@ -6333,7 +6520,7 @@ impl<'a> SceneVm<'a> {
                     },
                 )?;
             } else {
-                self.push_default_for_ret(ret_form);
+                self.push_default_for_ret(self.cfg.fm_int);
             }
             return Ok(true);
         }

@@ -135,7 +135,7 @@ fn parse_struct(src: &str, name: &str) -> Option<(String, Vec<StructField>)> {
 }
 
 fn extract_main_body(src: &str) -> Result<String, String> {
-    let main_pos = src.find(" main(").or_else(|| src.find("main("))).ok_or("missing main")?;
+    let main_pos = src.find(" main(").or_else(|| src.find("main(")).ok_or("missing main")?;
     let rest = &src[main_pos..];
     let brace = rest.find('{').ok_or("missing main body")?;
     let mut depth = 0i32;

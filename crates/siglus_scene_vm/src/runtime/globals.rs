@@ -1907,6 +1907,10 @@ pub struct ObjectMovieState {
     pub last_tick: Option<std::time::Instant>,
     pub last_frame_idx: Option<usize>,
     pub audio_id: Option<u64>,
+    // Two reusable image ids for object movie frames. This keeps movie playback
+    // changing visible GPU textures without allocating a new image every frame.
+    pub frame_image_ids: [Option<ImageId>; 2],
+    pub frame_image_cursor: usize,
     pub just_finished: bool,
     pub just_looped: bool,
     pub seeked: bool,
@@ -1925,6 +1929,8 @@ impl Default for ObjectMovieState {
             last_tick: None,
             last_frame_idx: None,
             audio_id: None,
+            frame_image_ids: [None, None],
+            frame_image_cursor: 0,
             just_finished: false,
             just_looped: false,
             seeked: false,
@@ -1955,6 +1961,8 @@ impl ObjectMovieState {
         self.last_tick = Some(std::time::Instant::now());
         self.last_frame_idx = None;
         self.audio_id = None;
+        self.frame_image_ids = [None, None];
+        self.frame_image_cursor = 0;
         self.just_finished = false;
         self.just_looped = false;
         self.seeked = false;
@@ -4207,6 +4215,12 @@ pub struct MwndState {
     pub multi_msg: bool,
     pub ruby_text: Option<String>,
     pub koe: Option<(i64, i64)>,
+    /// C++ C_elm_mwnd::get_sorter() uses an order/layer pair.
+    /// There is no public MWND.ORDER script element in the recovered headers;
+    /// this order is initialized from the engine MWND render defaults and is
+    /// kept as runtime state so wipe/render code does not read a global table
+    /// in place of the per-MWND sorter.
+    pub order: i64,
     pub layer: i64,
     pub world: i64,
     pub moji_size: Option<i64>,
@@ -4262,6 +4276,10 @@ pub struct StageFormState {
     // --- OBJECT / OBJECTLIST ---
     /// Per-stage object state (string objects, rect objects, nested child objects, etc.).
     pub object_lists: HashMap<i64, Vec<ObjectState>>,
+    /// Fixed per-slot C++ C_elm_object::is_use() flags, separated from
+    /// ObjectState::used.  The latter is an active/runtime flag in this port;
+    /// C++ stage wipe gates on the slot enable flag initialized by C_elm_object_list.
+    pub object_slot_use: HashMap<i64, Vec<bool>>,
     /// Whether this stage's object list should enforce its current size (enabled after RESIZE).
     pub object_list_strict: HashMap<i64, bool>,
     /// Rectangle-object layer per stage (created lazily).
@@ -4718,6 +4736,13 @@ impl StageFormState {
             entry.extend((0..(cnt - entry.len())).map(|_| ObjectState::default()));
         } else if entry.len() > cnt {
             entry.truncate(cnt);
+        }
+
+        let slot_use = self.object_slot_use.entry(stage_idx).or_default();
+        if slot_use.len() < cnt {
+            slot_use.extend((0..(cnt - slot_use.len())).map(|_| true));
+        } else if slot_use.len() > cnt {
+            slot_use.truncate(cnt);
         }
     }
 

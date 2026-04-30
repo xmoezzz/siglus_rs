@@ -4606,6 +4606,7 @@ fn button_object_render_info(
 ) -> ButtonObjectRenderInfo {
     let runtime_slot = object_runtime_slot(obj_idx, obj);
     let embedded_tree_object = obj.nested_runtime_slot.is_some();
+    let use_gfx_object_state = matches!(obj.backend, globals::ObjectBackend::Gfx) && !embedded_tree_object;
     let extra = |id: i32, default: i64| -> i64 {
         if id != 0 {
             obj.lookup_int_prop(ids, id).unwrap_or(default)
@@ -4614,17 +4615,17 @@ fn button_object_render_info(
         }
     };
     let gfx_disp = || {
-        if embedded_tree_object {
-            None
-        } else {
+        if use_gfx_object_state {
             gfx.object_peek_disp(stage_idx, runtime_slot as i64)
+        } else {
+            None
         }
     };
     let gfx_pos = || {
-        if embedded_tree_object {
-            None
-        } else {
+        if use_gfx_object_state {
             gfx.object_peek_pos(stage_idx, runtime_slot as i64)
+        } else {
+            None
         }
     };
     let x_rep = obj
@@ -5950,6 +5951,109 @@ fn sync_weather_object_recursive(
     }
 }
 
+fn install_object_movie_preview_if_missing(
+    layers: &mut LayerManager,
+    movie_mgr: &mut MovieManager,
+    images: &mut ImageManager,
+    obj: &mut globals::ObjectState,
+    stage_idx: i64,
+    obj_idx: i64,
+    file: &str,
+    trace: bool,
+) {
+    let globals::ObjectBackend::Movie {
+        layer_id,
+        sprite_id,
+        image_id,
+        width,
+        height,
+    } = &mut obj.backend else {
+        return;
+    };
+
+    if image_id.is_some() {
+        return;
+    }
+
+    match movie_mgr.ensure_omv_preview_frame(file) {
+        Ok(frame) => {
+            let img_id = images.insert_image_arc(frame.clone());
+            *image_id = Some(img_id);
+            *width = frame.width;
+            *height = frame.height;
+            obj.movie.frame_image_ids[0] = Some(img_id);
+            obj.movie.frame_image_cursor = 0;
+            if let Some(layer) = layers.layer_mut(*layer_id) {
+                if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+                    sprite.image_id = Some(img_id);
+                }
+            }
+            if trace || sg_debug_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][MOV] object_movie.preview_installed stage={} obj={} file={} image={:?} size={}x{}",
+                    stage_idx, obj_idx, file, img_id, frame.width, frame.height
+                );
+            }
+        }
+        Err(err) => {
+            if trace || sg_debug_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][MOV] object_movie.preview_failed stage={} obj={} file={} err={:#}",
+                    stage_idx, obj_idx, file, err
+                );
+            }
+        }
+    }
+}
+
+fn install_object_movie_stream_frame(
+    layers: &mut LayerManager,
+    images: &mut ImageManager,
+    obj: &mut globals::ObjectState,
+    stage_idx: i64,
+    obj_idx: i64,
+    file: &str,
+    frame_idx: usize,
+    frame: std::sync::Arc<crate::assets::RgbaImage>,
+    trace: bool,
+) {
+    let globals::ObjectBackend::Movie {
+        layer_id,
+        sprite_id,
+        image_id,
+        width,
+        height,
+    } = &mut obj.backend else {
+        return;
+    };
+
+    let next_cursor = obj.movie.frame_image_cursor ^ 1;
+    let img_id = if let Some(id) = obj.movie.frame_image_ids[next_cursor] {
+        let _ = images.replace_image_arc(id, frame.clone());
+        id
+    } else {
+        let id = images.insert_image_arc(frame.clone());
+        obj.movie.frame_image_ids[next_cursor] = Some(id);
+        id
+    };
+    obj.movie.frame_image_cursor = next_cursor;
+
+    *image_id = Some(img_id);
+    *width = frame.width;
+    *height = frame.height;
+    if let Some(layer) = layers.layer_mut(*layer_id) {
+        if let Some(sprite) = layer.sprite_mut(*sprite_id) {
+            sprite.image_id = Some(img_id);
+        }
+    }
+    if trace || sg_debug_enabled() {
+        eprintln!(
+            "[SG_DEBUG][MOV] object_movie.frame stage={} obj={} file={} frame={} image={:?} size={}x{} timer_ms={}",
+            stage_idx, obj_idx, file, frame_idx, img_id, frame.width, frame.height, obj.movie.timer_ms
+        );
+    }
+}
+
 fn sync_movie_object_recursive(
     ids: &constants::RuntimeConstants,
     layers: &mut LayerManager,
@@ -6059,6 +6163,21 @@ fn sync_movie_object_recursive(
                         );
                     }
                 }
+
+                // Object movie sprites need a texture immediately after CREATE_MOVIE.
+                // The streaming decoder can return None while its worker is warming up;
+                // without this preview surface the object stays as image_id=None/0x0 and
+                // is filtered out by render submission. The stream path below replaces it.
+                install_object_movie_preview_if_missing(
+                    layers,
+                    movie_mgr,
+                    images,
+                    obj,
+                    stage_idx,
+                    obj_idx,
+                    file,
+                    trace,
+                );
 
                 if obj.movie.seeked || obj.movie.just_looped {
                     if let Some(id) = obj.movie.audio_id.take() {
@@ -6205,38 +6324,17 @@ fn sync_movie_object_recursive(
                 if obj.movie.last_frame_idx != Some(frame_idx) {
                     obj.movie.last_frame_idx = Some(frame_idx);
                     let frame = polled.frame.clone();
-                    if let globals::ObjectBackend::Movie {
-                        layer_id,
-                        sprite_id,
-                        image_id,
-                        width,
-                        height,
-                    } = &mut obj.backend
-                    {
-                        let img_id = match image_id {
-                            Some(id) => {
-                                let _ = images.replace_image_arc(*id, frame.clone());
-                                *id
-                            }
-                            None => {
-                                let id = images.insert_image_arc(frame.clone());
-                                if let Some(layer) = layers.layer_mut(*layer_id) {
-                                    if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                        sprite.image_id = Some(id);
-                                    }
-                                }
-                                *image_id = Some(id);
-                                id
-                            }
-                        };
-                        if let Some(layer) = layers.layer_mut(*layer_id) {
-                            if let Some(sprite) = layer.sprite_mut(*sprite_id) {
-                                sprite.image_id = Some(img_id);
-                            }
-                        }
-                        *width = frame.width;
-                        *height = frame.height;
-                    }
+                    install_object_movie_stream_frame(
+                        layers,
+                        images,
+                        obj,
+                        stage_idx,
+                        obj_idx,
+                        file,
+                        frame_idx,
+                        frame,
+                        trace,
+                    );
                 }
                 let waiting_for_movie_audio_start = obj.movie.audio_id.is_none()
                     && polled.audio.is_none()
@@ -7896,7 +7994,7 @@ fn append_mwnd_embedded_sprites(
     // C++ MWND parent sorter, represented here as order*1024+layer.
     const MWND_UI_ORDER_SCALE: i64 = 976;
     const MWND_UI_LAYER_BASE: i64 = 576;
-    let mwnd_order = ctx.tables.mwnd_render.order.saturating_mul(MWND_UI_ORDER_SCALE);
+    let mwnd_order = m.order.saturating_mul(MWND_UI_ORDER_SCALE);
     let anim_parent = ui_state.map(|ui| mwnd_anim_parent_from_ui_state(m, ui));
     for (button_idx, obj) in m.button_list.iter().enumerate() {
         if !object_participates_in_tree(obj) {
@@ -8192,8 +8290,9 @@ fn build_siglus_object_render_list(
                         let embedded_cnt = m.button_list.len() + m.face_list.len() + m.object_list.len();
                         if m.open || embedded_cnt != 0 || !m.msg_text.is_empty() || !m.name_text.is_empty() || m.selection.is_some() {
                             debug.push(format!(
-                                "[SG_DEBUG]     mwnd[{mwnd_idx}] open={} layer={} world={} msg_len={} name_len={} embedded={} button={} face={} object={} waku={} filter={} face_file={} open_anim=({}, {}) close_anim=({}, {}) selection={} hide_flags=(script:{},sys:{})",
+                                "[SG_DEBUG]     mwnd[{mwnd_idx}] open={} order={} layer={} world={} msg_len={} name_len={} embedded={} button={} face={} object={} waku={} filter={} face_file={} open_anim=({}, {}) close_anim=({}, {}) selection={} hide_flags=(script:{},sys:{})",
                                 m.open,
+                                m.order,
                                 m.layer,
                                 m.world,
                                 m.msg_text.chars().count(),
