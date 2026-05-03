@@ -1,5 +1,7 @@
 use crate::error::Result;
 use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 pub const FM_VOID: i32 = 0;
 pub const FM_INT: i32 = 10;
@@ -11166,12 +11168,20 @@ const BUILTIN_ELEMENTS: &[ElementDef] = &[
     },
 ];
 
+#[derive(Debug, Clone)]
+struct ElementInfo {
+    parent: String,
+    form: String,
+    name: String,
+    kind: String,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct SymbolTables {
     pub form_by_value: HashMap<i32, String>,
     exact_elm_by_value: HashMap<i32, Vec<String>>,
     low_elm_by_value: HashMap<i32, Vec<String>>,
-    by_parent_code: HashMap<(String, i32), ElementDef>,
+    by_parent_code: HashMap<(String, i32), ElementInfo>,
     form_names: HashSet<String>,
 }
 
@@ -11179,6 +11189,7 @@ impl SymbolTables {
     pub fn load() -> Result<Self> {
         let mut out = SymbolTables::default();
         out.install_builtin_tables();
+        out.install_def_headers_if_present()?;
         Ok(out)
     }
 
@@ -11245,85 +11256,197 @@ impl SymbolTables {
         if values.is_empty() {
             return None;
         }
+        let exprs = values
+            .iter()
+            .copied()
+            .map(ChainAtom::Code)
+            .collect::<Vec<_>>();
+        Some(self.format_chain_atoms(&exprs))
+    }
+
+    pub fn format_chain_dynamic(&self, values: &[ChainAtom]) -> String {
+        self.format_chain_atoms(values)
+    }
+
+    fn format_chain_atoms(&self, values: &[ChainAtom]) -> String {
         let mut out: Vec<String> = Vec::new();
         let mut parent: Option<String> = None;
         let mut i = 0usize;
         while i < values.len() {
-            let v = values[i];
-            if v == ELM_ARRAY {
-                if i + 1 < values.len() {
+            match &values[i] {
+                ChainAtom::Code(v) if *v == ELM_ARRAY => {
+                    let index = values
+                        .get(i + 1)
+                        .map(|v| v.render_index(self))
+                        .unwrap_or_default();
+                    if let Some(parent_name) = parent.as_deref() {
+                        if let Some(def) = self.by_parent_code.get(&(parent_name.to_string(), 0)) {
+                            if def.name == "array" && def.kind == "property" {
+                                parent = Some(def.form.clone());
+                            }
+                        }
+                    }
                     if let Some(last) = out.last_mut() {
-                        last.push_str(&format!("[{}]", values[i + 1]));
+                        last.push_str(&format!("[{index}]"));
                     } else {
-                        out.push(format!("[{}]", values[i + 1]));
+                        out.push(format!("[{index}]"));
                     }
-                    i += 2;
+                    i += if i + 1 < values.len() { 2 } else { 1 };
                     continue;
                 }
-                out.push("[]".to_string());
-                i += 1;
-                continue;
-            }
-
-            if let Some(parent_name) = parent.as_deref() {
-                if let Some(def) = self.by_parent_code.get(&(parent_name.to_string(), v)) {
-                    out.push(def.name.to_string());
-                    if def.kind == "property" {
-                        parent = Some(def.form.to_string());
+                ChainAtom::Code(v) => {
+                    if let Some(parent_name) = parent.as_deref() {
+                        if let Some(def) = self.by_parent_code.get(&(parent_name.to_string(), *v)) {
+                            if def.name == "array" && def.kind == "property" {
+                                let index = values
+                                    .get(i + 1)
+                                    .map(|v| v.render_index(self))
+                                    .unwrap_or_default();
+                                if let Some(last) = out.last_mut() {
+                                    last.push_str(&format!("[{index}]"));
+                                } else {
+                                    out.push(format!("[{index}]"));
+                                }
+                                parent = Some(def.form.clone());
+                                i += if i + 1 < values.len() { 2 } else { 1 };
+                                continue;
+                            }
+                            out.push(def.name.to_string());
+                            if def.kind == "property" {
+                                parent = Some(def.form.to_string());
+                            }
+                            i += 1;
+                            continue;
+                        }
                     }
-                    i += 1;
-                    continue;
-                }
-            }
 
-            if i == 0 {
-                if let Some(def) = self.by_parent_code.get(&("global".to_string(), v)) {
-                    out.push(def.name.to_string());
-                    if def.kind == "property" {
-                        parent = Some(def.form.to_string());
-                    } else {
-                        parent = Some(def.parent.to_string());
+                    if i == 0 {
+                        if let Some(form) = self.form_by_value.get(v) {
+                            out.push(form.clone());
+                            parent = Some(form.clone());
+                            i += 1;
+                            continue;
+                        }
+                        if let Some(def) = self.by_parent_code.get(&("global".to_string(), *v)) {
+                            out.push(def.name.to_string());
+                            if def.kind == "property" {
+                                parent = Some(def.form.to_string());
+                            } else {
+                                parent = Some(def.parent.to_string());
+                            }
+                            i += 1;
+                            continue;
+                        }
                     }
-                    i += 1;
-                    continue;
-                }
-                if let Some(form) = self.form_by_value.get(&v) {
-                    out.push(form.clone());
-                    parent = Some(form.clone());
-                    i += 1;
-                    continue;
-                }
-            }
 
-            out.push(self.elm_name(v));
+                    out.push(self.elm_name(*v));
+                }
+                other => out.push(other.render(self)),
+            }
             i += 1;
         }
-        Some(out.join("."))
+        out.join(".")
     }
 
     fn install_builtin_tables(&mut self) {
         self.install_builtin_element_tokens();
         for &(value, name) in BUILTIN_FORMS {
-            self.form_by_value
-                .entry(value)
-                .or_insert_with(|| name.to_string());
-            self.form_names.insert(name.to_string());
+            self.install_form(value, name);
         }
         for def in BUILTIN_ELEMENTS {
-            let display = format!("{}.{}", def.parent, def.name);
-            self.exact_elm_by_value
-                .entry(def.value)
-                .or_default()
-                .push(display.clone());
-            self.low_elm_by_value
-                .entry(def.code)
-                .or_default()
-                .push(display);
-            self.by_parent_code
-                .entry((def.parent.to_string(), def.code))
-                .or_insert(*def);
+            self.install_element(def.parent, def.form, def.name, def.kind, def.code);
         }
         self.sort_aliases();
+    }
+
+    fn install_form(&mut self, value: i32, name: &str) {
+        let name = normalize_symbol_name(name);
+        self.form_by_value.insert(value, name.clone());
+        self.form_names.insert(name);
+    }
+
+    fn install_element(&mut self, parent: &str, form: &str, name: &str, kind: &str, code: i32) {
+        let parent = normalize_symbol_name(parent);
+        let form = normalize_symbol_name(form);
+        let name = normalize_symbol_name(name);
+        let kind = normalize_symbol_name(kind);
+        let display = format!("{parent}.{name}");
+        self.exact_elm_by_value
+            .entry(create_elm_code(0, 0, code as u32))
+            .or_default()
+            .push(display.clone());
+        self.low_elm_by_value.entry(code).or_default().push(display);
+        self.by_parent_code.insert(
+            (parent.clone(), code),
+            ElementInfo {
+                parent,
+                form,
+                name,
+                kind,
+            },
+        );
+    }
+
+    fn install_def_headers_if_present(&mut self) -> Result<()> {
+        let Some(docs_dir) = find_docs_dir() else {
+            self.sort_aliases();
+            return Ok(());
+        };
+
+        let form_path = docs_dir.join("def_form_Siglus.h");
+        if form_path.is_file() {
+            self.install_def_form_header(&form_path)?;
+        }
+
+        let element_path = docs_dir.join("def_element_Siglus.h");
+        if element_path.is_file() {
+            self.install_def_element_header(&element_path)?;
+        }
+
+        self.install_missing_listref_array_elements();
+        self.sort_aliases();
+        Ok(())
+    }
+
+    fn install_def_form_header(&mut self, path: &Path) -> Result<()> {
+        let text = fs::read_to_string(path)?;
+        for line in text.lines() {
+            let Some(args) = macro_args(line, "FORM") else {
+                continue;
+            };
+            if args.len() < 2 {
+                continue;
+            }
+            if let Ok(value) = args[1].parse::<i32>() {
+                self.install_form(value, &args[0]);
+            }
+        }
+        Ok(())
+    }
+
+    fn install_def_element_header(&mut self, path: &Path) -> Result<()> {
+        let text = fs::read_to_string(path)?;
+        for line in text.lines() {
+            let Some(args) = macro_args(line, "ELEMENT") else {
+                continue;
+            };
+            if args.len() < 7 {
+                continue;
+            }
+            let Ok(code) = args[6].parse::<i32>() else {
+                continue;
+            };
+            self.install_element(&args[1], &args[2], &args[3], &args[0], code);
+        }
+        Ok(())
+    }
+
+    fn install_missing_listref_array_elements(&mut self) {
+        for (parent, form) in [("strlistref", "str")] {
+            if !self.by_parent_code.contains_key(&(parent.to_string(), 0)) {
+                self.install_element(parent, form, "array", "property", 0);
+            }
+        }
     }
 
     fn install_builtin_element_tokens(&mut self) {
@@ -11349,6 +11472,97 @@ impl SymbolTables {
             names.dedup();
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub enum ChainAtom {
+    Code(i32),
+    Text(String),
+}
+
+impl ChainAtom {
+    fn render(&self, symbols: &SymbolTables) -> String {
+        match self {
+            ChainAtom::Code(v) => symbols.elm_name(*v),
+            ChainAtom::Text(s) => s.clone(),
+        }
+    }
+
+    fn render_index(&self, _symbols: &SymbolTables) -> String {
+        match self {
+            ChainAtom::Code(v) => v.to_string(),
+            ChainAtom::Text(s) => s.clone(),
+        }
+    }
+}
+
+fn normalize_symbol_name(name: &str) -> String {
+    name.trim().to_ascii_lowercase()
+}
+
+fn find_docs_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("SIGLUS_DEF_DIR") {
+        let path = PathBuf::from(dir);
+        if path.is_dir() {
+            return Some(path);
+        }
+    }
+    let mut dir = std::env::current_dir().ok()?;
+    loop {
+        let docs = dir.join("docs");
+        if docs.join("def_element_Siglus.h").is_file() || docs.join("def_form_Siglus.h").is_file() {
+            return Some(docs);
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    None
+}
+
+fn macro_args(line: &str, name: &str) -> Option<Vec<String>> {
+    let line = line.trim();
+    let prefix = format!("{name}(");
+    if !line.starts_with(&prefix) {
+        return None;
+    }
+    let start = prefix.len();
+    let end = line.rfind(')')?;
+    let body = &line[start..end];
+    Some(split_macro_args(body))
+}
+
+fn split_macro_args(body: &str) -> Vec<String> {
+    let mut args = Vec::new();
+    let mut cur = String::new();
+    let mut in_string = false;
+    let mut escaped = false;
+    for ch in body.chars() {
+        if in_string {
+            cur.push(ch);
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => {
+                in_string = true;
+                cur.push(ch);
+            }
+            ',' => {
+                args.push(cur.trim().trim_matches('"').to_string());
+                cur.clear();
+            }
+            _ => cur.push(ch),
+        }
+    }
+    args.push(cur.trim().trim_matches('"').to_string());
+    args
 }
 
 fn create_elm_code(owner: u32, group: u32, code: u32) -> i32 {

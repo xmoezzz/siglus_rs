@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::runtime::{Command, CommandContext, Value};
 use crate::runtime::forms::stage;
+use crate::runtime::{Command, CommandContext, Value};
 
 use super::util::strip_vm_meta;
 

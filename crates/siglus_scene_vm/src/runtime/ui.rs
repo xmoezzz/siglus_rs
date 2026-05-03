@@ -549,9 +549,21 @@ impl UiRuntime {
             return (x, y, width, height);
         }
 
-        let (l, t, r, b) = self.mwnd.window.message_margin.unwrap_or((pad as i64, pad as i64, pad as i64, pad as i64));
-        let right_pad = if self.mwnd.window.message_pos.is_some() { r as i32 } else { l as i32 };
-        let bottom_pad = if self.mwnd.window.message_pos.is_some() { b as i32 } else { t as i32 };
+        let (l, t, r, b) = self
+            .mwnd
+            .window
+            .message_margin
+            .unwrap_or((pad as i64, pad as i64, pad as i64, pad as i64));
+        let right_pad = if self.mwnd.window.message_pos.is_some() {
+            r as i32
+        } else {
+            l as i32
+        };
+        let bottom_pad = if self.mwnd.window.message_pos.is_some() {
+            b as i32
+        } else {
+            t as i32
+        };
         let width = (rect.x + rect.w as i32 - x - right_pad).max(1) as u32;
         let height = (rect.y + rect.h as i32 - y - bottom_pad).max(1) as u32;
         (x, y, width, height)
@@ -621,7 +633,14 @@ impl UiRuntime {
     }
 
     fn message_has_text(&self) -> bool {
-        self.mwnd.msg.text.as_deref().unwrap_or("").chars().next().is_some()
+        self.mwnd
+            .msg
+            .text
+            .as_deref()
+            .unwrap_or("")
+            .chars()
+            .next()
+            .is_some()
     }
 
     fn message_fully_revealed(&self) -> bool {
@@ -1249,9 +1268,7 @@ impl UiRuntime {
         self.update_message_window_anim();
         self.scan_font_dir(project_dir);
         if !self.font_cache.is_loaded() {
-            let _ = self
-                .font_cache
-                .load_for_project(project_dir);
+            let _ = self.font_cache.load_for_project(project_dir);
         }
         self.refresh_waku_images(images, project_dir);
         self.refresh_face_image(images, project_dir);
@@ -2038,7 +2055,8 @@ impl UiRuntime {
         self.mwnd.key_icon.file = Some(raw);
         self.mwnd.key_icon.cached_mode = self.mwnd.key_icon.mode;
         self.mwnd.key_icon.cached_pat = pat;
-        self.mwnd.key_icon.size = loaded.and_then(|id| images.get(id).map(|img| (img.width, img.height)));
+        self.mwnd.key_icon.size =
+            loaded.and_then(|id| images.get(id).map(|img| (img.width, img.height)));
     }
 
     fn refresh_text_images(

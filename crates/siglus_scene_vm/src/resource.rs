@@ -329,7 +329,7 @@ pub fn find_audio_path_with_append_dir(
     bail!("audio not found: {file_name}");
 }
 
-fn ordered_append_dirs(project_dir: &Path, current_append_dir: &str) -> Vec<String> {
+pub(crate) fn ordered_append_dirs(project_dir: &Path, current_append_dir: &str) -> Vec<String> {
     let mut dirs = parse_select_ini_append_dirs(project_dir);
     if dirs.is_empty() {
         dirs.push(String::new());

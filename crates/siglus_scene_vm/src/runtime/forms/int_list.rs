@@ -153,8 +153,14 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         let c = c_ref.to_vec();
         let meta_al_id = ctx.vm_call.as_ref().map(|m| m.al_id).unwrap_or(0);
         let meta_ret_form = ctx.vm_call.as_ref().map(|m| m.ret_form).unwrap_or(0);
-        let al_id = args.get(pos + 1).and_then(|v| v.as_i64()).unwrap_or(meta_al_id);
-        let _ret_form = args.get(pos + 2).and_then(|v| v.as_i64()).unwrap_or(meta_ret_form);
+        let al_id = args
+            .get(pos + 1)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(meta_al_id);
+        let _ret_form = args
+            .get(pos + 2)
+            .and_then(|v| v.as_i64())
+            .unwrap_or(meta_ret_form);
 
         if c.len() >= 3 && c[1] == ctx.ids.elm_array {
             let idx = c[2] as i64;

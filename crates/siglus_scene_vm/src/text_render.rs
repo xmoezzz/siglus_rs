@@ -8,7 +8,7 @@
 
 use crate::assets::RgbaImage;
 use crate::image_manager::{ImageId, ImageManager};
-use fontdue::Font;
+use ab_glyph::{point, Font, FontArc, PxScale, ScaleFont};
 use std::path::{Path, PathBuf};
 
 mod embedded_font {
@@ -41,7 +41,7 @@ impl Default for TextStyle {
 
 #[derive(Debug, Default)]
 pub struct FontCache {
-    font: Option<Font>,
+    font: Option<FontArc>,
     loaded_from: Option<PathBuf>,
 }
 
@@ -135,7 +135,7 @@ impl FontCache {
         let Ok(bytes) = std::fs::read(path) else {
             return false;
         };
-        match Font::from_bytes(bytes, fontdue::FontSettings::default()) {
+        match FontArc::try_from_vec(bytes) {
             Ok(font) => {
                 self.font = Some(font);
                 self.loaded_from = Some(path.to_path_buf());
@@ -152,7 +152,7 @@ impl FontCache {
         let Some(bytes) = embedded_font::EMBEDDED_DEFAULT_FONT else {
             return false;
         };
-        match Font::from_bytes(bytes.to_vec(), fontdue::FontSettings::default()) {
+        match FontArc::try_from_vec(bytes.to_vec()) {
             Ok(font) => {
                 self.font = Some(font);
                 let source = embedded_font::EMBEDDED_DEFAULT_FONT_SOURCE.unwrap_or("embedded:default-font");
@@ -230,7 +230,7 @@ impl FontCache {
         let Some(font) = self.font.as_ref() else {
             return render_text_image_basic_rgba(text, font_px as u32, max_w, max_h);
         };
-        render_text_fontdue_rgba(font, text, font_px, max_w, max_h)
+        render_text_ab_glyph_rgba(font, text, font_px, max_w, max_h)
     }
 
     pub fn render_mwnd_text_rgba(
@@ -256,7 +256,7 @@ impl FontCache {
         let Some(font) = self.font.as_ref() else {
             return render_text_image_basic_rgba(text, font_px as u32, max_w, max_h);
         };
-        render_mwnd_text_fontdue_rgba_styled(font, text, font_px, max_w, max_h, moji_space, style)
+        render_mwnd_text_ab_glyph_rgba_styled(font, text, font_px, max_w, max_h, moji_space, style)
     }
 }
 
@@ -322,19 +322,90 @@ pub fn render_text_image_basic_rgba(
 }
 
 
-fn render_mwnd_text_fontdue_rgba(
-    font: &Font,
+#[derive(Debug, Clone)]
+struct RasterGlyph {
+    width: usize,
+    height: usize,
+    xmin: i32,
+    ymin: i32,
+    bitmap: Vec<u8>,
+}
+
+fn rasterize_ab_glyph(font: &FontArc, ch: char, font_px: f32) -> RasterGlyph {
+    let scale = PxScale::from(font_px.max(1.0));
+    let scaled = font.as_scaled(scale);
+    let glyph_id = scaled.glyph_id(ch);
+    let glyph = glyph_id.with_scale_and_position(scale, point(0.0, 0.0));
+    let Some(outlined) = scaled.outline_glyph(glyph) else {
+        return RasterGlyph {
+            width: 0,
+            height: 0,
+            xmin: 0,
+            ymin: 0,
+            bitmap: Vec::new(),
+        };
+    };
+
+    let bounds = outlined.px_bounds();
+    let xmin = bounds.min.x.floor() as i32;
+    let ymin = bounds.min.y.floor() as i32;
+    let xmax = bounds.max.x.ceil() as i32;
+    let ymax = bounds.max.y.ceil() as i32;
+    let width = (xmax - xmin).max(0) as usize;
+    let height = (ymax - ymin).max(0) as usize;
+    if width == 0 || height == 0 {
+        return RasterGlyph {
+            width: 0,
+            height: 0,
+            xmin,
+            ymin,
+            bitmap: Vec::new(),
+        };
+    }
+
+    let shifted_glyph = glyph_id.with_scale_and_position(scale, point((-xmin) as f32, (-ymin) as f32));
+    let Some(shifted) = scaled.outline_glyph(shifted_glyph) else {
+        return RasterGlyph {
+            width: 0,
+            height: 0,
+            xmin,
+            ymin,
+            bitmap: Vec::new(),
+        };
+    };
+
+    let mut bitmap = vec![0u8; width * height];
+    shifted.draw(|gx, gy, cov| {
+        let x = gx as usize;
+        let y = gy as usize;
+        if x < width && y < height {
+            bitmap[y * width + x] = (cov * 255.0).round().clamp(0.0, 255.0) as u8;
+        }
+    });
+
+    RasterGlyph {
+        width,
+        height,
+        xmin,
+        ymin,
+        bitmap,
+    }
+}
+
+
+fn render_mwnd_text_ab_glyph_rgba(
+    font: &FontArc,
     text: &str,
     font_px: f32,
     max_w: u32,
     max_h: u32,
     moji_space: Option<(i64, i64)>,
 ) -> Option<RgbaImage> {
-    render_mwnd_text_fontdue_rgba_styled(font, text, font_px, max_w, max_h, moji_space, TextStyle::default())
+    render_mwnd_text_ab_glyph_rgba_styled(font, text, font_px, max_w, max_h, moji_space, TextStyle::default())
 }
 
-fn render_mwnd_text_fontdue_rgba_styled(
-    font: &Font,
+fn render_mwnd_text_ab_glyph_rgba_styled(
+    font: &FontArc,
     text: &str,
     font_px: f32,
     max_w: u32,
@@ -384,15 +455,15 @@ fn render_mwnd_text_fontdue_rgba_styled(
             }
         }
 
-        let (metrics, glyph) = font.rasterize(ch, font_px);
-        if metrics.width == 0 || metrics.height == 0 {
+        let glyph = rasterize_ab_glyph(font, ch, font_px);
+        if glyph.width == 0 || glyph.height == 0 {
             x += advance;
             continue;
         }
 
-        let cell_inner_x = ((cell_w - metrics.width as i32) / 2).max(0);
-        let cell_inner_y = ((line_h - metrics.height as i32) / 2).max(0);
-        let draw_x = x + cell_inner_x + metrics.xmin.min(0);
+        let cell_inner_x = ((cell_w - glyph.width as i32) / 2).max(0);
+        let cell_inner_y = ((line_h - glyph.height as i32) / 2).max(0);
+        let draw_x = x + cell_inner_x + glyph.xmin.min(0);
         let draw_y = y + cell_inner_y;
 
         if style.fuchi {
@@ -403,9 +474,9 @@ fn render_mwnd_text_fontdue_rgba_styled(
                     max_h,
                     draw_x + ox,
                     draw_y + oy,
-                    metrics.width,
-                    metrics.height,
-                    &glyph,
+                    glyph.width,
+                    glyph.height,
+                    &glyph.bitmap,
                     (style.fuchi_color.0, style.fuchi_color.1, style.fuchi_color.2, 220),
                 );
             }
@@ -417,9 +488,9 @@ fn render_mwnd_text_fontdue_rgba_styled(
                 max_h,
                 draw_x + 1,
                 draw_y + 1,
-                metrics.width,
-                metrics.height,
-                &glyph,
+                glyph.width,
+                glyph.height,
+                &glyph.bitmap,
                 (style.shadow_color.0, style.shadow_color.1, style.shadow_color.2, 180),
             );
         }
@@ -429,9 +500,9 @@ fn render_mwnd_text_fontdue_rgba_styled(
             max_h,
             draw_x,
             draw_y,
-            metrics.width,
-            metrics.height,
-            &glyph,
+            glyph.width,
+            glyph.height,
+            &glyph.bitmap,
             (style.color.0, style.color.1, style.color.2, 255),
         );
         if style.bold {
@@ -441,9 +512,9 @@ fn render_mwnd_text_fontdue_rgba_styled(
                 max_h,
                 draw_x + 1,
                 draw_y,
-                metrics.width,
-                metrics.height,
-                &glyph,
+                glyph.width,
+                glyph.height,
+                &glyph.bitmap,
                 (style.color.0, style.color.1, style.color.2, 220),
             );
         }
@@ -526,8 +597,8 @@ fn blend_rgba_pixel(
     rgba[idx + 3] = out_a.min(255) as u8;
 }
 
-fn render_text_fontdue_rgba(
-    font: &Font,
+fn render_text_ab_glyph_rgba(
+    font: &FontArc,
     text: &str,
     font_px: f32,
     max_w: u32,
@@ -538,11 +609,9 @@ fn render_text_fontdue_rgba(
     }
     let mut rgba = vec![0u8; (max_w * max_h * 4) as usize];
 
-    let metrics = font.horizontal_line_metrics(font_px);
-    let ascent = metrics.map(|m| m.ascent).unwrap_or(font_px);
-    let line_height = metrics
-        .map(|m| (m.ascent - m.descent + m.line_gap).max(1.0))
-        .unwrap_or(font_px * 1.3);
+    let scaled = font.as_scaled(PxScale::from(font_px.max(1.0)));
+    let ascent = scaled.ascent().max(1.0);
+    let line_height = (scaled.height() + scaled.line_gap()).max(1.0);
 
     let mut x = 0.0f32;
     let mut baseline_y = ascent.max(1.0);
@@ -559,13 +628,13 @@ fn render_text_fontdue_rgba(
                 continue;
             }
             '\t' => {
-                x += font.metrics(' ', font_px).advance_width * 2.0;
+                x += scaled.h_advance(scaled.glyph_id(' ')).max(0.0) * 2.0;
                 continue;
             }
             _ => {}
         }
 
-        let advance = font.metrics(ch, font_px).advance_width.max(0.0);
+        let advance = scaled.h_advance(scaled.glyph_id(ch)).max(0.0);
         if x > 0.0 && x + advance > max_w as f32 {
             x = 0.0;
             baseline_y += line_height;
@@ -574,20 +643,20 @@ fn render_text_fontdue_rgba(
             }
         }
 
-        let (gmetrics, glyph) = font.rasterize(ch, font_px);
-        let gx = x + gmetrics.xmin as f32;
-        let gy = baseline_y + gmetrics.ymin as f32;
-        for gy_i in 0..gmetrics.height {
+        let glyph = rasterize_ab_glyph(font, ch, font_px);
+        let gx = x + glyph.xmin as f32;
+        let gy = baseline_y + glyph.ymin as f32;
+        for gy_i in 0..glyph.height {
             let py = gy as i32 + gy_i as i32;
             if py < 0 || py as u32 >= max_h {
                 continue;
             }
-            for gx_i in 0..gmetrics.width {
+            for gx_i in 0..glyph.width {
                 let px = gx as i32 + gx_i as i32;
                 if px < 0 || px as u32 >= max_w {
                     continue;
                 }
-                let src = glyph[gy_i * gmetrics.width + gx_i];
+                let src = glyph.bitmap[gy_i * glyph.width + gx_i];
                 if src == 0 {
                     continue;
                 }

@@ -477,6 +477,7 @@ pub struct FogGlobalState {
     pub far: f32,
     pub color: [f32; 4],
     pub scroll_x: f32,
+    pub x_event: IntEvent,
     pub texture_image_id: Option<ImageId>,
 }
 
@@ -485,12 +486,30 @@ impl Default for FogGlobalState {
         Self {
             enabled: false,
             name: String::new(),
-            near: 400.0,
-            far: 2600.0,
+            near: 0.0,
+            far: 0.0,
             color: [0.62, 0.62, 0.62, 1.0],
             scroll_x: 0.0,
+            x_event: IntEvent::new(0),
             texture_image_id: None,
         }
+    }
+}
+
+impl FogGlobalState {
+    pub fn set_x(&mut self, x: i32) {
+        self.x_event.set_value(x);
+        self.x_event.frame();
+        self.scroll_x = self.x_event.get_total_value() as f32;
+    }
+
+    pub fn update_time(&mut self, past_game_time: i32, past_real_time: i32) {
+        self.x_event.update_time(past_game_time, past_real_time);
+    }
+
+    pub fn frame(&mut self) {
+        self.x_event.frame();
+        self.scroll_x = self.x_event.get_total_value() as f32;
     }
 }
 
@@ -1907,6 +1926,7 @@ pub struct ObjectMovieState {
     pub last_tick: Option<std::time::Instant>,
     pub last_frame_idx: Option<usize>,
     pub audio_id: Option<u64>,
+    pub audio_started_once: bool,
     // Two reusable image ids for object movie frames. This keeps movie playback
     // changing visible GPU textures without allocating a new image every frame.
     pub frame_image_ids: [Option<ImageId>; 2],
@@ -1929,6 +1949,7 @@ impl Default for ObjectMovieState {
             last_tick: None,
             last_frame_idx: None,
             audio_id: None,
+            audio_started_once: false,
             frame_image_ids: [None, None],
             frame_image_cursor: 0,
             just_finished: false,
@@ -1961,6 +1982,7 @@ impl ObjectMovieState {
         self.last_tick = Some(std::time::Instant::now());
         self.last_frame_idx = None;
         self.audio_id = None;
+        self.audio_started_once = false;
         self.frame_image_ids = [None, None];
         self.frame_image_cursor = 0;
         self.just_finished = false;
@@ -2005,6 +2027,7 @@ impl ObjectMovieState {
         }
         self.last_tick = Some(std::time::Instant::now());
         self.last_frame_idx = None;
+        self.audio_started_once = false;
         self.seeked = true;
     }
 
@@ -4819,6 +4842,8 @@ impl GlobalState {
             self.change_display_mode_proc_cnt -= 1;
         }
         self.mov.tick(past_real_time);
+        self.fog_global.update_time(past_game_time, past_real_time);
+        self.fog_global.frame();
 
         if !self.script.counter_time_stop_flag {
             let mut counter_ids: Vec<u32> = self.counter_lists.keys().copied().collect();

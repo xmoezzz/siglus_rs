@@ -379,7 +379,7 @@ fn push_calc_fog(out: &mut String) {
     out.push_str("    let fog_color = textureSample(tex03, samp_tex03, fog_uv);\n");
     out.push_str("    var fog_rate = (1.0 - 0.0) / (u.g_fog_range.z - u.g_fog_range.y) * (camera_distance - u.g_fog_range.y);\n");
     out.push_str("    fog_rate = clamp(fog_rate, 0.0, 1.0);\n");
-    out.push_str("    color = mix(color, fog_color, fog_rate);\n");
+    out.push_str("    color = vec4<f32>(mix(color.rgb, fog_color.rgb, fog_rate), color.a);\n");
     out.push_str("    return color;\n");
     out.push_str("}\n\n");
 }

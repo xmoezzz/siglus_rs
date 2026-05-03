@@ -13,7 +13,7 @@ log.workspace = true
 env_logger.workspace = true
 kira.workspace = true
 chrono.workspace = true
-fontdue = "0.9.3"
+ab_glyph = "0.2.32"
 encoding_rs = "0.8"
 ureq = "2.10"
 siglus_omv_decoder = { path = "../siglus_omv_decoder" }

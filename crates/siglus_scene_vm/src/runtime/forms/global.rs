@@ -2,8 +2,9 @@ use anyhow::Result;
 
 use std::path::{Path, PathBuf};
 
-use crate::runtime::{constants, forms, CommandContext, Value};
+use crate::runtime::forms::codes::int_event_op;
 use crate::runtime::globals::WipeState;
+use crate::runtime::{constants, forms, CommandContext, Value};
 
 use crate::runtime::forms::{
     cgtable, counter, database, editbox, file, frame_action, frame_action_ch, g00buf, input,
@@ -134,9 +135,9 @@ fn mwnd_ref_from_value(v: &Value) -> Option<(i64, usize)> {
                 .first()
                 .and_then(|head| global_stage_alias_to_index(*head))
                 .unwrap_or(1);
-            let no = chain
-                .windows(2)
-                .find_map(|w| (w[0] == forms::codes::ELM_ARRAY && w[1] >= 0).then_some(w[1] as usize))?;
+            let no = chain.windows(2).find_map(|w| {
+                (w[0] == forms::codes::ELM_ARRAY && w[1] >= 0).then_some(w[1] as usize)
+            })?;
             Some((stage, no))
         }
         _ => None,
@@ -387,7 +388,9 @@ fn dispatch_global_koe_command(
 }
 
 fn parse_i32_value(v: &Value) -> Option<i32> {
-    v.unwrap_named().as_i64().and_then(|n| i32::try_from(n).ok())
+    v.unwrap_named()
+        .as_i64()
+        .and_then(|n| i32::try_from(n).ok())
 }
 
 fn parse_bool_value(v: &Value) -> Option<bool> {
@@ -396,16 +399,187 @@ fn parse_bool_value(v: &Value) -> Option<bool> {
 
 fn parse_list_i32_value(v: &Value) -> Vec<i32> {
     match v.unwrap_named() {
-        Value::List(xs) => xs.iter().filter_map(|x| x.as_i64().and_then(|n| i32::try_from(n).ok())).collect(),
+        Value::List(xs) => xs
+            .iter()
+            .filter_map(|x| x.as_i64().and_then(|n| i32::try_from(n).ok()))
+            .collect(),
         _ => Vec::new(),
     }
 }
 
+fn dispatch_global_fog_command(
+    ctx: &mut CommandContext,
+    form_id: u32,
+    args: &[Value],
+) -> Result<bool> {
+    let op = form_id as i32;
+    let ret_form = crate::runtime::forms::prop_access::current_vm_meta(ctx)
+        .1
+        .unwrap_or(0);
+
+    if op == constants::elm_value::GLOBAL___FOG_NAME {
+        match ret_form {
+            rf if rf == constants::fm::STR as i64 => {
+                ctx.push(Value::Str(ctx.globals.fog_global.name.clone()));
+            }
+            _ => {
+                let name = args
+                    .first()
+                    .and_then(|v| v.unwrap_named().as_str())
+                    .unwrap_or("");
+                ctx.globals.fog_global = Default::default();
+                if !name.is_empty() {
+                    match ctx.images.load_g00(name, 0) {
+                        Ok(id) => {
+                            ctx.globals.fog_global.enabled = true;
+                            ctx.globals.fog_global.name = name.to_string();
+                            ctx.globals.fog_global.texture_image_id = Some(id);
+                        }
+                        Err(e) => {
+                            log::error!(
+                                "GLOBAL.__FOG_NAME failed to load fog texture '{name}': {e}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        return Ok(true);
+    }
+
+    if op == constants::elm_value::GLOBAL___FOG_X {
+        if ret_form != 0 {
+            ctx.push(Value::Int(ctx.globals.fog_global.x_event.get_value() as i64));
+        } else {
+            let x = args
+                .first()
+                .and_then(|v| v.unwrap_named().as_i64())
+                .unwrap_or(0) as i32;
+            ctx.globals.fog_global.set_x(x);
+        }
+        return Ok(true);
+    }
+
+    if op == constants::elm_value::GLOBAL___FOG_NEAR {
+        if ret_form != 0 {
+            ctx.push(Value::Int(ctx.globals.fog_global.near as i64));
+        } else {
+            ctx.globals.fog_global.near = args
+                .first()
+                .and_then(|v| v.unwrap_named().as_i64())
+                .unwrap_or(0) as f32;
+        }
+        return Ok(true);
+    }
+
+    if op == constants::elm_value::GLOBAL___FOG_FAR {
+        if ret_form != 0 {
+            ctx.push(Value::Int(ctx.globals.fog_global.far as i64));
+        } else {
+            ctx.globals.fog_global.far = args
+                .first()
+                .and_then(|v| v.unwrap_named().as_i64())
+                .unwrap_or(0) as f32;
+        }
+        return Ok(true);
+    }
+
+    if op != constants::elm_value::GLOBAL___FOG_X_EVE {
+        return Ok(false);
+    }
+
+    let Some((chain_pos, chain)) =
+        crate::runtime::forms::prop_access::parse_element_chain_ctx(ctx, form_id, args)
+            .map(|(i, ch)| (i, ch.to_vec()))
+    else {
+        return Ok(true);
+    };
+    if chain.len() < 2 {
+        return Ok(true);
+    }
+    let params = &args[..chain_pos];
+    match chain[1] {
+        int_event_op::SET | int_event_op::SET_REAL => {
+            let value = params.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let total_time = params.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let delay_time = params.get(2).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let speed_type = params.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let real_flag = if chain[1] == int_event_op::SET_REAL {
+                1
+            } else {
+                0
+            };
+            ctx.globals
+                .fog_global
+                .x_event
+                .set_event(value, total_time, delay_time, speed_type, real_flag);
+        }
+        int_event_op::LOOP | int_event_op::LOOP_REAL => {
+            let start_value = params.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let end_value = params.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let loop_time = params.get(2).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let delay_time = params.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let speed_type = params.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let real_flag = if chain[1] == int_event_op::LOOP_REAL {
+                1
+            } else {
+                0
+            };
+            ctx.globals.fog_global.x_event.loop_event(
+                start_value,
+                end_value,
+                loop_time,
+                delay_time,
+                speed_type,
+                real_flag,
+            );
+        }
+        int_event_op::TURN | int_event_op::TURN_REAL => {
+            let start_value = params.first().and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let end_value = params.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let loop_time = params.get(2).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let delay_time = params.get(3).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let speed_type = params.get(4).and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+            let real_flag = if chain[1] == int_event_op::TURN_REAL {
+                1
+            } else {
+                0
+            };
+            ctx.globals.fog_global.x_event.turn_event(
+                start_value,
+                end_value,
+                loop_time,
+                delay_time,
+                speed_type,
+                real_flag,
+            );
+        }
+        int_event_op::END => ctx.globals.fog_global.x_event.end_event(),
+        int_event_op::WAIT => ctx.wait.wait_fog_x_event(false, false),
+        int_event_op::WAIT_KEY => ctx.wait.wait_fog_x_event(true, true),
+        int_event_op::CHECK => {
+            ctx.push(Value::Int(
+                if ctx.globals.fog_global.x_event.check_event() {
+                    1
+                } else {
+                    0
+                },
+            ));
+        }
+        _ => {}
+    }
+    Ok(true)
+}
+
 fn resolve_wipe_mask_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
-    if raw.is_empty() { return None; }
+    if raw.is_empty() {
+        return None;
+    }
     let norm = raw.replace('\\', "/");
     let p = Path::new(&norm);
-    if p.is_absolute() && p.is_file() { return Some(p.to_path_buf()); }
+    if p.is_absolute() && p.is_file() {
+        return Some(p.to_path_buf());
+    }
     let mut candidates = Vec::new();
     candidates.push(project_dir.join(&norm));
     candidates.push(project_dir.join("dat").join(&norm));
@@ -418,24 +592,45 @@ fn resolve_wipe_mask_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
     candidates.into_iter().find(|c| c.is_file())
 }
 
-fn dispatch_global_wipe_command(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+fn dispatch_global_wipe_command(
+    ctx: &mut CommandContext,
+    form_id: u32,
+    args: &[Value],
+) -> Result<bool> {
     let op = form_id as i32;
-    let is_mask = matches!(op, constants::elm_value::GLOBAL_MASK_WIPE | constants::elm_value::GLOBAL_MASK_WIPE_ALL);
-    let is_all = matches!(op, constants::elm_value::GLOBAL_WIPE_ALL | constants::elm_value::GLOBAL_MASK_WIPE_ALL);
+    let is_mask = matches!(
+        op,
+        constants::elm_value::GLOBAL_MASK_WIPE | constants::elm_value::GLOBAL_MASK_WIPE_ALL
+    );
+    let is_all = matches!(
+        op,
+        constants::elm_value::GLOBAL_WIPE_ALL | constants::elm_value::GLOBAL_MASK_WIPE_ALL
+    );
 
     if op == constants::elm_value::GLOBAL_WIPE_END {
         ctx.globals.finish_wipe();
         return Ok(true);
     }
     if op == constants::elm_value::GLOBAL_WAIT_WIPE {
-        let key_wait_mode = args.iter().find_map(|v| match v {
-            Value::NamedArg { id, value } if *id == 0 => parse_i32_value(value),
-            _ => None,
-        }).unwrap_or(-1);
+        let key_wait_mode = args
+            .iter()
+            .find_map(|v| match v {
+                Value::NamedArg { id, value } if *id == 0 => parse_i32_value(value),
+                _ => None,
+            })
+            .unwrap_or(-1);
         let key_skip = match key_wait_mode {
             0 => false,
             1 => true,
-            _ => ctx.globals.syscom.config_int.get(&197).copied().unwrap_or(0) != 0,
+            _ => {
+                ctx.globals
+                    .syscom
+                    .config_int
+                    .get(&197)
+                    .copied()
+                    .unwrap_or(0)
+                    != 0
+            }
         };
         ctx.wait.wait_wipe(key_skip);
         return Ok(true);
@@ -445,12 +640,15 @@ fn dispatch_global_wipe_command(ctx: &mut CommandContext, form_id: u32, args: &[
         return Ok(true);
     }
 
-    if !matches!(op,
+    if !matches!(
+        op,
         constants::elm_value::GLOBAL_WIPE
-        | constants::elm_value::GLOBAL_WIPE_ALL
-        | constants::elm_value::GLOBAL_MASK_WIPE
-        | constants::elm_value::GLOBAL_MASK_WIPE_ALL
-    ) { return Ok(false); }
+            | constants::elm_value::GLOBAL_WIPE_ALL
+            | constants::elm_value::GLOBAL_MASK_WIPE
+            | constants::elm_value::GLOBAL_MASK_WIPE_ALL
+    ) {
+        return Ok(false);
+    }
 
     let mut positional: Vec<&Value> = Vec::new();
     let mut named: Vec<(i32, &Value)> = Vec::new();
@@ -476,49 +674,137 @@ fn dispatch_global_wipe_command(ctx: &mut CommandContext, form_id: u32, args: &[
     let mut with_low_order: i32 = 0;
 
     if is_mask {
-        mask_file = positional.get(0).and_then(|v| v.unwrap_named().as_str()).map(str::to_string);
-        if let Some(v) = positional.get(1).and_then(|v| parse_i32_value(v)) { wipe_type = v; }
-        if let Some(v) = positional.get(2).and_then(|v| parse_i32_value(v)) { wipe_time = v; }
-        if let Some(v) = positional.get(3).and_then(|v| parse_i32_value(v)) { speed_mode = v; }
-        if let Some(v) = positional.get(4) { option = parse_list_i32_value(v); }
+        mask_file = positional
+            .get(0)
+            .and_then(|v| v.unwrap_named().as_str())
+            .map(str::to_string);
+        if let Some(v) = positional.get(1).and_then(|v| parse_i32_value(v)) {
+            wipe_type = v;
+        }
+        if let Some(v) = positional.get(2).and_then(|v| parse_i32_value(v)) {
+            wipe_time = v;
+        }
+        if let Some(v) = positional.get(3).and_then(|v| parse_i32_value(v)) {
+            speed_mode = v;
+        }
+        if let Some(v) = positional.get(4) {
+            option = parse_list_i32_value(v);
+        }
     } else {
-        if let Some(v) = positional.get(0).and_then(|v| parse_i32_value(v)) { wipe_type = v; }
-        if let Some(v) = positional.get(1).and_then(|v| parse_i32_value(v)) { wipe_time = v; }
-        if let Some(v) = positional.get(2).and_then(|v| parse_i32_value(v)) { speed_mode = v; }
-        if let Some(v) = positional.get(3) { option = parse_list_i32_value(v); }
+        if let Some(v) = positional.get(0).and_then(|v| parse_i32_value(v)) {
+            wipe_type = v;
+        }
+        if let Some(v) = positional.get(1).and_then(|v| parse_i32_value(v)) {
+            wipe_time = v;
+        }
+        if let Some(v) = positional.get(2).and_then(|v| parse_i32_value(v)) {
+            speed_mode = v;
+        }
+        if let Some(v) = positional.get(3) {
+            option = parse_list_i32_value(v);
+        }
     }
 
     for (id, v) in named {
         match id {
-            0 => if let Some(x) = parse_i32_value(v) { wipe_type = x; },
-            1 => if let Some(x) = parse_i32_value(v) { wipe_time = x; },
-            2 => if let Some(x) = parse_i32_value(v) { speed_mode = x; },
+            0 => {
+                if let Some(x) = parse_i32_value(v) {
+                    wipe_type = x;
+                }
+            }
+            1 => {
+                if let Some(x) = parse_i32_value(v) {
+                    wipe_time = x;
+                }
+            }
+            2 => {
+                if let Some(x) = parse_i32_value(v) {
+                    speed_mode = x;
+                }
+            }
             3 => option = parse_list_i32_value(v),
-            4 => if let Some(x) = parse_i32_value(v) { begin_order = x; },
-            5 => if let Some(x) = parse_i32_value(v) { end_order = x; },
-            6 => if let Some(x) = parse_i32_value(v) { begin_layer = x; },
-            7 => if let Some(x) = parse_i32_value(v) { end_layer = x; },
-            8 => if let Some(x) = parse_bool_value(v) { wait_flag = x; },
-            9 => if let Some(x) = parse_i32_value(v) { key_wait_mode = x; },
-            10 => if let Some(x) = parse_i32_value(v) { with_low_order = x; },
-            11 => if let Some(x) = parse_i32_value(v) { start_time = x; },
+            4 => {
+                if let Some(x) = parse_i32_value(v) {
+                    begin_order = x;
+                }
+            }
+            5 => {
+                if let Some(x) = parse_i32_value(v) {
+                    end_order = x;
+                }
+            }
+            6 => {
+                if let Some(x) = parse_i32_value(v) {
+                    begin_layer = x;
+                }
+            }
+            7 => {
+                if let Some(x) = parse_i32_value(v) {
+                    end_layer = x;
+                }
+            }
+            8 => {
+                if let Some(x) = parse_bool_value(v) {
+                    wait_flag = x;
+                }
+            }
+            9 => {
+                if let Some(x) = parse_i32_value(v) {
+                    key_wait_mode = x;
+                }
+            }
+            10 => {
+                if let Some(x) = parse_i32_value(v) {
+                    with_low_order = x;
+                }
+            }
+            11 => {
+                if let Some(x) = parse_i32_value(v) {
+                    start_time = x;
+                }
+            }
             _ => {}
         }
     }
-    if is_all { end_order = i32::MAX; }
+    if is_all {
+        end_order = i32::MAX;
+    }
 
     let mask_image_id = mask_file.as_ref().and_then(|f| {
         resolve_wipe_mask_path(&ctx.project_dir, f).and_then(|p| ctx.images.load_file(&p, 0).ok())
     });
 
     stage::apply_stage_wipe(ctx, begin_order, end_order, begin_layer, end_layer);
-    ctx.globals.start_wipe(WipeState::new(mask_file, mask_image_id, wipe_type, wipe_time, start_time, speed_mode, option, begin_order, end_order, begin_layer, end_layer, wait_flag, key_wait_mode, with_low_order));
+    ctx.globals.start_wipe(WipeState::new(
+        mask_file,
+        mask_image_id,
+        wipe_type,
+        wipe_time,
+        start_time,
+        speed_mode,
+        option,
+        begin_order,
+        end_order,
+        begin_layer,
+        end_layer,
+        wait_flag,
+        key_wait_mode,
+        with_low_order,
+    ));
 
     if wait_flag {
         let key_skip = match key_wait_mode {
             0 => false,
             1 => true,
-            _ => ctx.globals.syscom.config_int.get(&197).copied().unwrap_or(0) != 0,
+            _ => {
+                ctx.globals
+                    .syscom
+                    .config_int
+                    .get(&197)
+                    .copied()
+                    .unwrap_or(0)
+                    != 0
+            }
         };
         ctx.wait.wait_wipe(key_skip);
     }
@@ -625,9 +911,7 @@ fn push_global_message_ok(ctx: &mut CommandContext) {
 }
 
 fn global_message_arg_str(args: &[Value]) -> Option<&str> {
-    args.iter()
-        .rev()
-        .find_map(|v| v.unwrap_named().as_str())
+    args.iter().rev().find_map(|v| v.unwrap_named().as_str())
 }
 
 fn dispatch_global_message_command(
@@ -651,8 +935,7 @@ fn dispatch_global_message_command(
             push_global_message_ok(ctx);
             Ok(true)
         }
-        constants::elm_value::GLOBAL_MSG_BLOCK
-        | constants::elm_value::GLOBAL_MSG_PP_BLOCK => {
+        constants::elm_value::GLOBAL_MSG_BLOCK | constants::elm_value::GLOBAL_MSG_PP_BLOCK => {
             // Message block commands update/forward message state only. They must not
             // create a script-proc boundary; WAIT_MSG / PP / R / PAGE are the commands
             // that actually stop the running script.
@@ -745,6 +1028,9 @@ pub fn dispatch_global_form(
         return Ok(true);
     }
     if dispatch_capture_command(ctx, form_id, args)? {
+        return Ok(true);
+    }
+    if dispatch_global_fog_command(ctx, form_id, args)? {
         return Ok(true);
     }
     if dispatch_selbtn_command(ctx, form_id, args)? {

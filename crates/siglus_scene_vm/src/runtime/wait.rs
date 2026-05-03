@@ -49,6 +49,7 @@ pub enum EventWait {
         form_id: u32,
         index: Option<usize>,
     },
+    FogX,
     CounterThreshold {
         form_id: u32,
         index: usize,
@@ -213,7 +214,9 @@ fn object_active_by_runtime_slot_mut(
 
     if let Some(items) = st.btnselitem_lists.get_mut(&stage_idx) {
         for item in items {
-            if let Some(ptr) = find_object_by_runtime_slot_mut_ptr(&mut item.object_list, runtime_slot) {
+            if let Some(ptr) =
+                find_object_by_runtime_slot_mut_ptr(&mut item.object_list, runtime_slot)
+            {
                 return unsafe { Some(&mut *ptr) };
             }
         }
@@ -221,19 +224,111 @@ fn object_active_by_runtime_slot_mut(
 
     if let Some(mwnds) = st.mwnd_lists.get_mut(&stage_idx) {
         for mwnd in mwnds {
-            if let Some(ptr) = find_object_by_runtime_slot_mut_ptr(&mut mwnd.button_list, runtime_slot) {
+            if let Some(ptr) =
+                find_object_by_runtime_slot_mut_ptr(&mut mwnd.button_list, runtime_slot)
+            {
                 return unsafe { Some(&mut *ptr) };
             }
-            if let Some(ptr) = find_object_by_runtime_slot_mut_ptr(&mut mwnd.face_list, runtime_slot) {
+            if let Some(ptr) =
+                find_object_by_runtime_slot_mut_ptr(&mut mwnd.face_list, runtime_slot)
+            {
                 return unsafe { Some(&mut *ptr) };
             }
-            if let Some(ptr) = find_object_by_runtime_slot_mut_ptr(&mut mwnd.object_list, runtime_slot) {
+            if let Some(ptr) =
+                find_object_by_runtime_slot_mut_ptr(&mut mwnd.object_list, runtime_slot)
+            {
                 return unsafe { Some(&mut *ptr) };
             }
         }
     }
 
     None
+}
+
+fn finish_wait_skipped_event(ev: &mut IntEvent) {
+    ev.end_event();
+    ev.frame();
+}
+
+fn event_prop_pairs(ids: &RuntimeConstants) -> [(i32, i32); 36] {
+    [
+        (ids.obj_patno_eve, ids.obj_patno),
+        (ids.obj_x_eve, ids.obj_x),
+        (ids.obj_y_eve, ids.obj_y),
+        (ids.obj_z_eve, ids.obj_z),
+        (ids.obj_center_x_eve, ids.obj_center_x),
+        (ids.obj_center_y_eve, ids.obj_center_y),
+        (ids.obj_center_z_eve, ids.obj_center_z),
+        (ids.obj_center_rep_x_eve, ids.obj_center_rep_x),
+        (ids.obj_center_rep_y_eve, ids.obj_center_rep_y),
+        (ids.obj_center_rep_z_eve, ids.obj_center_rep_z),
+        (ids.obj_scale_x_eve, ids.obj_scale_x),
+        (ids.obj_scale_y_eve, ids.obj_scale_y),
+        (ids.obj_scale_z_eve, ids.obj_scale_z),
+        (ids.obj_rotate_x_eve, ids.obj_rotate_x),
+        (ids.obj_rotate_y_eve, ids.obj_rotate_y),
+        (ids.obj_rotate_z_eve, ids.obj_rotate_z),
+        (ids.obj_clip_left_eve, ids.obj_clip_left),
+        (ids.obj_clip_top_eve, ids.obj_clip_top),
+        (ids.obj_clip_right_eve, ids.obj_clip_right),
+        (ids.obj_clip_bottom_eve, ids.obj_clip_bottom),
+        (ids.obj_src_clip_left_eve, ids.obj_src_clip_left),
+        (ids.obj_src_clip_top_eve, ids.obj_src_clip_top),
+        (ids.obj_src_clip_right_eve, ids.obj_src_clip_right),
+        (ids.obj_src_clip_bottom_eve, ids.obj_src_clip_bottom),
+        (ids.obj_tr_eve, ids.obj_tr),
+        (ids.obj_mono_eve, ids.obj_mono),
+        (ids.obj_reverse_eve, ids.obj_reverse),
+        (ids.obj_bright_eve, ids.obj_bright),
+        (ids.obj_dark_eve, ids.obj_dark),
+        (ids.obj_color_r_eve, ids.obj_color_r),
+        (ids.obj_color_g_eve, ids.obj_color_g),
+        (ids.obj_color_b_eve, ids.obj_color_b),
+        (ids.obj_color_rate_eve, ids.obj_color_rate),
+        (ids.obj_color_add_r_eve, ids.obj_color_add_r),
+        (ids.obj_color_add_g_eve, ids.obj_color_add_g),
+        (ids.obj_color_add_b_eve, ids.obj_color_add_b),
+    ]
+}
+
+fn object_prop_op_for_event_op(ids: &RuntimeConstants, event_op: i32) -> Option<i32> {
+    event_prop_pairs(ids)
+        .into_iter()
+        .find_map(|(ev_op, prop_op)| (ev_op != 0 && event_op == ev_op).then_some(prop_op))
+}
+
+fn finish_wait_skipped_object_event_by_op(
+    obj: &mut ObjectState,
+    ids: &RuntimeConstants,
+    event_op: i32,
+) {
+    let Some(value) = obj.int_event_by_op_mut(ids, event_op).map(|ev| {
+        finish_wait_skipped_event(ev);
+        ev.get_total_value() as i64
+    }) else {
+        return;
+    };
+    if let Some(prop_op) = object_prop_op_for_event_op(ids, event_op) {
+        obj.set_int_prop(ids, prop_op, value);
+    }
+}
+
+fn finish_wait_skipped_object_events(obj: &mut ObjectState, ids: &RuntimeConstants) {
+    let mut final_values = Vec::new();
+    for (event_op, prop_op) in event_prop_pairs(ids) {
+        if event_op == 0 || prop_op == 0 {
+            continue;
+        }
+        if let Some(ev) = obj.int_event_by_op_mut(ids, event_op) {
+            finish_wait_skipped_event(ev);
+            final_values.push((prop_op, ev.get_total_value() as i64));
+        }
+    }
+    obj.runtime.prop_event_lists.end_all();
+    obj.runtime.prop_event_lists.frame();
+    for (prop_op, value) in final_values {
+        obj.set_int_prop(ids, prop_op, value);
+    }
 }
 
 fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &RuntimeConstants) {
@@ -249,7 +344,7 @@ fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &Runt
                 *stage_idx,
                 *runtime_slot,
             ) {
-                obj.end_all_events();
+                finish_wait_skipped_object_events(obj, ids);
             }
         }
         EventWait::ObjectOne {
@@ -264,9 +359,7 @@ fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &Runt
                 *stage_idx,
                 *runtime_slot,
             ) {
-                if let Some(ev) = obj.int_event_by_op_mut(ids, *op) {
-                    ev.end_event();
-                }
+                finish_wait_skipped_object_event_by_op(obj, ids, *op);
             }
         }
         EventWait::ObjectList {
@@ -285,7 +378,7 @@ fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &Runt
                 if let Some(ev) = object_event_list_for_wait_mut(obj, ids, *list_op)
                     .and_then(|v| v.get_mut(*list_idx))
                 {
-                    ev.end_event();
+                    finish_wait_skipped_event(ev);
                 }
             }
         }
@@ -296,15 +389,19 @@ fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &Runt
                     .get_mut(form_id)
                     .and_then(|v| v.get_mut(*i))
                 {
-                    ev.end_event();
+                    finish_wait_skipped_event(ev);
                 }
             }
             None => {
                 if let Some(ev) = globals.int_event_roots.get_mut(form_id) {
-                    ev.end_event();
+                    finish_wait_skipped_event(ev);
                 }
             }
         },
+        EventWait::FogX => {
+            finish_wait_skipped_event(&mut globals.fog_global.x_event);
+            globals.fog_global.scroll_x = globals.fog_global.x_event.get_total_value() as f32;
+        }
         EventWait::CounterThreshold { .. } => {}
     }
 }
@@ -490,6 +587,7 @@ impl VmWait {
                         .map(|e| !e.check_event())
                         .unwrap_or(true),
                 },
+                EventWait::FogX => !globals.fog_global.x_event.check_event(),
                 EventWait::CounterThreshold {
                     form_id,
                     index,
@@ -735,6 +833,16 @@ impl VmWait {
     ) {
         self.mark_block_request();
         self.event = Some(EventWait::GenericIntEvent { form_id, index });
+        self.event_key_skip = key_skip;
+        self.event_return_value = return_value_flag;
+        if key_skip {
+            self.waiting_for_key = true;
+        }
+    }
+
+    pub fn wait_fog_x_event(&mut self, key_skip: bool, return_value_flag: bool) {
+        self.mark_block_request();
+        self.event = Some(EventWait::FogX);
         self.event_key_skip = key_skip;
         self.event_return_value = return_value_flag;
         if key_skip {

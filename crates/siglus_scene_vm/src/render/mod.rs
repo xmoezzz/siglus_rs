@@ -4742,12 +4742,13 @@ fn fs_common_2d(i: VsOut2d) -> vec4<f32> {
   }
 
   rgb = mix(rgb, vec3<f32>(1.0, 1.0, 1.0) - rgb, rev);
-  let gray = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
-  rgb = mix(rgb, vec3<f32>(gray, gray, gray), mono);
-  rgb = rgb + vec3<f32>(bright, bright, bright);
+  let mono_gray = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
+  rgb = mix(rgb, vec3<f32>(mono_gray, mono_gray, mono_gray), mono);
+  rgb = clamp(rgb + vec3<f32>(bright, bright, bright), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
   rgb = clamp(rgb - vec3<f32>(dark, dark, dark), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
   rgb = mix(rgb, color_tgt, color_rate);
   rgb = clamp(rgb + color_add, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
+  let final_gray = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
 
   if (has_mask > 0.5) {
     let m = sample_mask(i.uv_aux);
@@ -4769,12 +4770,11 @@ fn fs_common_2d(i: VsOut2d) -> vec4<f32> {
         fog_rgb = mix(fog_rgb, fog_sample.rgb, fog_sample.a);
       }
       rgb = mix(rgb, fog_rgb, fog_t);
-      alpha = alpha * (1.0 - 0.25 * fog_t);
     }
   }
 
   if (mask_mode > 0.5 && mask_mode < 1.5) {
-    alpha = gray;
+    alpha = final_gray;
   }
 
   if (alpha_test > 0.5 && alpha <= alpha_ref) {
@@ -4943,12 +4943,13 @@ fn fs_common(i: VsOut) -> vec4<f32> {
   }
 
   rgb = mix(rgb, vec3<f32>(1.0, 1.0, 1.0) - rgb, rev);
-  let gray = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
-  rgb = mix(rgb, vec3<f32>(gray, gray, gray), mono);
-  rgb = rgb + vec3<f32>(bright, bright, bright);
+  let mono_gray = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
+  rgb = mix(rgb, vec3<f32>(mono_gray, mono_gray, mono_gray), mono);
+  rgb = clamp(rgb + vec3<f32>(bright, bright, bright), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
   rgb = clamp(rgb - vec3<f32>(dark, dark, dark), vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
   rgb = mix(rgb, color_tgt, color_rate);
   rgb = clamp(rgb + color_add, vec3<f32>(0.0, 0.0, 0.0), vec3<f32>(1.0, 1.0, 1.0));
+  let final_gray = dot(rgb, vec3<f32>(0.299, 0.587, 0.114));
 
   if (has_mask > 0.5) {
     let m = sample_mask(i.uv_aux);
@@ -4959,7 +4960,7 @@ fn fs_common(i: VsOut) -> vec4<f32> {
   if (fog_on > 0.5) {
     var depth = abs(sprite_z - camera_z);
     if (world_has_pos) {
-      depth = length(world_pos - vec3<f32>(0.0, 0.0, camera_z));
+      depth = length(world_pos - vs_u.camera_eye.xyz);
     }
     let fog_t = clamp((depth - fog_near) / max(fog_far - fog_near, 1.0), 0.0, 1.0);
     if (fog_t > 0.0) {
@@ -4973,12 +4974,11 @@ fn fs_common(i: VsOut) -> vec4<f32> {
         fog_rgb = mix(fog_rgb, fog_sample.rgb, fog_sample.a);
       }
       rgb = mix(rgb, fog_rgb, fog_t);
-      alpha = alpha * (1.0 - 0.25 * fog_t);
     }
   }
 
   if (mask_mode > 0.5 && mask_mode < 1.5) {
-    alpha = gray;
+    alpha = final_gray;
   }
 
   if (alpha_test > 0.5 && alpha <= alpha_ref) {

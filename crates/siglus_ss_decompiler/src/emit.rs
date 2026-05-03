@@ -1,3 +1,4 @@
+use crate::constants::ChainAtom;
 use crate::constants::*;
 use crate::disasm::{ArgForm, Instruction, Op};
 use crate::scene::Scene;
@@ -136,10 +137,13 @@ fn handle_instruction(
             None
         }
         Op::Pop { form } => {
-            let expr = state
-                .stack
-                .pop()
-                .unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
+            let Some(expr) = state.stack.pop() else {
+                return Some(format!(
+                    "// {} pop {} elided: value belongs to another branch path",
+                    offset_comment(insn),
+                    symbols.form_name(*form)
+                ));
+            };
             Some(format!(
                 "{}; // {} pop {}",
                 expr.to_ss(symbols),
@@ -419,9 +423,16 @@ fn pop_element_chain(state: &mut VmModel) -> Vec<Expr> {
         ))];
     }
     let mut items = state.stack.split_off(start);
+    let mut prev_was_array = false;
     for item in &mut items {
         if let Expr::Int(v) = item {
-            *item = Expr::ElmCode(*v);
+            let value = *v;
+            if !prev_was_array {
+                *item = Expr::ElmCode(value);
+            }
+            prev_was_array = value == ELM_ARRAY;
+        } else {
+            prev_was_array = false;
         }
     }
     if items.is_empty() {
@@ -431,32 +442,23 @@ fn pop_element_chain(state: &mut VmModel) -> Vec<Expr> {
 }
 
 fn format_chain(items: &[Expr], symbols: &SymbolTables) -> String {
-    let mut raw_values = Vec::with_capacity(items.len());
-    let mut all_raw = true;
+    let mut atoms = Vec::new();
     for item in items {
-        match item {
-            Expr::Int(v) | Expr::ElmCode(v) => raw_values.push(*v),
-            _ => {
-                all_raw = false;
-                break;
+        collect_chain_atoms(item, symbols, &mut atoms);
+    }
+    symbols.format_chain_dynamic(&atoms)
+}
+
+fn collect_chain_atoms(item: &Expr, symbols: &SymbolTables, atoms: &mut Vec<ChainAtom>) {
+    match item {
+        Expr::Int(v) | Expr::ElmCode(v) => atoms.push(ChainAtom::Code(*v)),
+        Expr::Chain(items) | Expr::Property(items) => {
+            for item in items {
+                collect_chain_atoms(item, symbols, atoms);
             }
         }
+        other => atoms.push(ChainAtom::Text(other.to_ss(symbols))),
     }
-    if all_raw {
-        if let Some(rendered) = symbols.format_chain_values(&raw_values) {
-            return rendered;
-        }
-    }
-
-    let mut out = Vec::new();
-    for item in items {
-        out.push(match item {
-            Expr::Int(v) => symbols.elm_name(*v),
-            Expr::ElmCode(v) => symbols.elm_name(*v),
-            other => other.to_ss(symbols),
-        });
-    }
-    out.join(".")
 }
 
 fn call_prop_name(scene: &Scene, prop_id: i32) -> String {
@@ -711,7 +713,9 @@ fn build_flat_stmts(
             state = VmModel::default();
             out.push(FlatStmt {
                 offset: insn.offset,
-                kind: FlatKind::Line("// reset VM expression stack at user-command entry".to_string()),
+                kind: FlatKind::Line(
+                    "// reset VM expression stack at user-command entry".to_string(),
+                ),
             });
         }
         if let Some(names) = labels_by_offset.get(&insn.offset) {
@@ -758,10 +762,12 @@ fn handle_instruction_flat(
             None
         }
         Op::Pop { form } => {
-            let expr = state
-                .stack
-                .pop()
-                .unwrap_or_else(|| Expr::Raw("<stack-underflow>".to_string()));
+            let Some(expr) = state.stack.pop() else {
+                return Some(FlatKind::Line(format!(
+                    "// pop {} elided: value belongs to another branch path",
+                    symbols.form_name(*form)
+                )));
+            };
             Some(FlatKind::Line(format!(
                 "{}; // pop {}",
                 expr.to_ss(symbols),
@@ -784,7 +790,9 @@ fn handle_instruction_flat(
         }
         Op::CopyElm => {
             let Some(start) = state.element_points.last().copied() else {
-                return Some(FlatKind::Line("// copy element failed: missing ELM_POINT".to_string()));
+                return Some(FlatKind::Line(
+                    "// copy element failed: missing ELM_POINT".to_string(),
+                ));
             };
             if start > state.stack.len() {
                 return Some(FlatKind::Line(format!(

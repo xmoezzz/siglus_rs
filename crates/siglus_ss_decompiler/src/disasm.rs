@@ -150,15 +150,22 @@ pub fn disassemble_control_flow(scene: &Scene) -> Result<Vec<Instruction>> {
 fn collect_entry_offsets(scene: &Scene) -> BTreeSet<usize> {
     let mut entries = BTreeSet::new();
 
-    // Match the runtime entry model in C_tnm_scene_lexer.
-    // Normal script execution starts at p_scn + 0. Scene-local user commands
-    // are entered through S_tnm_scn_scn_cmd::offset in scn_cmd_list.
-    // cmd_label_list is a compiler/linker aid and is not used by the engine
-    // as a runtime entry table. Treating it as roots can start decoding in
-    // the middle of CD_COMMAND operands; byte 0x1F there is arg_count 31.
+    // Runtime roots are offset 0 plus user-command entries.  For audit-quality
+    // decompilation we also need every compiler label table target: otherwise
+    // unreferenced-but-callable branches and some reconstructed command bodies
+    // disappear from the emitted .ss even though they are valid bytecode.
     entries.insert(0);
 
     for item in &scene.scn_cmds {
+        insert_offset(&mut entries, item.offset, scene.code.len());
+    }
+    for &offset in &scene.labels {
+        insert_offset(&mut entries, offset, scene.code.len());
+    }
+    for &offset in &scene.z_labels {
+        insert_offset(&mut entries, offset, scene.code.len());
+    }
+    for item in &scene.cmd_labels {
         insert_offset(&mut entries, item.offset, scene.code.len());
     }
 

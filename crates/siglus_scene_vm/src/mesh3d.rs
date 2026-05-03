@@ -352,6 +352,31 @@ pub struct MeshAsset {
 }
 
 impl MeshAsset {
+    pub fn bounds_size(&self) -> [f32; 3] {
+        let vertices = if self.vertices.is_empty() {
+            self.sample_vertices(0.0)
+        } else {
+            self.vertices.clone()
+        };
+        if vertices.is_empty() {
+            return [0.0, 0.0, 0.0];
+        }
+
+        let mut min = [f32::INFINITY; 3];
+        let mut max = [f32::NEG_INFINITY; 3];
+        for v in vertices {
+            for axis in 0..3 {
+                min[axis] = min[axis].min(v.pos[axis]);
+                max[axis] = max[axis].max(v.pos[axis]);
+            }
+        }
+        [
+            (max[0] - min[0]).max(0.0),
+            (max[1] - min[1]).max(0.0),
+            (max[2] - min[2]).max(0.0),
+        ]
+    }
+
     pub fn is_skinned(&self) -> bool {
         self.bone_count != 0
             && self.primitives.iter().any(|p| {
@@ -1359,67 +1384,66 @@ pub fn resolve_mesh_path(project_dir: &Path, append_dir: &str, file_name: &str) 
     }
     let raw = Path::new(file_name);
     if raw.is_absolute() {
-        let sgmesh_raw = if raw
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| s.eq_ignore_ascii_case("sgmesh"))
-            .unwrap_or(false)
-        {
+        let x_raw = if raw.extension().is_some() {
             raw.to_path_buf()
         } else {
-            raw.with_extension("sgmesh")
+            raw.with_extension("x")
         };
+        if let Some(found) = find_existing_casefold(&x_raw) {
+            return Ok(found);
+        }
+        let sgmesh_raw = raw.with_extension("sgmesh");
         if let Some(found) = find_existing_casefold(&sgmesh_raw) {
             return Ok(found);
         }
     }
     let norm = file_name.replace('\\', "/");
     let p = Path::new(&norm);
-    let normalized_name = if p
+    let x_name = if p.extension().is_some() {
+        norm.clone()
+    } else {
+        format!("{norm}.x")
+    };
+    let sgmesh_name = if p
         .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.eq_ignore_ascii_case("sgmesh"))
         .unwrap_or(false)
     {
         norm.clone()
-    } else if p.extension().is_some() {
+    } else {
         p.with_extension("sgmesh")
             .to_string_lossy()
             .replace('\\', "/")
-    } else {
-        format!("{}.sgmesh", norm)
     };
-    let mut bases = Vec::new();
-    bases.push(project_dir.to_path_buf());
-    bases.push(project_dir.join("dat"));
-    if !append_dir.is_empty() {
-        bases.push(project_dir.join(append_dir));
-        bases.push(project_dir.join("dat").join(append_dir));
-    }
-    bases.push(project_dir.join("mesh"));
-    bases.push(project_dir.join("dat").join("mesh"));
-    for base in bases {
-        let cand = base.join(&normalized_name);
-        if let Some(found) = find_existing_casefold(&cand) {
+
+    for append in crate::resource::ordered_append_dirs(project_dir, append_dir) {
+        let base = if append.is_empty() {
+            project_dir.join("x")
+        } else {
+            project_dir.join(&append).join("x")
+        };
+        if let Some(found) = resolve_relative_casefold(&base, &x_name) {
             return Ok(found);
         }
     }
-    bail!(
-        "compiled mesh asset not found: {} (expected .sgmesh runtime asset)",
-        file_name
-    )
+
+    for append in crate::resource::ordered_append_dirs(project_dir, append_dir) {
+        let base = if append.is_empty() {
+            project_dir.join("x")
+        } else {
+            project_dir.join(&append).join("x")
+        };
+        if let Some(found) = resolve_relative_casefold(&base, &sgmesh_name) {
+            return Ok(found);
+        }
+    }
+
+    bail!("mesh asset not found through x resource path: {file_name}")
 }
 
 pub fn load_mesh_asset(project_dir: &Path, append_dir: &str, file_name: &str) -> Result<MeshAsset> {
     let path = resolve_mesh_path(project_dir, append_dir, file_name)?;
-    if !path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .eq_ignore_ascii_case("sgmesh")
-    {
-        bail!("runtime mesh path must resolve to .sgmesh: {:?}", path);
-    }
     load_mesh_asset_from_path(&path)
 }
 

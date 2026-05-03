@@ -19,6 +19,7 @@ struct ObjectState {
     sprite_id: Option<SpriteId>,
 
     // Logical properties.
+    is_mesh: bool,
     file: Option<String>,
     patno: i64,
     disp: bool,
@@ -67,6 +68,7 @@ impl Default for ObjectState {
             is_bg: false,
             layer_id: None,
             sprite_id: None,
+            is_mesh: false,
             file: None,
             patno: 0,
             disp: false,
@@ -369,7 +371,12 @@ impl GfxRuntime {
             bg.light_no = obj.light_no as i32;
             bg.fog_use = obj.fog_use != 0;
 
-            if let Some(file) = &obj.file {
+            if obj.is_mesh {
+                bg.image_id = None;
+                bg.mesh_file_name = obj.file.clone();
+                bg.mesh_kind = 1;
+                bg.camera_enabled = true;
+            } else if let Some(file) = &obj.file {
                 match Self::load_any_image(images, file, obj.patno) {
                     Ok(img_id) => bg.image_id = Some(img_id),
                     Err(err) if is_probable_mesh_path(file) => {
@@ -432,7 +439,14 @@ impl GfxRuntime {
         let fine = obj.order.clamp(-100000, 100000) as i32;
         sprite.order = coarse.saturating_mul(1000).saturating_add(fine);
 
-        if let Some(file) = &obj.file {
+        if obj.is_mesh {
+            sprite.image_id = None;
+            sprite.mesh_file_name = obj.file.clone();
+            sprite.mesh_kind = 1;
+            sprite.camera_enabled = true;
+            sprite.shadow_cast = true;
+            sprite.shadow_receive = true;
+        } else if let Some(file) = &obj.file {
             match Self::load_any_image(images, file, obj.patno) {
                 Ok(img_id) => sprite.image_id = Some(img_id),
                 Err(err) if is_probable_mesh_path(file) => {
@@ -620,6 +634,7 @@ impl GfxRuntime {
         {
             let obj = self.ensure_object_mut(stage_u, obj_u);
             obj.is_bg = stage_u == 0 && obj_u == 0;
+            obj.is_mesh = false;
             obj.file = Some(file.to_string());
             obj.patno = patno;
             obj.disp = disp != 0;
@@ -638,6 +653,73 @@ impl GfxRuntime {
         }
 
         self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_create_mesh(
+        &mut self,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        file: &str,
+        disp: i64,
+        x: i64,
+        y: i64,
+        patno: i64,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) {
+            bail!("invalid stage: {stage}");
+        }
+        if obj_idx < 0 {
+            bail!("invalid obj idx: {obj_idx}");
+        }
+
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+        let current_layer = self.current_layer;
+
+        {
+            let obj = self.ensure_object_mut(stage_u, obj_u);
+            obj.is_bg = stage_u == 0 && obj_u == 0;
+            obj.is_mesh = true;
+            obj.file = Some(file.to_string());
+            obj.patno = patno;
+            obj.disp = disp != 0;
+            obj.x = x;
+            obj.y = y;
+            if obj.layer_no == 0 {
+                obj.layer_no = current_layer as i64;
+            }
+        }
+
+        if stage_u == 0 && obj_u == 0 {
+            let bg = layers.bg_mut();
+            bg.visible = disp != 0;
+            bg.image_id = None;
+            bg.x = x as i32;
+            bg.y = y as i32;
+        } else {
+            let (lid, sid) = self.ensure_bound_sprite(layers, stage_u, obj_u)?;
+            let sprite = layers
+                .layer_mut(lid)
+                .and_then(|l| l.sprite_mut(sid))
+                .context("mesh sprite not found")?;
+            sprite.visible = disp != 0;
+            sprite.image_id = None;
+            sprite.x = x as i32;
+            sprite.y = y as i32;
+            sprite.alpha = 255;
+            sprite.tr = 255;
+            sprite.fit = SpriteFit::PixelRect;
+            sprite.size_mode = SpriteSizeMode::Intrinsic;
+            sprite.mesh_file_name = Some(file.to_string());
+            sprite.mesh_kind = 1;
+            sprite.camera_enabled = true;
+            sprite.shadow_cast = true;
+            sprite.shadow_receive = true;
+        }
+
+        Ok(())
     }
 
     pub fn object_set_disp(

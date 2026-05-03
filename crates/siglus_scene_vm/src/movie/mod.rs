@@ -18,13 +18,13 @@ use crate::audio::{AudioHub, TrackKind};
 
 const MPEG2_HEADER_PROBE_BYTES: usize = 256 * 1024;
 const MPEG2_STREAM_CHUNK_BYTES: usize = 256 * 1024;
-const MPEG2_STREAM_CHANNEL_CAPACITY: usize = 12;
-const MPEG2_STREAM_MAX_DRAIN_EVENTS: usize = 16;
-const MPEG2_STREAM_FRAME_KEEP: usize = 16;
-const MPEG2_STREAM_DECODE_LEAD_FRAMES: usize = 4;
+const MPEG2_STREAM_CHANNEL_CAPACITY: usize = 4;
+const MPEG2_STREAM_MAX_DRAIN_EVENTS: usize = 8;
+const MPEG2_STREAM_FRAME_KEEP: usize = 6;
+const MPEG2_STREAM_DECODE_LEAD_FRAMES: usize = 3;
 const MOVIE_AUDIO_SEGMENT_MS: u64 = 4000;
-const MOVIE_AUDIO_DECODE_LEAD_MS: usize = 12000;
-const MOVIE_AUDIO_MAX_DRAIN_EVENTS: usize = 8;
+const MOVIE_AUDIO_DECODE_LEAD_MS: usize = 8000;
+const MOVIE_AUDIO_MAX_DRAIN_EVENTS: usize = 4;
 const OMV_STREAM_CHANNEL_CAPACITY: usize = 12;
 const OMV_STREAM_MAX_DRAIN_EVENTS: usize = 16;
 const OMV_STREAM_FRAME_KEEP: usize = 16;
@@ -1192,7 +1192,6 @@ fn drain_mpeg2_stream_state(
         }
     }
 
-    merge_ready_audio_segments(&mut state.audio_segments);
 
     let keep_audio_from = target_timer_ms.saturating_sub(MOVIE_AUDIO_SEGMENT_MS.saturating_mul(2));
     while state
@@ -1205,27 +1204,6 @@ fn drain_mpeg2_stream_state(
     }
 
     Ok(())
-}
-
-fn merge_ready_audio_segments(segments: &mut VecDeque<MovieAudio>) {
-    let mut merged: VecDeque<MovieAudio> = VecDeque::new();
-    while let Some(seg) = segments.pop_front() {
-        if let Some(back) = merged.back_mut() {
-            let contiguous = seg.start_ms <= back.end_ms().saturating_add(2);
-            if contiguous && seg.channels == back.channels && seg.sample_rate == back.sample_rate {
-                let mut samples = (*back.samples).clone();
-                samples.extend_from_slice(&seg.samples[..]);
-                back.samples = Arc::new(samples);
-                back.duration_ms = match (back.duration_ms, seg.duration_ms) {
-                    (Some(a), Some(b)) => Some(a.saturating_add(b)),
-                    _ => None,
-                };
-                continue;
-            }
-        }
-        merged.push_back(seg);
-    }
-    *segments = merged;
 }
 
 fn select_audio_segment(segments: &VecDeque<MovieAudio>, timer_ms: u64) -> Option<MovieAudio> {

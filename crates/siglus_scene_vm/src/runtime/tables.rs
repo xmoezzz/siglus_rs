@@ -523,40 +523,76 @@ fn parse_i64_tuple(raw: Option<&str>) -> Vec<i64> {
 
 fn load_mwnd_render_template(cfg: &GameexeConfig) -> MwndRenderTemplate {
     let mut t = MwndRenderTemplate::default();
-    if let Some(v) = cfg.get_unquoted("MWND.DEFAULT_MWND_NO").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.DEFAULT_MWND_NO")
+        .and_then(parse_i64_like_local)
+    {
         t.default_mwnd_no = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.DEFAULT_SEL_MWND_NO").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.DEFAULT_SEL_MWND_NO")
+        .and_then(parse_i64_like_local)
+    {
         t.default_sel_mwnd_no = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.ORDER").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.ORDER")
+        .and_then(parse_i64_like_local)
+    {
         t.order = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.FILTER_LAYER_REP").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.FILTER_LAYER_REP")
+        .and_then(parse_i64_like_local)
+    {
         t.filter_layer_rep = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.WAKU_LAYER_REP").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.WAKU_LAYER_REP")
+        .and_then(parse_i64_like_local)
+    {
         t.waku_layer_rep = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.FACE_LAYER_REP").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.FACE_LAYER_REP")
+        .and_then(parse_i64_like_local)
+    {
         t.face_layer_rep = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.SHADOW_LAYER_REP").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.SHADOW_LAYER_REP")
+        .and_then(parse_i64_like_local)
+    {
         t.shadow_layer_rep = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.FUCHI_LAYER_REP").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.FUCHI_LAYER_REP")
+        .and_then(parse_i64_like_local)
+    {
         t.fuchi_layer_rep = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.MOJI_LAYER_REP").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.MOJI_LAYER_REP")
+        .and_then(parse_i64_like_local)
+    {
         t.moji_layer_rep = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.SHADOW_COLOR").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.SHADOW_COLOR")
+        .and_then(parse_i64_like_local)
+    {
         t.shadow_color = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.FUCHI_COLOR").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.FUCHI_COLOR")
+        .and_then(parse_i64_like_local)
+    {
         t.fuchi_color = v;
     }
-    if let Some(v) = cfg.get_unquoted("MWND.MOJI_COLOR").and_then(parse_i64_like_local) {
+    if let Some(v) = cfg
+        .get_unquoted("MWND.MOJI_COLOR")
+        .and_then(parse_i64_like_local)
+    {
         t.moji_color = v;
     }
     t
@@ -571,61 +607,155 @@ fn load_mwnd_templates(cfg: &GameexeConfig) -> Vec<MwndTemplate> {
 
     for i in 0..cnt {
         let mut t = MwndTemplate::default();
-        let get_i64 = |field: &str| cfg.get_indexed_field("MWND", i, field).and_then(parse_i64_like_local);
+        let get_i64 = |field: &str| {
+            cfg.get_indexed_field("MWND", i, field)
+                .and_then(parse_i64_like_local)
+        };
         let get_tuple = |field: &str| parse_i64_tuple(cfg.get_indexed_field("MWND", i, field));
 
-        if let Some(v) = get_i64("NOVEL_MODE") { t.novel_mode = v; }
-        if let Some(v) = get_i64("EXTEND_TYPE") { t.extend_type = v; }
+        if let Some(v) = get_i64("NOVEL_MODE") {
+            t.novel_mode = v;
+        }
+        if let Some(v) = get_i64("EXTEND_TYPE") {
+            t.extend_type = v;
+        }
         let window_pos = get_tuple("WINDOW_POS");
-        if window_pos.len() >= 2 { t.window_pos = (window_pos[0], window_pos[1]); }
+        if window_pos.len() >= 2 {
+            t.window_pos = (window_pos[0], window_pos[1]);
+        }
         let window_size = get_tuple("WINDOW_SIZE");
-        if window_size.len() >= 2 { t.window_size = (window_size[0], window_size[1]); }
+        if window_size.len() >= 2 {
+            t.window_size = (window_size[0], window_size[1]);
+        }
         let message_pos = get_tuple("MESSAGE_POS");
-        if message_pos.len() >= 2 { t.message_pos = (message_pos[0], message_pos[1]); }
+        if message_pos.len() >= 2 {
+            t.message_pos = (message_pos[0], message_pos[1]);
+        }
         let message_margin = get_tuple("MESSAGE_MARGIN");
-        if message_margin.len() >= 4 { t.message_margin = (message_margin[0], message_margin[1], message_margin[2], message_margin[3]); }
+        if message_margin.len() >= 4 {
+            t.message_margin = (
+                message_margin[0],
+                message_margin[1],
+                message_margin[2],
+                message_margin[3],
+            );
+        }
         let moji_cnt = get_tuple("MOJI_CNT");
-        if moji_cnt.len() >= 2 { t.moji_cnt = (moji_cnt[0], moji_cnt[1]); }
-        if let Some(v) = get_i64("MOJI_SIZE") { t.moji_size = v; }
+        if moji_cnt.len() >= 2 {
+            t.moji_cnt = (moji_cnt[0], moji_cnt[1]);
+        }
+        if let Some(v) = get_i64("MOJI_SIZE") {
+            t.moji_size = v;
+        }
         let moji_space = get_tuple("MOJI_SPACE");
-        if moji_space.len() >= 2 { t.moji_space = (moji_space[0], moji_space[1]); }
-        if let Some(v) = get_i64("MOJI_COLOR") { t.moji_color = v; }
-        if let Some(v) = get_i64("SHADOW_COLOR") { t.shadow_color = v; }
-        if let Some(v) = get_i64("FUCHI_COLOR") { t.fuchi_color = v; }
-        if let Some(v) = get_i64("RUBY_SIZE") { t.ruby_size = v; }
-        if let Some(v) = get_i64("RUBY_SPACE") { t.ruby_space = v; }
-        if let Some(v) = get_i64("WAKU_NO") { t.waku_no = v; }
+        if moji_space.len() >= 2 {
+            t.moji_space = (moji_space[0], moji_space[1]);
+        }
+        if let Some(v) = get_i64("MOJI_COLOR") {
+            t.moji_color = v;
+        }
+        if let Some(v) = get_i64("SHADOW_COLOR") {
+            t.shadow_color = v;
+        }
+        if let Some(v) = get_i64("FUCHI_COLOR") {
+            t.fuchi_color = v;
+        }
+        if let Some(v) = get_i64("RUBY_SIZE") {
+            t.ruby_size = v;
+        }
+        if let Some(v) = get_i64("RUBY_SPACE") {
+            t.ruby_space = v;
+        }
+        if let Some(v) = get_i64("WAKU_NO") {
+            t.waku_no = v;
+        }
         let waku_pos = get_tuple("WAKU_POS");
-        if waku_pos.len() >= 2 { t.waku_pos = (waku_pos[0], waku_pos[1]); }
-        if let Some(v) = get_i64("NAME_DISP_MODE") { t.name_disp_mode = v; }
-        if let Some(v) = get_i64("NAME_NEWLINE") { t.name_newline = v; }
-        if let Some(v) = get_i64("NAME_BRACKET") { t.name_bracket = v; }
-        if let Some(v) = get_i64("NAME_MOJI_SIZE") { t.name_moji_size = v; }
+        if waku_pos.len() >= 2 {
+            t.waku_pos = (waku_pos[0], waku_pos[1]);
+        }
+        if let Some(v) = get_i64("NAME_DISP_MODE") {
+            t.name_disp_mode = v;
+        }
+        if let Some(v) = get_i64("NAME_NEWLINE") {
+            t.name_newline = v;
+        }
+        if let Some(v) = get_i64("NAME_BRACKET") {
+            t.name_bracket = v;
+        }
+        if let Some(v) = get_i64("NAME_MOJI_SIZE") {
+            t.name_moji_size = v;
+        }
         let name_moji_space = get_tuple("NAME_MOJI_SPACE");
-        if name_moji_space.len() >= 2 { t.name_moji_space = (name_moji_space[0], name_moji_space[1]); }
+        if name_moji_space.len() >= 2 {
+            t.name_moji_space = (name_moji_space[0], name_moji_space[1]);
+        }
         let name_moji_cnt = get_tuple("NAME_MOJI_CNT");
-        if name_moji_cnt.len() >= 2 { t.name_moji_cnt = (name_moji_cnt[0], name_moji_cnt[1]); }
+        if name_moji_cnt.len() >= 2 {
+            t.name_moji_cnt = (name_moji_cnt[0], name_moji_cnt[1]);
+        }
         let name_window_pos = get_tuple("NAME_WINDOW_POS");
-        if name_window_pos.len() >= 2 { t.name_window_pos = (name_window_pos[0], name_window_pos[1]); }
+        if name_window_pos.len() >= 2 {
+            t.name_window_pos = (name_window_pos[0], name_window_pos[1]);
+        }
         let name_window_size = get_tuple("NAME_WINDOW_SIZE");
-        if name_window_size.len() >= 2 { t.name_window_size = (name_window_size[0], name_window_size[1]); }
+        if name_window_size.len() >= 2 {
+            t.name_window_size = (name_window_size[0], name_window_size[1]);
+        }
         let name_msg_pos = get_tuple("NAME_MSG_POS");
-        if name_msg_pos.len() >= 2 { t.name_msg_pos = (name_msg_pos[0], name_msg_pos[1]); }
+        if name_msg_pos.len() >= 2 {
+            t.name_msg_pos = (name_msg_pos[0], name_msg_pos[1]);
+        }
         let name_msg_margin = get_tuple("NAME_MSG_MARGIN");
-        if name_msg_margin.len() >= 4 { t.name_msg_margin = (name_msg_margin[0], name_msg_margin[1], name_msg_margin[2], name_msg_margin[3]); }
-        if let Some(v) = get_i64("NAME_MOJI_COLOR") { t.name_moji_color = v; }
-        if let Some(v) = get_i64("NAME_SHADOW_COLOR") { t.name_shadow_color = v; }
-        if let Some(v) = get_i64("NAME_FUCHI_COLOR") { t.name_fuchi_color = v; }
-        if let Some(v) = get_i64("NAME_WAKU_NO") { t.name_waku_no = v; }
-        if let Some(v) = get_i64("FACE_HIDE_NAME") { t.face_hide_name = v; }
+        if name_msg_margin.len() >= 4 {
+            t.name_msg_margin = (
+                name_msg_margin[0],
+                name_msg_margin[1],
+                name_msg_margin[2],
+                name_msg_margin[3],
+            );
+        }
+        if let Some(v) = get_i64("NAME_MOJI_COLOR") {
+            t.name_moji_color = v;
+        }
+        if let Some(v) = get_i64("NAME_SHADOW_COLOR") {
+            t.name_shadow_color = v;
+        }
+        if let Some(v) = get_i64("NAME_FUCHI_COLOR") {
+            t.name_fuchi_color = v;
+        }
+        if let Some(v) = get_i64("NAME_WAKU_NO") {
+            t.name_waku_no = v;
+        }
+        if let Some(v) = get_i64("FACE_HIDE_NAME") {
+            t.face_hide_name = v;
+        }
         let talk_margin = get_tuple("TALK_MARGIN");
-        if talk_margin.len() >= 4 { t.talk_margin = (talk_margin[0], talk_margin[1], talk_margin[2], talk_margin[3]); }
-        if let Some(v) = get_i64("OVERFLOW_CHECK_SIZE") { t.overflow_check_size = v; }
-        if let Some(v) = get_i64("MSG_BACK_INSERT_NL") { t.msg_back_insert_nl = v; }
-        if let Some(v) = get_i64("OPEN_ANIME_TYPE") { t.open_anime_type = v; }
-        if let Some(v) = get_i64("OPEN_ANIME_TIME") { t.open_anime_time = v; }
-        if let Some(v) = get_i64("CLOSE_ANIME_TYPE") { t.close_anime_type = v; }
-        if let Some(v) = get_i64("CLOSE_ANIME_TIME") { t.close_anime_time = v; }
+        if talk_margin.len() >= 4 {
+            t.talk_margin = (
+                talk_margin[0],
+                talk_margin[1],
+                talk_margin[2],
+                talk_margin[3],
+            );
+        }
+        if let Some(v) = get_i64("OVERFLOW_CHECK_SIZE") {
+            t.overflow_check_size = v;
+        }
+        if let Some(v) = get_i64("MSG_BACK_INSERT_NL") {
+            t.msg_back_insert_nl = v;
+        }
+        if let Some(v) = get_i64("OPEN_ANIME_TYPE") {
+            t.open_anime_type = v;
+        }
+        if let Some(v) = get_i64("OPEN_ANIME_TIME") {
+            t.open_anime_time = v;
+        }
+        if let Some(v) = get_i64("CLOSE_ANIME_TYPE") {
+            t.close_anime_type = v;
+        }
+        if let Some(v) = get_i64("CLOSE_ANIME_TIME") {
+            t.close_anime_time = v;
+        }
         out[i] = t;
     }
 
@@ -786,18 +916,20 @@ fn trim_gameexe_scalar(raw: &str) -> &str {
     raw.trim().trim_matches('"')
 }
 
-
 fn parse_waku_button_type(raw: &str, button: &mut WakuButtonTemplate) {
-    let parts: Vec<&str> = raw
-        .split(',')
-        .map(|p| p.trim().trim_matches('"'))
-        .collect();
+    let parts: Vec<&str> = raw.split(',').map(|p| p.trim().trim_matches('"')).collect();
     if parts.is_empty() {
         return;
     }
     let ty = parts[0].to_ascii_lowercase();
-    let n0 = parts.get(1).and_then(|v| parse_i64_like_local(v)).unwrap_or(0);
-    let n1 = parts.get(2).and_then(|v| parse_i64_like_local(v)).unwrap_or(0);
+    let n0 = parts
+        .get(1)
+        .and_then(|v| parse_i64_like_local(v))
+        .unwrap_or(0);
+    let n1 = parts
+        .get(2)
+        .and_then(|v| parse_i64_like_local(v))
+        .unwrap_or(0);
     match ty.as_str() {
         "none" => button.sys_type = 0,
         "save" => button.sys_type = 1,
@@ -902,7 +1034,12 @@ fn load_waku_templates(cfg: &GameexeConfig, raw_text: Option<&str>) -> Vec<WakuT
                 .or_else(|| cfg.get_indexed_field("WAKU", i, "FILTER_MARGIN")),
         );
         if filter_margin.len() >= 4 {
-            t.filter_margin = (filter_margin[0], filter_margin[1], filter_margin[2], filter_margin[3]);
+            t.filter_margin = (
+                filter_margin[0],
+                filter_margin[1],
+                filter_margin[2],
+                filter_margin[3],
+            );
         }
         let filter_color_raw = raw_top("FILTER_COLOR");
         let filter_color = parse_i64_tuple(
@@ -1012,7 +1149,8 @@ fn load_waku_templates(cfg: &GameexeConfig, raw_text: Option<&str>) -> Vec<WakuT
                 b.pos = (pos[1], pos[2]);
             }
 
-            let action_raw = raw_nested_indexed_field(raw_text, "WAKU", i, "BTN", btn_idx, "ACTION");
+            let action_raw =
+                raw_nested_indexed_field(raw_text, "WAKU", i, "BTN", btn_idx, "ACTION");
             if let Some(v) = action_raw
                 .as_deref()
                 .or_else(|| nested_indexed_field(cfg, "WAKU", i, "BTN", btn_idx, "ACTION"))
@@ -1094,7 +1232,6 @@ fn load_waku_templates(cfg: &GameexeConfig, raw_text: Option<&str>) -> Vec<WakuT
     out
 }
 
-
 fn default_color_table() -> Vec<(u8, u8, u8)> {
     let mut out = vec![(255, 255, 255); 256];
     out[0] = (255, 255, 255);
@@ -1109,14 +1246,19 @@ fn default_color_table() -> Vec<(u8, u8, u8)> {
 }
 
 fn load_color_table(cfg: &GameexeConfig) -> Vec<(u8, u8, u8)> {
-    let cnt = cfg.get_usize("COLOR_TABLE.CNT").unwrap_or(256).max(1).min(4096);
+    let cnt = cfg
+        .get_usize("COLOR_TABLE.CNT")
+        .unwrap_or(256)
+        .max(1)
+        .min(4096);
     let mut out = default_color_table();
     if out.len() < cnt {
         out.resize(cnt, (255, 255, 255));
     }
 
     for i in 0..cnt {
-        let Some(raw) = cfg.get_indexed_unquoted("COLOR_TABLE", i)
+        let Some(raw) = cfg
+            .get_indexed_unquoted("COLOR_TABLE", i)
             .or_else(|| cfg.get_indexed_field("COLOR_TABLE", i, "RGB"))
             .or_else(|| cfg.get_indexed_field("COLOR_TABLE", i, "COLOR"))
         else {
@@ -1136,9 +1278,18 @@ fn load_color_table(cfg: &GameexeConfig) -> Vec<(u8, u8, u8)> {
 
 fn load_font_config_defaults(cfg: &GameexeConfig) -> FontConfigDefaults {
     FontConfigDefaults {
-        font_type: cfg.get_unquoted("CONFIG.FONT.TYPE").and_then(parse_i64_like_local).unwrap_or(0),
-        futoku: cfg.get_unquoted("CONFIG.FONT.FUTOKU").and_then(parse_i64_like_local).unwrap_or(0),
-        shadow: cfg.get_unquoted("CONFIG.FONT.SHADOW").and_then(parse_i64_like_local).unwrap_or(0),
+        font_type: cfg
+            .get_unquoted("CONFIG.FONT.TYPE")
+            .and_then(parse_i64_like_local)
+            .unwrap_or(0),
+        futoku: cfg
+            .get_unquoted("CONFIG.FONT.FUTOKU")
+            .and_then(parse_i64_like_local)
+            .unwrap_or(0),
+        shadow: cfg
+            .get_unquoted("CONFIG.FONT.SHADOW")
+            .and_then(parse_i64_like_local)
+            .unwrap_or(0),
     }
 }
 
@@ -1240,7 +1391,8 @@ fn load_icon_templates(cfg: &GameexeConfig) -> Vec<IconTemplate> {
 
     for i in 0..cnt {
         let mut t = IconTemplate::default();
-        if let Some(v) = cfg.get_indexed_field_unquoted("ICON", i, "FILE_NAME")
+        if let Some(v) = cfg
+            .get_indexed_field_unquoted("ICON", i, "FILE_NAME")
             .or_else(|| cfg.get_indexed_field_unquoted("ICON", i, "FILE"))
             .or_else(|| cfg.get_indexed_unquoted("ICON", i))
         {
