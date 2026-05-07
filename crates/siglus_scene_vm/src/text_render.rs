@@ -317,6 +317,8 @@ pub fn render_text_image_basic_rgba(
     Some(RgbaImage {
         width: max_w,
         height: max_h,
+        center_x: 0,
+        center_y: 0,
         rgba,
     })
 }
@@ -525,6 +527,8 @@ fn render_mwnd_text_ab_glyph_rgba_styled(
     Some(RgbaImage {
         width: max_w,
         height: max_h,
+        center_x: 0,
+        center_y: 0,
         rgba,
     })
 }
@@ -673,6 +677,8 @@ fn render_text_ab_glyph_rgba(
     Some(RgbaImage {
         width: max_w,
         height: max_h,
+        center_x: 0,
+        center_y: 0,
         rgba,
     })
 }

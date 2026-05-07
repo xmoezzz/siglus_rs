@@ -75,18 +75,30 @@ fn uses_3d(sprite: &Sprite) -> bool {
 }
 
 fn transform_local_point(sprite: &Sprite, px: f32, py: f32, dst_x: f32, dst_y: f32) -> Vec3 {
-    let mut p = Vec3::new(px - sprite.pivot_x, py - sprite.pivot_y, -sprite.pivot_z);
+    let (anchor_x, anchor_y, mut p) = if sprite.object_anchor {
+        (
+            dst_x,
+            dst_y,
+            Vec3::new(
+                px - sprite.texture_center_x - sprite.pivot_x,
+                py - sprite.texture_center_y - sprite.pivot_y,
+                -sprite.pivot_z,
+            ),
+        )
+    } else {
+        (
+            dst_x + sprite.pivot_x,
+            dst_y + sprite.pivot_y,
+            Vec3::new(px - sprite.pivot_x, py - sprite.pivot_y, -sprite.pivot_z),
+        )
+    };
     p.x *= sprite.scale_x;
     p.y *= sprite.scale_y;
     p.z *= sprite.scale_z;
     p = rotate_x(p, sprite.rotate_x);
     p = rotate_y(p, sprite.rotate_y);
     p = rotate_z(p, sprite.rotate);
-    p.add(Vec3::new(
-        dst_x + sprite.pivot_x,
-        dst_y + sprite.pivot_y,
-        sprite.z + sprite.pivot_z,
-    ))
+    p.add(Vec3::new(anchor_x, anchor_y, sprite.z + sprite.pivot_z))
 }
 
 fn camera_basis(sprite: &Sprite) -> (Vec3, Vec3, Vec3, Vec3) {

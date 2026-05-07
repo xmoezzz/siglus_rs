@@ -1,0 +1,130 @@
+# macOS / Finder
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Logs / temporary files
+*.log
+*.tmp
+*.temp
+*.bak
+*.orig
+*.rej
+
+# Android / Gradle
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/.cxx/
+/android/app/src/main/.cxx/
+/android/local.properties
+/android/captures/
+/android/.externalNativeBuild/
+/android/app/.externalNativeBuild/
+/android/gradle-app.setting
+
+# Android generated/native binaries copied from Rust builds
+/android/app/src/main/jniLibs/
+/android/app/src/main/libs/
+/android/app/src/main/obj/
+*.apk
+*.aab
+*.ap_
+
+# Android Studio
+/android/*.iml
+/android/app/*.iml
+
+# Xcode common
+DerivedData/
+.build/
+build/
+*.xcuserstate
+xcuserdata/
+*.moved-aside
+*.xccheckout
+*.xcscmblueprint
+*.hmap
+*.ipa
+*.dSYM/
+*.dSYM.zip
+*.app
+*.app.dSYM
+*.xcarchive
+*.xarchive
+
+# iOS generated products and copied Rust artifacts
+/ios/SiglusLauncher/build/
+/ios/SiglusLauncher/DerivedData/
+/ios/SiglusLauncher/*.ipa
+/ios/SiglusLauncher/*.xcarchive
+/ios/SiglusLauncher/Vendor/
+/ios/SiglusLauncher/Siglus.xcframework/
+/ios/SiglusLauncher/libsiglus.a
+/ios/SiglusLauncher/libsiglus.dylib
+
+# macOS generated products and copied Rust artifacts
+/macos/SiglusLauncher/build/
+/macos/SiglusLauncher/DerivedData/
+/macos/SiglusLauncher/*.app
+/macos/SiglusLauncher/*.dmg
+/macos/SiglusLauncher/*.zip
+/macos/SiglusLauncher/*.pkg
+/macos/SiglusLauncher/*.xcarchive
+/macos/SiglusLauncher/libsiglus.dylib
+/macos/SiglusLauncher/Siglus.xcframework/
+/macos/SiglusLauncher/Vendor/
+
+# Generated launcher packages
+/dist/
+/out/
+/releases/
+/package/
+/packages/
+/artifacts/
+
+# Rust/native build products copied into platform during packaging
+/target/
+*.rlib
+*.rmeta
+*.so
+*.dylib
+*.dll
+*.lib
+*.pdb
+*.exp
+
+# C/C++ native intermediate files
+*.o
+*.obj
+*.lo
+*.la
+*.a
+*.cmake
+CMakeCache.txt
+CMakeFiles/
+cmake-build-*/
+.ninja_deps
+.ninja_log
+build.ninja
+compile_commands.json
+
+# Signing/provisioning secrets: keep these out of git.
+*.keystore
+*.jks
+*.p12
+*.mobileprovision
+*.provisionprofile
+*.cer
+*.pem
+*.key
+keystore.properties
+signing.properties

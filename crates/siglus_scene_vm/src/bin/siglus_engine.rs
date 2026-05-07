@@ -20,10 +20,13 @@ use siglus_assets::gameexe::{decode_gameexe_dat_bytes, GameexeConfig, GameexeDec
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
 use siglus_scene_vm::image_manager::ImageId;
-use siglus_scene_vm::render::Renderer;
-use siglus_scene_vm::runtime::globals::SyscomPendingProcKind;
+use siglus_scene_vm::render::{Renderer, RendererDebugTexture};
+use siglus_scene_vm::runtime::globals::{
+    SyscomPendingProc, SyscomPendingProcKind, SystemMessageBoxButton, SystemMessageBoxModalState,
+    WipeState,
+};
 use siglus_scene_vm::runtime::input::{VmKey, VmMouseButton};
-use siglus_scene_vm::runtime::{CommandContext, ProcKind};
+use siglus_scene_vm::runtime::{native_ui, CommandContext, ProcKind};
 use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::{SceneVm, VmConfig};
 
@@ -81,7 +84,10 @@ struct BootConfig {
 enum ProcType {
     Script,
     StartWarning,
+    SyscomWarning,
     ReturnToMenu,
+    GameEndWipe,
+    Disp,
     GameTimerStart,
     TimeWait,
 }
@@ -97,6 +103,7 @@ struct ProcFrame {
 struct ProcFlow {
     stack: Vec<ProcFrame>,
     booted_menu: bool,
+    pending_syscom_proc: Option<SyscomPendingProc>,
 }
 
 impl ProcFlow {
@@ -126,6 +133,7 @@ struct HudGui {
     renderer: EguiRenderer,
     start_time: Instant,
     texture_cache: HashMap<ImageId, HudTextureCacheEntry>,
+    gpu_texture_cache: HashMap<String, HudTextureCacheEntry>,
 }
 
 struct HudTextureCacheEntry {
@@ -842,6 +850,89 @@ impl App {
         Some(id)
     }
 
+    fn hud_debug_rgba_preview(rgba: &[u8], width: u32, height: u32) -> (ColorImage, u64) {
+        let pixel_count = width as usize * height as usize;
+        let mut out = Vec::with_capacity(pixel_count.saturating_mul(4));
+        let mut hash = 0xcbf29ce484222325u64;
+        for (i, px) in rgba.chunks_exact(4).take(pixel_count).enumerate() {
+            let r = px[0];
+            let g = px[1];
+            let b = px[2];
+            let a = px[3];
+            hash ^= ((r as u64) << 24)
+                ^ ((g as u64) << 16)
+                ^ ((b as u64) << 8)
+                ^ (a as u64)
+                ^ (i as u64);
+            hash = hash.wrapping_mul(0x100000001b3);
+            out.extend_from_slice(&[r, g, b, 255]);
+        }
+        (
+            ColorImage::from_rgba_unmultiplied([width as usize, height as usize], out.as_slice()),
+            hash,
+        )
+    }
+
+    fn hud_alpha_summary_rgba(rgba: &[u8]) -> (u8, u8, usize) {
+        let mut min_a = u8::MAX;
+        let mut max_a = 0u8;
+        let mut nonzero = 0usize;
+        for px in rgba.chunks_exact(4) {
+            let a = px[3];
+            min_a = min_a.min(a);
+            max_a = max_a.max(a);
+            if a != 0 {
+                nonzero += 1;
+            }
+        }
+        if rgba.is_empty() {
+            min_a = 0;
+        }
+        (min_a, max_a, nonzero)
+    }
+
+    fn sync_hud_gpu_texture(
+        gui: &mut HudGui,
+        texture: &RendererDebugTexture,
+    ) -> Option<egui::TextureId> {
+        if texture.width == 0 || texture.height == 0 || texture.rgba.is_empty() {
+            return None;
+        }
+        let (color, debug_hash) =
+            Self::hud_debug_rgba_preview(texture.rgba.as_slice(), texture.width, texture.height);
+        if let Some(entry) = gui.gpu_texture_cache.get_mut(&texture.key) {
+            if entry.version != texture.version
+                || entry.width != texture.width
+                || entry.height != texture.height
+                || entry.debug_hash != debug_hash
+            {
+                entry.handle.set(color, TextureOptions::LINEAR);
+                entry.version = texture.version;
+                entry.width = texture.width;
+                entry.height = texture.height;
+                entry.debug_hash = debug_hash;
+            }
+            return Some(entry.handle.id());
+        }
+        let handle = gui.ctx.load_texture(
+            format!("siglus-hud-renderer-gpu-texture-{}", texture.key),
+            color,
+            TextureOptions::LINEAR,
+        );
+        let id = handle.id();
+        gui.gpu_texture_cache.insert(
+            texture.key.clone(),
+            HudTextureCacheEntry {
+                version: texture.version,
+                handle,
+                width: texture.width,
+                height: texture.height,
+                debug_hash,
+            },
+        );
+        Some(id)
+    }
+
     fn render_hud_egui(&mut self) -> Result<()> {
         if !self.hud_show_active_textures {
             return Ok(());
@@ -853,55 +944,45 @@ impl App {
             (window.inner_size(), window.scale_factor() as f32)
         };
 
-        let tiles = {
-            let Some(vm) = self.vm.as_mut() else {
+        let textures = {
+            let Some(renderer) = self.renderer.as_ref() else {
                 return Ok(());
             };
-            Self::collect_hud_tiles(vm)
+            renderer.debug_read_render_chain_textures()?
         };
 
-        let card_w_px = Self::HUD_CARD_W_PX;
-        let card_h_px = Self::HUD_CARD_H_PX;
+        let card_w_px = 340u32;
+        let card_h_px = 360u32;
         let columns = ((size.width.saturating_sub(24)) / card_w_px).max(1) as usize;
         let visible_rows = ((size.height.saturating_sub(84)) / card_h_px).max(1) as usize;
-        self.hud_total_lines = (tiles.len() + columns.saturating_sub(1)) / columns.max(1);
+        self.hud_total_lines = (textures.len() + columns.saturating_sub(1)) / columns.max(1);
         self.clamp_hud_scroll(visible_rows);
 
         let scroll = self.hud_scroll;
         let total_rows = self.hud_total_lines;
         let start = scroll.saturating_mul(columns);
-        let end = (start + visible_rows.saturating_mul(columns)).min(tiles.len());
+        let end = (start + visible_rows.saturating_mul(columns)).min(textures.len());
         let card_w = card_w_px as f32 / scale;
         let card_h = card_h_px as f32 / scale;
-        let header_h = Self::HUD_CARD_HEADER_PX as f32 / scale;
         let thumb_w = card_w - 20.0;
-        let thumb_h = 160.0;
+        let thumb_h = 210.0;
 
-        let ok_count = tiles.iter().filter(|tile| tile.image_id.is_some()).count();
-        let runtime_count = tiles
+        let image_count = textures.iter().filter(|t| t.kind == "image").count();
+        let external_count = textures.iter().filter(|t| t.kind == "external").count();
+        let target_count = textures
             .iter()
-            .filter(|tile| tile.source_kind == "runtime-bind")
+            .filter(|t| t.kind == "render-target")
             .count();
-        let preview_g00_count = tiles
-            .iter()
-            .filter(|tile| tile.source_kind == "preview-g00-0")
-            .count();
-        let preview_bg_count = tiles
-            .iter()
-            .filter(|tile| tile.source_kind == "preview-bg-0")
-            .count();
-        let missing_count = tiles.len().saturating_sub(ok_count);
+        let default_count = textures.iter().filter(|t| t.kind == "default").count();
+        let usage_total: usize = textures.iter().map(|t| t.usage_count).sum();
 
         let mut visible_texture_ids = vec![None; end.saturating_sub(start)];
         let (ctx, raw_input) = {
-            let Some(vm) = self.vm.as_ref() else {
-                return Ok(());
-            };
             let Some(gui) = self.hud_gui.as_mut() else {
                 return Ok(());
             };
-            for (idx, tile) in tiles[start..end].iter().enumerate() {
-                visible_texture_ids[idx] = Self::sync_hud_texture(gui, vm, tile);
+            for (idx, texture) in textures[start..end].iter().enumerate() {
+                visible_texture_ids[idx] = Self::sync_hud_gpu_texture(gui, texture);
             }
             gui.ctx.set_pixels_per_point(scale);
             let ctx = gui.ctx.clone();
@@ -919,30 +1000,30 @@ impl App {
         let output = ctx.run(raw_input, |ctx| {
             egui::TopBottomPanel::top("hud_top").show(ctx, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    ui.heading("Siglus HUD");
+                    ui.heading("Siglus texture HUD");
                     ui.separator();
                     ui.label(format!(
-                        "items={} rows={}/{} cols={} ok={} runtime={} g00-0={} bg-0={} missing={} F2 hide, Wheel/PgUp/PgDn/Home/End scroll",
-                        tiles.len(),
+                        "textures={} usages={} image={} external={} target={} default={} rows={}/{} cols={} F2 hide, Wheel/PgUp/PgDn/Home/End scroll",
+                        textures.len(),
+                        usage_total,
+                        image_count,
+                        external_count,
+                        target_count,
+                        default_count,
                         scroll,
                         total_rows,
                         columns,
-                        ok_count,
-                        runtime_count,
-                        preview_g00_count,
-                        preview_bg_count,
-                        missing_count,
                     ));
                 });
             });
             egui::CentralPanel::default().show(ctx, |ui| {
-                if tiles.is_empty() {
-                    ui.label("no HUD tiles collected from runtime bindings or stage object lists");
+                if textures.is_empty() {
+                    ui.label("no renderer GPU textures recorded for the current render chain");
                     return;
                 }
-                for (row_idx, row_tiles) in tiles[start..end].chunks(columns).enumerate() {
+                for (row_idx, row_textures) in textures[start..end].chunks(columns).enumerate() {
                     ui.horizontal_top(|ui| {
-                        for (col_idx, tile) in row_tiles.iter().enumerate() {
+                        for (col_idx, texture) in row_textures.iter().enumerate() {
                             let tex_id = visible_texture_ids
                                 .get(row_idx * columns + col_idx)
                                 .copied()
@@ -954,40 +1035,29 @@ impl App {
                                     egui::Frame::group(ui.style()).show(ui, |ui| {
                                         ui.set_min_size(egui::vec2(card_w - 8.0, card_h - 8.0));
                                         ui.set_max_width(card_w - 8.0);
-                                        ui.label(egui::RichText::new(format!(
-                                            "{} obj[{}]  {}",
-                                            tile.stage_label,
-                                            tile.obj_idx,
-                                            Self::shorten_for_hud(&tile.file, 24),
-                                        )).strong().monospace());
+                                        ui.label(
+                                            egui::RichText::new(format!(
+                                                "{}  {}",
+                                                texture.kind,
+                                                Self::shorten_for_hud(&texture.label, 34),
+                                            ))
+                                            .strong()
+                                            .monospace(),
+                                        );
+                                        let (min_a, max_a, nonzero_a) =
+                                            Self::hud_alpha_summary_rgba(texture.rgba.as_slice());
                                         ui.small(format!(
-                                            "backend={} bind={} disp={} pat={} alpha={} tr={}",
-                                            tile.backend,
-                                            tile.bind,
-                                            if tile.disp { 1 } else { 0 },
-                                            tile.patno,
-                                            tile.alpha,
-                                            tile.tr,
+                                            "key={} size={}x{} ver={} alpha={}..{} nz={} usages={}",
+                                            Self::shorten_for_hud(&texture.key, 44),
+                                            texture.width,
+                                            texture.height,
+                                            texture.version,
+                                            min_a,
+                                            max_a,
+                                            nonzero_a,
+                                            texture.usage_count,
                                         ));
-                                        let alpha_text = tile
-                                            .image_id
-                                            .and_then(|image_id| {
-                                                self.vm
-                                                    .as_ref()
-                                                    .and_then(|vm| Self::hud_alpha_summary(vm, image_id))
-                                            })
-                                            .map(|(min_a, max_a, nonzero)| {
-                                                format!(" alpha={}..{} nz={}", min_a, max_a, nonzero)
-                                            })
-                                            .unwrap_or_default();
-                                        ui.small(format!(
-                                            "source={} size={}x{}{}",
-                                            tile.source_kind,
-                                            tile.width,
-                                            tile.height,
-                                            alpha_text,
-                                        ));
-                                        ui.small("preview=raw RGB forced opaque");
+                                        ui.small("source=renderer GPU texture readback, preview=raw RGB forced opaque");
 
                                         let (rect, _) = ui.allocate_exact_size(
                                             egui::vec2(thumb_w, thumb_h),
@@ -997,38 +1067,32 @@ impl App {
                                         if let Some(tex_id) = tex_id {
                                             let mut draw_w = thumb_w;
                                             let mut draw_h = thumb_h;
-                                            if tile.width > 0 && tile.height > 0 {
-                                                let sx = thumb_w / tile.width as f32;
-                                                let sy = thumb_h / tile.height as f32;
+                                            if texture.width > 0 && texture.height > 0 {
+                                                let sx = thumb_w / texture.width as f32;
+                                                let sy = thumb_h / texture.height as f32;
                                                 let s = sx.min(sy).max(0.01);
-                                                draw_w = tile.width as f32 * s;
-                                                draw_h = tile.height as f32 * s;
+                                                draw_w = texture.width as f32 * s;
+                                                draw_h = texture.height as f32 * s;
                                             }
                                             let image_rect = egui::Rect::from_center_size(
                                                 rect.center(),
                                                 egui::vec2(draw_w, draw_h),
                                             );
-                                            ui.put(image_rect, egui::Image::new((tex_id, egui::vec2(draw_w, draw_h))));
+                                            ui.put(
+                                                image_rect,
+                                                egui::Image::new((tex_id, egui::vec2(draw_w, draw_h))),
+                                            );
                                         } else {
                                             ui.painter().text(
                                                 rect.center(),
                                                 egui::Align2::CENTER_CENTER,
-                                                "no image",
+                                                "no texture",
                                                 egui::FontId::proportional(16.0),
                                                 egui::Color32::LIGHT_GRAY,
                                             );
                                         }
 
-                                        let src_text = if tile.source_label.is_empty() {
-                                            tile.file.clone()
-                                        } else {
-                                            tile.source_label.clone()
-                                        };
-                                        ui.small(Self::shorten_for_hud(&src_text, 52));
-                                        let remaining = (card_h - header_h - thumb_h).max(0.0);
-                                        if remaining > 0.0 {
-                                            ui.add_space(remaining.min(24.0));
-                                        }
+                                        ui.small(Self::shorten_for_hud(&texture.usage, 140));
                                     });
                                 },
                             );
@@ -1133,24 +1197,6 @@ impl App {
             .and_then(|s| s.trim().parse::<i32>().ok())
             .unwrap_or(0);
         Some((scene, z))
-    }
-
-    fn gameexe_game_name(cfg: &GameexeConfig) -> Option<String> {
-        if let Some(v) = cfg.get_unquoted("GAMENAME") {
-            let s = v.trim().trim_matches('"').to_string();
-            if !s.is_empty() {
-                return Some(s);
-            }
-        }
-        for entry in cfg.entries.iter().rev() {
-            if matches!(entry.key_parts.last().map(|s| s.as_str()), Some("GAMENAME")) {
-                let s = entry.scalar_unquoted().trim().trim_matches('"').to_string();
-                if !s.is_empty() {
-                    return Some(s);
-                }
-            }
-        }
-        None
     }
 
     fn resolve_boot_config(args: &Args) -> BootConfig {
@@ -1295,45 +1341,34 @@ impl App {
     }
 
     fn consume_syscom_pending_proc(&mut self) -> Result<bool> {
-        let Some(vm) = self.vm.as_mut() else {
+        let Some(proc) = ({
+            let Some(vm) = self.vm.as_mut() else {
+                return Ok(false);
+            };
+            let proc = vm.ctx.globals.syscom.pending_proc.take();
+            if proc.is_some() {
+                vm.ctx.globals.syscom.menu_open = false;
+                vm.ctx.globals.syscom.menu_kind = None;
+                vm.ctx.globals.syscom.msg_back_open = false;
+            }
+            proc
+        }) else {
             return Ok(false);
         };
-        let Some(proc) = vm.ctx.globals.syscom.pending_proc.take() else {
-            return Ok(false);
-        };
-
-        vm.ctx.globals.syscom.menu_open = false;
-        vm.ctx.globals.syscom.menu_kind = None;
-        vm.ctx.globals.syscom.msg_back_open = false;
 
         match proc.kind {
             SyscomPendingProcKind::ReturnToMenu => {
-                let target_scene = self
-                    .boot
-                    .menu_scene
-                    .as_deref()
-                    .unwrap_or(self.boot.start_scene.as_str());
-                let target_z = if self.boot.menu_scene.is_some() {
-                    self.boot.menu_z
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
                 } else {
-                    self.boot.start_z
-                };
-                let saved_msgbk = if proc.leave_msgbk {
-                    Some(vm.ctx.globals.msgbk_forms.clone())
-                } else {
-                    None
-                };
-                vm.restart_scene_name(target_scene, target_z)?;
-                if let Some(msgbk) = saved_msgbk {
-                    vm.ctx.globals.msgbk_forms = msgbk;
+                    self.queue_return_to_menu_proc(proc);
                 }
-                self.flow.stack.clear();
-                self.flow.booted_menu = true;
-                self.flow.push(ProcType::GameTimerStart, 0);
-                self.flow.push(ProcType::Script, 0);
                 Ok(true)
             }
             SyscomPendingProcKind::ReturnToSel => {
+                let Some(vm) = self.vm.as_mut() else {
+                    return Ok(false);
+                };
                 if vm.restore_last_sel_point() {
                     self.flow.stack.clear();
                     self.flow.push(ProcType::GameTimerStart, 0);
@@ -1347,6 +1382,9 @@ impl App {
                 }
             }
             SyscomPendingProcKind::BacklogLoad => {
+                let Some(vm) = self.vm.as_mut() else {
+                    return Ok(false);
+                };
                 if vm.restore_last_sel_point() {
                     self.flow.stack.clear();
                     self.flow.push(ProcType::GameTimerStart, 0);
@@ -1375,6 +1413,153 @@ impl App {
             }
             self.flow.push(ProcType::Script, 0);
         }
+    }
+
+    fn begin_syscom_warning(&mut self, mut proc: SyscomPendingProc) {
+        let Some(vm) = self.vm.as_mut() else {
+            return;
+        };
+        proc.warning = false;
+        self.flow.pending_syscom_proc = Some(proc);
+        vm.ctx.globals.system.messagebox_modal_result = None;
+        let request_id = vm.ctx.native_ui.next_messagebox_request_id();
+        let buttons = vec![
+            SystemMessageBoxButton {
+                label: "YES".to_string(),
+                value: 0,
+            },
+            SystemMessageBoxButton {
+                label: "NO".to_string(),
+                value: 1,
+            },
+        ];
+        let text = Self::return_to_menu_warning_text(vm);
+        let native_pending = vm.ctx.native_ui_backend.is_some();
+        vm.ctx.globals.system.messagebox_modal = Some(SystemMessageBoxModalState {
+            request_id,
+            kind: 19,
+            text: text.clone(),
+            debug_only: false,
+            buttons: buttons.clone(),
+            cursor: 1,
+            native_pending,
+        });
+        if let Some(backend) = vm.ctx.native_ui_backend.as_ref() {
+            backend.show_system_messagebox(native_ui::NativeMessageBoxRequest {
+                request_id,
+                kind: native_ui::NativeMessageBoxKind::YesNo,
+                title: vm.ctx.game_title(),
+                message: text,
+                buttons: buttons
+                    .into_iter()
+                    .map(|button| native_ui::NativeMessageBoxButton {
+                        label: button.label,
+                        value: button.value,
+                    })
+                    .collect(),
+                debug_only: false,
+            });
+        }
+        self.flow.push(ProcType::SyscomWarning, 0);
+    }
+
+    fn return_to_menu_warning_text(vm: &SceneVm<'static>) -> String {
+        vm.ctx
+            .tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| cfg.get_unquoted("WARNINGINFO.RETURNMENU_WARNING_STR"))
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| "Return to title menu?".to_string())
+    }
+
+    fn load_wipe_params(vm: &SceneVm<'static>) -> (i32, i32) {
+        fn parse_pair(raw: &str) -> Option<(i32, i32)> {
+            let nums: Vec<i32> = raw
+                .split(|c: char| !(c == '-' || c.is_ascii_digit()))
+                .filter(|s| !s.is_empty())
+                .filter_map(|s| s.parse::<i32>().ok())
+                .collect();
+            if nums.len() >= 2 {
+                Some((nums[0], nums[1]))
+            } else {
+                None
+            }
+        }
+        let cfg = vm.ctx.tables.gameexe.as_ref();
+        for key in ["LOAD.WIPE", "LOAD . WIPE", "#LOAD.WIPE", "#LOAD . WIPE"] {
+            if let Some(pair) = cfg.and_then(|c| c.get_unquoted(key)).and_then(parse_pair) {
+                return pair;
+            }
+        }
+        (0, 1000)
+    }
+
+    fn queue_return_to_menu_proc(&mut self, proc: SyscomPendingProc) {
+        let option = if proc.leave_msgbk { 1 } else { 0 };
+        self.flow.pending_syscom_proc = Some(proc.clone());
+        self.flow.push(ProcType::ReturnToMenu, option);
+        if proc.fade_out {
+            self.flow.push(ProcType::GameEndWipe, 0);
+            self.flow.push(ProcType::Disp, 0);
+        }
+    }
+
+    fn start_game_end_wipe(&mut self) {
+        let Some(vm) = self.vm.as_mut() else {
+            return;
+        };
+        let (wipe_type, wipe_time) = Self::load_wipe_params(vm);
+        vm.ctx.globals.start_wipe(WipeState::new(
+            None,
+            None,
+            wipe_type,
+            wipe_time,
+            0,
+            0,
+            Vec::new(),
+            i32::MIN,
+            i32::MAX,
+            i32::MIN,
+            i32::MAX,
+            false,
+            0,
+            0,
+        ));
+    }
+
+    fn perform_return_to_menu(&mut self, leave_msgbk: bool) -> Result<()> {
+        let target_scene = self
+            .boot
+            .menu_scene
+            .as_deref()
+            .unwrap_or(self.boot.start_scene.as_str())
+            .to_string();
+        let target_z = if self.boot.menu_scene.is_some() {
+            self.boot.menu_z
+        } else {
+            self.boot.start_z
+        };
+        let Some(vm) = self.vm.as_mut() else {
+            return Ok(());
+        };
+        let saved_msgbk = if leave_msgbk {
+            Some(vm.ctx.globals.msgbk_forms.clone())
+        } else {
+            None
+        };
+        vm.restart_scene_name(&target_scene, target_z)?;
+        if let Some(msgbk) = saved_msgbk {
+            vm.ctx.globals.msgbk_forms = msgbk;
+        }
+        vm.ctx.globals.finish_wipe();
+        self.flow.stack.clear();
+        self.flow.pending_syscom_proc = None;
+        self.flow.booted_menu = true;
+        self.flow.push(ProcType::GameTimerStart, 0);
+        self.flow.push(ProcType::Script, 0);
+        Ok(())
     }
 
     fn pump_vm(&mut self) -> Result<()> {
@@ -1437,6 +1622,7 @@ impl App {
                             boundary_kind,
                         )
                     };
+                    self.ensure_requested_script_proc();
                     if pop_script_proc {
                         if std::env::var_os("SG_DEBUG").is_some() {
                             eprintln!(
@@ -1533,17 +1719,66 @@ impl App {
                     }
                     break;
                 }
-                ProcType::ReturnToMenu => {
-                    if let Some(menu_scene) = self.boot.menu_scene.as_deref() {
-                        let vm = self.vm.as_mut().expect("vm checked");
-                        vm.restart_scene_name(menu_scene, self.boot.menu_z)?;
+                ProcType::SyscomWarning => {
+                    let modal_active = self
+                        .vm
+                        .as_ref()
+                        .map(|vm| vm.ctx.globals.system.messagebox_modal.is_some())
+                        .unwrap_or(false);
+                    if modal_active {
+                        break;
+                    }
+                    let result = self
+                        .vm
+                        .as_mut()
+                        .and_then(|vm| vm.ctx.globals.system.messagebox_modal_result.take())
+                        .unwrap_or(1);
+                    let pending = self.flow.pending_syscom_proc.take();
+                    self.flow.pop();
+                    if result == 0 {
+                        if let Some(proc) = pending {
+                            match proc.kind {
+                                SyscomPendingProcKind::ReturnToMenu => {
+                                    self.queue_return_to_menu_proc(proc);
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    continue;
+                }
+                ProcType::Disp => {
+                    self.flow.pop();
+                    self.script_resume_after_redraw = true;
+                    break;
+                }
+                ProcType::GameEndWipe => {
+                    let mut start = false;
+                    if let Some(top) = self.flow.top_mut() {
+                        if top.option == 0 {
+                            top.option = 1;
+                            start = true;
+                        }
+                    }
+                    if start {
+                        self.start_game_end_wipe();
+                        break;
+                    }
+                    let wipe_done = self
+                        .vm
+                        .as_ref()
+                        .map(|vm| vm.ctx.globals.wipe_done())
+                        .unwrap_or(true);
+                    if wipe_done {
                         self.flow.pop();
-                        self.flow.booted_menu = true;
-                        self.flow.push(ProcType::GameTimerStart, 0);
-                        self.flow.push(ProcType::Script, 0);
                         continue;
                     }
-                    self.flow.pop();
+                    break;
+                }
+                ProcType::ReturnToMenu => {
+                    let leave_msgbk = proc.option != 0;
+                    self.perform_return_to_menu(leave_msgbk)?;
+                    continue;
                 }
                 ProcType::GameTimerStart => {
                     self.flow.pop();
@@ -1605,6 +1840,11 @@ impl App {
         self.redraw_count = self.redraw_count.saturating_add(1);
         self.next_frame_at = Instant::now() + FRAME_INTERVAL;
         self.maybe_capture_current_frame()?;
+        if self.hud_show_active_textures {
+            if let Some(w) = self.hud_window.as_ref() {
+                w.request_redraw();
+            }
+        }
 
         Ok(())
     }
@@ -1761,9 +2001,7 @@ impl ApplicationHandler for App {
         let size = LogicalSize::new(self.initial_size.0 as f64, self.initial_size.1 as f64);
         let title = Self::resolve_project_dir(&self.args)
             .as_deref()
-            .and_then(Self::try_load_gameexe)
-            .as_ref()
-            .and_then(Self::gameexe_game_name)
+            .map(siglus_scene_vm::runtime::game_display_info::resolve_game_name_from_project_dir)
             .unwrap_or_else(|| "Siglus Engine".to_string());
         let window = elwt
             .create_window(
@@ -1791,6 +2029,7 @@ impl ApplicationHandler for App {
             renderer: EguiRenderer::new(&hud_renderer.device, hud_renderer.config.format, None, 1),
             start_time: Instant::now(),
             texture_cache: HashMap::new(),
+            gpu_texture_cache: HashMap::new(),
         };
         let vm = self.init_vm().expect("vm init");
 
@@ -1829,6 +2068,9 @@ impl ApplicationHandler for App {
                 if is_hud {
                     self.hud_show_active_textures = false;
                     self.hud_scroll = 0;
+                    if let Some(gui) = self.hud_gui.as_mut() {
+                        gui.gpu_texture_cache.clear();
+                    }
                     if let Some(w) = self.hud_window.as_ref() {
                         w.set_visible(false);
                     }
@@ -1890,10 +2132,16 @@ impl ApplicationHandler for App {
                         self.hud_show_active_textures = !self.hud_show_active_textures;
                         if !self.hud_show_active_textures {
                             self.hud_scroll = 0;
+                            if let Some(gui) = self.hud_gui.as_mut() {
+                                gui.gpu_texture_cache.clear();
+                            }
                         }
                         if let Some(w) = self.hud_window.as_ref() {
                             w.set_visible(self.hud_show_active_textures);
                             if self.hud_show_active_textures {
+                                if let Some(main_window) = self.window.as_ref() {
+                                    main_window.request_redraw();
+                                }
                                 w.request_redraw();
                             }
                         }
@@ -2196,10 +2444,21 @@ fn run_headless_capture(args: Args) -> Result<()> {
     let max_frames = capture_target.saturating_add(600);
     for _ in 0..max_frames {
         app.pump_vm()?;
+        let mut injected_wait_click = false;
         if let Some(vm) = app.vm.as_mut() {
             if vm.is_blocked() {
-                vm.ctx.notify_wait_key();
+                let x = ((vm.ctx.screen_w / 2).min(i32::MAX as u32)) as i32;
+                let y = ((vm.ctx.screen_h / 2).min(i32::MAX as u32)) as i32;
+                vm.ctx.on_mouse_move(x, y);
+                vm.ctx.on_mouse_down(VmMouseButton::Left);
+                vm.ctx.on_mouse_up(VmMouseButton::Left);
+                injected_wait_click = true;
             }
+        }
+        if injected_wait_click {
+            app.pump_vm()?;
+        }
+        if let Some(vm) = app.vm.as_mut() {
             vm.tick_frame()?;
         }
         app.ensure_requested_script_proc();

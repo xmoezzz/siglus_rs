@@ -2028,9 +2028,10 @@ fn create_mwnd_face_object(
     obj: &mut ObjectState,
 ) {
     let slot_key = format!("mwnd_waku_face_{mwnd_idx}_{face_idx}");
-    let slot = next_embedded_object_slot(st, stage_idx, &slot_key);
-    let clear_slot = obj.nested_runtime_slot.unwrap_or(slot);
-    object_clear_backend(ctx, obj, stage_idx, clear_slot);
+    let slot = obj
+        .nested_runtime_slot
+        .unwrap_or_else(|| next_embedded_object_slot(st, stage_idx, &slot_key));
+    object_clear_backend(ctx, obj, stage_idx, slot);
     obj.nested_runtime_slot = Some(slot);
     obj.init_type_like();
     obj.init_param_like();
@@ -2069,7 +2070,7 @@ fn create_mwnd_face_object(
     obj.base.x = 0;
     obj.base.y = 0;
     obj.base.patno = 0;
-    obj.base.layer = ctx.tables.mwnd_render.face_layer_rep;
+    obj.base.layer = 0;
     mark_cgtable_look_from_object_create(&mut ctx.tables, ctx.globals.cg_table_off, file_name);
 }
 
@@ -2086,14 +2087,15 @@ fn create_mwnd_template_button_object(
         return;
     }
     let slot_key = format!("mwnd_waku_button_{mwnd_idx}_{btn_idx}");
-    let slot = next_embedded_object_slot(st, stage_idx, &slot_key);
+    let slot = obj
+        .nested_runtime_slot
+        .unwrap_or_else(|| next_embedded_object_slot(st, stage_idx, &slot_key));
 
     // Original C_elm_mwnd_waku owns m_btn_list internally. These buttons are
     // frame/rendered only through the MWND waku tree, not as STAGE.OBJECT
-    // top-level entries. Allocate a graphics runtime slot, but do not resize or
-    // expose the stage object list here.
-    let clear_slot = obj.nested_runtime_slot.unwrap_or(slot);
-    object_clear_backend(ctx, obj, stage_idx, clear_slot);
+    // top-level entries. Keep the existing runtime slot when SET_WAKU rebuilds
+    // the same embedded object instance.
+    object_clear_backend(ctx, obj, stage_idx, slot);
     obj.nested_runtime_slot = Some(slot);
     obj.init_type_like();
     obj.init_param_like();
@@ -2129,11 +2131,12 @@ fn create_mwnd_template_button_object(
     obj.base.disp = 1;
     obj.base.x = 0;
     obj.base.y = 0;
-    obj.base.patno = patno;
+    obj.base.patno = 0;
     obj.base.layer = ctx.tables.mwnd_render.moji_layer_rep;
     obj.button.enabled = true;
     obj.button.button_no = btn_idx as i64;
     obj.button.group_no = -1;
+    obj.button.cut_no = button.cut_no;
     obj.button.action_no = button.action_no;
     obj.button.se_no = button.se_no;
     obj.button.sys_type = button.sys_type;
@@ -2575,10 +2578,10 @@ fn dispatch_embedded_object_item_op(
         list.resize_with(idx + 1, ObjectState::default);
     }
     let indexed_slot_key = format!("{slot_key}_{idx}");
-    let allocated_runtime_slot = next_embedded_object_slot(st, stage_idx, &indexed_slot_key);
-    let runtime_slot = list[idx]
-        .nested_runtime_slot
-        .unwrap_or(allocated_runtime_slot);
+    let original_nested_runtime_slot = list[idx].nested_runtime_slot;
+    let allocated_runtime_slot = original_nested_runtime_slot
+        .unwrap_or_else(|| next_embedded_object_slot(st, stage_idx, &indexed_slot_key));
+    let runtime_slot = allocated_runtime_slot;
     sg_mwnd_object_trace(format!(
         "embedded_item_op resolved idx={} runtime_slot={} allocated_runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
         idx,
@@ -2648,7 +2651,7 @@ fn dispatch_embedded_object_item_op(
     if let Some(prefix) = element_prefix {
         ctx.globals.current_object_chain = Some(prefix);
     }
-    ctx.globals.current_stage_object = Some((stage_idx, scratch_slot));
+    ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
     let handled = dispatch_object_op(
         ctx,
         st,
@@ -2678,7 +2681,9 @@ fn dispatch_embedded_object_item_op(
         let stage_list = st.object_lists.get_mut(&stage_idx).unwrap();
         std::mem::take(&mut stage_list[scratch_slot])
     };
-    if child_after.nested_runtime_slot.is_none() {
+    if let Some(slot) = original_nested_runtime_slot {
+        child_after.nested_runtime_slot = Some(slot);
+    } else if child_after.nested_runtime_slot.is_none() {
         child_after.nested_runtime_slot = Some(runtime_slot);
     }
     sg_mwnd_object_trace(format!(
@@ -2704,6 +2709,32 @@ fn dispatch_embedded_object_item_op(
     }
     list[idx] = child_after;
     handled
+}
+
+fn embedded_object_op_rebuilds_backend(ids: &constants::RuntimeConstants, op: i32) -> bool {
+    match resolve_object_op(ids, op) {
+        ObjectOpKind::Init
+        | ObjectOpKind::Free
+        | ObjectOpKind::CreatePct
+        | ObjectOpKind::CreateRect
+        | ObjectOpKind::CreateString
+        | ObjectOpKind::CreateCopyFrom => return true,
+        _ => {}
+    }
+
+    op == constants::elm_value::OBJECT_CREATE_NUMBER
+        || op == constants::elm_value::OBJECT_CREATE_WEATHER
+        || op == constants::elm_value::OBJECT_CREATE_SAVE_THUMB
+        || op == constants::elm_value::OBJECT_CREATE_CAPTURE_THUMB
+        || op == constants::elm_value::OBJECT_CREATE_CAPTURE
+        || op == constants::elm_value::OBJECT_CREATE_FROM_CAPTURE_FILE
+        || op == constants::elm_value::OBJECT_CREATE_MOVIE
+        || op == constants::elm_value::OBJECT_CREATE_MOVIE_LOOP
+        || op == constants::elm_value::OBJECT_CREATE_MOVIE_WAIT
+        || op == constants::elm_value::OBJECT_CREATE_MOVIE_WAIT_KEY
+        || op == constants::elm_value::OBJECT_CREATE_EMOTE
+        || op == constants::elm_value::OBJECT_CREATE_MESH
+        || op == constants::elm_value::OBJECT_CREATE_BILLBOARD
 }
 
 fn ensure_object_for_access(st: &mut StageFormState, stage_idx: i64, obj_idx: usize) -> bool {
@@ -4062,8 +4093,6 @@ fn dispatch_object_op(
             );
         }
     }
-    ctx.globals.current_stage_object = Some((stage_idx, obj_u));
-
     if !ensure_object_for_access(st, stage_idx, obj_u) {
         // Strict out-of-range: return default based on ret_form if present.
         match ret_form {
@@ -4072,6 +4101,14 @@ fn dispatch_object_op(
         }
         return true;
     }
+
+    let current_runtime_slot = st
+        .object_lists
+        .get(&stage_idx)
+        .and_then(|list| list.get(obj_u))
+        .and_then(|obj| obj.nested_runtime_slot)
+        .unwrap_or(obj_u);
+    ctx.globals.current_stage_object = Some((stage_idx, current_runtime_slot));
 
     // We avoid sharing backend resources (sprites) across objects.
     let mut copy_from_snapshot: Option<ObjectState> = None;
@@ -4176,6 +4213,125 @@ fn dispatch_object_op(
         fa.args = script_args.iter().skip(2).cloned().collect();
     }
 
+    fn counter_arg(script_args: &[Value], idx: usize) -> i64 {
+        script_args.get(idx).and_then(as_i64).unwrap_or(0)
+    }
+
+    fn dispatch_frame_action_counter(
+        ctx: &mut CommandContext,
+        fa: &mut ObjectFrameActionState,
+        tail: &[i32],
+        script_args: &[Value],
+        rhs: Option<&Value>,
+        al_id: Option<i64>,
+        ret_form: Option<i64>,
+    ) -> bool {
+        if tail.is_empty() {
+            let set_v = rhs.and_then(as_i64).or_else(|| {
+                if al_id == Some(1) && script_args.len() == 1 {
+                    script_args.first().and_then(as_i64)
+                } else {
+                    None
+                }
+            });
+            if let Some(v) = set_v {
+                fa.counter.set_count(v);
+                push_ok(ctx, ret_form);
+            } else {
+                ctx.stack.push(Value::Int(fa.counter.get_count()));
+            }
+            return true;
+        }
+
+        match tail[0] {
+            crate::runtime::constants::COUNTER_SET => {
+                fa.counter.set_count(counter_arg(script_args, 0));
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_GET => {
+                ctx.stack.push(Value::Int(fa.counter.get_count()));
+                true
+            }
+            crate::runtime::constants::COUNTER_RESET => {
+                fa.counter.reset();
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_START => {
+                fa.counter.start();
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_START_REAL => {
+                fa.counter.start_real();
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_START_FRAME => {
+                fa.counter.start_frame(
+                    counter_arg(script_args, 0),
+                    counter_arg(script_args, 1),
+                    counter_arg(script_args, 2),
+                );
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_START_FRAME_REAL => {
+                fa.counter.start_frame_real(
+                    counter_arg(script_args, 0),
+                    counter_arg(script_args, 1),
+                    counter_arg(script_args, 2),
+                );
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_START_FRAME_LOOP => {
+                fa.counter.start_frame_loop(
+                    counter_arg(script_args, 0),
+                    counter_arg(script_args, 1),
+                    counter_arg(script_args, 2),
+                );
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_START_FRAME_LOOP_REAL => {
+                fa.counter.start_frame_loop_real(
+                    counter_arg(script_args, 0),
+                    counter_arg(script_args, 1),
+                    counter_arg(script_args, 2),
+                );
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_STOP => {
+                fa.counter.stop();
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_RESUME => {
+                fa.counter.resume();
+                push_ok(ctx, ret_form);
+                true
+            }
+            crate::runtime::constants::COUNTER_CHECK_VALUE => {
+                let target = counter_arg(script_args, 0);
+                let ok = fa.counter.get_count() - target >= 0;
+                ctx.stack.push(Value::Int(if ok { 1 } else { 0 }));
+                true
+            }
+            crate::runtime::constants::COUNTER_CHECK_ACTIVE => {
+                ctx.stack.push(Value::Int(if fa.counter.is_running() { 1 } else { 0 }));
+                true
+            }
+            // Direct waits on object-owned frame-action counters need a direct-counter
+            // wait handle; the existing wait queue is list-index based.  Do not fake it.
+            crate::runtime::constants::COUNTER_WAIT
+            | crate::runtime::constants::COUNTER_WAIT_KEY => false,
+            _ => false,
+        }
+    }
+
     fn dispatch_object_frame_action(
         ctx: &mut CommandContext,
         fa: &mut ObjectFrameActionState,
@@ -4193,41 +4349,34 @@ fn dispatch_object_op(
         }
 
         match tail[0] {
-            0 => {
-                let set_v = rhs.and_then(as_i64).or_else(|| {
-                    if al_id == Some(1) && script_args.len() == 1 {
-                        script_args.first().and_then(as_i64)
-                    } else {
-                        None
-                    }
-                });
-                if let Some(v) = set_v {
-                    fa.counter.set_count(v);
-                    push_ok(ctx, ret_form);
-                } else {
-                    ctx.stack.push(Value::Int(fa.counter.get_count()));
-                }
-                true
-            }
-            1 => {
+            crate::runtime::constants::FRAMEACTION_COUNTER => dispatch_frame_action_counter(
+                ctx,
+                fa,
+                &tail[1..],
+                script_args,
+                rhs,
+                al_id,
+                ret_form,
+            ),
+            crate::runtime::constants::FRAMEACTION_START => {
                 queue_finish(ctx, fa, frame_action_chain.clone(), object_chain.clone());
                 frame_action_set_from_args(ctx, fa, script_args, false);
                 push_ok(ctx, ret_form);
                 true
             }
-            2 => {
+            crate::runtime::constants::FRAMEACTION_END => {
                 queue_finish(ctx, fa, frame_action_chain.clone(), object_chain.clone());
                 *fa = ObjectFrameActionState::default();
                 push_ok(ctx, ret_form);
                 true
             }
-            3 => {
+            crate::runtime::constants::FRAMEACTION_START_REAL => {
                 queue_finish(ctx, fa, frame_action_chain.clone(), object_chain.clone());
                 frame_action_set_from_args(ctx, fa, script_args, true);
                 push_ok(ctx, ret_form);
                 true
             }
-            4 => {
+            crate::runtime::constants::FRAMEACTION_IS_END_ACTION => {
                 ctx.stack.push(Value::Int(if fa.end_flag { 1 } else { 0 }));
                 true
             }
@@ -4396,7 +4545,7 @@ fn dispatch_object_op(
                 prefix.push(child_idx as i32);
                 ctx.globals.current_object_chain = Some(prefix);
             }
-            ctx.globals.current_stage_object = Some((stage_idx, scratch_slot));
+            ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
             sg_mwnd_object_trace(format!(
                 "object_child dispatch enter parent_stage={} parent_obj={} child_idx={} child_runtime_slot={} child_op={} child_tail={:?} before_child used={} type={} backend={:?} file={} nested_slot={:?}",
                 stage_idx,

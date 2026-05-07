@@ -64,15 +64,9 @@ pub fn render_to_image(
             continue;
         }
 
-        let Some([p0, p1, p2, p3]) = sprite_quad_points(
-            sprite,
-            dst_x,
-            dst_y,
-            dst_w,
-            dst_h,
-            width as f32,
-            height as f32,
-        ) else {
+        let Some([p0, p1, p2, p3]) =
+            sprite_quad_points(sprite, dst_x, dst_y, dst_w, dst_h, width as f32, height as f32)
+        else {
             continue;
         };
 
@@ -314,6 +308,8 @@ pub fn render_to_image(
     RgbaImage {
         width,
         height,
+        center_x: 0,
+        center_y: 0,
         rgba: out,
     }
 }

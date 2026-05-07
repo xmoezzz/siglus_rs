@@ -1,0 +1,92 @@
+name: SiglusLauncher
+
+options:
+  deploymentTarget:
+    iOS: "14.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+    PRODUCT_BUNDLE_IDENTIFIER: com.chino.siglus
+    PRODUCT_NAME: Siglus
+    CODE_SIGN_STYLE: Automatic
+    # Keep the explicit Info.plist; do not let Xcode auto-generate/override it.
+    GENERATE_INFOPLIST_FILE: NO
+
+# No ZIP import: games are copied into Files/Documents and scanned.
+
+targets:
+  SiglusLauncher:
+    type: application
+    platform: iOS
+
+    sources:
+      - path: SiglusLauncher
+      - path: Headers
+
+    resources:
+      - path: SiglusLauncher/Assets.xcassets
+      - path: SiglusLauncher/LaunchScreen.storyboard
+
+    info:
+      path: SiglusLauncher/Info.plist
+      properties:
+        # Expose Documents to the Files app.
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+
+    preBuildScripts:
+      - name: Ensure Siglus.xcframework headers (sim + device)
+        script: |
+          set -euo pipefail
+          XC="${SRCROOT}/Vendor/Siglus.xcframework"
+          if [ ! -d "$XC" ]; then
+            echo "error: missing $XC (build/install Siglus.xcframework first)" >&2
+            exit 1
+          fi
+
+          # We only fix headers. If the slice directory or binary is missing, fail loudly.
+          for SLICE in ios-arm64 ios-arm64-simulator; do
+            if [ ! -d "$XC/$SLICE" ]; then
+              echo "error: missing slice directory: $XC/$SLICE" >&2
+              echo "error: Siglus.xcframework is incomplete. Rebuild it (must include simulator slice for sim builds)." >&2
+              exit 1
+            fi
+            if [ ! -f "$XC/$SLICE/libsiglus.a" ]; then
+              echo "error: missing $XC/$SLICE/libsiglus.a" >&2
+              echo "error: Siglus.xcframework is incomplete. Rebuild it." >&2
+              exit 1
+            fi
+
+            if [ ! -d "$XC/$SLICE/Headers" ]; then
+              mkdir -p "$XC/$SLICE/Headers"
+
+              # Prefer copying from the device slice if it already has headers.
+              if [ -d "$XC/ios-arm64/Headers" ]; then
+                cp -f "$XC/ios-arm64/Headers/"* "$XC/$SLICE/Headers/" 2>/dev/null || true
+              fi
+
+              # Also drop in the project-level header as a fallback.
+              if [ -f "${SRCROOT}/Headers/siglus.h" ]; then
+                cp -f "${SRCROOT}/Headers/siglus.h" "$XC/$SLICE/Headers/siglus.h"
+              fi
+            fi
+          done
+
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: Foundation.framework
+      - sdk: VideoToolbox.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreVideo.framework
+      - sdk: AVFoundation.framework
+      - sdk: Metal.framework
+      - sdk: MetalKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreGraphics.framework
+      - sdk: AudioToolbox.framework
+      - framework: Vendor/Siglus.xcframework
+        embed: false
+        codeSign: false
+        link: true

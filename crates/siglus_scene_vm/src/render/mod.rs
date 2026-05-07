@@ -546,6 +546,46 @@ pub struct Renderer {
 
     verts: Vec<Vertex>,
     draws: Vec<DrawCommand>,
+    debug_frame_serial: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RendererDebugTexture {
+    pub key: String,
+    pub kind: String,
+    pub label: String,
+    pub usage: String,
+    pub usage_count: usize,
+    pub width: u32,
+    pub height: u32,
+    pub version: u64,
+    pub rgba: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum RendererDebugRenderTarget {
+    SceneA,
+    SceneB,
+    ShadowMap,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum RendererDebugTextureKey {
+    DefaultAux,
+    Image(ImageId),
+    External(PathBuf),
+    RenderTarget(RendererDebugRenderTarget),
+}
+
+#[derive(Debug, Clone)]
+struct PendingRendererDebugTexture {
+    order: usize,
+    kind: String,
+    label: String,
+    usage: Vec<String>,
+    width: u32,
+    height: u32,
+    version: u64,
 }
 
 #[derive(Debug)]
@@ -571,6 +611,7 @@ struct RenderTargetTexture {
     sampler: wgpu::Sampler,
     width: u32,
     height: u32,
+    format: wgpu::TextureFormat,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1541,7 +1582,39 @@ impl Renderer {
         });
 
         let surface = instance.create_surface(window).context("create_surface")?;
+        let size = window.inner_size();
+        let scale_factor = window.scale_factor() as f32;
+        Self::new_from_instance_surface(instance, surface, size.width, size.height, scale_factor).await
+    }
 
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    pub async unsafe fn new_from_raw_handles(
+        raw_display_handle: raw_window_handle::RawDisplayHandle,
+        raw_window_handle: raw_window_handle::RawWindowHandle,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+    ) -> Result<Self> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..Default::default()
+        });
+        let surface = instance
+            .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                raw_display_handle,
+                raw_window_handle,
+            })
+            .context("create_surface_unsafe")?;
+        Self::new_from_instance_surface(instance, surface, width, height, scale_factor).await
+    }
+
+    async fn new_from_instance_surface(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        width: u32,
+        height: u32,
+        scale_factor: f32,
+    ) -> Result<Self> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -1571,11 +1644,15 @@ impl Renderer {
             .find(|f| f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
-        let size = window.inner_size();
-        let scale_factor = window.scale_factor() as f32;
-        let logical_size = size.to_logical::<f32>(window.scale_factor());
-        let logical_width = logical_size.width.max(1.0);
-        let logical_height = logical_size.height.max(1.0);
+        let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
+            scale_factor
+        } else {
+            1.0
+        };
+        let width = width.max(1);
+        let height = height.max(1);
+        let logical_width = ((width as f32) / scale_factor).max(1.0);
+        let logical_height = ((height as f32) / scale_factor).max(1.0);
         let alpha_mode = surface_caps
             .alpha_modes
             .iter()
@@ -1591,8 +1668,8 @@ impl Renderer {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
-            width: size.width.max(1),
-            height: size.height.max(1),
+            width,
+            height,
             present_mode,
             alpha_mode,
             view_formats: vec![],
@@ -1818,7 +1895,12 @@ impl Renderer {
             shadow_depth,
             verts: Vec::new(),
             draws: Vec::new(),
+            debug_frame_serial: 0,
         })
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
     }
 
     pub fn resize(&mut self, width: u32, height: u32) {
@@ -1870,6 +1952,7 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+        self.debug_frame_serial = self.debug_frame_serial.wrapping_add(1);
         self.verts.clear();
         self.draws.clear();
 
@@ -2858,6 +2941,430 @@ impl Renderer {
         Ok(())
     }
 
+    pub fn debug_read_render_chain_textures(&self) -> Result<Vec<RendererDebugTexture>> {
+        let mut pending: HashMap<RendererDebugTextureKey, PendingRendererDebugTexture> = HashMap::new();
+
+        for (draw_idx, cmd) in self.draws.iter().enumerate() {
+            let role_prefix = format!("draw[{draw_idx}]");
+            self.debug_add_base_texture_usage(&mut pending, cmd, &format!("{role_prefix}.base"));
+            self.debug_add_image_texture_usage(
+                &mut pending,
+                cmd.mask_image_id,
+                "image",
+                &format!("{role_prefix}.mask"),
+            );
+            self.debug_add_image_texture_usage(
+                &mut pending,
+                cmd.tonecurve_image_id,
+                "image",
+                &format!("{role_prefix}.tonecurve"),
+            );
+            self.debug_add_image_texture_usage(
+                &mut pending,
+                cmd.fog_image_id,
+                "image",
+                &format!("{role_prefix}.fog"),
+            );
+            self.debug_add_aux_texture_usage(&mut pending, cmd, &format!("{role_prefix}.aux"));
+            self.debug_add_external_texture_usage(
+                &mut pending,
+                cmd.mesh_normal_texture_path.as_deref(),
+                "external",
+                &format!("{role_prefix}.normal"),
+            );
+            self.debug_add_external_texture_usage(
+                &mut pending,
+                cmd.mesh_toon_texture_path.as_deref(),
+                "external",
+                &format!("{role_prefix}.toon"),
+            );
+            if cmd.pipeline_key.use_depth
+                || cmd.shadow_cast
+                || cmd.mesh_material_key.as_ref().is_some_and(|k| k.shadow)
+            {
+                self.debug_add_render_target_usage(
+                    &mut pending,
+                    RendererDebugRenderTarget::ShadowMap,
+                    &format!("{role_prefix}.shadow"),
+                );
+            }
+        }
+
+        if self.draws.iter().any(|cmd| {
+            matches!(
+                cmd.pipeline_key.technique.special,
+                TechniqueSpecial::Overlay
+            )
+        }) {
+            self.debug_add_render_target_usage(
+                &mut pending,
+                RendererDebugRenderTarget::SceneA,
+                "overlay.backdrop.scene_a",
+            );
+            self.debug_add_render_target_usage(
+                &mut pending,
+                RendererDebugRenderTarget::SceneB,
+                "overlay.backdrop.scene_b",
+            );
+        }
+        if self.draws.is_empty() {
+            self.debug_add_default_aux_usage(&mut pending, "empty-frame.default_aux");
+        }
+
+        let mut items = Vec::with_capacity(pending.len());
+        for (key, meta) in pending.into_iter() {
+            let Some((width, height, version, rgba)) = self.debug_read_texture_by_key(&key)? else {
+                continue;
+            };
+            let key_string = Self::debug_texture_key_string(&key);
+            items.push((
+                meta.order,
+                RendererDebugTexture {
+                    key: key_string,
+                    kind: meta.kind,
+                    label: meta.label,
+                    usage: meta.usage.join("; "),
+                    usage_count: meta.usage.len(),
+                    width,
+                    height,
+                    version,
+                    rgba,
+                },
+            ));
+        }
+        items.sort_by_key(|(order, _)| *order);
+        Ok(items.into_iter().map(|(_, item)| item).collect())
+    }
+
+    fn debug_add_pending_texture_usage(
+        &self,
+        pending: &mut HashMap<RendererDebugTextureKey, PendingRendererDebugTexture>,
+        key: RendererDebugTextureKey,
+        kind: &str,
+        label: String,
+        width: u32,
+        height: u32,
+        version: u64,
+        usage: &str,
+    ) {
+        let order = pending.len();
+        let entry = pending.entry(key).or_insert_with(|| PendingRendererDebugTexture {
+            order,
+            kind: kind.to_string(),
+            label,
+            usage: Vec::new(),
+            width,
+            height,
+            version,
+        });
+        if !entry.usage.iter().any(|s| s == usage) {
+            entry.usage.push(usage.to_string());
+        }
+    }
+
+    fn debug_add_default_aux_usage(
+        &self,
+        pending: &mut HashMap<RendererDebugTextureKey, PendingRendererDebugTexture>,
+        usage: &str,
+    ) {
+        self.debug_add_pending_texture_usage(
+            pending,
+            RendererDebugTextureKey::DefaultAux,
+            "default",
+            "default_aux".to_string(),
+            self.default_aux.width,
+            self.default_aux.height,
+            self.default_aux.version,
+            usage,
+        );
+    }
+
+    fn debug_add_image_texture_usage(
+        &self,
+        pending: &mut HashMap<RendererDebugTextureKey, PendingRendererDebugTexture>,
+        image_id: Option<ImageId>,
+        kind: &str,
+        usage: &str,
+    ) {
+        if let Some(id) = image_id {
+            if let Some(tex) = self.textures.get(&id) {
+                self.debug_add_pending_texture_usage(
+                    pending,
+                    RendererDebugTextureKey::Image(id),
+                    kind,
+                    format!("ImageId({})", id.index()),
+                    tex.width,
+                    tex.height,
+                    tex.version,
+                    usage,
+                );
+                return;
+            }
+        }
+        self.debug_add_default_aux_usage(pending, usage);
+    }
+
+    fn debug_add_external_texture_usage(
+        &self,
+        pending: &mut HashMap<RendererDebugTextureKey, PendingRendererDebugTexture>,
+        path: Option<&Path>,
+        kind: &str,
+        usage: &str,
+    ) {
+        if let Some(path) = path {
+            if let Some(tex) = self.external_textures.get(path) {
+                self.debug_add_pending_texture_usage(
+                    pending,
+                    RendererDebugTextureKey::External(path.to_path_buf()),
+                    kind,
+                    path.display().to_string(),
+                    tex.width,
+                    tex.height,
+                    tex.version,
+                    usage,
+                );
+                return;
+            }
+        }
+        self.debug_add_default_aux_usage(pending, usage);
+    }
+
+    fn debug_add_render_target_usage(
+        &self,
+        pending: &mut HashMap<RendererDebugTextureKey, PendingRendererDebugTexture>,
+        target: RendererDebugRenderTarget,
+        usage: &str,
+    ) {
+        let rt = self.debug_render_target_ref(target);
+        self.debug_add_pending_texture_usage(
+            pending,
+            RendererDebugTextureKey::RenderTarget(target),
+            "render-target",
+            match target {
+                RendererDebugRenderTarget::SceneA => "scene_a".to_string(),
+                RendererDebugRenderTarget::SceneB => "scene_b".to_string(),
+                RendererDebugRenderTarget::ShadowMap => "shadow_map".to_string(),
+            },
+            rt.width,
+            rt.height,
+            self.debug_frame_serial,
+            usage,
+        );
+    }
+
+    fn debug_add_base_texture_usage(
+        &self,
+        pending: &mut HashMap<RendererDebugTextureKey, PendingRendererDebugTexture>,
+        cmd: &DrawCommand,
+        usage: &str,
+    ) {
+        if let Some(path) = cmd.mesh_texture_path.as_deref() {
+            if let Some(tex) = self.external_textures.get(path) {
+                self.debug_add_pending_texture_usage(
+                    pending,
+                    RendererDebugTextureKey::External(path.to_path_buf()),
+                    "external",
+                    path.display().to_string(),
+                    tex.width,
+                    tex.height,
+                    tex.version,
+                    usage,
+                );
+                return;
+            }
+        }
+        self.debug_add_image_texture_usage(pending, cmd.image_id, "image", usage);
+    }
+
+    fn debug_add_aux_texture_usage(
+        &self,
+        pending: &mut HashMap<RendererDebugTextureKey, PendingRendererDebugTexture>,
+        cmd: &DrawCommand,
+        usage: &str,
+    ) {
+        if matches!(
+            cmd.pipeline_key.technique.special,
+            TechniqueSpecial::Overlay
+        ) {
+            self.debug_add_render_target_usage(pending, RendererDebugRenderTarget::SceneA, usage);
+            self.debug_add_render_target_usage(pending, RendererDebugRenderTarget::SceneB, usage);
+            return;
+        }
+        self.debug_add_image_texture_usage(pending, cmd.wipe_src_image_id, "image", usage);
+    }
+
+    fn debug_render_target_ref(&self, target: RendererDebugRenderTarget) -> &RenderTargetTexture {
+        match target {
+            RendererDebugRenderTarget::SceneA => &self.scene_a,
+            RendererDebugRenderTarget::SceneB => &self.scene_b,
+            RendererDebugRenderTarget::ShadowMap => &self.shadow_map,
+        }
+    }
+
+    fn debug_texture_key_string(key: &RendererDebugTextureKey) -> String {
+        match key {
+            RendererDebugTextureKey::DefaultAux => "default_aux".to_string(),
+            RendererDebugTextureKey::Image(id) => format!("image:{}", id.index()),
+            RendererDebugTextureKey::External(path) => format!("external:{}", path.display()),
+            RendererDebugTextureKey::RenderTarget(RendererDebugRenderTarget::SceneA) => {
+                "render-target:scene_a".to_string()
+            }
+            RendererDebugTextureKey::RenderTarget(RendererDebugRenderTarget::SceneB) => {
+                "render-target:scene_b".to_string()
+            }
+            RendererDebugTextureKey::RenderTarget(RendererDebugRenderTarget::ShadowMap) => {
+                "render-target:shadow_map".to_string()
+            }
+        }
+    }
+
+    fn debug_read_texture_by_key(
+        &self,
+        key: &RendererDebugTextureKey,
+    ) -> Result<Option<(u32, u32, u64, Vec<u8>)>> {
+        match key {
+            RendererDebugTextureKey::DefaultAux => Ok(Some((
+                self.default_aux.width,
+                self.default_aux.height,
+                self.default_aux.version,
+                self.debug_read_texture_rgba(
+                    &self.default_aux._tex,
+                    self.default_aux.width,
+                    self.default_aux.height,
+                    wgpu::TextureFormat::Rgba8UnormSrgb,
+                )?,
+            ))),
+            RendererDebugTextureKey::Image(id) => {
+                let Some(tex) = self.textures.get(id) else {
+                    return Ok(None);
+                };
+                Ok(Some((
+                    tex.width,
+                    tex.height,
+                    tex.version,
+                    self.debug_read_texture_rgba(
+                        &tex._tex,
+                        tex.width,
+                        tex.height,
+                        wgpu::TextureFormat::Rgba8UnormSrgb,
+                    )?,
+                )))
+            }
+            RendererDebugTextureKey::External(path) => {
+                let Some(tex) = self.external_textures.get(path) else {
+                    return Ok(None);
+                };
+                Ok(Some((
+                    tex.width,
+                    tex.height,
+                    tex.version,
+                    self.debug_read_texture_rgba(
+                        &tex._tex,
+                        tex.width,
+                        tex.height,
+                        wgpu::TextureFormat::Rgba8UnormSrgb,
+                    )?,
+                )))
+            }
+            RendererDebugTextureKey::RenderTarget(target) => {
+                let rt = self.debug_render_target_ref(*target);
+                Ok(Some((
+                    rt.width,
+                    rt.height,
+                    self.debug_frame_serial,
+                    self.debug_read_texture_rgba(&rt._tex, rt.width, rt.height, rt.format)?,
+                )))
+            }
+        }
+    }
+
+    fn debug_read_texture_rgba(
+        &self,
+        texture: &wgpu::Texture,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> Result<Vec<u8>> {
+        if width == 0 || height == 0 {
+            return Ok(Vec::new());
+        }
+        let bytes_per_pixel = 4u32;
+        let unpadded_bytes_per_row = width.saturating_mul(bytes_per_pixel);
+        let align = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_bytes_per_row = ((unpadded_bytes_per_row + align - 1) / align) * align;
+        let output_buffer_size = padded_bytes_per_row as u64 * height as u64;
+        let output_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("siglus-debug-texture-readback"),
+            size: output_buffer_size,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("siglus-debug-texture-readback-encoder"),
+            });
+        encoder.copy_texture_to_buffer(
+            wgpu::ImageCopyTexture {
+                texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::ImageCopyBuffer {
+                buffer: &output_buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_bytes_per_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit(Some(encoder.finish()));
+
+        let buffer_slice = output_buffer.slice(..);
+        let (tx, rx) = std::sync::mpsc::channel();
+        buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = tx.send(result);
+        });
+        self.device.poll(wgpu::Maintain::Wait);
+        rx.recv()
+            .context("wait for debug texture readback")?
+            .context("map debug texture readback")?;
+        let data = buffer_slice.get_mapped_range();
+        let mut rgba = vec![0u8; (width as usize) * (height as usize) * 4];
+        for y in 0..height as usize {
+            let src_offset = y * padded_bytes_per_row as usize;
+            let dst_offset = y * unpadded_bytes_per_row as usize;
+            let src = &data[src_offset..src_offset + unpadded_bytes_per_row as usize];
+            let dst = &mut rgba[dst_offset..dst_offset + unpadded_bytes_per_row as usize];
+            match format {
+                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb => {
+                    for (src_px, dst_px) in src.chunks_exact(4).zip(dst.chunks_exact_mut(4)) {
+                        dst_px[0] = src_px[2];
+                        dst_px[1] = src_px[1];
+                        dst_px[2] = src_px[0];
+                        dst_px[3] = src_px[3];
+                    }
+                }
+                wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => {
+                    dst.copy_from_slice(src);
+                }
+                other => {
+                    anyhow::bail!("unsupported debug texture readback format: {other:?}");
+                }
+            }
+        }
+        drop(data);
+        output_buffer.unmap();
+        Ok(rgba)
+    }
+
     fn ensure_mesh_asset(&mut self, images: &ImageManager, file_name: &str) -> Option<MeshAsset> {
         if let Some(asset) = self.mesh_assets.get(file_name) {
             return Some(asset.clone());
@@ -3532,6 +4039,8 @@ fn create_solid_texture(
     let img = crate::assets::RgbaImage {
         width: 1,
         height: 1,
+        center_x: 0,
+        center_y: 0,
         rgba: rgba.to_vec(),
     };
     create_gpu_texture(device, queue, "siglus-default-aux", &img, 0)
@@ -3555,7 +4064,9 @@ fn create_gpu_texture(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
 
@@ -3619,7 +4130,9 @@ fn create_render_target_texture(
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
     let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
@@ -3639,6 +4152,7 @@ fn create_render_target_texture(
         sampler,
         width: width.max(1),
         height: height.max(1),
+        format,
     }
 }
 

@@ -62,9 +62,37 @@ fn object_by_runtime_slot<'a>(
     stage_idx: i64,
     runtime_slot: usize,
 ) -> Option<&'a ObjectState> {
-    st.object_lists
+    if let Some(obj) = st
+        .object_lists
         .get(&stage_idx)
         .and_then(|list| find_object_by_runtime_slot(list, runtime_slot))
+    {
+        return Some(obj);
+    }
+
+    if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+        for mwnd in mwnds {
+            if let Some(obj) = find_object_by_runtime_slot(&mwnd.button_list, runtime_slot) {
+                return Some(obj);
+            }
+            if let Some(obj) = find_object_by_runtime_slot(&mwnd.face_list, runtime_slot) {
+                return Some(obj);
+            }
+            if let Some(obj) = find_object_by_runtime_slot(&mwnd.object_list, runtime_slot) {
+                return Some(obj);
+            }
+        }
+    }
+
+    if let Some(items) = st.btnselitem_lists.get(&stage_idx) {
+        for item in items {
+            if let Some(obj) = find_object_by_runtime_slot(&item.object_list, runtime_slot) {
+                return Some(obj);
+            }
+        }
+    }
+
+    None
 }
 
 fn object_by_runtime_slot_mut<'a>(
@@ -72,9 +100,35 @@ fn object_by_runtime_slot_mut<'a>(
     stage_idx: i64,
     runtime_slot: usize,
 ) -> Option<&'a mut ObjectState> {
-    st.object_lists
-        .get_mut(&stage_idx)
-        .and_then(|list| find_object_by_runtime_slot_mut(list, runtime_slot))
+    if let Some(list) = st.object_lists.get_mut(&stage_idx) {
+        if let Some(obj) = find_object_by_runtime_slot_mut(list, runtime_slot) {
+            return Some(obj);
+        }
+    }
+
+    if let Some(mwnds) = st.mwnd_lists.get_mut(&stage_idx) {
+        for mwnd in mwnds {
+            if let Some(obj) = find_object_by_runtime_slot_mut(&mut mwnd.button_list, runtime_slot) {
+                return Some(obj);
+            }
+            if let Some(obj) = find_object_by_runtime_slot_mut(&mut mwnd.face_list, runtime_slot) {
+                return Some(obj);
+            }
+            if let Some(obj) = find_object_by_runtime_slot_mut(&mut mwnd.object_list, runtime_slot) {
+                return Some(obj);
+            }
+        }
+    }
+
+    if let Some(items) = st.btnselitem_lists.get_mut(&stage_idx) {
+        for item in items {
+            if let Some(obj) = find_object_by_runtime_slot_mut(&mut item.object_list, runtime_slot) {
+                return Some(obj);
+            }
+        }
+    }
+
+    None
 }
 
 fn target_for_set_loop_turn_stop_wait(op: i32) -> Option<ObjectEventTarget> {

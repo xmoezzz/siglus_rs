@@ -44,6 +44,18 @@ fn read_u32le(buf: &[u8], off: usize) -> Result<u32> {
     ]))
 }
 
+fn read_i32le(buf: &[u8], off: usize) -> Result<i32> {
+    if off + 4 > buf.len() {
+        bail!("read i32le out of bounds at {off}");
+    }
+    Ok(i32::from_le_bytes([
+        buf[off],
+        buf[off + 1],
+        buf[off + 2],
+        buf[off + 3],
+    ]))
+}
+
 /// Decode a `.g00` file into RGBA frames.
 pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
     if data.len() < 1 + 2 + 2 {
@@ -85,6 +97,8 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 frames: vec![RgbaImage {
                     width,
                     height,
+                    center_x: 0,
+                    center_y: 0,
                     rgba,
                 }],
             })
@@ -106,6 +120,8 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 frames: vec![RgbaImage {
                     width,
                     height,
+                    center_x: 0,
+                    center_y: 0,
                     rgba,
                 }],
             })
@@ -152,12 +168,13 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 bail!("type2 pairs out of bounds");
             }
 
-            let mut frames: Vec<RgbaImage> = Vec::new();
+            let mut frames: Vec<RgbaImage> = Vec::with_capacity(debuf_entries);
             for i in 0..debuf_entries {
                 let p_off = pairs_off + i * pair_size;
                 let offset = read_u32le(&debuf, p_off)? as usize;
                 let length_raw = read_u32le(&debuf, p_off + 4)? as i32;
                 if offset == 0 || length_raw == 0 || offset >= debuf.len() {
+                    frames.push(transparent_missing_g00_cut());
                     continue;
                 }
 
@@ -171,6 +188,7 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                     debuf.len()
                 };
                 if end <= offset {
+                    frames.push(transparent_missing_g00_cut());
                     continue;
                 }
                 let part_bytes = &debuf[offset..end];
@@ -210,10 +228,23 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 frames: vec![RgbaImage {
                     width,
                     height,
+                    center_x: 0,
+                    center_y: 0,
                     rgba: rgba.into_raw(),
                 }],
             })
         }
+    }
+}
+
+
+fn transparent_missing_g00_cut() -> RgbaImage {
+    RgbaImage {
+        width: 1,
+        height: 1,
+        center_x: 0,
+        center_y: 0,
+        rgba: vec![0, 0, 0, 0],
     }
 }
 
@@ -433,12 +464,12 @@ fn lzss_decompress_24bit(src: &[u8], dst: &mut [u8]) -> Result<()> {
 struct G02PartInfo {
     part_type: u16,
     block_count: u16,
-    hs_orig_x: u32,
-    hs_orig_y: u32,
+    hs_orig_x: i32,
+    hs_orig_y: i32,
     width: u32,
     height: u32,
-    screen_show_x: u32,
-    screen_show_y: u32,
+    screen_show_x: i32,
+    screen_show_y: i32,
     full_part_width: u32,
     full_part_height: u32,
 }
@@ -487,12 +518,12 @@ fn parse_g02_part_info_prefix(buf: &[u8]) -> Result<G02PartInfo> {
     }
     let part_type = read_u16le(buf, 0)?;
     let block_count = read_u16le(buf, 2)?;
-    let disp_x = read_u32le(buf, 4)?;
-    let disp_y = read_u32le(buf, 8)?;
+    let disp_x = read_i32le(buf, 4)?;
+    let disp_y = read_i32le(buf, 8)?;
     let disp_width = read_u32le(buf, 0x0C)?;
     let disp_height = read_u32le(buf, 0x10)?;
-    let center_x = read_u32le(buf, 0x14)?;
-    let center_y = read_u32le(buf, 0x18)?;
+    let center_x = read_i32le(buf, 0x14)?;
+    let center_y = read_i32le(buf, 0x18)?;
     let cut_width = read_u32le(buf, 0x1C)?;
     let cut_height = read_u32le(buf, 0x20)?;
     Ok(G02PartInfo {
@@ -526,10 +557,16 @@ fn fix_vertical_flip_bgra(width: u32, height: u32, buf: &mut [u8]) -> Result<()>
 }
 
 fn extract_g02_part(part_bytes: &[u8]) -> Result<RgbaImage> {
-    // The extractor supports type 1/2 similarly; we handle the copy logic for type 2.
+    // Original C_d3d_texture::load_g00_cut() creates the D3D texture from
+    // cut_info.disp_rect, not from the whole cut_xl/cut_yl canvas. Each chip is
+    // copied to chip.x - disp_rect.left, chip.y - disp_rect.top, and texture
+    // center is cut_info.center - disp_rect.left/top.
     let part = parse_g02_part_info_prefix(part_bytes).context("parse part prefix")?;
     if part.width == 0 || part.height == 0 {
-        bail!("g02 part has zero dimensions");
+        bail!("g02 part has zero full-cut dimensions");
+    }
+    if part.full_part_width == 0 || part.full_part_height == 0 {
+        bail!("g02 part has zero display dimensions");
     }
 
     // MSVC layout for the original G00_CUT_HEADER_STRUCT is 0x74 bytes.
@@ -550,11 +587,12 @@ fn extract_g02_part(part_bytes: &[u8]) -> Result<RgbaImage> {
 
     let header_size = chosen_header.context("unable to determine g02_part_info header size")?;
 
-    // Allocate image (BGRA) and fill blocks.
-    let stride = (part.width as usize)
+    let out_w = part.full_part_width;
+    let out_h = part.full_part_height;
+    let stride = (out_w as usize)
         .checked_mul(4)
         .context("stride overflow")?;
-    let mut dib = vec![0u8; stride * (part.height as usize)];
+    let mut dib = vec![0u8; stride * (out_h as usize)];
 
     let mut off = header_size;
     for _ in 0..part.block_count {
@@ -576,13 +614,31 @@ fn extract_g02_part(part_bytes: &[u8]) -> Result<RgbaImage> {
         let src = &part_bytes[off..off + px_len];
         off += px_len;
 
-        // Original C++ copies each chip directly to chip_header->x/y inside the
-        // full cut image. Display rectangle x/y and center are metadata, not an
-        // origin to subtract from chip coordinates.
-        let dst_x = block.orig_x as usize;
-        let dst_y = block.orig_y as usize;
+        let dst_x_i = block.orig_x as i32 - part.hs_orig_x;
+        let dst_y_i = block.orig_y as i32 - part.hs_orig_y;
+        if dst_x_i < 0 || dst_y_i < 0 {
+            bail!(
+                "g02 block outside display rect: chip=({}, {}) disp=({}, {})",
+                block.orig_x,
+                block.orig_y,
+                part.hs_orig_x,
+                part.hs_orig_y
+            );
+        }
+        let dst_x = dst_x_i as usize;
+        let dst_y = dst_y_i as usize;
+        if dst_x.saturating_add(bw) > out_w as usize || dst_y.saturating_add(bh) > out_h as usize {
+            bail!(
+                "g02 block write outside display rect: dst=({}, {}) size={}x{} out={}x{}",
+                dst_x,
+                dst_y,
+                bw,
+                bh,
+                out_w,
+                out_h
+            );
+        }
 
-        // Copy row by row (same as extractor's part_extract_buf).
         for row in 0..bh {
             let src_row_off = row * bw * 4;
             let dst_row_off = (dst_y + row) * stride + dst_x * 4;
@@ -594,15 +650,13 @@ fn extract_g02_part(part_bytes: &[u8]) -> Result<RgbaImage> {
         }
     }
 
-    // Original C_g00_chip::get_data copies chip rows in stored order.
-    // Do not flip here; WGPU and D3D both use top-left image coordinates for 2D sprites.
-
-    // Convert to RGBA.
     let rgba = bgra_to_rgba_inplace(dib);
 
     Ok(RgbaImage {
-        width: part.width,
-        height: part.height,
+        width: out_w,
+        height: out_h,
+        center_x: part.screen_show_x - part.hs_orig_x,
+        center_y: part.screen_show_y - part.hs_orig_y,
         rgba,
     })
 }
@@ -620,7 +674,12 @@ fn validate_g02_layout(part_bytes: &[u8], part: &G02PartInfo, header_size: usize
             bail!("block zero size");
         }
         if (block.width as u32) > part.width || (block.height as u32) > part.height {
-            bail!("block larger than part");
+            bail!("block larger than full cut");
+        }
+        if (block.orig_x as u32).saturating_add(block.width as u32) > part.width
+            || (block.orig_y as u32).saturating_add(block.height as u32) > part.height
+        {
+            bail!("block outside full cut");
         }
         // Many files keep reserved zeros; we don't strictly check reserved bytes here.
 

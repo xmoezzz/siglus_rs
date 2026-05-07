@@ -490,8 +490,12 @@ impl VmWait {
         // Auto-clear time waits when the deadline is reached.
         if let Some(t) = self.until {
             if Instant::now() >= t {
+                let key_skippable_timewait = self.skip_time_on_key;
                 self.until = None;
                 self.skip_time_on_key = false;
+                if key_skippable_timewait {
+                    self.pending_value = Some(Value::Int(0));
+                }
             }
         }
 
@@ -898,6 +902,7 @@ impl VmWait {
         if self.skip_time_on_key {
             self.until = None;
             self.skip_time_on_key = false;
+            self.pending_value = Some(Value::Int(1));
         }
 
         if wipe_skipped {

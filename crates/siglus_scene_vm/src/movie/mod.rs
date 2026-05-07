@@ -891,6 +891,8 @@ fn stream_mpeg2_video_worker(
                 let frame = Arc::new(RgbaImage {
                     width: w,
                     height: h,
+                    center_x: 0,
+                    center_y: 0,
                     rgba,
                 });
                 let ev = Mpeg2StreamEvent::Video { frame_idx, frame };
@@ -921,6 +923,8 @@ fn stream_mpeg2_video_worker(
         let frame = Arc::new(RgbaImage {
             width: w,
             height: h,
+            center_x: 0,
+            center_y: 0,
             rgba,
         });
         let ev = Mpeg2StreamEvent::Video { frame_idx, frame };
@@ -1322,7 +1326,7 @@ fn stream_omv_video_worker(
             display_h,
             theora_type,
         );
-        let frame = Arc::new(RgbaImage { width, height, rgba });
+        let frame = Arc::new(RgbaImage { width, height, center_x: 0, center_y: 0, rgba });
         if tx.send(Ok(OmvStreamEvent::Video { frame_idx, frame })).is_err() {
             return Ok(());
         }
@@ -1497,6 +1501,8 @@ fn decode_mpeg2_preview_frame(path: &Path) -> Result<Arc<RgbaImage>> {
                     first = Some(Arc::new(RgbaImage {
                         width: w,
                         height: h,
+                        center_x: 0,
+                        center_y: 0,
                         rgba,
                     }));
                 }
@@ -1516,6 +1522,8 @@ fn decode_mpeg2_preview_frame(path: &Path) -> Result<Arc<RgbaImage>> {
                 first = Some(Arc::new(RgbaImage {
                     width: w,
                     height: h,
+                    center_x: 0,
+                    center_y: 0,
                     rgba,
                 }));
             }
@@ -1553,6 +1561,8 @@ fn decode_omv_preview_frame(path: &Path) -> Result<Arc<RgbaImage>> {
     Ok(Arc::new(RgbaImage {
         width,
         height,
+        center_x: 0,
+        center_y: 0,
         rgba,
     }))
 }

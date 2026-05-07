@@ -8,6 +8,11 @@ use std::path::Path;
 pub struct RgbaImage {
     pub width: u32,
     pub height: u32,
+    /// Image-space center metadata from formats that carry it (notably G00 cuts).
+    /// Siglus OBJECT/PCT rendering applies this in the object render path only;
+    /// helper textures keep this at zero and remain top-left positioned.
+    pub center_x: i32,
+    pub center_y: i32,
     /// length = width * height * 4
     pub rgba: Vec<u8>,
 }
@@ -34,8 +39,15 @@ pub fn load_image_any(path: &Path, g00_frame_index: usize) -> Result<RgbaImage> 
             if decoded.frames.is_empty() {
                 bail!("g00 has no frames: {:?}", path);
             }
-            let idx = g00_frame_index.min(decoded.frames.len() - 1);
-            Ok(decoded.frames[idx].clone())
+            if g00_frame_index >= decoded.frames.len() {
+                bail!(
+                    "g00 frame index out of range: {:?} index={} count={}",
+                    path,
+                    g00_frame_index,
+                    decoded.frames.len()
+                );
+            }
+            Ok(decoded.frames[g00_frame_index].clone())
         }
         "png" | "jpg" | "jpeg" | "bmp" | "dds" => {
             let img = image::open(path).with_context(|| format!("decode image {:?}", path))?;
@@ -44,6 +56,8 @@ pub fn load_image_any(path: &Path, g00_frame_index: usize) -> Result<RgbaImage> 
             Ok(RgbaImage {
                 width: w,
                 height: h,
+                center_x: 0,
+                center_y: 0,
                 rgba: rgba.into_raw(),
             })
         }

@@ -85,30 +85,140 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
     match tail[0] {
         crate::runtime::constants::elm_value::FRAMEACTION_COUNTER => {
-            let set_v = rhs.as_ref().and_then(as_i64).or_else(|| {
-                if al_id == Some(1) && script_args.len() == 1 {
-                    script_args.first().and_then(as_i64)
+            let counter_tail = &tail[1..];
+            if counter_tail.is_empty() {
+                let set_v = rhs.as_ref().and_then(as_i64).or_else(|| {
+                    if al_id == Some(1) && script_args.len() == 1 {
+                        script_args.first().and_then(as_i64)
+                    } else {
+                        None
+                    }
+                });
+                if let Some(v) = set_v {
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.set_count(v);
+                    }
+                    push_ok(ctx, ret_form);
                 } else {
-                    None
+                    let count = {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.get_count()
+                    };
+                    ctx.push(Value::Int(count));
                 }
-            });
-            if let Some(v) = set_v {
-                ctx.globals
-                    .frame_actions
-                    .entry(form_id)
-                    .or_default()
-                    .counter
-                    .set_count(v);
-                push_ok(ctx, ret_form);
-            } else {
-                let count = ctx
-                    .globals
-                    .frame_actions
-                    .entry(form_id)
-                    .or_default()
-                    .counter
-                    .get_count();
-                ctx.push(Value::Int(count));
+                return Ok(true);
+            }
+
+            match counter_tail[0] {
+                crate::runtime::constants::COUNTER_SET => {
+                    let value = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.set_count(value);
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_GET => {
+                    let count = {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.get_count()
+                    };
+                    ctx.push(Value::Int(count));
+                }
+                crate::runtime::constants::COUNTER_RESET => {
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.reset();
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_START => {
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.start();
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_START_REAL => {
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.start_real();
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_START_FRAME => {
+                    let from = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                    let to = script_args.get(1).and_then(as_i64).unwrap_or(0);
+                    let frame_time = script_args.get(2).and_then(as_i64).unwrap_or(0);
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.start_frame(from, to, frame_time);
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_START_FRAME_REAL => {
+                    let from = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                    let to = script_args.get(1).and_then(as_i64).unwrap_or(0);
+                    let frame_time = script_args.get(2).and_then(as_i64).unwrap_or(0);
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.start_frame_real(from, to, frame_time);
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_START_FRAME_LOOP => {
+                    let from = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                    let to = script_args.get(1).and_then(as_i64).unwrap_or(0);
+                    let frame_time = script_args.get(2).and_then(as_i64).unwrap_or(0);
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.start_frame_loop(from, to, frame_time);
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_START_FRAME_LOOP_REAL => {
+                    let from = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                    let to = script_args.get(1).and_then(as_i64).unwrap_or(0);
+                    let frame_time = script_args.get(2).and_then(as_i64).unwrap_or(0);
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.start_frame_loop_real(from, to, frame_time);
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_STOP => {
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.stop();
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_RESUME => {
+                    {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.resume();
+                    }
+                    push_ok(ctx, ret_form);
+                }
+                crate::runtime::constants::COUNTER_CHECK_VALUE => {
+                    let target = script_args.get(0).and_then(as_i64).unwrap_or(0);
+                    let count = {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.get_count()
+                    };
+                    ctx.push(Value::Int(if count - target >= 0 { 1 } else { 0 }));
+                }
+                crate::runtime::constants::COUNTER_CHECK_ACTIVE => {
+                    let active = {
+                        let fa = ctx.globals.frame_actions.entry(form_id).or_default();
+                        fa.counter.is_running()
+                    };
+                    ctx.push(Value::Int(if active { 1 } else { 0 }));
+                }
+                crate::runtime::constants::COUNTER_WAIT
+                | crate::runtime::constants::COUNTER_WAIT_KEY => return Ok(false),
+                _ => return Ok(false),
             }
             Ok(true)
         }

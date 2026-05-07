@@ -246,15 +246,7 @@ fn handle_messagebox(
         return Some(v.clamp(0, max_value));
     }
 
-    ctx.globals.system.messagebox_modal =
-        Some(crate::runtime::globals::SystemMessageBoxModalState {
-            kind,
-            text,
-            debug_only,
-            buttons,
-            cursor: 0,
-        });
-    ctx.wait.wait_system_modal();
+    ctx.request_system_messagebox(kind, debug_only, text, buttons);
     None
 }
 

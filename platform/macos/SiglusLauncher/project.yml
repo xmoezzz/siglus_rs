@@ -1,0 +1,31 @@
+name: SiglusLauncher
+options:
+  bundleIdPrefix: com.chino.siglus
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "11.0"
+targets:
+  SiglusLauncher:
+    type: application
+    platform: macOS
+    deploymentTarget: "11.0"
+    sources:
+      - path: SiglusLauncher
+    resources:
+      - path: SiglusLauncher/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.chino.siglus.macos
+        PRODUCT_NAME: Siglus
+        SWIFT_VERSION: "5.0"
+        INFOPLIST_FILE: SiglusLauncher/Info.plist
+        # Link-time search path for libsiglus.dylib copied into Vendor/
+        LIBRARY_SEARCH_PATHS: ["$(PROJECT_DIR)/Vendor"]
+        OTHER_LDFLAGS: ["-L$(PROJECT_DIR)/Vendor", "-lsiglus", "-Wl,-rpath,@executable_path/../Frameworks"]
+        LD_RUNPATH_SEARCH_PATHS: ["@executable_path/../Frameworks"]
+    dependencies:
+      - sdk: AppKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: Security.framework
+      - sdk: Metal.framework
+      - sdk: QuartzCore.framework

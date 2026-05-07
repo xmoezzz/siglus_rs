@@ -1014,6 +1014,8 @@ fn resize_rgba(img: &RgbaImage, w: u32, h: u32) -> RgbaImage {
     RgbaImage {
         width: w,
         height: h,
+        center_x: 0,
+        center_y: 0,
         rgba: out,
     }
 }
@@ -1081,8 +1083,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
     match op {
         CALL_EX => {
-            ctx.push(Value::Int(0));
-            return Ok(true);
+            // C++ routes SYSCOM.CALL_EX to tnm_command_proc_farcall_ex(..., FM_VOID).
+            // That transfer is implemented in the VM before generic form dispatch,
+            // because only the VM owns the script call stack and proc boundary.
+            // Do not fake a return value here.
+            return Ok(false);
         }
         CALL_SYSCOM_MENU => {
             ctx.globals.syscom.menu_open = true;

@@ -109,6 +109,13 @@ pub struct Sprite {
     pub pivot_x: f32,
     pub pivot_y: f32,
     pub pivot_z: f32,
+    /// Siglus object sprites use OBJECT.X/Y as the render anchor. For G00/PCT
+    /// object resources, vertices are offset by OBJECT.CENTER plus the texture
+    /// center stored in the cut metadata. Runtime helper sprites keep this off
+    /// and continue to use x/y as a top-left pixel rectangle.
+    pub object_anchor: bool,
+    pub texture_center_x: f32,
+    pub texture_center_y: f32,
     pub camera_enabled: bool,
     pub camera_eye: [f32; 3],
     pub camera_target: [f32; 3],
@@ -199,6 +206,9 @@ impl Default for Sprite {
             pivot_x: 0.0,
             pivot_y: 0.0,
             pivot_z: 0.0,
+            object_anchor: false,
+            texture_center_x: 0.0,
+            texture_center_y: 0.0,
             camera_enabled: false,
             camera_eye: [0.0, 0.0, -1000.0],
             camera_target: [0.0, 0.0, 0.0],
@@ -380,7 +390,57 @@ impl Layer {
 pub struct RenderSprite {
     pub layer_id: Option<LayerId>,
     pub sprite_id: Option<SpriteId>,
+    /// Original Siglus C++ S_tnm_sorter.order. This is separate from
+    /// Sprite::order because Sprite::order is still used by older backend
+    /// storage paths and debug output. Final scene ordering, wipe ranges,
+    /// effects, and quake ranges must use this pair.
+    pub sorter_order: i32,
+    /// Original Siglus C++ S_tnm_sorter.layer. This can be much larger than
+    /// 1023, so it must not be packed into Sprite::order.
+    pub sorter_layer: i32,
     pub sprite: Sprite,
+}
+
+impl RenderSprite {
+    pub fn new(layer_id: Option<LayerId>, sprite_id: Option<SpriteId>, sprite: Sprite) -> Self {
+        let (sorter_order, sorter_layer) = unpack_sprite_order(sprite.order);
+        Self {
+            layer_id,
+            sprite_id,
+            sorter_order,
+            sorter_layer,
+            sprite,
+        }
+    }
+
+    pub fn with_sorter(
+        layer_id: Option<LayerId>,
+        sprite_id: Option<SpriteId>,
+        sorter_order: i32,
+        sorter_layer: i32,
+        sprite: Sprite,
+    ) -> Self {
+        Self {
+            layer_id,
+            sprite_id,
+            sorter_order,
+            sorter_layer,
+            sprite,
+        }
+    }
+
+    pub fn set_sorter(&mut self, order: i64, layer: i64) {
+        self.sorter_order = order.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        self.sorter_layer = layer.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    }
+}
+
+fn unpack_sprite_order(order: i32) -> (i32, i32) {
+    if order.abs() >= 1024 {
+        (order.div_euclid(1024), order.rem_euclid(1024))
+    } else {
+        (0, order)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -604,11 +664,7 @@ impl LayerManager {
             if let Some(img) = self.bg.image_id {
                 let mut bg = self.bg.clone();
                 bg.image_id = Some(img);
-                out.push(RenderSprite {
-                    layer_id: None,
-                    sprite_id: None,
-                    sprite: bg,
-                });
+                out.push(RenderSprite::new(None, None, bg));
             }
         }
 
@@ -621,11 +677,7 @@ impl LayerManager {
                 if s.image_id.is_none() || s.alpha == 0 || s.tr == 0 {
                     continue;
                 }
-                out.push(RenderSprite {
-                    layer_id: Some(layer_id),
-                    sprite_id: Some(sprite_id),
-                    sprite: s.clone(),
-                });
+                out.push(RenderSprite::new(Some(layer_id), Some(sprite_id), s.clone()));
             }
         }
 

@@ -237,11 +237,13 @@ pub struct SystemMessageBoxButton {
 
 #[derive(Debug, Clone)]
 pub struct SystemMessageBoxModalState {
+    pub request_id: u64,
     pub kind: i32,
     pub text: String,
     pub debug_only: bool,
     pub buttons: Vec<SystemMessageBoxButton>,
     pub cursor: usize,
+    pub native_pending: bool,
 }
 
 impl SystemMessageBoxModalState {
@@ -271,6 +273,7 @@ pub struct SystemRuntimeState {
     pub messagebox_history: Vec<SystemMessageBoxRecord>,
     pub messagebox_response_queue: Vec<i64>,
     pub messagebox_modal: Option<SystemMessageBoxModalState>,
+    pub messagebox_modal_result: Option<i64>,
     pub spec_info: String,
 }
 
@@ -286,6 +289,7 @@ impl Default for SystemRuntimeState {
             messagebox_history: Vec::new(),
             messagebox_response_queue: Vec::new(),
             messagebox_modal: None,
+            messagebox_modal_result: None,
             spec_info: "siglus_scene_vm".to_string(),
         }
     }
@@ -1727,6 +1731,12 @@ pub struct ObjectButtonState {
     pub enabled: bool,
     pub button_no: i64,
     pub group_no: i64,
+    /// Additional cut offset applied after OBJECT.PATNO for button rendering.
+    ///
+    /// Original C_elm_object::frame()/create_trp() submits
+    /// `obp.pat_no + button.cut_no`, and button action templates add their
+    /// `rep_pat_no` on top of that submitted cut.
+    pub cut_no: i64,
     /// Optional override derived from SET_BUTTON_GROUP(element).
     pub group_idx_override: Option<usize>,
     pub action_no: i64,
@@ -1757,6 +1767,7 @@ impl Default for ObjectButtonState {
             enabled: false,
             button_no: 0,
             group_no: -1,
+            cut_no: 0,
             group_idx_override: None,
             action_no: -1,
             se_no: -1,

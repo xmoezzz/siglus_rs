@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::image_manager::{ImageId, ImageManager};
 use crate::layer::{
-    ClipRect, LayerId, LayerManager, SpriteBlend, SpriteFit, SpriteId, SpriteSizeMode,
+    ClipRect, LayerId, LayerManager, Sprite, SpriteBlend, SpriteFit, SpriteId, SpriteSizeMode,
 };
 
 #[derive(Debug, Clone)]
@@ -378,7 +378,12 @@ impl GfxRuntime {
                 bg.camera_enabled = true;
             } else if let Some(file) = &obj.file {
                 match Self::load_any_image(images, file, obj.patno) {
-                    Ok(img_id) => bg.image_id = Some(img_id),
+                    Ok(img_id) => {
+                        bg.image_id = Some(img_id);
+                        bg.object_anchor = false;
+                        bg.texture_center_x = 0.0;
+                        bg.texture_center_y = 0.0;
+                    }
                     Err(err) if is_probable_mesh_path(file) => {
                         let _ = err;
                         bg.image_id = None;
@@ -446,12 +451,20 @@ impl GfxRuntime {
             sprite.camera_enabled = true;
             sprite.shadow_cast = true;
             sprite.shadow_receive = true;
+            sprite.object_anchor = false;
+            sprite.texture_center_x = 0.0;
+            sprite.texture_center_y = 0.0;
         } else if let Some(file) = &obj.file {
             match Self::load_any_image(images, file, obj.patno) {
-                Ok(img_id) => sprite.image_id = Some(img_id),
+                Ok(img_id) => {
+                    set_object_sprite_image(sprite, images, img_id);
+                }
                 Err(err) if is_probable_mesh_path(file) => {
                     let _ = err;
                     sprite.image_id = None;
+                    sprite.object_anchor = false;
+                    sprite.texture_center_x = 0.0;
+                    sprite.texture_center_y = 0.0;
                 }
                 Err(err) => return Err(err),
             }
@@ -1317,6 +1330,20 @@ fn is_probable_mesh_path(file: &str) -> bool {
         || lower.ends_with(".fbx")
         || lower.ends_with(".gltf")
         || lower.ends_with(".glb")
+}
+
+
+fn set_object_sprite_image(sprite: &mut Sprite, images: &ImageManager, image_id: ImageId) {
+    sprite.image_id = Some(image_id);
+    if let Some(img) = images.get(image_id) {
+        sprite.object_anchor = true;
+        sprite.texture_center_x = img.center_x as f32;
+        sprite.texture_center_y = img.center_y as f32;
+    } else {
+        sprite.object_anchor = false;
+        sprite.texture_center_x = 0.0;
+        sprite.texture_center_y = 0.0;
+    }
 }
 
 fn clip_rect(use_flag: i64, left: i64, top: i64, right: i64, bottom: i64) -> Option<ClipRect> {

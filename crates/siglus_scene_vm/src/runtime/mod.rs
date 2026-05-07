@@ -12,9 +12,12 @@ pub mod opcode;
 
 pub use opcode::OpCode;
 pub mod gan;
+pub mod game_display_info;
+pub mod game_title;
 pub mod globals;
 pub mod int_event;
 pub mod net;
+pub mod native_ui;
 pub mod tables;
 pub mod tonecurve;
 pub mod ui;
@@ -244,6 +247,10 @@ pub struct CommandContext {
     /// Optional project-provided form handler (game-specific).
     pub external_forms: Option<Arc<dyn ExternalFormHandler>>,
 
+    /// Optional platform-native UI backend used by mobile ports.
+    pub native_ui_backend: Option<Arc<dyn native_ui::NativeUiBackend>>,
+    pub native_ui: native_ui::NativeUiRuntime,
+
     /// Current scene number tracked by the VM.
     pub current_scene_no: Option<i64>,
     /// Current scene name tracked by the VM.
@@ -307,6 +314,7 @@ impl CommandContext {
                 || frame_action_needs_tick(&obj.frame_action)
                 || obj.frame_action_ch.iter().any(frame_action_needs_tick)
                 || obj.movie.playing
+                || obj.gan.is_active()
                 || obj.runtime.child_objects.iter().any(object_needs_tick)
         }
 
@@ -654,6 +662,8 @@ impl CommandContext {
             wipe_next_rt_image: None,
             overlay_rt_image: None,
             external_forms: None,
+            native_ui_backend: None,
+            native_ui: native_ui::NativeUiRuntime::default(),
             current_scene_no: None,
             current_scene_name: None,
             current_line_no: -1,
@@ -1360,6 +1370,7 @@ impl CommandContext {
         {
             let mwnd_hidden =
                 self.globals.script.mwnd_disp_off_flag || self.globals.syscom.hide_mwnd.onoff;
+            let syscom = self.globals.syscom.clone();
             if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
                 let mut stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
                 stage_ids.sort_unstable();
@@ -1381,6 +1392,12 @@ impl CommandContext {
                             continue;
                         }
                         for (button_idx, obj) in mwnd.button_list.iter_mut().enumerate() {
+                            if !object_button_renderable_by_syscom(&syscom, obj)
+                                || button_effective_disabled(&syscom, obj, Some(button_idx))
+                                || syscom.mwnd_btn_touch_disable
+                            {
+                                continue;
+                            }
                             if standalone_button_hit_recursive(obj) {
                                 consumed_button = true;
                             }
@@ -1391,6 +1408,12 @@ impl CommandContext {
                             }
                         }
                         for (face_idx, obj) in mwnd.face_list.iter_mut().enumerate() {
+                            if !object_button_renderable_by_syscom(&syscom, obj)
+                                || button_effective_disabled(&syscom, obj, None)
+                                || syscom.mwnd_btn_touch_disable
+                            {
+                                continue;
+                            }
                             if standalone_button_hit_recursive(obj) {
                                 consumed_button = true;
                             }
@@ -1401,6 +1424,12 @@ impl CommandContext {
                             }
                         }
                         for (object_idx, obj) in mwnd.object_list.iter_mut().enumerate() {
+                            if !object_button_renderable_by_syscom(&syscom, obj)
+                                || button_effective_disabled(&syscom, obj, None)
+                                || syscom.mwnd_btn_touch_disable
+                            {
+                                continue;
+                            }
                             if standalone_button_hit_recursive(obj) {
                                 consumed_button = true;
                             }
@@ -1572,6 +1601,7 @@ impl CommandContext {
         {
             let mwnd_hidden =
                 self.globals.script.mwnd_disp_off_flag || self.globals.syscom.hide_mwnd.onoff;
+            let syscom = self.globals.syscom.clone();
             if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
                 let mut stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
                 stage_ids.sort_unstable();
@@ -1592,7 +1622,13 @@ impl CommandContext {
                         if window_w <= 0 || window_h <= 0 {
                             continue;
                         }
-                        for obj in &mwnd.button_list {
+                        for (button_idx, obj) in mwnd.button_list.iter().enumerate() {
+                            if !object_button_renderable_by_syscom(&syscom, obj)
+                                || button_effective_disabled(&syscom, obj, Some(button_idx))
+                                || syscom.mwnd_btn_touch_disable
+                            {
+                                continue;
+                            }
                             collect_standalone_button_decided_actions_recursive(
                                 obj,
                                 &mut pending_button_actions,
@@ -1600,6 +1636,12 @@ impl CommandContext {
                             );
                         }
                         for obj in &mwnd.face_list {
+                            if !object_button_renderable_by_syscom(&syscom, obj)
+                                || button_effective_disabled(&syscom, obj, None)
+                                || syscom.mwnd_btn_touch_disable
+                            {
+                                continue;
+                            }
                             collect_standalone_button_decided_actions_recursive(
                                 obj,
                                 &mut pending_button_actions,
@@ -1607,6 +1649,12 @@ impl CommandContext {
                             );
                         }
                         for obj in &mwnd.object_list {
+                            if !object_button_renderable_by_syscom(&syscom, obj)
+                                || button_effective_disabled(&syscom, obj, None)
+                                || syscom.mwnd_btn_touch_disable
+                            {
+                                continue;
+                            }
                             collect_standalone_button_decided_actions_recursive(
                                 obj,
                                 &mut pending_button_actions,
@@ -1959,6 +2007,7 @@ impl CommandContext {
     }
 
     pub fn wait_poll(&mut self) -> bool {
+        self.poll_native_messagebox_result();
         let (wait, stack, bgm, koe, se, pcm, globals) = (
             &mut self.wait,
             &mut self.stack,
@@ -1977,6 +2026,113 @@ impl CommandContext {
 
     pub fn pop(&mut self) -> Option<Value> {
         self.stack.pop()
+    }
+
+    pub fn set_native_ui_backend(
+        &mut self,
+        backend: Option<Arc<dyn native_ui::NativeUiBackend>>,
+    ) {
+        self.native_ui_backend = backend;
+    }
+
+    /// Return the game title for platform UI and runtime dialogs.
+    ///
+    /// The value is read from Gameexe `GAMENAME` when available. If Gameexe is
+    /// missing, undecodable, or the field is empty, this returns the project
+    /// directory name, then `Siglus` as the final fallback.
+    pub fn game_title(&self) -> String {
+        game_title::resolve_game_title(self.tables.gameexe.as_ref(), &self.project_dir)
+    }
+
+    /// Return the game display name for bundle/mobile UI.
+    pub fn game_name(&self) -> String {
+        self.game_title()
+    }
+
+    /// Return display metadata for platform UI.
+    ///
+    /// If the game directory contains `cover.png`, `cover.jpg`, `cover.jpeg`,
+    /// `thumbnail.png`, or `icon.png`, `cover` is populated. Otherwise callers
+    /// should display the game name.
+    pub fn game_display_info(&self) -> game_display_info::GameDisplayInfo {
+        let cover = game_display_info::resolve_game_cover_from_project_dir(&self.project_dir);
+        let name = self.game_name();
+        game_display_info::GameDisplayInfo {
+            title: name.clone(),
+            name,
+            cover,
+        }
+    }
+
+    /// Return the optional cover for bundle/mobile UI.
+    pub fn game_cover(&self) -> Option<game_display_info::GameCover> {
+        game_display_info::resolve_game_cover_from_project_dir(&self.project_dir)
+    }
+
+    pub fn submit_native_messagebox_result(&mut self, request_id: u64, value: i64) {
+        self.native_ui
+            .enqueue_messagebox_result(request_id, value);
+        self.poll_native_messagebox_result();
+    }
+
+    pub fn request_system_messagebox(
+        &mut self,
+        kind: i32,
+        debug_only: bool,
+        text: String,
+        buttons: Vec<globals::SystemMessageBoxButton>,
+    ) {
+        let request_id = self.native_ui.next_messagebox_request_id();
+        let native_pending = self.native_ui_backend.is_some();
+        self.globals.system.messagebox_modal_result = None;
+        self.globals.system.messagebox_modal = Some(globals::SystemMessageBoxModalState {
+            request_id,
+            kind,
+            text: text.clone(),
+            debug_only,
+            buttons,
+            cursor: 0,
+            native_pending,
+        });
+        self.wait.wait_system_modal();
+
+        if let Some(backend) = self.native_ui_backend.as_ref() {
+            backend.show_system_messagebox(native_ui::NativeMessageBoxRequest {
+                request_id,
+                kind: native_ui::NativeMessageBoxKind::from_system_op(kind),
+                title: self.game_title(),
+                message: text,
+                buttons: self.globals.system.messagebox_modal
+                    .as_ref()
+                    .map(|modal| {
+                        modal
+                            .buttons
+                            .iter()
+                            .map(|button| native_ui::NativeMessageBoxButton {
+                                label: button.label.clone(),
+                                value: button.value,
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+                debug_only,
+            });
+        }
+    }
+
+    fn poll_native_messagebox_result(&mut self) {
+        while let Some(result) = self.native_ui.pop_messagebox_result() {
+            let Some(modal) = self.globals.system.messagebox_modal.as_ref() else {
+                continue;
+            };
+            if modal.request_id != result.request_id {
+                continue;
+            }
+            let max_value = modal.buttons.iter().map(|b| b.value).max().unwrap_or(0);
+            let value = result.value.clamp(0, max_value);
+            self.finish_system_messagebox(value);
+            break;
+        }
     }
 
     pub fn set_screen_size(&mut self, w: u32, h: u32) {
@@ -2002,6 +2158,7 @@ impl CommandContext {
             );
         }
         self.sync_editbox_runtime();
+        self.poll_native_messagebox_result();
         if trace {
             eprintln!("[SG_CTX_TICK] after sync_editbox_runtime");
         }
@@ -2348,9 +2505,10 @@ impl CommandContext {
             let Some(st) = self.globals.stage_forms.get_mut(&form_id) else {
                 continue;
             };
-            let mut stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
-            stage_ids.sort_unstable();
-            for stage_idx in stage_ids {
+
+            let mut object_stage_ids: Vec<i64> = st.object_lists.keys().copied().collect();
+            object_stage_ids.sort_unstable();
+            for stage_idx in object_stage_ids {
                 let Some(objs) = st.object_lists.get_mut(&stage_idx) else {
                     continue;
                 };
@@ -2364,6 +2522,70 @@ impl CommandContext {
                         object_runtime_slot(obj_idx, obj) as i64,
                         obj,
                     );
+                }
+            }
+
+            let mut mwnd_stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
+            mwnd_stage_ids.sort_unstable();
+            for stage_idx in mwnd_stage_ids {
+                let Some(mwnds) = st.mwnd_lists.get_mut(&stage_idx) else {
+                    continue;
+                };
+                for mwnd in mwnds {
+                    for (obj_idx, obj) in mwnd.button_list.iter_mut().enumerate() {
+                        apply_gan_effects_recursive(
+                            gfx,
+                            images,
+                            sprites,
+                            &index,
+                            stage_idx,
+                            object_runtime_slot(obj_idx, obj) as i64,
+                            obj,
+                        );
+                    }
+                    for (obj_idx, obj) in mwnd.face_list.iter_mut().enumerate() {
+                        apply_gan_effects_recursive(
+                            gfx,
+                            images,
+                            sprites,
+                            &index,
+                            stage_idx,
+                            object_runtime_slot(obj_idx, obj) as i64,
+                            obj,
+                        );
+                    }
+                    for (obj_idx, obj) in mwnd.object_list.iter_mut().enumerate() {
+                        apply_gan_effects_recursive(
+                            gfx,
+                            images,
+                            sprites,
+                            &index,
+                            stage_idx,
+                            object_runtime_slot(obj_idx, obj) as i64,
+                            obj,
+                        );
+                    }
+                }
+            }
+
+            let mut btnsel_stage_ids: Vec<i64> = st.btnselitem_lists.keys().copied().collect();
+            btnsel_stage_ids.sort_unstable();
+            for stage_idx in btnsel_stage_ids {
+                let Some(items) = st.btnselitem_lists.get_mut(&stage_idx) else {
+                    continue;
+                };
+                for item in items {
+                    for (obj_idx, obj) in item.object_list.iter_mut().enumerate() {
+                        apply_gan_effects_recursive(
+                            gfx,
+                            images,
+                            sprites,
+                            &index,
+                            stage_idx,
+                            object_runtime_slot(obj_idx, obj) as i64,
+                            obj,
+                        );
+                    }
                 }
             }
         }
@@ -2459,6 +2681,9 @@ impl CommandContext {
         let Some(modal) = self.globals.system.messagebox_modal.as_mut() else {
             return false;
         };
+        if modal.native_pending {
+            return true;
+        }
         let mut finish_value: Option<i64> = None;
         match k {
             input::VmKey::ArrowLeft | input::VmKey::ArrowUp => {
@@ -2502,6 +2727,9 @@ impl CommandContext {
         let Some(modal) = self.globals.system.messagebox_modal.as_mut() else {
             return false;
         };
+        if modal.native_pending {
+            return true;
+        }
         match b {
             input::VmMouseButton::Left => {
                 let len = modal.buttons.len().max(1);
@@ -2525,6 +2753,7 @@ impl CommandContext {
 
     fn finish_system_messagebox(&mut self, value: i64) {
         self.globals.system.messagebox_modal = None;
+        self.globals.system.messagebox_modal_result = Some(value);
         self.wait.finish_system_modal(Value::Int(value));
         self.ui.set_sys_overlay(false, String::new());
     }
@@ -2533,6 +2762,10 @@ impl CommandContext {
         let Some(modal) = self.globals.system.messagebox_modal.as_ref() else {
             return false;
         };
+        if modal.native_pending {
+            self.ui.set_sys_overlay(false, String::new());
+            return true;
+        }
         let mut text = String::new();
         if modal.debug_only {
             text.push_str("[DEBUG]\n");
@@ -3574,6 +3807,15 @@ impl CommandContext {
                     if let Some(layer) = self.layers.layer_mut(layer_id) {
                         if let Some(sprite) = layer.sprite_mut(sprite_id) {
                             sprite.image_id = Some(img_id);
+                            if let Some(img) = self.images.get(img_id) {
+                                sprite.object_anchor = true;
+                                sprite.texture_center_x = img.center_x as f32;
+                                sprite.texture_center_y = img.center_y as f32;
+                            } else {
+                                sprite.object_anchor = false;
+                                sprite.texture_center_x = 0.0;
+                                sprite.texture_center_y = 0.0;
+                            }
                         }
                     }
                 }
@@ -3657,13 +3899,15 @@ impl CommandContext {
             eprintln!("[SG_DEBUG] submitted_render_list len={}", list.len());
             for (i, rs) in list.iter().enumerate() {
                 eprintln!(
-                    "[SG_DEBUG]   render[{}] layer={:?} sprite={:?} img={:?} pos=({}, {}) order={} alpha={} tr={} alpha_blend={} blend={:?} fit={:?} size={:?} dst_clip={:?} src_clip={:?} scale=({:.3}, {:.3}) rot={:.3}",
+                    "[SG_DEBUG]   render[{}] layer={:?} sprite={:?} img={:?} pos=({}, {}) sorter=({}, {}) order={} alpha={} tr={} alpha_blend={} blend={:?} fit={:?} size={:?} dst_clip={:?} src_clip={:?} scale=({:.3}, {:.3}) rot={:.3} anchor={} tex_center=({:.3},{:.3}) pivot=({:.3},{:.3},{:.3})",
                     i,
                     rs.layer_id,
                     rs.sprite_id,
                     rs.sprite.image_id,
                     rs.sprite.x,
                     rs.sprite.y,
+                    rs.sorter_order,
+                    rs.sorter_layer,
                     rs.sprite.order,
                     rs.sprite.alpha,
                     rs.sprite.tr,
@@ -3676,6 +3920,12 @@ impl CommandContext {
                     rs.sprite.scale_x,
                     rs.sprite.scale_y,
                     rs.sprite.rotate,
+                    rs.sprite.object_anchor,
+                    rs.sprite.texture_center_x,
+                    rs.sprite.texture_center_y,
+                    rs.sprite.pivot_x,
+                    rs.sprite.pivot_y,
+                    rs.sprite.pivot_z,
                 );
             }
         }
@@ -4017,6 +4267,7 @@ struct ButtonVisualState {
     action_no: i64,
     file_name: Option<String>,
     base_patno: i64,
+    cut_no: i64,
 }
 
 const TNM_BTN_STATE_NORMAL: i64 = 0;
@@ -4438,8 +4689,13 @@ fn hit_test_render_sprite(
     if sprite.scale_x == 0.0 || sprite.scale_y == 0.0 {
         return false;
     }
-    let mut px = mx as f32 - (anchor_x + sprite.pivot_x);
-    let mut py = my as f32 - (anchor_y + sprite.pivot_y);
+    let (origin_x, origin_y) = if sprite.object_anchor {
+        (anchor_x, anchor_y)
+    } else {
+        (anchor_x + sprite.pivot_x, anchor_y + sprite.pivot_y)
+    };
+    let mut px = mx as f32 - origin_x;
+    let mut py = my as f32 - origin_y;
     if sprite.rotate != 0.0 {
         let (s, c) = (-sprite.rotate).sin_cos();
         let rx = px * c - py * s;
@@ -4447,8 +4703,13 @@ fn hit_test_render_sprite(
         px = rx;
         py = ry;
     }
-    let local_x = px / sprite.scale_x + sprite.pivot_x;
-    let local_y = py / sprite.scale_y + sprite.pivot_y;
+    let (tex_center_x, tex_center_y) = if sprite.object_anchor {
+        (sprite.texture_center_x, sprite.texture_center_y)
+    } else {
+        (0.0, 0.0)
+    };
+    let local_x = px / sprite.scale_x + sprite.pivot_x + tex_center_x;
+    let local_y = py / sprite.scale_y + sprite.pivot_y + tex_center_y;
     if !(0.0 <= local_x && local_x < w && 0.0 <= local_y && local_y < h) {
         return false;
     }
@@ -4669,16 +4930,34 @@ fn object_button_effective_gfx_hit(
         .or_else(|| gfx.object_peek_patno(stage_idx, runtime_slot as i64))
         .unwrap_or(obj.base.patno);
     patno = object_event_value(ids, obj, ids.obj_patno_eve, patno);
+    patno = patno.saturating_add(obj.button.cut_no);
 
     let file_name = obj.file_name.as_ref()?;
     let img_id = CommandContext::load_any_image_for_hit(images, file_name.as_str(), patno)?;
-    let _ = images.get(img_id).map(|a| a.as_ref())?;
 
     let mut sprite = Sprite::default();
     sprite.image_id = Some(img_id);
+    if let Some(img) = images.get(img_id) {
+        sprite.object_anchor = true;
+        sprite.texture_center_x = img.center_x as f32;
+        sprite.texture_center_y = img.center_y as f32;
+    } else {
+        sprite.object_anchor = false;
+        sprite.texture_center_x = 0.0;
+        sprite.texture_center_y = 0.0;
+    }
     sprite.visible = true;
+    let center_x = obj.lookup_int_prop(ids, ids.obj_center_x).unwrap_or(obj.base.center_x);
+    let center_y = obj.lookup_int_prop(ids, ids.obj_center_y).unwrap_or(obj.base.center_y);
+    let center_z = obj.lookup_int_prop(ids, ids.obj_center_z).unwrap_or(obj.base.center_z);
+    let center_rep_x = obj.lookup_int_prop(ids, ids.obj_center_rep_x).unwrap_or(obj.base.center_rep_x);
+    let center_rep_y = obj.lookup_int_prop(ids, ids.obj_center_rep_y).unwrap_or(obj.base.center_rep_y);
+    let center_rep_z = obj.lookup_int_prop(ids, ids.obj_center_rep_z).unwrap_or(obj.base.center_rep_z);
     sprite.x = x as i32;
     sprite.y = y as i32;
+    sprite.pivot_x = (center_x + center_rep_x) as f32;
+    sprite.pivot_y = (center_y + center_rep_y) as f32;
+    sprite.pivot_z = (center_z + center_rep_z) as f32;
     sprite.scale_x = scale_x as f32 / 1000.0;
     sprite.scale_y = scale_y as f32 / 1000.0;
     sprite.tr = tr.clamp(0, 255) as u8;
@@ -4686,6 +4965,9 @@ fn object_button_effective_gfx_hit(
         let dummy = ObjectRenderInfo::default();
         apply_parent_render_state_to_sprite(&mut sprite, &dummy, &parent);
     }
+    sprite.x = (sprite.x as i64 + center_rep_x).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    sprite.y = (sprite.y as i64 + center_rep_y).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    sprite.z += center_rep_z as f32;
 
     if !hit_test_render_sprite(images, &sprite, mx, my, obj.button.alpha_test) {
         return None;
@@ -4761,11 +5043,7 @@ fn fetch_bound_render_sprites_for_hit(
         if sprite.image_id.is_none() {
             return;
         }
-        out.push(RenderSprite {
-            layer_id: Some(lid),
-            sprite_id: Some(sid),
-            sprite: sprite.clone(),
-        });
+        out.push(RenderSprite::new(Some(lid), Some(sid), sprite.clone()));
     }
     let mut out = Vec::new();
     match &obj.backend {
@@ -4980,6 +5258,14 @@ fn apply_button_object_render_info_to_sprite(sprite: &mut Sprite, info: &ButtonO
     sprite.dst_clip = info.dst_clip;
 }
 
+fn finalize_button_object_center_rep_to_sprite(sprite: &mut Sprite, info: &ButtonObjectRenderInfo) {
+    let x = (sprite.x as i64 + info.center_rep_x).clamp(i32::MIN as i64, i32::MAX as i64);
+    let y = (sprite.y as i64 + info.center_rep_y).clamp(i32::MIN as i64, i32::MAX as i64);
+    sprite.x = x as i32;
+    sprite.y = y as i32;
+    sprite.z += info.center_rep_z as f32;
+}
+
 fn object_button_hit_sort_key_from_render(
     images: &mut ImageManager,
     layers: &LayerManager,
@@ -5008,6 +5294,7 @@ fn object_button_hit_sort_key_from_render(
             let dummy = ObjectRenderInfo::default();
             apply_parent_render_state_to_sprite(&mut rs.sprite, &dummy, &parent);
         }
+        finalize_button_object_center_rep_to_sprite(&mut rs.sprite, &info);
         if hit_test_render_sprite(images, &rs.sprite, mx, my, obj.button.alpha_test) {
             return Some(object_button_sort_key(
                 ids,
@@ -6380,6 +6667,7 @@ fn sync_movie_object_recursive(
                         let render_info =
                             button_object_render_info(ids, gfx, stage_idx, obj_idx as usize, obj);
                         apply_button_object_render_info_to_sprite(sprite, &render_info);
+                        finalize_button_object_center_rep_to_sprite(sprite, &render_info);
                         if ids.obj_alpha != 0 {
                             sprite.alpha = obj
                                 .lookup_int_prop(ids, ids.obj_alpha)
@@ -7109,11 +7397,7 @@ fn fetch_bound_render_sprites_impl(
         if sprite.image_id.is_none() {
             return;
         }
-        out.push(RenderSprite {
-            layer_id: Some(lid),
-            sprite_id: Some(sid),
-            sprite: sprite.clone(),
-        });
+        out.push(RenderSprite::new(Some(lid), Some(sid), sprite.clone()));
     }
 
     let mut out = Vec::new();
@@ -7527,7 +7811,7 @@ fn append_object_tree_sprites(
             globals::ObjectBackend::None => None,
         };
         debug_lines.push(format!(
-            "[SG_DEBUG]     obj[{obj_idx}] slot={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) order={} layer={} alpha={} tr={} z={} child_sort={} wipe_copy={} wipe_erase={} bind={:?}",
+            "[SG_DEBUG]     obj[{obj_idx}] slot={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) center=({}, {}, {}) center_rep=({}, {}, {}) final_pos=({}, {}, {}) order={} layer={} alpha={} tr={} z={} child_sort={} wipe_copy={} wipe_erase={} bind={:?}",
             info.runtime_slot,
             obj.used,
             obj.object_type,
@@ -7536,6 +7820,15 @@ fn append_object_tree_sprites(
             info.disp,
             info.x,
             info.y,
+            info.center_x,
+            info.center_y,
+            info.center_z,
+            info.center_rep_x,
+            info.center_rep_y,
+            info.center_rep_z,
+            info.x + info.x_rep + info.center_rep_x,
+            info.y + info.y_rep + info.center_rep_y,
+            info.z + info.z_rep + info.center_rep_z,
             info.order,
             info.layer,
             info.alpha,
@@ -7550,10 +7843,11 @@ fn append_object_tree_sprites(
 
     if debug_enabled && obj.button.enabled {
         debug_lines.push(format!(
-            "[SG_DEBUG]       button enabled=true no={} group_no={} group_idx={:?} action={} se={} state={} hit={} pushed={} alpha_test={} call={}::{}/{}",
+            "[SG_DEBUG]       button enabled=true no={} group_no={} group_idx={:?} cut={} action={} se={} state={} hit={} pushed={} alpha_test={} call={}::{}/{}",
             obj.button.button_no,
             obj.button.group_no,
             obj.button.group_idx(),
+            obj.button.cut_no,
             obj.button.action_no,
             obj.button.se_no,
             obj.button.state,
@@ -7672,21 +7966,20 @@ fn append_object_tree_sprites(
                 if let Some(parent) = parent_state {
                     apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &parent);
                 }
+                finalize_object_center_rep_to_sprite(&mut rs.sprite, &info);
                 apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
                 apply_runtime_light_and_fog(ctx, &mut rs.sprite);
             }
         } else {
             for mut rs in bound.drain(..) {
                 apply_object_render_info_to_sprite(&mut rs.sprite, &info);
-                rs.sprite.order = total_order
-                    .clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024)
-                    .saturating_mul(1024)
-                    .saturating_add(total_layer.clamp(-1023, 1023))
-                    as i32;
+                rs.set_sorter(total_order, total_layer);
+                rs.sprite.order = legacy_packed_sorter_key(total_order, total_layer);
                 configure_sprite_3d(&mut rs.sprite, &info, worlds, ctx.screen_w, ctx.screen_h);
                 if let Some(parent) = parent_state {
                     apply_parent_render_state_to_sprite(&mut rs.sprite, &info, &parent);
                 }
+                finalize_object_center_rep_to_sprite(&mut rs.sprite, &info);
                 apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
                 apply_runtime_light_and_fog(ctx, &mut rs.sprite);
                 if rs.sprite.tr > 0 {
@@ -7735,7 +8028,7 @@ fn append_object_tree_sprites(
                 globals::ObjectBackend::None => None,
             };
             debug_lines.push(format!(
-                "[SG_DEBUG][MWND_OBJECT_TRACE]       child parent_slot={} parent_obj_idx={} child[{}] slot={} participates={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) order={} layer={} alpha={} tr={} nested_slot={:?} bind={:?} grandchildren={}",
+                "[SG_DEBUG][MWND_OBJECT_TRACE]       child parent_slot={} parent_obj_idx={} child[{}] slot={} participates={} used={} type={} backend={:?} file={} disp={} pos=({}, {}) center=({}, {}, {}) center_rep=({}, {}, {}) final_pos=({}, {}, {}) order={} layer={} alpha={} tr={} nested_slot={:?} bind={:?} grandchildren={}",
                 info.runtime_slot,
                 obj_idx,
                 child_idx,
@@ -7748,6 +8041,15 @@ fn append_object_tree_sprites(
                 child_info.disp,
                 child_info.x,
                 child_info.y,
+                child_info.center_x,
+                child_info.center_y,
+                child_info.center_z,
+                child_info.center_rep_x,
+                child_info.center_rep_y,
+                child_info.center_rep_z,
+                child_info.x + child_info.x_rep + child_info.center_rep_x,
+                child_info.y + child_info.y_rep + child_info.center_rep_y,
+                child_info.z + child_info.z_rep + child_info.center_rep_z,
                 child_info.order,
                 child_info.layer,
                 child_info.alpha,
@@ -7919,10 +8221,8 @@ fn append_weather_sprites(
         rs.sprite.y = y.round() as i32;
         rs.sprite.scale_x *= scale_x * zoom;
         rs.sprite.scale_y *= scale_y * zoom;
-        rs.sprite.order = total_order
-            .clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024)
-            .saturating_mul(1024)
-            .saturating_add(total_layer.clamp(-1023, 1023)) as i32;
+        rs.set_sorter(total_order, total_layer);
+        rs.sprite.order = legacy_packed_sorter_key(total_order, total_layer);
         if wp.active_time > 0 {
             let life = (frame + phase * wp.active_time as f32).rem_euclid(wp.active_time as f32)
                 / wp.active_time as f32;
@@ -7973,6 +8273,14 @@ fn apply_object_render_info_to_sprite(sprite: &mut Sprite, info: &ObjectRenderIn
     sprite.color_b = info.color_b.clamp(0, 255) as u8;
     sprite.blend = info.blend;
     sprite.dst_clip = info.dst_clip;
+}
+
+fn finalize_object_center_rep_to_sprite(sprite: &mut Sprite, info: &ObjectRenderInfo) {
+    let x = (sprite.x as i64 + info.center_rep_x).clamp(i32::MIN as i64, i32::MAX as i64);
+    let y = (sprite.y as i64 + info.center_rep_y).clamp(i32::MIN as i64, i32::MAX as i64);
+    sprite.x = x as i32;
+    sprite.y = y as i32;
+    sprite.z += info.center_rep_z as f32;
 }
 
 fn object_participates_in_tree(obj: &globals::ObjectState) -> bool {
@@ -8026,7 +8334,14 @@ fn mwnd_parent_render_state_at(
     window_y: i64,
 ) -> ParentRenderState {
     ParentRenderState {
-        world_no: m.world,
+        // C++ C_elm_mwnd::frame builds the MWND render parent from a fresh
+        // S_tnm_render_param and never assigns p_world before passing it to
+        // C_elm_mwnd_waku::frame.  Waku buttons therefore remain 2D UI sprites
+        // even if the MWND form has a WORLD value.  Do not inherit m.world here:
+        // doing so routes message-window buttons through the 3D/depth path, which
+        // makes their textures appear in the renderer chain while the final frame
+        // can depth-test them away behind earlier quads.
+        world_no: -1,
         pos_x: window_x as f32,
         pos_y: window_y as f32,
         pos_z: 0.0,
@@ -8215,27 +8530,33 @@ fn append_mwnd_embedded_sprites(
     if !m.open && ui_state.is_none() {
         return;
     }
-    // UI MWND sprites share one parent sorter band. In the original object tree,
-    // WAKU/FILTER are emitted first and the MWND-owned button/face/object children
-    // follow in the same parent tree instead of falling back below the window frame.
-    const MWND_UI_ORDER_SCALE: i64 = 976;
-    const MWND_UI_AFTER_FILTER_LAYER: i64 = 581;
     let mwnd_order_source = if m.order <= 0 {
         ctx.tables.mwnd_render.order.max(1)
     } else {
         m.order
     };
-    let mwnd_order = mwnd_order_source.saturating_mul(MWND_UI_ORDER_SCALE);
-    let embedded_parent_layer = MWND_UI_AFTER_FILTER_LAYER;
+    let mwnd_order = mwnd_order_source;
+    let mwnd_layer = m.layer;
     let anim_parent = ui_state.map(|ui| mwnd_anim_parent_from_ui_state(m, ui));
     for (button_idx, obj) in m.button_list.iter().enumerate() {
         if !object_participates_in_tree(obj) {
             continue;
         }
-        let parent = apply_mwnd_window_anim_parent(
-            mwnd_button_parent_render_state(m, button_idx, window_x, window_y, window_w, window_h),
-            anim_parent,
-        );
+        let local_parent =
+            mwnd_button_parent_render_state(m, button_idx, window_x, window_y, window_w, window_h);
+        let parent = apply_mwnd_window_anim_parent(local_parent, anim_parent);
+        if sg_render_tree_debug_enabled() {
+            debug.push(format!(
+                "[SG_DEBUG]       mwnd_button_parent[{}] file={} pos=({}, {}) local_base={:?} order={} layer={}",
+                button_idx,
+                obj.file_name.as_deref().unwrap_or("-"),
+                parent.pos_x,
+                parent.pos_y,
+                m.waku_button_layout.get(button_idx),
+                mwnd_order,
+                mwnd_layer.saturating_add(ctx.tables.mwnd_render.waku_layer_rep),
+            ));
+        }
         append_object_tree_sprites(
             ctx,
             worlds,
@@ -8244,7 +8565,7 @@ fn append_mwnd_embedded_sprites(
             obj,
             true,
             mwnd_order,
-            embedded_parent_layer,
+            mwnd_layer.saturating_add(ctx.tables.mwnd_render.waku_layer_rep),
             Some(parent),
             out,
             object_keys,
@@ -8267,7 +8588,7 @@ fn append_mwnd_embedded_sprites(
             obj,
             true,
             mwnd_order,
-            embedded_parent_layer,
+            mwnd_layer.saturating_add(ctx.tables.mwnd_render.face_layer_rep),
             Some(parent),
             out,
             object_keys,
@@ -8285,11 +8606,81 @@ fn append_mwnd_embedded_sprites(
         &m.object_list,
         parent,
         mwnd_order,
-        embedded_parent_layer,
+        mwnd_layer,
         out,
         object_keys,
         debug,
     );
+}
+
+fn mwnd_sort_base(
+    ctx: &CommandContext,
+    m: &globals::MwndState,
+) -> (i64, i64) {
+    let order = if m.order <= 0 {
+        ctx.tables.mwnd_render.order.max(1)
+    } else {
+        m.order
+    };
+    (order, m.layer)
+}
+
+fn selected_mwnd_sort_base(ctx: &CommandContext) -> Option<(i64, i64)> {
+    if let Some((focused_form, focused_stage, focused_idx)) = ctx.globals.focused_stage_mwnd {
+        if let Some(m) = ctx
+            .globals
+            .stage_forms
+            .get(&focused_form)
+            .and_then(|st| st.mwnd_lists.get(&focused_stage))
+            .and_then(|list| list.get(focused_idx))
+            .filter(|m| m.open)
+        {
+            return Some(mwnd_sort_base(ctx, m));
+        }
+    }
+
+    let mut form_ids: Vec<u32> = ctx.globals.stage_forms.keys().copied().collect();
+    form_ids.sort_unstable();
+    for form_id in form_ids {
+        let Some(st) = ctx.globals.stage_forms.get(&form_id) else {
+            continue;
+        };
+        let mut stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
+        stage_ids.sort_unstable();
+        for stage_idx in stage_ids {
+            let Some(list) = st.mwnd_lists.get(&stage_idx) else {
+                continue;
+            };
+            for m in list {
+                if m.open {
+                    return Some(mwnd_sort_base(ctx, m));
+                }
+            }
+        }
+    }
+    None
+}
+
+fn normalize_mwnd_ui_sprite_sorter(ctx: &CommandContext, order: i32) -> (i32, i32) {
+    let Some((mwnd_order, mwnd_layer)) = selected_mwnd_sort_base(ctx) else {
+        return unpack_legacy_sorter_key(order);
+    };
+    let layer = match order {
+        // UiRuntime stores C++ MWND-owned sprites with sentinel orders. Translate
+        // those sentinels back to C_elm_mwnd_waku/C_elm_mwnd_moji sorter layers.
+        1_000_000 => mwnd_layer.saturating_add(ctx.tables.mwnd_render.waku_layer_rep),
+        1_000_005 => mwnd_layer.saturating_add(ctx.tables.mwnd_render.filter_layer_rep),
+        1_000_008 => mwnd_layer.saturating_add(ctx.tables.mwnd_render.face_layer_rep),
+        1_000_010 | 1_000_020 => {
+            mwnd_layer.saturating_add(ctx.tables.mwnd_render.moji_layer_rep)
+        }
+        1_000_030 => mwnd_layer.saturating_add(ctx.tables.mwnd_render.waku_layer_rep),
+        _ => return unpack_legacy_sorter_key(order),
+    };
+    (
+        mwnd_order.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+        layer.clamp(i32::MIN as i64, i32::MAX as i64) as i32,
+    )
 }
 
 const TNM_STAGE_FRONT_I64: i64 = 1;
@@ -8586,25 +8977,33 @@ fn build_siglus_object_render_list(
     }
 
     let rest_len = rest.len();
-    let mut ordered: Vec<(i32, usize, RenderSprite)> =
+    let mut ordered: Vec<(i32, i32, usize, RenderSprite)> =
         Vec::with_capacity(rest.len() + object_list.len());
-    for (idx, rs) in rest.into_iter().enumerate() {
+    for (idx, mut rs) in rest.into_iter().enumerate() {
         // LayerManager ids are storage handles. They are not Siglus script-layer
-        // values, so non-object sprites must keep the order already assigned by
-        // their producer instead of deriving a new key from the backing layer id.
-        ordered.push((rs.sprite.order, idx, rs));
+        // values. For MWND UI-runtime sprites, translate the sentinel order into
+        // the same C++ S_tnm_sorter(order, layer) pair that C_elm_mwnd_waku uses.
+        let (order, layer) = normalize_mwnd_ui_sprite_sorter(ctx, rs.sprite.order);
+        rs.set_sorter(order as i64, layer as i64);
+        rs.sprite.order = legacy_packed_sorter_key(order as i64, layer as i64);
+        ordered.push((order, layer, idx, rs));
     }
     for (idx, rs) in object_list.into_iter().enumerate() {
-        // Object tree sprites already store the original C++ S_tnm_sorter
-        // (order, layer) as order*1024 + layer.  Do not mix in the backing
-        // LayerManager id here; it is only a storage handle, not the script layer.
-        ordered.push((rs.sprite.order, rest_len.saturating_add(idx), rs));
+        // Object tree sprites carry the original C++ S_tnm_sorter(order, layer)
+        // separately from the backend layer id. Do not derive ordering from
+        // LayerManager; it is only storage.
+        ordered.push((
+            rs.sorter_order,
+            rs.sorter_layer,
+            rest_len.saturating_add(idx),
+            rs,
+        ));
     }
-    ordered.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
+    ordered.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then(a.2.cmp(&b.2)));
 
     let mut final_list = Vec::with_capacity(bg.len() + ordered.len());
     final_list.extend(bg);
-    final_list.extend(ordered.into_iter().map(|(_, _, rs)| rs));
+    final_list.extend(ordered.into_iter().map(|(_, _, _, rs)| rs));
     (final_list, debug)
 }
 
@@ -8787,6 +9186,7 @@ fn collect_button_visuals_recursive(
                 action_no: obj.button.action_no,
                 file_name: obj.file_name.clone(),
                 base_patno,
+                cut_no: obj.button.cut_no,
             });
         }
     }
@@ -8875,11 +9275,22 @@ fn apply_button_state_visual(
 ) {
     let pat = button_action_pattern(tables, visual.action_no, visual.state);
 
-    if pat.rep_pat_no != 0 {
-        if let Some(file_name) = visual.file_name.as_deref().filter(|s| !s.is_empty()) {
-            let patno = visual.base_patno.saturating_add(pat.rep_pat_no).max(0) as u32;
-            if let Ok(image_id) = images.load_g00(file_name, patno) {
-                sprite.image_id = Some(image_id);
+    if let Some(file_name) = visual.file_name.as_deref().filter(|s| !s.is_empty()) {
+        let patno = visual
+            .base_patno
+            .saturating_add(visual.cut_no)
+            .saturating_add(pat.rep_pat_no)
+            .max(0) as u32;
+        if let Ok(image_id) = images.load_g00(file_name, patno) {
+            sprite.image_id = Some(image_id);
+            if let Some(img) = images.get(image_id) {
+                sprite.object_anchor = true;
+                sprite.texture_center_x = img.center_x as f32;
+                sprite.texture_center_y = img.center_y as f32;
+            } else {
+                sprite.object_anchor = false;
+                sprite.texture_center_x = 0.0;
+                sprite.texture_center_y = 0.0;
             }
         }
     }
@@ -8890,26 +9301,31 @@ fn apply_button_state_visual(
     sprite.dark = (sprite.dark as i64 + pat.rep_dark).clamp(0, 255) as u8;
 }
 
-fn sprite_sorter_order(sprite_order_key: i32) -> i32 {
-    if sprite_order_key.abs() >= 1024 {
-        sprite_order_key.div_euclid(1024)
+fn unpack_legacy_sorter_key(order: i32) -> (i32, i32) {
+    if order.abs() >= 1024 {
+        (order.div_euclid(1024), order.rem_euclid(1024))
     } else {
-        0
+        (0, order)
     }
 }
 
-fn sorter_key(order: i32, layer: i32) -> i64 {
-    (order as i64)
+fn legacy_packed_sorter_key(order: i64, layer: i64) -> i32 {
+    order
+        .clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024)
         .saturating_mul(1024)
-        .saturating_add(layer.clamp(-1023, 1023) as i64)
+        .saturating_add(layer.clamp(-1023, 1023)) as i32
 }
 
-fn sprite_sorter_key(rs: &RenderSprite) -> i64 {
-    rs.sprite.order as i64
+fn sorter_key(order: i32, layer: i32) -> (i32, i32) {
+    (order, layer)
+}
+
+fn sprite_sorter_key(rs: &RenderSprite) -> (i32, i32) {
+    (rs.sorter_order, rs.sorter_layer)
 }
 
 fn quake_order_affects_sprite(quake: &globals::ScreenQuakeState, rs: &RenderSprite) -> bool {
-    let order = sprite_sorter_order(rs.sprite.order);
+    let order = rs.sorter_order;
     let (lo, hi) = if quake.begin_order <= quake.end_order {
         (quake.begin_order, quake.end_order)
     } else {
@@ -9215,10 +9631,10 @@ enum WipePartition {
 }
 
 fn render_sprite_sorter(rs: &RenderSprite) -> (i32, i32) {
-    // Object-tree sprites store the C++ S_tnm_sorter as order * 1024 + layer.
-    // LayerId/SpriteId are only backend storage handles and must not be used for wipe ranges.
-    let packed = rs.sprite.order;
-    (packed / 1024, packed % 1024)
+    // LayerId/SpriteId are backend storage handles and must not be used for
+    // Siglus wipe/effect ranges. Use the C++ S_tnm_sorter pair carried by the
+    // submitted render sprite.
+    (rs.sorter_order, rs.sorter_layer)
 }
 
 fn classify_wipe_partition(
@@ -9809,11 +10225,7 @@ fn build_dual_source_wipe_list(
 
     let mut out = Vec::with_capacity(under.len() + 1 + over.len());
     out.extend(under);
-    out.push(RenderSprite {
-        layer_id: None,
-        sprite_id: None,
-        sprite: comp,
-    });
+    out.push(RenderSprite::new(None, None, comp));
     out.extend(over);
     Some(out)
 }
@@ -10208,11 +10620,7 @@ fn apply_syscom_filter(ctx: &CommandContext, sprites: &mut Vec<RenderSprite>) {
     s.color_g = g;
     s.color_b = b;
     s.order = i32::MAX;
-    sprites.push(RenderSprite {
-        layer_id: None,
-        sprite_id: None,
-        sprite: s,
-    });
+    sprites.push(RenderSprite::new(None, None, s));
 }
 
 fn resolve_mask_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {

@@ -2712,6 +2712,16 @@ name = "siglus_cfx_decompiler"
 version = "0.1.0"
 
 [[package]]
+name = "siglus_g00_extract"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "image",
+ "siglus_scene_vm",
+]
+
+[[package]]
 name = "siglus_gameexe_ini"
 version = "0.1.0"
 dependencies = [
@@ -2746,7 +2756,9 @@ dependencies = [
  "kira",
  "log",
  "na_mpeg2_decoder",
+ "ndk-context",
  "pollster",
+ "raw-window-handle 0.6.2",
  "shion-xfile",
  "siglus_assets",
  "siglus_omv_decoder",

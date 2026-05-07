@@ -79,6 +79,8 @@ impl ToneCurveRuntime {
         let id = images.insert_image(RgbaImage {
             width: 256,
             height: 256,
+            center_x: 0,
+            center_y: 0,
             rgba,
         });
         self.lut_image_id = Some(id);

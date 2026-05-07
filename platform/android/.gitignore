@@ -1,0 +1,17 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android Studio
+.idea/
+*.iml
+local.properties
+captures/
+
+# Native build intermediates (CMake/NDK)
+app/.cxx/
+app/.externalNativeBuild/
+
+# Rust outputs placed by the build script
+app/src/main/jniLibs/

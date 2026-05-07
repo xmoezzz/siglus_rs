@@ -131,6 +131,7 @@ struct CallFrame {
     excall_proc: bool,
     frame_action_proc: bool,
     arg_cnt: usize,
+    delayed_ret_form: Option<i32>,
     user_props: Vec<CallProp>,
     int_args: Vec<i32>,
     str_args: Vec<String>,
@@ -308,6 +309,7 @@ impl<'a> SceneVm<'a> {
             excall_proc,
             frame_action_proc,
             arg_cnt,
+            delayed_ret_form: None,
             user_props: Vec::new(),
             int_args,
             str_args,
@@ -361,6 +363,7 @@ impl<'a> SceneVm<'a> {
             excall_proc: false,
             frame_action_proc: false,
             arg_cnt: 0,
+            delayed_ret_form: None,
             user_props: Vec::new(),
             int_args: Self::blank_call_int_args(),
             str_args: Self::blank_call_str_args(),
@@ -405,6 +408,7 @@ impl<'a> SceneVm<'a> {
             excall_proc: false,
             frame_action_proc: false,
             arg_cnt: 0,
+            delayed_ret_form: None,
             user_props: Vec::new(),
             int_args: Self::blank_call_int_args(),
             str_args: Self::blank_call_str_args(),
@@ -635,6 +639,10 @@ impl<'a> SceneVm<'a> {
                 && op_id == crate::runtime::forms::codes::elm_value::GLOBAL_FARCALL)
         {
             Some("GLOBAL.FARCALL")
+        } else if (form_id as u32 == constants::global_form::SYSCOM || form_id == constants::fm::SYSCOM)
+            && op_id == crate::runtime::forms::codes::elm_value::SYSCOM_CALL_EX
+        {
+            Some("SYSCOM.CALL_EX")
         } else if form_id as u32 == constants::global_form::MOV || form_id == constants::fm::MOV {
             Some("MOV")
         } else if form_id == constants::fm::OBJECT
@@ -2301,6 +2309,14 @@ impl<'a> SceneVm<'a> {
                 "[SG_TICK_TRACE] frame_action_time_stop_flag set; executing callbacks with frozen frame-action time"
             );
         }
+
+        // C++ C_tnm_eng::frame() advances element time before frame_action_proc().
+        // FRAME_ACTION callbacks read the already advanced counter value, then
+        // C_elm_frame_action::frame() performs the end check later in the same
+        // frame.  Keep the same order here; otherwise callbacks such as the MWND
+        // rotating circle animation repeatedly observe the previous count.
+        self.ctx.tick_frame();
+
         let mut work: Vec<FrameActionWork> = Vec::new();
         let mut global_form_ids: Vec<u32> =
             self.ctx.globals.frame_actions.keys().copied().collect();
@@ -2541,10 +2557,9 @@ impl<'a> SceneVm<'a> {
                 self.end_frame_action_finish(&item);
             }
         }
-        self.ctx.tick_frame();
         if trace {
             eprintln!(
-                "[SG_TICK_TRACE] after ctx.tick_frame blocked={} halted={}",
+                "[SG_TICK_TRACE] after frame-action callbacks blocked={} halted={}",
                 self.is_blocked(),
                 self.halted
             );
@@ -2706,9 +2721,23 @@ impl<'a> SceneVm<'a> {
             }
         }
 
-        // If the previous command yielded a delayed return (movie wait-key), materialize it now.
-        if let Some(rf) = self.delayed_ret_form.take() {
-            self.take_ctx_return(rf)?;
+        // If the main script yielded a delayed return, materialize it only when
+        // the normal script pump resumes. Frame-action callbacks intentionally
+        // bypass the outer wait guard, so letting them take this value would
+        // resume the blocked statement before the C++ wait proc has produced
+        // its return value.
+        if respect_wait {
+            let delayed = self
+                .call_stack
+                .last_mut()
+                .and_then(|frame| frame.delayed_ret_form.take());
+            if let Some(rf) = delayed {
+                if self.ctx.stack.is_empty() {
+                    self.push_default_for_ret(rf);
+                } else {
+                    self.take_ctx_return(rf)?;
+                }
+            }
         }
 
         if self.cfg.max_steps > 0 && self.steps >= self.cfg.max_steps {
@@ -3161,7 +3190,15 @@ impl<'a> SceneVm<'a> {
             }
             None => {
                 self.vm_trace(None, "pop_int underflow");
-                Err(anyhow!("int stack underflow"))
+                Err(anyhow!(
+                    "int stack underflow: scene={} scene_no={} line={} pc=0x{:x}",
+                    self.current_scene_name.as_deref().unwrap_or("<none>"),
+                    self.current_scene_no
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    self.current_line_no,
+                    self.stream.get_prg_cntr()
+                ))
             }
         }
     }
@@ -3712,6 +3749,38 @@ impl<'a> SceneVm<'a> {
         if element.is_empty() {
             return None;
         }
+        element.extend_from_slice(sub);
+        Some(element)
+    }
+
+    fn compose_user_prop_tail(
+        &self,
+        prop_id: u16,
+        cell: &UserPropCell,
+        sub: &[i32],
+    ) -> Option<Vec<i32>> {
+        if sub.is_empty() || self.is_direct_value_form(cell.form) {
+            return None;
+        }
+        if let Some((idx, rest)) = self.consume_array_sub(sub) {
+            let slot = cell.list_items.get(idx)?;
+            let default_slot = self.default_user_prop_slot_element(prop_id, idx);
+            if slot.element.is_empty() || slot.element == default_slot {
+                return None;
+            }
+            if rest.is_empty() || self.is_direct_value_form(slot.form) {
+                return Some(slot.element.clone());
+            }
+            let mut element = slot.element.clone();
+            element.extend_from_slice(rest);
+            return Some(element);
+        }
+
+        let default_root = self.default_user_prop_element(prop_id, cell.form);
+        if cell.element.is_empty() || cell.element == default_root {
+            return None;
+        }
+        let mut element = cell.element.clone();
         element.extend_from_slice(sub);
         Some(element)
     }
@@ -4763,14 +4832,6 @@ impl<'a> SceneVm<'a> {
                 self.ctx.globals.current_stage_object
             ));
         }
-        self.update_compact_context_from_element(&slice);
-        if Self::sg_mwnd_object_trace_enabled() && Self::sg_mwnd_chain_interesting(&slice) {
-            self.sg_mwnd_object_trace(format!(
-                "COPY_ELM after_current_chain={:?} after_current_stage_object={:?}",
-                self.ctx.globals.current_object_chain,
-                self.ctx.globals.current_stage_object
-            ));
-        }
         self.element_points.push(self.int_stack.len());
         self.int_stack.extend_from_slice(&slice);
         self.vm_trace(None, format!("COPY_ELM copied {:?}", slice));
@@ -5307,12 +5368,15 @@ impl<'a> SceneVm<'a> {
     fn compact_object_op_allowed_for_element(
         &self,
         elm: &[i32],
-        _allow_ambiguous_single_token_object_op: bool,
+        allow_ambiguous_single_token_object_op: bool,
     ) -> bool {
-        elm.first()
-            .copied()
-            .map(|op| self.compact_object_op_allowed(op))
-            .unwrap_or(false)
+        let Some(op) = elm.first().copied() else {
+            return false;
+        };
+        if elm.len() == 1 && !allow_ambiguous_single_token_object_op {
+            return false;
+        }
+        self.compact_object_op_allowed(op)
     }
 
     fn current_object_has_child_index(&self, child_idx: i32) -> bool {
@@ -5355,64 +5419,50 @@ impl<'a> SceneVm<'a> {
             return None;
         }
 
-        let elm_array = self.ctx.ids.elm_array;
+        let elm_array = if self.ctx.ids.elm_array != 0 {
+            self.ctx.ids.elm_array
+        } else {
+            crate::runtime::forms::codes::ELM_ARRAY
+        };
         let stage_object = if self.ctx.ids.stage_elm_object != 0 {
             self.ctx.ids.stage_elm_object
         } else {
             crate::runtime::forms::codes::STAGE_ELM_OBJECT
         };
 
-        let looks_like_full_stage_object =
-            elm.len() >= 4 && elm[1] == elm_array && elm[3] == stage_object;
         let looks_like_absolute_stage_alias_object = elm.len() >= 4
             && constants::is_stage_global_form(elm[0] as u32, self.ctx.ids.form_global_stage)
             && elm[1] == stage_object
-            && elm[2] == elm_array;
-        let looks_like_current_object_child = elm.len() >= 2
-            && elm[1] == elm_array
-            && elm[0] >= 0
-            && (elm.len() == 2
-                || self.compact_object_op_allowed(elm[2])
-                || elm[2] == elm_array
-                || elm[2] == crate::runtime::forms::codes::ELM_ARRAY);
+            && (elm[2] == elm_array || elm[2] == crate::runtime::forms::codes::ELM_ARRAY);
 
         if looks_like_absolute_stage_alias_object {
             return None;
         }
 
-        if !looks_like_full_stage_object {
-            if let Some(prefix) = &self.ctx.globals.current_object_chain {
-                if looks_like_current_object_child && self.is_current_object_child_tail(elm) {
-                    let mut synthetic = prefix.clone();
-                    synthetic.push(crate::runtime::forms::codes::elm_value::OBJECT_CHILD);
-                    synthetic.push(elm_array);
-                    synthetic.push(elm[0]);
-                    if elm.len() > 2 {
-                        if elm[2] == crate::runtime::forms::codes::elm_value::OBJECT_CHILD {
-                            synthetic.extend_from_slice(&elm[3..]);
-                        } else {
-                            synthetic.extend_from_slice(&elm[2..]);
-                        }
-                    }
-                    if Self::sg_mwnd_object_trace_enabled()
-                        && (Self::sg_mwnd_chain_interesting(elm) || Self::sg_mwnd_chain_interesting(&synthetic))
-                    {
-                        eprintln!(
-                            "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact child-shorthand elm={:?} prefix={:?} synthetic={:?}",
-                            elm,
-                            prefix,
-                            synthetic
-                        );
-                    }
-                    return Some(synthetic);
-                }
+        // Original command dispatch receives the complete element chain.  The
+        // only compact form we keep for an ambient object context is the
+        // explicit child shorthand used after an already-resolved OBJECT.  Do
+        // not append arbitrary OBJECT op ids to current_object_chain here:
+        // many unrelated forms share the same numeric element values.
+        if let Some(prefix) = &self.ctx.globals.current_object_chain {
+            if self.is_current_object_child_tail(elm) && self.current_object_has_child_index(elm[0]) {
                 let mut synthetic = prefix.clone();
-                synthetic.extend_from_slice(elm);
+                synthetic.push(crate::runtime::forms::codes::elm_value::OBJECT_CHILD);
+                synthetic.push(elm_array);
+                synthetic.push(elm[0]);
+                if elm.len() > 2 {
+                    if elm[2] == crate::runtime::forms::codes::elm_value::OBJECT_CHILD {
+                        synthetic.extend_from_slice(&elm[3..]);
+                    } else {
+                        synthetic.extend_from_slice(&elm[2..]);
+                    }
+                }
                 if Self::sg_mwnd_object_trace_enabled()
-                    && (Self::sg_mwnd_chain_interesting(elm) || Self::sg_mwnd_chain_interesting(&synthetic))
+                    && (Self::sg_mwnd_chain_interesting(elm)
+                        || Self::sg_mwnd_chain_interesting(&synthetic))
                 {
                     eprintln!(
-                        "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact prefix-append elm={:?} prefix={:?} synthetic={:?}",
+                        "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact child-shorthand elm={:?} prefix={:?} synthetic={:?}",
                         elm,
                         prefix,
                         synthetic
@@ -5422,39 +5472,38 @@ impl<'a> SceneVm<'a> {
             }
         }
 
-        if elm.len() < 3 || elm[2] != elm_array || elm[1] < 0 {
-            return None;
-        }
-
-        let stage_idx = elm[1];
-        if !(0..3).contains(&stage_idx) {
-            return None;
-        }
-        let stage_form = if self.ctx.ids.form_global_stage != 0 {
-            self.ctx.ids.form_global_stage as i32
-        } else {
-            crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32
-        };
-
-        if elm.len() >= 4 {
-            let obj_idx = elm[3];
-            if obj_idx < 0 {
+        // Explicit compact absolute form: [object_op, stage_no, ARRAY, obj_no, ...]
+        // This still carries both the stage and object index, so it is not an
+        // ambient-context guess.
+        if elm.len() >= 4
+            && elm[1] >= 0
+            && (elm[2] == elm_array || elm[2] == crate::runtime::forms::codes::ELM_ARRAY)
+            && elm[3] >= 0
+        {
+            let stage_idx = elm[1];
+            if !(0..3).contains(&stage_idx) {
                 return None;
             }
+            let stage_form = if self.ctx.ids.form_global_stage != 0 {
+                self.ctx.ids.form_global_stage as i32
+            } else {
+                crate::runtime::forms::codes::FORM_GLOBAL_STAGE as i32
+            };
             let mut synthetic = vec![
                 stage_form,
                 elm_array,
                 stage_idx,
                 stage_object,
                 elm_array,
-                obj_idx,
+                elm[3],
                 op,
             ];
             if elm.len() > 4 {
                 synthetic.extend_from_slice(&elm[4..]);
             }
             if Self::sg_mwnd_object_trace_enabled()
-                && (Self::sg_mwnd_chain_interesting(elm) || Self::sg_mwnd_chain_interesting(&synthetic))
+                && (Self::sg_mwnd_chain_interesting(elm)
+                    || Self::sg_mwnd_chain_interesting(&synthetic))
             {
                 eprintln!(
                     "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact absolute elm={:?} synthetic={:?}",
@@ -5463,39 +5512,6 @@ impl<'a> SceneVm<'a> {
                 );
             }
             return Some(synthetic);
-        }
-
-        if let Some(prefix) = &self.ctx.globals.current_object_chain {
-            if prefix.len() >= 3 && prefix[2] == stage_idx {
-                let mut synthetic = prefix.clone();
-                synthetic.push(op);
-                if Self::sg_mwnd_object_trace_enabled()
-                    && (Self::sg_mwnd_chain_interesting(elm) || Self::sg_mwnd_chain_interesting(&synthetic))
-                {
-                    eprintln!(
-                        "[SG_DEBUG][MWND_OBJECT_TRACE][VM] try_compact stage-op elm={:?} prefix={:?} synthetic={:?}",
-                        elm,
-                        prefix,
-                        synthetic
-                    );
-                }
-                return Some(synthetic);
-            }
-        }
-
-        if let Some((current_stage, current_obj)) = self.ctx.globals.current_stage_object {
-            if current_stage != stage_idx as i64 {
-                return None;
-            }
-            return Some(vec![
-                stage_form,
-                elm_array,
-                stage_idx,
-                stage_object,
-                elm_array,
-                current_obj as i32,
-                op,
-            ]);
         }
 
         None
@@ -5985,6 +6001,21 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
 
+        if owner == elm_code::ELM_OWNER_USER_PROP {
+            let prop_id = elm_code::code(raw_head);
+            let cell = self
+                .user_props
+                .get(&prop_id)
+                .cloned()
+                .unwrap_or_else(|| self.default_user_prop_cell(prop_id));
+            if let Some(composed) = self.compose_user_prop_tail(prop_id, &cell, &elm[1..]) {
+                self.exec_command(composed, al_id, ret_form, args)?;
+                return Ok(());
+            }
+            self.push_default_for_ret(ret_form);
+            return Ok(());
+        }
+
         match owner {
             o if o == elm_code::ELM_OWNER_FORM => {
                 // Suppress only the exact residual bare [GLOBAL.WIPE] command shape
@@ -6052,8 +6083,16 @@ impl<'a> SceneVm<'a> {
                     self.update_compact_context_from_object_dispatch_chain(&synthetic);
                     self.drain_pending_frame_action_finishes()?;
                     if ret_form != self.cfg.fm_void {
+                        if !self.ctx.stack.is_empty() {
+                            self.take_ctx_return(ret_form)?;
+                            return Ok(());
+                        }
                         if self.ctx.wait_poll() {
-                            self.delayed_ret_form = Some(ret_form);
+                            if let Some(frame) = self.call_stack.last_mut() {
+                                frame.delayed_ret_form = Some(ret_form);
+                            } else {
+                                self.delayed_ret_form = Some(ret_form);
+                            }
                             return Ok(());
                         }
                     }
@@ -6070,7 +6109,7 @@ impl<'a> SceneVm<'a> {
                     }
                     return Ok(());
                 }
-                if self.exec_builtin_scene_form(form_id, al_id, ret_form, args)? {
+                if self.exec_builtin_scene_form(&elm, form_id, al_id, ret_form, args)? {
                     return Ok(());
                 }
 
@@ -6162,8 +6201,16 @@ impl<'a> SceneVm<'a> {
         }
 
         if ret_form != self.cfg.fm_void {
+            if !self.ctx.stack.is_empty() {
+                self.take_ctx_return(ret_form)?;
+                return Ok(());
+            }
             if self.ctx.wait_poll() {
-                self.delayed_ret_form = Some(ret_form);
+                if let Some(frame) = self.call_stack.last_mut() {
+                    frame.delayed_ret_form = Some(ret_form);
+                } else {
+                    self.delayed_ret_form = Some(ret_form);
+                }
                 return Ok(());
             }
         }
@@ -6479,6 +6526,7 @@ impl<'a> SceneVm<'a> {
 
     fn exec_builtin_scene_form(
         &mut self,
+        elm: &[i32],
         form_id: i32,
         al_id: i32,
         ret_form: i32,
@@ -6486,6 +6534,29 @@ impl<'a> SceneVm<'a> {
     ) -> Result<bool> {
         const FORM_GLOBAL_JUMP: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_JUMP;
         const FORM_GLOBAL_FARCALL: i32 = crate::runtime::forms::codes::elm_value::GLOBAL_FARCALL;
+        const FORM_GLOBAL_SYSCOM: i32 = crate::runtime::forms::codes::FORM_GLOBAL_SYSCOM as i32;
+        const FORM_SYSCOM: i32 = crate::runtime::forms::codes::FM_SYSCOM;
+        const ELM_SYSCOM_CALL_EX: i32 = crate::runtime::forms::codes::elm_value::SYSCOM_CALL_EX;
+        if (form_id == FORM_GLOBAL_SYSCOM || form_id == FORM_SYSCOM)
+            && elm.get(1).copied() == Some(ELM_SYSCOM_CALL_EX)
+        {
+            self.sg_omv_trace_command("builtin", elm, form_id, ELM_SYSCOM_CALL_EX, al_id, self.cfg.fm_void, args);
+            let scene_name = args.get(0).and_then(|v| v.as_str()).unwrap_or("");
+            let z_no = if al_id == 1 {
+                args.get(1).and_then(|v| v.as_i64()).unwrap_or(0) as i32
+            } else {
+                0
+            };
+            let scratch_args = if al_id == 1 && args.len() > 2 {
+                &args[2..]
+            } else {
+                &[]
+            };
+            self.farcall_scene_name_ex(scene_name, z_no, self.cfg.fm_void, true, scratch_args)?;
+            self.ctx.request_proc_boundary(runtime::ProcKind::Script);
+            self.ctx.stack.clear();
+            return Ok(true);
+        }
         if form_id == FORM_GLOBAL_JUMP {
             self.sg_omv_trace_command("builtin", &[], form_id, form_id, al_id, ret_form, args);
             let scene_name = args.get(0).and_then(|v| v.as_str()).unwrap_or("");
@@ -6542,7 +6613,17 @@ impl<'a> SceneVm<'a> {
                     _ => bail!("non-int ctx return for form {}", ret_form),
                 },
                 Some(_) => bail!("non-int ctx return for form {}", ret_form),
-                None => bail!("missing ctx return int for form {}", ret_form),
+                None => bail!(
+                    "missing ctx return int for form {}: scene={} scene_no={} line={} pc=0x{:x} vm_call={:?}",
+                    ret_form,
+                    self.current_scene_name.as_deref().unwrap_or("<none>"),
+                    self.current_scene_no
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "-".to_string()),
+                    self.current_line_no,
+                    self.stream.get_prg_cntr(),
+                    self.ctx.vm_call
+                ),
             },
             f if f == self.cfg.fm_str => match v {
                 Some(Value::Str(s)) => self.push_str(s),

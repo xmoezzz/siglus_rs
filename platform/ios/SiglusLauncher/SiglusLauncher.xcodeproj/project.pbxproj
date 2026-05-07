@@ -1,0 +1,431 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		374E3EC811ECCC6EE7A7BA71 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F5FEB652AF657E2BD98BCB82 /* AudioToolbox.framework */; };
+		3B68F1673DF7459BE5C65EE0 /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 36606183C12B8614FA697DAE /* CoreVideo.framework */; };
+		95E53C1E1647815F2344FEF1 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4600CD7F010968D3D410DC61 /* QuartzCore.framework */; };
+		6A493F2D025FF4E64831493F /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4AA34E37AD7F43D0CC7DC82E /* CoreGraphics.framework */; };
+		A25B705F7BEE3D4C267CEF2D /* ZipImporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BE7C386CE440366362380D74 /* ZipImporter.swift */; };
+		114C29E270B7B993BFB7AA41 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5583B86FD0D0E612A02EBC2 /* ContentView.swift */; };
+		D067FBA8D490E09AB6A6197F /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 64AE95B5C276957B56FDF830 /* CoreMedia.framework */; };
+		E3EC90C67FF64BF20EDE96AB /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 8118D0CE0A86B8174743A288 /* Foundation.framework */; };
+		0861358782C1A94A5F57B1BD /* GameLibrary.swift in Sources */ = {isa = PBXBuildFile; fileRef = 91D4EF181438111CC9BDB2F4 /* GameLibrary.swift */; };
+		640D4F3FB0797DFCD717A5CD /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = FC8D7031AA56B6C1B045D379 /* AVFoundation.framework */; };
+		5E510E00D23CE4253940FCAC /* Siglus.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 528210D57740FE2EF78CE7BA /* Siglus.xcframework */; };
+		BD2BD7C11895F3879B93A2EC /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F56D7BEA0E66E2EAF39A7BD7 /* MetalKit.framework */; };
+		FE3EF932172DD286BC11FC6D /* SiglusPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 97AA8618FAB13A408A44EA75 /* SiglusPlayer.swift */; };
+		09509745D8AC775439863ADB /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 6D9E152D6C463A2E377FACCA /* LaunchScreen.storyboard */; };
+		95EF3C050B937C1CF3E06F3B /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 133C9D2190A1955087E6392B /* Assets.xcassets */; };
+		31A3E3EE0DA5772B00FA7593 /* SiglusLauncherApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA2819D8EBE6B0DDB942711 /* SiglusLauncherApp.swift */; };
+		AA76E70D972D2AB9C31EDBDF /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EB9BB2A4902F4A7EEE667EBA /* Metal.framework */; };
+		5326FD7C3F6C526A4EEC7893 /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 76B1B2B6FAF03C8C94DF3F4B /* VideoToolbox.framework */; };
+		720152CA2A9C44B9D41C8581 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 476801171A4E1D54C61B11DA /* UIKit.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		FC8D7031AA56B6C1B045D379 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
+		F56D7BEA0E66E2EAF39A7BD7 /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		A5F344CFB68A7FA4E8ECE38D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		76B1B2B6FAF03C8C94DF3F4B /* VideoToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = VideoToolbox.framework; path = System/Library/Frameworks/VideoToolbox.framework; sourceTree = SDKROOT; };
+		8118D0CE0A86B8174743A288 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		6D9E152D6C463A2E377FACCA /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		F5583B86FD0D0E612A02EBC2 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		EB9BB2A4902F4A7EEE667EBA /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		472EF780E080FBF63F45CD05 /* Siglus.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Siglus.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		91D4EF181438111CC9BDB2F4 /* GameLibrary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameLibrary.swift; sourceTree = "<group>"; };
+		4AA34E37AD7F43D0CC7DC82E /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
+		DF642ED249F1CA77444259B6 /* siglus.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = siglus.h; sourceTree = "<group>"; };
+		4600CD7F010968D3D410DC61 /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		BE7C386CE440366362380D74 /* ZipImporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ZipImporter.swift; sourceTree = "<group>"; };
+		133C9D2190A1955087E6392B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		97AA8618FAB13A408A44EA75 /* SiglusPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiglusPlayer.swift; sourceTree = "<group>"; };
+		476801171A4E1D54C61B11DA /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
+		AFA2819D8EBE6B0DDB942711 /* SiglusLauncherApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SiglusLauncherApp.swift; sourceTree = "<group>"; };
+		F5FEB652AF657E2BD98BCB82 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
+		64AE95B5C276957B56FDF830 /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
+		36606183C12B8614FA697DAE /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+		528210D57740FE2EF78CE7BA /* Siglus.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = Siglus.xcframework; path = Vendor/Siglus.xcframework; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		97F9577F8B53249DDA3F9243 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				720152CA2A9C44B9D41C8581 /* UIKit.framework in Frameworks */,
+				E3EC90C67FF64BF20EDE96AB /* Foundation.framework in Frameworks */,
+				5326FD7C3F6C526A4EEC7893 /* VideoToolbox.framework in Frameworks */,
+				D067FBA8D490E09AB6A6197F /* CoreMedia.framework in Frameworks */,
+				3B68F1673DF7459BE5C65EE0 /* CoreVideo.framework in Frameworks */,
+				640D4F3FB0797DFCD717A5CD /* AVFoundation.framework in Frameworks */,
+				AA76E70D972D2AB9C31EDBDF /* Metal.framework in Frameworks */,
+				BD2BD7C11895F3879B93A2EC /* MetalKit.framework in Frameworks */,
+				95E53C1E1647815F2344FEF1 /* QuartzCore.framework in Frameworks */,
+				6A493F2D025FF4E64831493F /* CoreGraphics.framework in Frameworks */,
+				374E3EC811ECCC6EE7A7BA71 /* AudioToolbox.framework in Frameworks */,
+				5E510E00D23CE4253940FCAC /* Siglus.xcframework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		2A1B0F61F6795562041AA7FE /* Headers */ = {
+			isa = PBXGroup;
+			children = (
+				DF642ED249F1CA77444259B6 /* siglus.h */,
+			);
+			path = Headers;
+			sourceTree = "<group>";
+		};
+		F3E0756896E64B387A944CBD /* SiglusLauncher */ = {
+			isa = PBXGroup;
+			children = (
+				133C9D2190A1955087E6392B /* Assets.xcassets */,
+				F5583B86FD0D0E612A02EBC2 /* ContentView.swift */,
+				91D4EF181438111CC9BDB2F4 /* GameLibrary.swift */,
+				A5F344CFB68A7FA4E8ECE38D /* Info.plist */,
+				6D9E152D6C463A2E377FACCA /* LaunchScreen.storyboard */,
+				AFA2819D8EBE6B0DDB942711 /* SiglusLauncherApp.swift */,
+				97AA8618FAB13A408A44EA75 /* SiglusPlayer.swift */,
+				BE7C386CE440366362380D74 /* ZipImporter.swift */,
+			);
+			path = SiglusLauncher;
+			sourceTree = "<group>";
+		};
+		57CA0AC0070B95363105E669 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				F5FEB652AF657E2BD98BCB82 /* AudioToolbox.framework */,
+				FC8D7031AA56B6C1B045D379 /* AVFoundation.framework */,
+				4AA34E37AD7F43D0CC7DC82E /* CoreGraphics.framework */,
+				64AE95B5C276957B56FDF830 /* CoreMedia.framework */,
+				36606183C12B8614FA697DAE /* CoreVideo.framework */,
+				8118D0CE0A86B8174743A288 /* Foundation.framework */,
+				EB9BB2A4902F4A7EEE667EBA /* Metal.framework */,
+				F56D7BEA0E66E2EAF39A7BD7 /* MetalKit.framework */,
+				4600CD7F010968D3D410DC61 /* QuartzCore.framework */,
+				528210D57740FE2EF78CE7BA /* Siglus.xcframework */,
+				476801171A4E1D54C61B11DA /* UIKit.framework */,
+				76B1B2B6FAF03C8C94DF3F4B /* VideoToolbox.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		1978A8CEEA7EDDF40B4988F1 = {
+			isa = PBXGroup;
+			children = (
+				2A1B0F61F6795562041AA7FE /* Headers */,
+				F3E0756896E64B387A944CBD /* SiglusLauncher */,
+				57CA0AC0070B95363105E669 /* Frameworks */,
+				0A81819D78D1DC9E2E08B8EE /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0A81819D78D1DC9E2E08B8EE /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				472EF780E080FBF63F45CD05 /* Siglus.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4915307DF67EE5E5909ECF7C /* SiglusLauncher */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DB19206A39A3EEA6DEC9A649 /* Build configuration list for PBXNativeTarget "SiglusLauncher" */;
+			buildPhases = (
+				45A278570E1C27BB06C1DA7F /* Ensure Siglus.xcframework headers (sim + device) */,
+				9B8E51BB06356ECE24389509 /* Sources */,
+				EA6EEFF81503C2F7E304AD54 /* Resources */,
+				97F9577F8B53249DDA3F9243 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SiglusLauncher;
+			packageProductDependencies = (
+			);
+			productName = SiglusLauncher;
+			productReference = 472EF780E080FBF63F45CD05 /* Siglus.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		70B75C1E03BA16691DABA0B2 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					4915307DF67EE5E5909ECF7C = {
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = F1C0A5D9D3F740EB09F9D3AC /* Build configuration list for PBXProject "SiglusLauncher" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1978A8CEEA7EDDF40B4988F1;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4915307DF67EE5E5909ECF7C /* SiglusLauncher */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		EA6EEFF81503C2F7E304AD54 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				95EF3C050B937C1CF3E06F3B /* Assets.xcassets in Resources */,
+				09509745D8AC775439863ADB /* LaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		45A278570E1C27BB06C1DA7F /* Ensure Siglus.xcframework headers (sim + device) */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Ensure Siglus.xcframework headers (sim + device)";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nXC=\"${SRCROOT}/Vendor/Siglus.xcframework\"\nif [ ! -d \"$XC\" ]; then\n  echo \"error: missing $XC (build/install Siglus.xcframework first)\" >&2\n  exit 1\nfi\n\n# We only fix headers. If the slice directory or binary is missing, fail loudly.\nfor SLICE in ios-arm64 ios-arm64-simulator; do\n  if [ ! -d \"$XC/$SLICE\" ]; then\n    echo \"error: missing slice directory: $XC/$SLICE\" >&2\n    echo \"error: Siglus.xcframework is incomplete. Rebuild it (must include simulator slice for sim builds).\" >&2\n    exit 1\n  fi\n  if [ ! -f \"$XC/$SLICE/libsiglus.a\" ]; then\n    echo \"error: missing $XC/$SLICE/libsiglus.a\" >&2\n    echo \"error: Siglus.xcframework is incomplete. Rebuild it.\" >&2\n    exit 1\n  fi\n\n  if [ ! -d \"$XC/$SLICE/Headers\" ]; then\n    mkdir -p \"$XC/$SLICE/Headers\"\n\n    # Prefer copying from the device slice if it already has headers.\n    if [ -d \"$XC/ios-arm64/Headers\" ]; then\n      cp -f \"$XC/ios-arm64/Headers/\"* \"$XC/$SLICE/Headers/\" 2>/dev/null || true\n    fi\n\n    # Also drop in the project-level header as a fallback.\n    if [ -f \"${SRCROOT}/Headers/siglus.h\" ]; then\n      cp -f \"${SRCROOT}/Headers/siglus.h\" \"$XC/$SLICE/Headers/siglus.h\"\n    fi\n  fi\ndone\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		9B8E51BB06356ECE24389509 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				114C29E270B7B993BFB7AA41 /* ContentView.swift in Sources */,
+				0861358782C1A94A5F57B1BD /* GameLibrary.swift in Sources */,
+				31A3E3EE0DA5772B00FA7593 /* SiglusLauncherApp.swift in Sources */,
+				FE3EF932172DD286BC11FC6D /* SiglusPlayer.swift in Sources */,
+				A25B705F7BEE3D4C267CEF2D /* ZipImporter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		322E0DA5BF2ED70E9CD5C693 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
+				INFOPLIST_FILE = SiglusLauncher/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		18070BC7143130F750F4FBC4 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chino.siglus;
+				PRODUCT_NAME = Siglus;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		F726445E5F8FC2C813DAE606 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				IPHONEOS_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chino.siglus;
+				PRODUCT_NAME = Siglus;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		9ECBD1E7BFF64EBC42008AA0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"\"Vendor\"",
+				);
+				INFOPLIST_FILE = SiglusLauncher/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F1C0A5D9D3F740EB09F9D3AC /* Build configuration list for PBXProject "SiglusLauncher" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F726445E5F8FC2C813DAE606 /* Debug */,
+				18070BC7143130F750F4FBC4 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		DB19206A39A3EEA6DEC9A649 /* Build configuration list for PBXNativeTarget "SiglusLauncher" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				322E0DA5BF2ED70E9CD5C693 /* Debug */,
+				9ECBD1E7BFF64EBC42008AA0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 70B75C1E03BA16691DABA0B2 /* Project object */;
+}

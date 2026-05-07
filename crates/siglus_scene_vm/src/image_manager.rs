@@ -99,6 +99,8 @@ impl ImageManager {
         let img = RgbaImage {
             width: 1,
             height: 1,
+            center_x: 0,
+            center_y: 0,
             rgba: vec![rgba.0, rgba.1, rgba.2, rgba.3],
         };
         let id = ImageId(self.images.len() as u32);
@@ -149,6 +151,13 @@ impl ImageManager {
     /// Load an image from an explicit path (relative to project_dir if not absolute).
     pub fn load_file(&mut self, path: &Path, frame_index: usize) -> Result<ImageId> {
         let resolved = if path.is_absolute() {
+            path.to_path_buf()
+        } else if path.is_file() {
+            // Resource lookup helpers return paths rooted at project_dir. When
+            // project_dir itself is relative, those paths are still relative
+            // (for example `testcase/g00/foo.g00`). Do not join project_dir a
+            // second time; the original engine passes the resolved resource
+            // path through unchanged after tnm_find_* succeeds.
             path.to_path_buf()
         } else {
             self.project_dir.join(path)
