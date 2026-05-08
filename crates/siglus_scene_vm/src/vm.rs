@@ -596,6 +596,53 @@ impl<'a> SceneVm<'a> {
         std::env::var_os("SG_DEBUG").is_some()
     }
 
+    fn sg_cgm_coord_trace(&self, msg: impl AsRef<str>) {
+        if !Self::sg_debug_enabled() {
+            return;
+        }
+        let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
+        let scene_no = self
+            .current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        eprintln!(
+            "[SG_DEBUG][CGM_COORD_TRACE][VM] scene={} scene_no={} line={} pc=0x{:x} {}",
+            scene,
+            scene_no,
+            self.current_line_no,
+            self.stream.get_prg_cntr(),
+            msg.as_ref()
+        );
+    }
+
+    fn trace_cgm_coord_assign(&self, elm: &[i32], rhs: &Value) {
+        if !Self::sg_debug_enabled() || elm.len() < 3 {
+            return;
+        }
+        let array_op = if self.ctx.ids.elm_array != 0 {
+            self.ctx.ids.elm_array
+        } else {
+            crate::runtime::forms::codes::ELM_ARRAY
+        };
+        if elm[1] != array_op {
+            return;
+        }
+        let head = elm[0] as u32;
+        let idx = elm[2];
+        if head == crate::runtime::forms::codes::elm_value::GLOBAL_B as u32 {
+            let interesting = (100..=129).contains(&idx)
+                || (140..=169).contains(&idx)
+                || (180..=209).contains(&idx);
+            if interesting {
+                self.sg_cgm_coord_trace(format!("global B[{}] <- {:?}", idx, rhs));
+            }
+        } else if head == crate::runtime::forms::codes::elm_value::GLOBAL_S as u32
+            && (1120..=1139).contains(&idx)
+        {
+            self.sg_cgm_coord_trace(format!("global S[{}] <- {:?}", idx, rhs));
+        }
+    }
+
     fn sg_omv_trace(&self, msg: impl AsRef<str>) {
         if !Self::sg_debug_enabled() {
             return;
@@ -5707,6 +5754,8 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
 
+        self.trace_cgm_coord_assign(&elm, &rhs);
+
         // Call-local property assignment.
         if self.exec_call_assign(&elm, al_id, rhs.clone())? {
             return Ok(());
@@ -6371,6 +6420,24 @@ impl<'a> SceneVm<'a> {
             ex_call_proc,
             scratch_source_args.len()
         ));
+        if (scene_name == "sys20_adv00" && matches!(z_no, 10 | 13 | 17))
+            || (scene_name == "sys20_adv01" && z_no == 0)
+        {
+            let args_dbg = scratch_source_args
+                .iter()
+                .map(|v| format!("{v:?}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.sg_cgm_coord_trace(format!(
+                "farcall target={} z={} ret_form={} ex_call_proc={} argc={} args=[{}]",
+                scene_name,
+                z_no,
+                ret_form,
+                ex_call_proc,
+                scratch_source_args.len(),
+                args_dbg
+            ));
+        }
         let saved = SceneExecFrame {
             stream: self.stream.clone(),
             user_cmd_names: self.user_cmd_names.clone(),

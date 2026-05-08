@@ -10,6 +10,21 @@ use crate::layer::{
     ClipRect, LayerId, LayerManager, Sprite, SpriteBlend, SpriteFit, SpriteId, SpriteSizeMode,
 };
 
+fn sg_cgm_coord_trace_enabled() -> bool {
+    std::env::var_os("SG_DEBUG").is_some()
+}
+
+fn sg_cgm_coord_trace(msg: impl AsRef<str>) {
+    if sg_cgm_coord_trace_enabled() {
+        eprintln!("[SG_DEBUG][CGM_COORD_TRACE][GFX] {}", msg.as_ref());
+    }
+}
+
+fn cgm_file_interesting(file: Option<&str>) -> bool {
+    file.map(|name| name.to_ascii_lowercase().contains("cgm_"))
+        .unwrap_or(false)
+}
+
 #[derive(Debug, Clone)]
 struct ObjectState {
     is_bg: bool,
@@ -217,6 +232,38 @@ impl GfxRuntime {
     fn object(&self, stage: usize, obj_idx: usize) -> Option<&ObjectState> {
         self.stages.get(stage)?.objects.get(obj_idx)
     }
+
+    fn reset_object_for_create(
+        &mut self,
+        layers: &mut LayerManager,
+        stage: usize,
+        obj_idx: usize,
+    ) {
+        let (layer_id, sprite_id) = {
+            let obj = self.ensure_object_mut(stage, obj_idx);
+            (obj.layer_id, obj.sprite_id)
+        };
+
+        {
+            let obj = self.ensure_object_mut(stage, obj_idx);
+            *obj = ObjectState::default();
+            obj.layer_id = layer_id;
+            obj.sprite_id = sprite_id;
+            obj.is_bg = stage == 0 && obj_idx == 0;
+        }
+
+        if stage == 0 && obj_idx == 0 {
+            *layers.bg_mut() = Sprite::default();
+            return;
+        }
+
+        if let (Some(lid), Some(sid)) = (layer_id, sprite_id) {
+            if let Some(sprite) = layers.layer_mut(lid).and_then(|layer| layer.sprite_mut(sid)) {
+                *sprite = Sprite::default();
+            }
+        }
+    }
+
 
     pub fn debug_object_snapshot(
         &self,
@@ -620,7 +667,7 @@ impl GfxRuntime {
         Ok(())
     }
 
-    pub fn object_create(
+    fn object_create_impl(
         &mut self,
         images: &mut ImageManager,
         layers: &mut LayerManager,
@@ -631,6 +678,7 @@ impl GfxRuntime {
         x: i64,
         y: i64,
         patno: i64,
+        reinit: bool,
     ) -> Result<()> {
         let stage_i = stage as isize;
         if !(0..3).contains(&stage_i) {
@@ -643,6 +691,10 @@ impl GfxRuntime {
         let stage_u = stage_i as usize;
         let obj_u = obj_idx as usize;
         let current_layer = self.current_layer;
+
+        if reinit {
+            self.reset_object_for_create(layers, stage_u, obj_u);
+        }
 
         {
             let obj = self.ensure_object_mut(stage_u, obj_u);
@@ -665,7 +717,55 @@ impl GfxRuntime {
             let _ = self.ensure_bound_sprite(layers, stage_u, obj_u)?;
         }
 
+        if cgm_file_interesting(Some(file)) || (30..=59).contains(&obj_u) {
+            let obj = self.object(stage_u, obj_u);
+            sg_cgm_coord_trace(format!(
+                "object_create stage={} obj={} file={} disp={} x={} y={} patno={} reinit={} layer_no={:?} binding={:?}/{:?}",
+                stage,
+                obj_idx,
+                file,
+                disp,
+                x,
+                y,
+                patno,
+                reinit,
+                obj.map(|o| o.layer_no),
+                obj.and_then(|o| o.layer_id),
+                obj.and_then(|o| o.sprite_id)
+            ));
+        }
+
         self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
+    pub fn object_create(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        file: &str,
+        disp: i64,
+        x: i64,
+        y: i64,
+        patno: i64,
+    ) -> Result<()> {
+        self.object_create_impl(images, layers, stage, obj_idx, file, disp, x, y, patno, true)
+    }
+
+    pub fn object_change_file(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        file: &str,
+        disp: i64,
+        x: i64,
+        y: i64,
+        patno: i64,
+    ) -> Result<()> {
+        self.object_create_impl(images, layers, stage, obj_idx, file, disp, x, y, patno, false)
     }
 
     pub fn object_create_mesh(
@@ -691,6 +791,8 @@ impl GfxRuntime {
         let obj_u = obj_idx as usize;
         let current_layer = self.current_layer;
 
+        self.reset_object_for_create(layers, stage_u, obj_u);
+
         {
             let obj = self.ensure_object_mut(stage_u, obj_u);
             obj.is_bg = stage_u == 0 && obj_u == 0;
@@ -703,6 +805,13 @@ impl GfxRuntime {
             if obj.layer_no == 0 {
                 obj.layer_no = current_layer as i64;
             }
+        }
+
+        if cgm_file_interesting(Some(file)) || (30..=59).contains(&obj_u) {
+            sg_cgm_coord_trace(format!(
+                "object_create_mesh stage={} obj={} file={} disp={} x={} y={} patno={}",
+                stage, obj_idx, file, disp, x, y, patno
+            ));
         }
 
         if stage_u == 0 && obj_u == 0 {
@@ -778,6 +887,21 @@ impl GfxRuntime {
             obj.y = y;
             if obj.layer_no == 0 {
                 obj.layer_no = current_layer as i64;
+            }
+        }
+        if let Some(obj) = self.object(stage_u, obj_u) {
+            if cgm_file_interesting(obj.file.as_deref()) || (30..=59).contains(&obj_u) {
+                sg_cgm_coord_trace(format!(
+                    "object_set_pos stage={} obj={} file={:?} x={} y={} layer_no={} binding={:?}/{:?}",
+                    stage,
+                    obj_idx,
+                    obj.file.as_deref(),
+                    x,
+                    y,
+                    obj.layer_no,
+                    obj.layer_id,
+                    obj.sprite_id
+                ));
             }
         }
         self.sync_object_sprite(images, layers, stage_u, obj_u)

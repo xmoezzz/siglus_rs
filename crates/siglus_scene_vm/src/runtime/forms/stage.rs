@@ -382,6 +382,27 @@ fn sg_mwnd_object_trace(msg: impl AsRef<str>) {
     }
 }
 
+fn sg_cgm_coord_trace(ctx: &CommandContext, msg: impl AsRef<str>) {
+    if sg_debug_enabled_local() {
+        let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
+        let scene_no = ctx
+            .current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        eprintln!(
+            "[SG_DEBUG][CGM_COORD_TRACE][STAGE] scene={} scene_no={} line={} {}",
+            scene,
+            scene_no,
+            ctx.current_line_no,
+            msg.as_ref()
+        );
+    }
+}
+
+fn object_file_is_cgm(file: &str) -> bool {
+    file.to_ascii_lowercase().contains("cgm_")
+}
+
 fn default_for_ret_form(ret_form: i64) -> Value {
     if prop_access::ret_form_is_string(ret_form) {
         Value::Str(String::new())
@@ -5084,29 +5105,25 @@ fn dispatch_object_op(
         };
 
         let argc = script_args.len();
-        let old_disp = obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp) != 0;
-        let old_x = obj.get_int_prop(&ctx.ids, ctx.ids.obj_x);
-        let old_y = obj.get_int_prop(&ctx.ids, ctx.ids.obj_y);
-        let old_patno = obj.get_int_prop(&ctx.ids, ctx.ids.obj_patno);
         let disp = if overload_at_least(al_id, argc, 1, 2) {
             script_i64(script_args, 1, 0) != 0
         } else {
-            old_disp
+            false
         };
         let x = if overload_at_least(al_id, argc, 2, 4) {
             script_i64(script_args, 2, 0)
         } else {
-            old_x
+            0
         };
         let y = if overload_at_least(al_id, argc, 2, 4) {
             script_i64(script_args, 3, 0)
         } else {
-            old_y
+            0
         };
         let patno = if overload_at_least(al_id, argc, 3, 5) {
             script_i64(script_args, 4, 0)
         } else {
-            old_patno
+            0
         };
 
         sg_debug_stage(format!(
@@ -5114,7 +5131,7 @@ fn dispatch_object_op(
             stage_idx, obj_u, file, al_id, disp, x, y, patno
         ));
 
-        object_init_type_free_self_like_cpp(ctx, obj, stage_idx, obj_runtime_slot);
+        object_reinit_finish_free_like_cpp(ctx, obj, stage_idx, obj_runtime_slot);
 
         let create_result = {
             let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
@@ -5678,7 +5695,7 @@ fn dispatch_object_op(
                 .unwrap_or(0);
             {
                 let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
-                let _ = gfx.object_create(
+                let _ = gfx.object_change_file(
                     images,
                     layers,
                     stage_idx,
@@ -6887,6 +6904,41 @@ fn dispatch_object_op(
         let x = script_args.get(0).and_then(as_i64).unwrap_or(0);
         let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
         let z = script_args.get(2).and_then(as_i64);
+        if obj_runtime_slot >= 30 && obj_runtime_slot <= 59
+            || obj.file_name.as_deref().map(object_file_is_cgm).unwrap_or(false)
+        {
+            sg_cgm_coord_trace(
+                ctx,
+                format!(
+                    "OBJECT.SET_POS compact stage={} obj={} runtime_slot={} file={:?} x={} y={} z={:?} backend={:?}",
+                    stage_idx,
+                    obj_u,
+                    obj_runtime_slot,
+                    obj.file_name.as_deref(),
+                    x,
+                    y,
+                    z,
+                    &obj.backend
+                ),
+            );
+        }
+
+        // Keep the logical ObjectState in sync even when a live backend exists.
+        // Stage wipe copies ObjectState first and then duplicates the backend from
+        // those logical properties; if SET_POS only moved the backend, BACK->FRONT
+        // copying recreated the object at stale coordinates.
+        if ctx.ids.obj_x != 0 {
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
+        }
+        if ctx.ids.obj_y != 0 {
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
+        }
+        if let Some(zv) = z {
+            if ctx.ids.obj_z != 0 {
+                obj.set_int_prop(&ctx.ids, ctx.ids.obj_z, zv);
+            }
+        }
+
         match obj.backend {
             ObjectBackend::Rect {
                 layer_id,
@@ -8060,36 +8112,50 @@ fn dispatch_object_op(
             //   al_id==2 => disp,x,y
             //   al_id==3 => disp,x,y,patno
             let argc = script_args.len();
-            let old_disp = obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp) != 0;
-            let old_x = obj.get_int_prop(&ctx.ids, ctx.ids.obj_x);
-            let old_y = obj.get_int_prop(&ctx.ids, ctx.ids.obj_y);
-            let old_patno = obj.get_int_prop(&ctx.ids, ctx.ids.obj_patno);
             let disp = if overload_at_least(al_id, argc, 1, 2) {
                 script_i64(script_args, 1, 0) != 0
             } else {
-                old_disp
+                false
             };
             let x = if overload_at_least(al_id, argc, 2, 4) {
                 script_i64(script_args, 2, 0)
             } else {
-                old_x
+                0
             };
             let y = if overload_at_least(al_id, argc, 2, 4) {
                 script_i64(script_args, 3, 0)
             } else {
-                old_y
+                0
             };
             let patno = if overload_at_least(al_id, argc, 3, 5) {
                 script_i64(script_args, 4, 0)
             } else {
-                old_patno
+                0
             };
             sg_debug_stage(format!(
                 "stage={} obj={} CREATE file={} al_id={:?} disp={} x={} y={} patno={}",
                 stage_idx, obj_u, file, al_id, disp, x, y, patno
             ));
+            if object_file_is_cgm(file) || (30..=59).contains(&obj_runtime_slot) {
+                sg_cgm_coord_trace(
+                    ctx,
+                    format!(
+                        "OBJECT.CREATE stage={} obj={} runtime_slot={} file={} al_id={:?} disp={} x={} y={} patno={} old_backend={:?}",
+                        stage_idx,
+                        obj_u,
+                        obj_runtime_slot,
+                        file,
+                        al_id,
+                        disp,
+                        x,
+                        y,
+                        patno,
+                        &obj.backend
+                    ),
+                );
+            }
 
-            object_init_type_free_self_like_cpp(ctx, obj, stage_idx, obj_runtime_slot);
+            object_reinit_finish_free_like_cpp(ctx, obj, stage_idx, obj_runtime_slot);
 
             {
                 let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
@@ -8133,6 +8199,25 @@ fn dispatch_object_op(
             let x = script_args.get(0).and_then(as_i64).unwrap_or(0);
             let y = script_args.get(1).and_then(as_i64).unwrap_or(0);
             let z = script_args.get(2).and_then(as_i64);
+
+            if obj_runtime_slot >= 30 && obj_runtime_slot <= 59
+                || obj.file_name.as_deref().map(object_file_is_cgm).unwrap_or(false)
+            {
+                sg_cgm_coord_trace(
+                    ctx,
+                    format!(
+                        "OBJECT.SET_POS stage={} obj={} runtime_slot={} file={:?} x={} y={} z={:?} backend={:?}",
+                        stage_idx,
+                        obj_u,
+                        obj_runtime_slot,
+                        obj.file_name.as_deref(),
+                        x,
+                        y,
+                        z,
+                        &obj.backend
+                    ),
+                );
+            }
 
             if ctx.ids.obj_x != 0 {
                 obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
