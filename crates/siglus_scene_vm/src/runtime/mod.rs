@@ -1739,6 +1739,7 @@ impl CommandContext {
     pub fn platform_shortcuts_blocked(&self) -> bool {
         self.globals.system.messagebox_modal.is_some()
             || self.globals.syscom.menu_open
+            || self.globals.syscom.msg_back_open
             || self.globals.selbtn.started
             || self.globals.focused_editbox.is_some()
     }
@@ -1751,6 +1752,9 @@ impl CommandContext {
 
     pub fn on_key_down(&mut self, k: input::VmKey) {
         if self.handle_system_messagebox_key(k) {
+            return;
+        }
+        if self.handle_msg_back_key(k) {
             return;
         }
         if self.handle_syscom_menu_key(k) {
@@ -1884,6 +1888,9 @@ impl CommandContext {
             );
         }
         if self.handle_system_messagebox_click(b) {
+            return;
+        }
+        if self.handle_msg_back_click(b) {
             return;
         }
         if self.handle_syscom_menu_click() {
@@ -2829,6 +2836,155 @@ impl CommandContext {
         true
     }
 
+    fn msg_back_state(&self) -> Option<&globals::MsgBackState> {
+        let form_id = self.ids.form_global_msgbk;
+        if form_id == 0 {
+            return None;
+        }
+        self.globals.msgbk_forms.get(&form_id)
+    }
+
+    fn msg_back_entry_has_content(entry: &globals::MsgBackEntry) -> bool {
+        entry.pct_flag
+            || !entry.msg_str.is_empty()
+            || !entry.disp_name.is_empty()
+            || !entry.original_name.is_empty()
+            || !entry.koe_no_list.is_empty()
+    }
+
+    fn msg_back_visible_entry_indices(&self) -> Vec<usize> {
+        self.msg_back_state()
+            .map(|st| {
+                st.history
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, entry)| Self::msg_back_entry_has_content(entry).then_some(i))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn msg_back_is_enable(&self) -> bool {
+        self.globals.syscom.msg_back.check_enabled() != 0
+            && !self.globals.script.msg_back_disable
+            && !self.msg_back_visible_entry_indices().is_empty()
+    }
+
+    fn clamp_msg_back_view_pos(&mut self) {
+        let count = self.msg_back_visible_entry_indices().len();
+        if count == 0 {
+            self.globals.syscom.msg_back_view_pos = 0;
+        } else if self.globals.syscom.msg_back_view_pos >= count {
+            self.globals.syscom.msg_back_view_pos = count - 1;
+        }
+    }
+
+    fn open_msg_back_proc(&mut self) {
+        if !self.msg_back_is_enable() {
+            return;
+        }
+        // Original tnm_syscom_open_msg_back() stops read skip before entering
+        // the message-back process.
+        self.globals.syscom.read_skip.onoff = false;
+        let count = self.msg_back_visible_entry_indices().len();
+        self.globals.syscom.msg_back_view_pos = count.saturating_sub(1);
+        self.globals.syscom.msg_back_open = true;
+    }
+
+    fn close_msg_back_proc(&mut self) {
+        self.globals.syscom.msg_back_open = false;
+        self.ui.set_sys_overlay(false, String::new());
+    }
+
+    fn handle_msg_back_key(&mut self, k: input::VmKey) -> bool {
+        if !self.globals.syscom.msg_back_open {
+            return false;
+        }
+        let count = self.msg_back_visible_entry_indices().len();
+        match k {
+            input::VmKey::Escape | input::VmKey::Enter | input::VmKey::Space => {
+                self.close_msg_back_proc();
+            }
+            input::VmKey::ArrowUp | input::VmKey::ArrowLeft => {
+                if self.globals.syscom.msg_back_view_pos > 0 {
+                    self.globals.syscom.msg_back_view_pos -= 1;
+                }
+            }
+            input::VmKey::ArrowDown | input::VmKey::ArrowRight => {
+                if count > 0 {
+                    self.globals.syscom.msg_back_view_pos =
+                        (self.globals.syscom.msg_back_view_pos + 1).min(count - 1);
+                }
+            }
+            input::VmKey::F(5) => {
+                self.globals.syscom.msg_back_view_pos = 0;
+            }
+            input::VmKey::F(6) => {
+                self.globals.syscom.msg_back_view_pos = count.saturating_sub(1);
+            }
+            _ => {}
+        }
+        true
+    }
+
+    fn handle_msg_back_click(&mut self, b: input::VmMouseButton) -> bool {
+        if !self.globals.syscom.msg_back_open {
+            return false;
+        }
+        match b {
+            input::VmMouseButton::Left | input::VmMouseButton::Right => self.close_msg_back_proc(),
+            _ => {}
+        }
+        true
+    }
+
+    fn build_msg_back_overlay_text(&mut self) -> String {
+        let visible = self.msg_back_visible_entry_indices();
+        let count = visible.len();
+        self.clamp_msg_back_view_pos();
+        let pos = self.globals.syscom.msg_back_view_pos.min(count.saturating_sub(1));
+        let mut text = String::new();
+        text.push_str("MESSAGE LOG\n");
+        text.push_str("Esc/Enter/Click: close    Arrow keys: scroll\n\n");
+        if count == 0 {
+            text.push_str("No message history.\n");
+            return text;
+        }
+        let start = pos.saturating_sub(10);
+        if let Some(st) = self.msg_back_state() {
+            for (display_pos, entry_idx) in visible.iter().enumerate().skip(start).take(12) {
+                let entry = &st.history[*entry_idx];
+                let cursor = if display_pos == pos { ">" } else { " " };
+                text.push_str(cursor);
+                text.push(' ');
+                text.push_str(&(display_pos + 1).to_string());
+                text.push('/');
+                text.push_str(&count.to_string());
+                text.push(' ');
+                if !entry.disp_name.is_empty() {
+                    text.push('[');
+                    text.push_str(&entry.disp_name);
+                    text.push_str("] ");
+                } else if !entry.original_name.is_empty() {
+                    text.push('[');
+                    text.push_str(&entry.original_name);
+                    text.push_str("] ");
+                }
+                if entry.pct_flag {
+                    text.push_str("[image] ");
+                }
+                if !entry.msg_str.is_empty() {
+                    text.push_str(&entry.msg_str.replace('\n', " "));
+                }
+                if !entry.koe_no_list.is_empty() {
+                    text.push_str("  [voice]");
+                }
+                text.push('\n');
+            }
+        }
+        text
+    }
+
     fn handle_syscom_menu_key(&mut self, k: input::VmKey) -> bool {
         if !self.globals.syscom.menu_open {
             return false;
@@ -2929,7 +3085,7 @@ impl CommandContext {
                 self.globals.syscom.last_menu_call = kind;
             }
             syscom_op::OPEN_MSG_BACK => {
-                self.globals.syscom.msg_back_open = true;
+                self.open_msg_back_proc();
                 self.globals.syscom.last_menu_call = kind;
                 self.close_syscom_menu();
             }
@@ -3081,6 +3237,11 @@ impl CommandContext {
 
     fn sync_syscom_menu_ui(&mut self) {
         if self.sync_system_messagebox_ui() {
+            return;
+        }
+        if self.globals.syscom.msg_back_open {
+            let text = self.build_msg_back_overlay_text();
+            self.ui.set_sys_overlay(true, text);
             return;
         }
         if !self.globals.syscom.menu_open {
@@ -3448,7 +3609,7 @@ impl CommandContext {
     }
 
     fn sync_mwnd_selection_ui(&mut self) {
-        if self.globals.syscom.menu_open {
+        if self.globals.syscom.menu_open || self.globals.syscom.msg_back_open {
             return;
         }
         let text = if let Some((form_id, stage_idx, mwnd_idx)) = self.globals.focused_stage_mwnd {

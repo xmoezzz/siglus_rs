@@ -1550,6 +1550,13 @@ impl App {
             None
         };
         vm.restart_scene_name(&target_scene, target_z)?;
+        if let Some(renderer) = self.renderer.as_mut() {
+            renderer.clear_runtime_image_textures();
+        }
+        if let Some(gui) = self.hud_gui.as_mut() {
+            gui.gpu_texture_cache.clear();
+            gui.texture_cache.clear();
+        }
         if let Some(msgbk) = saved_msgbk {
             vm.ctx.globals.msgbk_forms = msgbk;
         }

@@ -603,6 +603,7 @@ impl SiglusHost {
             None
         };
         self.vm.restart_scene_name(&target_scene, target_z)?;
+        self.renderer.clear_runtime_image_textures();
         if let Some(msgbk) = saved_msgbk {
             self.vm.ctx.globals.msgbk_forms = msgbk;
         }

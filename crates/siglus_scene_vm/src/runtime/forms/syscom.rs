@@ -847,6 +847,56 @@ fn write_msg_back(ctx: &CommandContext) {
     let _ = std::fs::write(path, out);
 }
 
+fn msg_back_has_visible_history(ctx: &CommandContext) -> bool {
+    let form_id = ctx.ids.form_global_msgbk;
+    if form_id == 0 {
+        return false;
+    }
+    ctx.globals
+        .msgbk_forms
+        .get(&form_id)
+        .map(|st| {
+            st.history.iter().any(|entry| {
+                entry.pct_flag
+                    || !entry.msg_str.is_empty()
+                    || !entry.disp_name.is_empty()
+                    || !entry.original_name.is_empty()
+                    || !entry.koe_no_list.is_empty()
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn open_msg_back_proc(ctx: &mut CommandContext) {
+    if ctx.globals.script.msg_back_disable
+        || ctx.globals.syscom.msg_back.check_enabled() == 0
+        || !msg_back_has_visible_history(ctx)
+    {
+        return;
+    }
+    ctx.globals.syscom.read_skip.onoff = false;
+    ctx.globals.syscom.msg_back_open = true;
+    let form_id = ctx.ids.form_global_msgbk;
+    let count = ctx
+        .globals
+        .msgbk_forms
+        .get(&form_id)
+        .map(|st| {
+            st.history
+                .iter()
+                .filter(|entry| {
+                    entry.pct_flag
+                        || !entry.msg_str.is_empty()
+                        || !entry.disp_name.is_empty()
+                        || !entry.original_name.is_empty()
+                        || !entry.koe_no_list.is_empty()
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    ctx.globals.syscom.msg_back_view_pos = count.saturating_sub(1);
+}
+
 fn configured_save_count(ctx: &CommandContext, quick: bool) -> usize {
     let key = if quick { "QUICK_SAVE.CNT" } else { "SAVE.CNT" };
     let default_count = if quick { 3 } else { 10 };
@@ -1162,7 +1212,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         SET_LOCAL_EXTRA_MODE_VALUE => ctx.globals.syscom.local_extra_mode.value = p_i64(params, 0),
         OPEN_MSG_BACK => {
-            ctx.globals.syscom.msg_back_open = true;
+            open_msg_back_proc(ctx);
             ctx.globals.syscom.last_menu_call = OPEN_MSG_BACK;
         }
         CLOSE_MSG_BACK => {

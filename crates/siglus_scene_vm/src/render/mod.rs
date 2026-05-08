@@ -3972,6 +3972,16 @@ impl Renderer {
         Ok(())
     }
 
+    /// Drop GPU textures that are keyed by runtime ImageId.
+    ///
+    /// Scene restart reinitializes ImageManager and reuses ImageId indices from 0.
+    /// Keeping the old GPU cache would make a newly decoded image with the same
+    /// ImageId/version sample the previous scene's texture. External path based
+    /// textures are intentionally kept because their keys are stable resource paths.
+    pub fn clear_runtime_image_textures(&mut self) {
+        self.textures.clear();
+    }
+
     fn ensure_texture_uploaded(&mut self, images: &ImageManager, id: ImageId) -> Result<()> {
         let Some((img, version)) = images.get_entry(id) else {
             return Ok(());
