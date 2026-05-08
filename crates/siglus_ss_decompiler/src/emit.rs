@@ -37,13 +37,24 @@ enum Expr {
 
 impl Expr {
     fn to_ss(&self, symbols: &SymbolTables) -> String {
-        match self {
+        self.to_ss_prec(symbols, PREC_LOWEST, ChildSide::None, None)
+    }
+
+    fn to_ss_prec(
+        &self,
+        symbols: &SymbolTables,
+        parent_prec: u8,
+        side: ChildSide,
+        parent_op: Option<u8>,
+    ) -> String {
+        let my_prec = self.precedence();
+        let mut rendered = match self {
             Expr::Int(v) => v.to_string(),
             Expr::Str(s) => quote_string(s),
             Expr::Raw(s) => s.clone(),
             Expr::ElmCode(v) => symbols.elm_name(*v),
             Expr::Chain(items) => format_chain(items, symbols),
-            Expr::Property(items) => format!("{}", format_chain(items, symbols)),
+            Expr::Property(items) => format_chain(items, symbols),
             Expr::Command {
                 chain,
                 arg_list_id,
@@ -78,13 +89,16 @@ impl Expr {
                     arg_list_id
                 )
             }
-            Expr::Unary { op, expr } => format!("({}{})", op_name(*op), expr.to_ss(symbols)),
-            Expr::Binary { op, left, right } => format!(
-                "({} {} {})",
-                left.to_ss(symbols),
-                op_name(*op),
-                right.to_ss(symbols)
-            ),
+            Expr::Unary { op, expr } => {
+                let operand = expr.to_ss_prec(symbols, PREC_UNARY, ChildSide::Right, Some(*op));
+                format!("{}{}", op_name(*op), operand)
+            }
+            Expr::Binary { op, left, right } => {
+                let prec = binary_precedence(*op);
+                let left_s = left.to_ss_prec(symbols, prec, ChildSide::Left, Some(*op));
+                let right_s = right.to_ss_prec(symbols, prec, ChildSide::Right, Some(*op));
+                format!("{} {} {}", left_s, op_name(*op), right_s)
+            }
             Expr::Gosub {
                 label,
                 args,
@@ -102,8 +116,104 @@ impl Expr {
                 };
                 format!("{}({}) {}", kw, rendered, label)
             }
+        };
+
+        if self.needs_parentheses(parent_prec, side, parent_op) {
+            rendered = format!("({rendered})");
+        }
+        rendered
+    }
+
+    fn precedence(&self) -> u8 {
+        match self {
+            Expr::Binary { op, .. } => binary_precedence(*op),
+            Expr::Unary { .. } => PREC_UNARY,
+            Expr::Int(_)
+            | Expr::Str(_)
+            | Expr::Raw(_)
+            | Expr::ElmCode(_)
+            | Expr::Chain(_)
+            | Expr::Property(_)
+            | Expr::Command { .. }
+            | Expr::Gosub { .. } => PREC_PRIMARY,
         }
     }
+
+    fn needs_parentheses(&self, parent_prec: u8, side: ChildSide, parent_op: Option<u8>) -> bool {
+        if parent_prec == PREC_LOWEST {
+            return false;
+        }
+        let my_prec = self.precedence();
+        if my_prec < parent_prec {
+            return true;
+        }
+        if my_prec > parent_prec {
+            return false;
+        }
+
+        match (side, parent_op, self) {
+            // Siglus binary operators are emitted as left-associative.  The
+            // right child needs parentheses on equal precedence unless flattening
+            // the exact same associative operator is semantics-preserving.
+            (ChildSide::Right, Some(parent), Expr::Binary { op: child, .. }) => {
+                !can_flatten_same_precedence(parent, *child)
+            }
+            // Avoid ambiguous spellings such as --x or ~~x for nested unary ops.
+            (ChildSide::Right, Some(_), Expr::Unary { .. }) if parent_prec == PREC_UNARY => true,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChildSide {
+    None,
+    Left,
+    Right,
+}
+
+const PREC_LOWEST: u8 = 0;
+const PREC_LOGICAL_OR: u8 = 10;
+const PREC_LOGICAL_AND: u8 = 20;
+const PREC_BIT_OR: u8 = 30;
+const PREC_BIT_XOR: u8 = 31;
+const PREC_BIT_AND: u8 = 32;
+const PREC_EQUALITY: u8 = 40;
+const PREC_RELATIONAL: u8 = 50;
+const PREC_SHIFT: u8 = 60;
+const PREC_ADDITIVE: u8 = 70;
+const PREC_MULTIPLICATIVE: u8 = 80;
+const PREC_UNARY: u8 = 90;
+const PREC_PRIMARY: u8 = 100;
+
+fn binary_precedence(op: u8) -> u8 {
+    match op {
+        0x21 => PREC_LOGICAL_OR,
+        0x20 => PREC_LOGICAL_AND,
+        0x32 => PREC_BIT_OR,
+        0x33 => PREC_BIT_XOR,
+        0x31 => PREC_BIT_AND,
+        0x10 | 0x11 => PREC_EQUALITY,
+        0x12 | 0x13 | 0x14 | 0x15 => PREC_RELATIONAL,
+        0x34 | 0x35 | 0x36 => PREC_SHIFT,
+        0x01 | 0x02 => PREC_ADDITIVE,
+        0x03 | 0x04 | 0x05 => PREC_MULTIPLICATIVE,
+        _ => PREC_LOWEST + 1,
+    }
+}
+
+fn can_flatten_same_precedence(parent: u8, child: u8) -> bool {
+    parent == child
+        && matches!(
+            parent,
+            0x01  // +
+                | 0x03 // *
+                | 0x20 // &&
+                | 0x21 // ||
+                | 0x31 // &
+                | 0x32 // |
+                | 0x33 // ^
+        )
 }
 
 #[derive(Debug, Default)]
@@ -137,6 +247,9 @@ fn handle_instruction(
             None
         }
         Op::Pop { form } => {
+            if *form == FM_VOID {
+                return state.stack.pop().map(|expr| format!("{};", expr.to_ss(symbols)));
+            }
             let Some(expr) = state.stack.pop() else {
                 return Some(format!(
                     "// {} pop {} elided: value belongs to another branch path",
@@ -592,7 +705,7 @@ pub fn emit_structured_ss(scene: &Scene, insns: &[Instruction], symbols: &Symbol
     if !out.ends_with("\n\n") {
         out.push('\n');
     }
-    let flat = build_flat_stmts(scene, insns, symbols, &label_names);
+    let flat = preprocess_flat_stmts(build_flat_stmts(scene, insns, symbols, &label_names));
     let label_pos = build_flat_label_pos(&flat);
     let mut emitter = StructuredEmitter {
         flat: &flat,
@@ -601,13 +714,12 @@ pub fn emit_structured_ss(scene: &Scene, insns: &[Instruction], symbols: &Symbol
     };
     emitter.emit_range(0, flat.len(), 0, &LoopCtx::default());
     out.push_str(&emitter.out);
-    emit_string_table(scene, &mut out);
     out
 }
 
 fn emit_user_symbol_header(scene: &Scene, symbols: &SymbolTables, out: &mut String) {
     out.push_str(&format!(
-        "// user_prop: inc_count={} scene_count={}\n",
+        "user_prop_table inc_count={} scene_count={} {{\n",
         scene.pack_inc_prop_cnt,
         scene.scn_prop_names.len()
     ));
@@ -618,8 +730,9 @@ fn emit_user_symbol_header(scene: &Scene, symbols: &SymbolTables, out: &mut Stri
             .map(|p| (symbols.form_name(p.form), p.size))
             .unwrap_or_else(|| ("unknown_form".to_string(), 0));
         out.push_str(&format!(
-            "//   inc[{}] {}: {} size={}\n",
-            i, name, form, size
+            "    inc[{}] {};\n",
+            i,
+            format_user_prop_decl(&form, name, size)
         ));
     }
     for (i, name) in scene.scn_prop_names.iter().enumerate() {
@@ -630,28 +743,49 @@ fn emit_user_symbol_header(scene: &Scene, symbols: &SymbolTables, out: &mut Stri
             .map(|p| (symbols.form_name(p.form), p.size))
             .unwrap_or_else(|| ("unknown_form".to_string(), 0));
         out.push_str(&format!(
-            "//   scene[{}] user_id={} {}: {} size={}\n",
-            i, user_id, name, form, size
+            "    scene[{}] user_id={} {};\n",
+            i,
+            user_id,
+            format_user_prop_decl(&form, name, size)
         ));
     }
+    out.push_str("}\n");
+
     out.push_str(&format!(
-        "// user_cmd: inc_count={} scene_count={}\n",
+        "user_cmd_table inc_count={} scene_count={} {{\n",
         scene.pack_inc_cmd_cnt,
         scene.header.scn_cmd_name_cnt.max(0)
     ));
+    let body_cmds = scene
+        .scn_cmd_names
+        .iter()
+        .map(|name| name.strip_prefix("inc::").unwrap_or(name).to_string())
+        .collect::<BTreeSet<_>>();
     for (i, name) in scene.pack_inc_cmd_names.iter().enumerate() {
-        out.push_str(&format!("//   inc[{}] {}\n", i, name));
+        let storage = if body_cmds.contains(name) { "body" } else { "extern" };
+        out.push_str(&format!(
+            "    inc[{}] {} user_cmd {};\n",
+            i, storage, name
+        ));
     }
     let local_cmd_name_cnt = scene.header.scn_cmd_name_cnt.max(0) as usize;
     for i in 0..local_cmd_name_cnt.min(scene.scn_cmd_names.len()) {
         out.push_str(&format!(
-            "//   scene[{}] user_id={} {}\n",
+            "    scene[{}] user_id={} body user_cmd {};\n",
             i,
             scene.pack_inc_cmd_cnt + i,
             &scene.scn_cmd_names[i]
         ));
     }
-    out.push('\n');
+    out.push_str("}\n\n");
+}
+
+fn format_user_prop_decl(form: &str, name: &str, size: i32) -> String {
+    if size > 0 {
+        format!("{} {}[{}]", form, name, size)
+    } else {
+        format!("{} {}", form, name)
+    }
 }
 
 fn emit_string_table(scene: &Scene, out: &mut String) {
@@ -762,6 +896,12 @@ fn handle_instruction_flat(
             None
         }
         Op::Pop { form } => {
+            if *form == FM_VOID {
+                return state
+                    .stack
+                    .pop()
+                    .map(|expr| FlatKind::Line(format!("{};", expr.to_ss(symbols))));
+            }
             let Some(expr) = state.stack.pop() else {
                 return Some(FlatKind::Line(format!(
                     "// pop {} elided: value belongs to another branch path",
@@ -990,6 +1130,116 @@ fn build_flat_label_pos(flat: &[FlatStmt]) -> BTreeMap<String, usize> {
     out
 }
 
+fn preprocess_flat_stmts(mut flat: Vec<FlatStmt>) -> Vec<FlatStmt> {
+    loop {
+        let before = flat_signature(&flat);
+        flat = remove_gotos_to_immediate_labels(flat);
+        flat = remove_unreferenced_internal_labels(flat);
+        let after = flat_signature(&flat);
+        if before == after {
+            return flat;
+        }
+    }
+}
+
+fn flat_signature(flat: &[FlatStmt]) -> Vec<String> {
+    flat.iter()
+        .map(|stmt| match &stmt.kind {
+            FlatKind::Label(name) => format!("L:{name}"),
+            FlatKind::Line(line) => format!("S:{line}"),
+            FlatKind::Goto(target) => format!("G:{target}"),
+            FlatKind::IfFalse { cond, target } => format!("F:{cond}->{target}"),
+            FlatKind::IfTrue { cond, target } => format!("T:{cond}->{target}"),
+        })
+        .collect()
+}
+
+fn remove_gotos_to_immediate_labels(flat: Vec<FlatStmt>) -> Vec<FlatStmt> {
+    let mut out = Vec::with_capacity(flat.len());
+    for i in 0..flat.len() {
+        let remove = match &flat[i].kind {
+            FlatKind::Goto(target) => immediate_following_labels_contain(&flat, i + 1, target),
+            _ => false,
+        };
+        if !remove {
+            out.push(flat[i].clone());
+        }
+    }
+    out
+}
+
+fn immediate_following_labels_contain(flat: &[FlatStmt], mut i: usize, target: &str) -> bool {
+    let mut saw_label = false;
+    while i < flat.len() {
+        match &flat[i].kind {
+            FlatKind::Label(name) => {
+                saw_label = true;
+                if name == target {
+                    return true;
+                }
+                i += 1;
+            }
+            FlatKind::Line(line) if is_line_marker(line) => {
+                if saw_label {
+                    return false;
+                }
+                i += 1;
+            }
+            _ => return false,
+        }
+    }
+    false
+}
+
+fn remove_unreferenced_internal_labels(flat: Vec<FlatStmt>) -> Vec<FlatStmt> {
+    let referenced = referenced_labels(&flat);
+    flat.into_iter()
+        .filter(|stmt| match &stmt.kind {
+            FlatKind::Label(name) => is_public_entry_label(name) || referenced.contains(name),
+            _ => true,
+        })
+        .collect()
+}
+
+fn referenced_labels(flat: &[FlatStmt]) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    for stmt in flat {
+        match &stmt.kind {
+            FlatKind::Goto(target) => {
+                out.insert(target.clone());
+            }
+            FlatKind::IfFalse { target, .. } | FlatKind::IfTrue { target, .. } => {
+                out.insert(target.clone());
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn is_public_entry_label(name: &str) -> bool {
+    name.starts_with("#z") || name.starts_with("#cmd_")
+}
+
+fn is_line_marker(line: &str) -> bool {
+    line.starts_with("// line ")
+}
+
+fn negate_condition(cond: &str) -> String {
+    let trimmed = cond.trim();
+    if is_simple_condition_atom(trimmed) {
+        format!("!{}", trimmed)
+    } else {
+        format!("!({})", trimmed)
+    }
+}
+
+fn is_simple_condition_atom(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '$' | '.' | '[' | ']'))
+}
+
 #[derive(Debug, Clone, Default)]
 struct LoopCtx {
     continue_target: Option<String>,
@@ -1005,7 +1255,7 @@ struct StructuredEmitter<'a> {
 impl<'a> StructuredEmitter<'a> {
     fn emit_range(&mut self, mut i: usize, end: usize, indent: usize, loop_ctx: &LoopCtx) {
         while i < end {
-            if let Some(next) = self.try_emit_while(i, end, indent) {
+            if let Some(next) = self.try_emit_guarded_prefix_loop(i, end, indent) {
                 i = next;
                 continue;
             }
@@ -1013,7 +1263,15 @@ impl<'a> StructuredEmitter<'a> {
                 i = next;
                 continue;
             }
+            if let Some(next) = self.try_emit_while(i, end, indent) {
+                i = next;
+                continue;
+            }
             if let Some(next) = self.try_emit_if(i, end, indent, loop_ctx) {
+                i = next;
+                continue;
+            }
+            if let Some(next) = self.try_emit_if_no_else(i, end, indent, loop_ctx) {
                 i = next;
                 continue;
             }
@@ -1038,7 +1296,7 @@ impl<'a> StructuredEmitter<'a> {
                     i += 1;
                 }
                 FlatKind::IfFalse { cond, target } => {
-                    self.write(indent, &format!("if (!({})) goto {};", cond, target));
+                    self.write(indent, &format!("if ({}) goto {};", negate_condition(cond), target));
                     i += 1;
                 }
                 FlatKind::IfTrue { cond, target } => {
@@ -1047,6 +1305,51 @@ impl<'a> StructuredEmitter<'a> {
                 }
             }
         }
+    }
+
+    fn try_emit_guarded_prefix_loop(&mut self, i: usize, end: usize, indent: usize) -> Option<usize> {
+        let loop_label = match &self.flat[i].kind {
+            FlatKind::Label(name) if !is_public_entry_label(name) => name.clone(),
+            _ => return None,
+        };
+        let prefix_start = self.skip_labels(i);
+        if prefix_start >= end {
+            return None;
+        }
+        let cond_idx = self.find_loop_guard_after_prefix(prefix_start, end)?;
+        if !self.range_contains_executable_line(prefix_start, cond_idx) {
+            return None;
+        }
+        let (break_cond, out_label) = match &self.flat[cond_idx].kind {
+            FlatKind::IfFalse { cond, target } => (negate_condition(cond), target.clone()),
+            FlatKind::IfTrue { cond, target } => (cond.clone(), target.clone()),
+            _ => return None,
+        };
+        let out_pos = *self.label_pos.get(&out_label)?;
+        if out_pos <= cond_idx || out_pos > end {
+            return None;
+        }
+        if self.has_public_entry_label_between(prefix_start, out_pos) {
+            return None;
+        }
+        let back_idx = self.prev_non_label(out_pos)?;
+        match &self.flat[back_idx].kind {
+            FlatKind::Goto(target) if target == &loop_label => {}
+            _ => return None,
+        }
+
+        self.write(indent, "while (true) {");
+        let ctx = LoopCtx {
+            continue_target: Some(loop_label),
+            break_target: Some(out_label.clone()),
+        };
+        self.emit_range(prefix_start, cond_idx, indent + 1, &ctx);
+        self.write(indent + 1, &format!("if ({}) {{", break_cond));
+        self.write(indent + 2, "break;");
+        self.write(indent + 1, "}");
+        self.emit_range(cond_idx + 1, back_idx, indent + 1, &ctx);
+        self.write(indent, "}");
+        Some(self.skip_labels(out_pos))
     }
 
     fn try_emit_while(&mut self, i: usize, end: usize, indent: usize) -> Option<usize> {
@@ -1065,6 +1368,9 @@ impl<'a> StructuredEmitter<'a> {
         };
         let loop_pos = *self.label_pos.get(&loop_label)?;
         if loop_pos > i {
+            return None;
+        }
+        if !self.only_labels_and_line_markers_between(loop_pos, i) {
             return None;
         }
         self.write(indent, &format!("while ({}) {{", cond));
@@ -1132,13 +1438,19 @@ impl<'a> StructuredEmitter<'a> {
         if false_pos <= i || false_pos > end {
             return None;
         }
+        if self.has_public_entry_label_between(i + 1, false_pos) {
+            return None;
+        }
         let then_end_idx = self.prev_non_label(false_pos)?;
         let end_label = match &self.flat[then_end_idx].kind {
             FlatKind::Goto(target) => target.clone(),
             _ => return None,
         };
         let end_pos = *self.label_pos.get(&end_label)?;
-        if end_pos < false_pos || end_pos > end {
+        if end_pos <= false_pos || end_pos > end {
+            return None;
+        }
+        if self.has_public_entry_label_between(false_pos + 1, end_pos) {
             return None;
         }
 
@@ -1146,13 +1458,95 @@ impl<'a> StructuredEmitter<'a> {
         self.emit_range(i + 1, then_end_idx, indent + 1, loop_ctx);
         self.write(indent, "}");
 
-        let else_start = false_pos + 1;
+        let else_start = self.skip_labels(false_pos);
         if else_start < end_pos {
             self.write(indent, "else {");
             self.emit_range(else_start, end_pos, indent + 1, loop_ctx);
             self.write(indent, "}");
         }
         Some(self.skip_labels(end_pos))
+    }
+
+    fn try_emit_if_no_else(
+        &mut self,
+        i: usize,
+        end: usize,
+        indent: usize,
+        loop_ctx: &LoopCtx,
+    ) -> Option<usize> {
+        let (cond, target_label) = match &self.flat[i].kind {
+            FlatKind::IfFalse { cond, target } => (cond.clone(), target.clone()),
+            FlatKind::IfTrue { cond, target } => (negate_condition(cond), target.clone()),
+            _ => return None,
+        };
+        let target_pos = *self.label_pos.get(&target_label)?;
+        if target_pos <= i || target_pos > end {
+            return None;
+        }
+        if self.has_public_entry_label_between(i + 1, target_pos) {
+            return None;
+        }
+        let body_start = i + 1;
+        if body_start >= target_pos {
+            self.write(indent, &format!("if ({}) {{", cond));
+            self.write(indent, "}");
+            return Some(self.skip_labels(target_pos));
+        }
+
+        self.write(indent, &format!("if ({}) {{", cond));
+        self.emit_range(body_start, target_pos, indent + 1, loop_ctx);
+        self.write(indent, "}");
+        Some(self.skip_labels(target_pos))
+    }
+
+    fn find_loop_guard_after_prefix(&self, mut i: usize, end: usize) -> Option<usize> {
+        while i < end && i < self.flat.len() {
+            match &self.flat[i].kind {
+                FlatKind::IfFalse { .. } | FlatKind::IfTrue { .. } => return Some(i),
+                FlatKind::Line(_) | FlatKind::Label(_) => i += 1,
+                FlatKind::Goto(_) => return None,
+            }
+        }
+        None
+    }
+
+    fn range_contains_executable_line(&self, start: usize, end: usize) -> bool {
+        let mut i = start;
+        while i < end && i < self.flat.len() {
+            if let FlatKind::Line(line) = &self.flat[i].kind {
+                if !is_line_marker(line) {
+                    return true;
+                }
+            }
+            i += 1;
+        }
+        false
+    }
+
+    fn only_labels_and_line_markers_between(&self, start: usize, end: usize) -> bool {
+        let mut i = start;
+        while i < end && i < self.flat.len() {
+            match &self.flat[i].kind {
+                FlatKind::Label(_) => {}
+                FlatKind::Line(line) if is_line_marker(line) => {}
+                _ => return false,
+            }
+            i += 1;
+        }
+        true
+    }
+
+    fn has_public_entry_label_between(&self, start: usize, end: usize) -> bool {
+        let mut i = start;
+        while i < end && i < self.flat.len() {
+            if let FlatKind::Label(name) = &self.flat[i].kind {
+                if is_public_entry_label(name) {
+                    return true;
+                }
+            }
+            i += 1;
+        }
+        false
     }
 
     fn skip_labels(&self, mut i: usize) -> usize {
