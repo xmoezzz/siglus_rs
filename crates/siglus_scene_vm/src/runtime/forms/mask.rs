@@ -38,9 +38,22 @@ fn is_mask_like_chain(ctx: &CommandContext, form_id: u32, chain: &[i32]) -> bool
     chain.len() >= 3 && is_array_code(ctx.ids.elm_array, chain[1])
 }
 
+#[derive(Debug, Clone, Copy)]
 enum MaskPostAction {
     None,
     Wait(bool),
+}
+
+fn anim_skip_trace_enabled() -> bool {
+    std::env::var_os("SG_DEBUG").is_some()
+}
+
+fn mask_event_state(ev: &IntEvent) -> String {
+    format!(
+        "value={} cur={} start={} end={} cur_time={} end_time={} delay={} loop_type={} speed={} real={} active={}",
+        ev.value, ev.cur_value, ev.start_value, ev.end_value, ev.cur_time, ev.end_time,
+        ev.delay_time, ev.loop_type, ev.speed_type, ev.real_flag, ev.check_event()
+    )
 }
 
 fn dispatch_int_event_exact(
@@ -192,6 +205,18 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             };
             let sub_op = chain[4];
             let (r, action) = dispatch_int_event_exact(target_ev, sub_op, params, ret_form);
+            if anim_skip_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][ANIM_SKIP_TRACE][MASK] form={} idx={} op={} subop={} params={:?} action={} state=[{}]",
+                    form_id,
+                    idx,
+                    op,
+                    sub_op,
+                    params,
+                    match action { MaskPostAction::None => "None", MaskPostAction::Wait(true) => "WaitKey", MaskPostAction::Wait(false) => "Wait" },
+                    mask_event_state(target_ev)
+                );
+            }
             break 'blk (true, r, action);
         }
 
@@ -201,11 +226,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 break 'blk (true, None, MaskPostAction::None);
             }
             x if x == constants::elm_value::MASK_CREATE => {
-                if let Some(name) = params.first().and_then(|v| v.as_str()) {
-                    mask.name = Some(name.to_string());
-                } else {
-                    mask.name = None;
-                }
+                let name = params.first().and_then(|v| v.as_str()).map(str::to_string);
+                mask.reinit();
+                mask.name = name;
                 break 'blk (true, None, MaskPostAction::None);
             }
             x if x == constants::elm_value::MASK_X => {
@@ -259,6 +282,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     match post_action {
         MaskPostAction::None => {}
         MaskPostAction::Wait(key_skip) => {
+            if anim_skip_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][ANIM_SKIP_TRACE][MASK] wait_requested key_skip={} NOTE=current implementation routes through generic form_id=0",
+                    key_skip
+                );
+            }
             ctx.wait.wait_generic_int_event(0, None, key_skip, key_skip)
         }
     }

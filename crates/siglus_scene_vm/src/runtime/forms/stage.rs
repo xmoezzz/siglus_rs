@@ -399,6 +399,286 @@ fn sg_cgm_coord_trace(ctx: &CommandContext, msg: impl AsRef<str>) {
     }
 }
 
+fn sg_anim_skip_trace_stage(ctx: &CommandContext, msg: impl AsRef<str>) {
+    if sg_debug_enabled_local() {
+        let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
+        let scene_no = ctx
+            .current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        eprintln!(
+            "[SG_DEBUG][ANIM_SKIP_TRACE][STAGE] scene={} scene_no={} line={} {}",
+            scene,
+            scene_no,
+            ctx.current_line_no,
+            msg.as_ref()
+        );
+    }
+}
+
+fn config_tr_write_trace_file(file: Option<&str>) -> bool {
+    let Some(name) = file else {
+        return false;
+    };
+    name.starts_with("mn_sm_menu_cbox")
+        || name.starts_with("mn_cfa_tab_pbtn")
+        || name.starts_with("mn_cfb_")
+        || name.starts_with("mn_cfe_")
+        || name.starts_with("mn_tt_menu")
+        || name.starts_with("mn_tt_copy")
+}
+
+fn config_tr_write_trace_object(obj_idx: usize, obj: &ObjectState) -> bool {
+    let slot = obj.runtime_slot_or(obj_idx);
+    (100057..=100067).contains(&slot) || config_tr_write_trace_file(obj.file_name.as_deref())
+}
+
+fn config_tr_file_label(obj: &ObjectState) -> &str {
+    obj.file_name.as_deref().unwrap_or("-")
+}
+
+fn config_tr_write_trace(ctx: &CommandContext, msg: impl AsRef<str>) {
+    if sg_debug_enabled_local() {
+        let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
+        let scene_no = ctx
+            .current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        eprintln!(
+            "[SG_DEBUG][CONFIG_TR_WRITE_TRACE] scene={} scene_no={} line={} {}",
+            scene,
+            scene_no,
+            ctx.current_line_no,
+            msg.as_ref()
+        );
+    }
+}
+
+fn trace_config_visual_prop_write(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    obj_idx: usize,
+    runtime_slot: usize,
+    obj: &ObjectState,
+    prop: &str,
+    old_value: i64,
+    new_value: i64,
+    reason: &str,
+) {
+    if config_tr_write_trace_object(obj_idx, obj) {
+        config_tr_write_trace(
+            ctx,
+            format!(
+                "kind=PROP_WRITE reason={} stage={} obj_idx={} runtime_slot={} file={} prop={} old={} new={} disp={} tr={} alpha={} backend={:?} used={} children={}",
+                reason,
+                stage_idx,
+                obj_idx,
+                runtime_slot,
+                config_tr_file_label(obj),
+                prop,
+                old_value,
+                new_value,
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp),
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_alpha),
+                obj.backend,
+                obj.used,
+                obj.runtime.child_objects.len(),
+            ),
+        );
+    }
+}
+
+fn trace_config_event_subop(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    obj_idx: usize,
+    runtime_slot: usize,
+    obj: &ObjectState,
+    op: i32,
+    subop: i32,
+    script_args: &[Value],
+    ev: &IntEvent,
+    reason: &str,
+) {
+    if !config_tr_write_trace_object(obj_idx, obj) {
+        return;
+    }
+    let prop = if ctx.ids.obj_tr_eve != 0 && op == ctx.ids.obj_tr_eve {
+        "TR_EVE"
+    } else if ctx.ids.obj_tr_rep_eve != 0 && op == ctx.ids.obj_tr_rep_eve {
+        "TR_REP_EVE"
+    } else {
+        return;
+    };
+    config_tr_write_trace(
+        ctx,
+        format!(
+            "kind=EVENT_SUBOP reason={} stage={} obj_idx={} runtime_slot={} file={} op={} prop={} subop={} args={:?} event=[{}] base_disp={} base_tr={} base_alpha={}",
+            reason,
+            stage_idx,
+            obj_idx,
+            runtime_slot,
+            config_tr_file_label(obj),
+            op,
+            prop,
+            subop,
+            script_args,
+            stage_event_state(ev),
+            obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp),
+            obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+            obj.get_int_prop(&ctx.ids, ctx.ids.obj_alpha),
+        ),
+    );
+}
+
+fn trace_config_event_subop_raw(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    obj_idx: usize,
+    runtime_slot: usize,
+    file_label: &str,
+    op: i32,
+    subop: i32,
+    script_args: &[Value],
+    ev: &IntEvent,
+    base_disp: i64,
+    base_tr: i64,
+    base_alpha: i64,
+    reason: &str,
+) {
+    let prop = if ctx.ids.obj_tr_eve != 0 && op == ctx.ids.obj_tr_eve {
+        "TR_EVE"
+    } else if ctx.ids.obj_tr_rep_eve != 0 && op == ctx.ids.obj_tr_rep_eve {
+        "TR_REP_EVE"
+    } else {
+        return;
+    };
+    config_tr_write_trace(
+        ctx,
+        format!(
+            "kind=EVENT_SUBOP reason={} stage={} obj_idx={} runtime_slot={} file={} op={} prop={} subop={} args={:?} event=[{}] base_disp={} base_tr={} base_alpha={}",
+            reason,
+            stage_idx,
+            obj_idx,
+            runtime_slot,
+            file_label,
+            op,
+            prop,
+            subop,
+            script_args,
+            stage_event_state(ev),
+            base_disp,
+            base_tr,
+            base_alpha,
+        ),
+    );
+}
+
+fn mwnd_state_trace_context(ctx: &CommandContext) -> (String, String, i64) {
+    (
+        ctx.current_scene_name
+            .as_deref()
+            .unwrap_or("<none>")
+            .to_string(),
+        ctx.current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string()),
+        ctx.current_line_no,
+    )
+}
+
+fn mwnd_state_trace_event(
+    scene: &str,
+    scene_no: &str,
+    line: i64,
+    reason: &str,
+    stage_idx: i64,
+    mwnd_idx: usize,
+    old_open: bool,
+    new_open: bool,
+    m: &MwndState,
+) {
+    if !sg_debug_enabled_local() {
+        return;
+    }
+    eprintln!(
+        "[SG_DEBUG][MWND_STATE_TRACE] scene={} scene_no={} line={} reason={} stage={} mwnd={} old_open={} new_open={} buttons={} faces={} objects={} waku={} filter={} pos={:?} size={:?} open_anim=({}, {}) close_anim=({}, {}) selection={} msg_len={} name_len={}",
+        scene,
+        scene_no,
+        line,
+        reason,
+        stage_idx,
+        mwnd_idx,
+        old_open,
+        new_open,
+        m.button_list.len(),
+        m.face_list.len(),
+        m.object_list.len(),
+        if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+        if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+        m.window_pos,
+        m.window_size,
+        m.open_anime_type,
+        m.open_anime_time,
+        m.close_anime_type,
+        m.close_anime_time,
+        m.selection.is_some(),
+        m.msg_text.len(),
+        m.name_text.len(),
+    );
+}
+
+fn mwnd_state_trace_copy(
+    scene: &str,
+    scene_no: &str,
+    line: i64,
+    reason: &str,
+    dst_stage: i64,
+    mwnd_idx: usize,
+    dst_old_open: bool,
+    src: &MwndState,
+) {
+    if !sg_debug_enabled_local() {
+        return;
+    }
+    eprintln!(
+        "[SG_DEBUG][MWND_STATE_TRACE][COPY] scene={} scene_no={} line={} reason={} dst_stage={} mwnd={} dst_old_open={} dst_new_open={} src_buttons={} src_faces={} src_objects={} src_waku={} src_filter={} src_pos={:?} src_size={:?}",
+        scene,
+        scene_no,
+        line,
+        reason,
+        dst_stage,
+        mwnd_idx,
+        dst_old_open,
+        src.open,
+        src.button_list.len(),
+        src.face_list.len(),
+        src.object_list.len(),
+        if src.waku_file.is_empty() { "-" } else { src.waku_file.as_str() },
+        if src.filter_file.is_empty() { "-" } else { src.filter_file.as_str() },
+        src.window_pos,
+        src.window_size,
+    );
+}
+
+fn stage_event_state(ev: &IntEvent) -> String {
+    format!(
+        "value={} cur={} start={} end={} cur_time={} end_time={} delay={} loop_type={} speed={} real={} active={}",
+        ev.value,
+        ev.cur_value,
+        ev.start_value,
+        ev.end_value,
+        ev.cur_time,
+        ev.end_time,
+        ev.delay_time,
+        ev.loop_type,
+        ev.speed_type,
+        ev.real_flag,
+        ev.check_event(),
+    )
+}
+
 fn object_file_is_cgm(file: &str) -> bool {
     file.to_ascii_lowercase().contains("cgm_")
 }
@@ -1432,6 +1712,17 @@ fn clear_root_object_for_stage_wipe(
         list.resize_with(idx + 1, ObjectState::default);
     }
     let used = list[idx].used;
+    if sg_debug_enabled_local() {
+        let obj = &list[idx];
+        eprintln!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clear_root stage={} idx={} runtime_slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} layer={} button_enabled={} button_no={} action_no={}",
+            stage_idx, idx, obj.runtime_slot_or(idx), obj.file_name.as_deref().unwrap_or("-"),
+            obj.used, obj.object_type, obj.backend,
+            obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp), obj.get_int_prop(&ctx.ids, ctx.ids.obj_x),
+            obj.get_int_prop(&ctx.ids, ctx.ids.obj_y), obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+            obj.get_int_prop(&ctx.ids, ctx.ids.obj_layer), obj.button.enabled, obj.button.button_no, obj.button.action_no
+        );
+    }
     object_clear_backend_recursive(ctx, &mut list[idx], stage_idx, idx);
     list[idx] = ObjectState::default();
     list[idx].used = used;
@@ -1446,6 +1737,16 @@ fn copy_root_object_for_stage_wipe(
 ) {
     extend_stage_object_list_at_least(st, dst_stage, dst_idx + 1);
     let mut copy = src.clone();
+    if sg_debug_enabled_local() {
+        eprintln!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] copy_root dst_stage={} dst_idx={} src_runtime_slot={} src_file={} src_used={} src_type={} src_backend={:?} src_disp={} src_pos=({}, {}) src_tr={} src_layer={} src_button_enabled={} src_button_no={} src_action_no={}",
+            dst_stage, dst_idx, src.runtime_slot_or(dst_idx), src.file_name.as_deref().unwrap_or("-"),
+            src.used, src.object_type, src.backend,
+            src.get_int_prop(&ctx.ids, ctx.ids.obj_disp), src.get_int_prop(&ctx.ids, ctx.ids.obj_x),
+            src.get_int_prop(&ctx.ids, ctx.ids.obj_y), src.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+            src.get_int_prop(&ctx.ids, ctx.ids.obj_layer), src.button.enabled, src.button.button_no, src.button.action_no
+        );
+    }
     let mut old = {
         let list = st.object_lists.get_mut(&dst_stage).unwrap();
         std::mem::take(&mut list[dst_idx])
@@ -1464,6 +1765,15 @@ fn clear_embedded_objects_for_stage_wipe(
 ) {
     for (idx, obj) in list.iter_mut().enumerate() {
         let slot = obj.runtime_slot_or(idx);
+        if sg_debug_enabled_local() {
+            eprintln!(
+                "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clear_embedded stage={} idx={} slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} button_enabled={} button_no={} action_no={}",
+                stage_idx, idx, slot, obj.file_name.as_deref().unwrap_or("-"), obj.used, obj.object_type, obj.backend,
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp), obj.get_int_prop(&ctx.ids, ctx.ids.obj_x),
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_y), obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+                obj.button.enabled, obj.button.button_no, obj.button.action_no
+            );
+        }
         object_clear_backend_recursive(ctx, obj, stage_idx, slot);
     }
     list.clear();
@@ -1476,7 +1786,17 @@ fn clone_embedded_objects_for_stage_wipe(
     src: &[ObjectState],
 ) -> Vec<ObjectState> {
     let mut out = Vec::with_capacity(src.len());
-    for src_obj in src {
+    for (src_idx, src_obj) in src.iter().enumerate() {
+        if sg_debug_enabled_local() {
+            eprintln!(
+                "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clone_embedded dst_stage={} src_idx={} src_runtime_slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} button_enabled={} button_no={} action_no={} children={}",
+                dst_stage, src_idx, src_obj.runtime_slot_or(src_idx), src_obj.file_name.as_deref().unwrap_or("-"),
+                src_obj.used, src_obj.object_type, src_obj.backend,
+                src_obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp), src_obj.get_int_prop(&ctx.ids, ctx.ids.obj_x),
+                src_obj.get_int_prop(&ctx.ids, ctx.ids.obj_y), src_obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+                src_obj.button.enabled, src_obj.button.button_no, src_obj.button.action_no, src_obj.runtime.child_objects.len()
+            );
+        }
         let mut copy = src_obj.clone();
         copy.nested_runtime_slot = None;
         let slot = nested_object_slot(st, dst_stage, &mut copy);
@@ -1505,10 +1825,21 @@ fn copy_mwnd_for_stage_wipe(
     src: &MwndState,
 ) {
     extend_stage_mwnd_list_at_least(st, dst_stage, dst_idx + 1);
+    if sg_debug_enabled_local() {
+        eprintln!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] copy_mwnd dst_stage={} dst_idx={} src_open={} src_order={} src_layer={} buttons={} faces={} objects={} waku={} filter={} pos={:?} size={:?}",
+            dst_stage, dst_idx, src.open, src.order, src.layer, src.button_list.len(), src.face_list.len(), src.object_list.len(),
+            if src.waku_file.is_empty() { "-" } else { src.waku_file.as_str() },
+            if src.filter_file.is_empty() { "-" } else { src.filter_file.as_str() },
+            src.window_pos, src.window_size
+        );
+    }
+    let (scene, scene_no, line) = mwnd_state_trace_context(ctx);
     let mut old = {
         let list = st.mwnd_lists.get_mut(&dst_stage).unwrap();
         std::mem::take(&mut list[dst_idx])
     };
+    mwnd_state_trace_copy(&scene, &scene_no, line, "STAGE_WIPE_COPY_MWND", dst_stage, dst_idx, old.open, src);
     clear_mwnd_embedded_objects_for_stage_wipe(ctx, &mut old, dst_stage);
 
     let mut copy = src.clone();
@@ -1527,13 +1858,26 @@ fn reset_mwnd_for_stage_wipe(
     idx: usize,
 ) {
     extend_stage_mwnd_list_at_least(st, stage_idx, idx + 1);
+    if sg_debug_enabled_local() {
+        if let Some(old) = st.mwnd_lists.get(&stage_idx).and_then(|list| list.get(idx)) {
+            eprintln!(
+                "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] reset_mwnd stage={} idx={} old_open={} old_buttons={} old_faces={} old_objects={} old_waku={} old_filter={} old_pos={:?} old_size={:?}",
+                stage_idx, idx, old.open, old.button_list.len(), old.face_list.len(), old.object_list.len(),
+                if old.waku_file.is_empty() { "-" } else { old.waku_file.as_str() },
+                if old.filter_file.is_empty() { "-" } else { old.filter_file.as_str() }, old.window_pos, old.window_size
+            );
+        }
+    }
+    let (scene, scene_no, line) = mwnd_state_trace_context(ctx);
     let mut old = {
         let list = st.mwnd_lists.get_mut(&stage_idx).unwrap();
         std::mem::take(&mut list[idx])
     };
+    let default_mwnd = MwndState::default();
+    mwnd_state_trace_event(&scene, &scene_no, line, "STAGE_WIPE_RESET_MWND", stage_idx, idx, old.open, default_mwnd.open, &old);
     clear_mwnd_embedded_objects_for_stage_wipe(ctx, &mut old, stage_idx);
     let list = st.mwnd_lists.get_mut(&stage_idx).unwrap();
-    list[idx] = MwndState::default();
+    list[idx] = default_mwnd;
     ensure_mwnd(ctx, st, stage_idx, idx);
 }
 
@@ -1606,6 +1950,14 @@ fn stage_wipe_object_lists(
             end_layer,
         ) || back_prepared
         {
+            if sg_debug_enabled_local() {
+                eprintln!(
+                    "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] object_slot idx={} front_file={} front_order={} front_layer={} back_file={} back_prepared={} front_wipe_copy={} back_wipe_erase={} range=({},{})->({},{})",
+                    idx, front.file_name.as_deref().unwrap_or("-"), front_order, front_layer,
+                    back.file_name.as_deref().unwrap_or("-"), back_prepared, object_wipe_copy_value(ctx, &front),
+                    object_wipe_erase_value(ctx, &back), begin_order, begin_layer, end_order, end_layer
+                );
+            }
             copy_root_object_for_stage_wipe(ctx, st, 2, idx, &front);
 
             if object_wipe_copy_value(ctx, &front) == 0
@@ -1652,6 +2004,15 @@ fn stage_wipe_mwnd_lists(
             end_order,
             end_layer,
         ) {
+            if sg_debug_enabled_local() {
+                eprintln!(
+                    "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] mwnd_slot idx={} front_open={} front_order={} front_layer={} front_buttons={} front_objects={} front_waku={} front_filter={} range=({},{})->({},{})",
+                    idx, front.open, front.order, front.layer, front.button_list.len(), front.object_list.len(),
+                    if front.waku_file.is_empty() { "-" } else { front.waku_file.as_str() },
+                    if front.filter_file.is_empty() { "-" } else { front.filter_file.as_str() },
+                    begin_order, begin_layer, end_order, end_layer
+                );
+            }
             let back = st
                 .mwnd_lists
                 .get(&0)
@@ -1850,6 +2211,12 @@ pub fn apply_stage_wipe(
     end_layer: i32,
 ) {
     let form_id = ctx.ids.form_global_stage;
+    if sg_debug_enabled_local() {
+        eprintln!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] apply form={} range=({},{})->({},{})",
+            form_id, begin_order, begin_layer, end_order, end_layer
+        );
+    }
     with_stage_state(ctx, form_id, |ctx, st| {
         stage_wipe_object_lists(ctx, st, begin_order, end_order, begin_layer, end_layer);
         stage_wipe_mwnd_lists(ctx, st, begin_order, end_order, begin_layer, end_layer);
@@ -1997,8 +2364,10 @@ fn ensure_mwnd(ctx: &mut CommandContext, st: &mut StageFormState, stage_idx: i64
 
 fn apply_mwnd_waku_template_fields(
     m: &mut crate::runtime::globals::MwndState,
+    waku_no: i64,
     waku: &crate::runtime::tables::WakuTemplate,
 ) {
+    m.msg_waku_no = Some(waku_no);
     m.waku_file = waku.waku_file.clone();
     m.filter_file = waku.filter_file.clone();
     m.filter_margin = Some(waku.filter_margin);
@@ -2037,6 +2406,39 @@ fn clear_mwnd_waku_template_fields(m: &mut crate::runtime::globals::MwndState) {
     m.icon_pos = None;
     m.waku_button_layout.clear();
     m.waku_face_pos.clear();
+    m.msg_waku_no = None;
+}
+
+fn init_mwnd_waku_file_from_current_template(
+    ctx: &CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    mwnd_idx: usize,
+) {
+    let fallback = ctx
+        .tables
+        .mwnd_templates
+        .get(mwnd_idx)
+        .map(|t| t.waku_no);
+    let waku_no = st
+        .mwnd_lists
+        .get(&stage_idx)
+        .and_then(|list| list.get(mwnd_idx))
+        .and_then(|m| m.msg_waku_no)
+        .or(fallback);
+    let Some(waku) = waku_no
+        .and_then(|n| (n >= 0).then_some(n as usize))
+        .and_then(|idx| ctx.tables.waku_templates.get(idx))
+    else {
+        return;
+    };
+    if let Some(m) = st
+        .mwnd_lists
+        .get_mut(&stage_idx)
+        .and_then(|list| list.get_mut(mwnd_idx))
+    {
+        m.waku_file = waku.waku_file.clone();
+    }
 }
 
 fn create_mwnd_face_object(
@@ -2178,6 +2580,29 @@ fn create_mwnd_template_button_object(
         obj.frame_action.end_flag = false;
         obj.frame_action.counter.start();
     }
+    if sg_debug_enabled_local() {
+        eprintln!(
+            "[SG_DEBUG][BUTTON_TRACE][MWND_TEMPLATE] create stage={} mwnd={} button_idx={} runtime_slot={} file={} cut={} action_no={} se_no={} sys_type={} sys_opt={} mode={} enabled={} state={} callback={}::{}/{} frame_action={}::{}",
+            stage_idx,
+            mwnd_idx,
+            btn_idx,
+            slot,
+            button.file_name,
+            obj.button.cut_no,
+            obj.button.action_no,
+            obj.button.se_no,
+            obj.button.sys_type,
+            obj.button.sys_type_opt,
+            obj.button.mode,
+            obj.button.enabled,
+            obj.button.state,
+            obj.button.decided_action_scn_name,
+            obj.button.decided_action_cmd_name,
+            obj.button.decided_action_z_no,
+            obj.frame_action.scn_name,
+            obj.frame_action.cmd_name
+        );
+    }
     mark_cgtable_look_from_object_create(
         &mut ctx.tables,
         ctx.globals.cg_table_off,
@@ -2216,7 +2641,7 @@ fn apply_mwnd_waku_from_gameexe(
     let mut button_list = {
         let list = st.mwnd_lists.get_mut(&stage_idx).unwrap();
         let m = &mut list[mwnd_idx];
-        apply_mwnd_waku_template_fields(m, &waku);
+        apply_mwnd_waku_template_fields(m, waku_no, &waku);
         if m.button_list.len() < waku.buttons.len() {
             m.button_list
                 .resize_with(waku.buttons.len(), ObjectState::default);
@@ -3485,6 +3910,24 @@ fn object_reinit_finish_free_like_cpp(
     stage_idx: i64,
     obj_idx: usize,
 ) {
+    if config_tr_write_trace_object(obj_idx, obj) {
+        config_tr_write_trace(
+            ctx,
+            format!(
+                "kind=REINIT_BEFORE stage={} obj_idx={} runtime_slot={} file={} disp={} tr={} alpha={} backend={:?} used={} children={}",
+                stage_idx,
+                obj_idx,
+                obj.runtime_slot_or(obj_idx),
+                config_tr_file_label(obj),
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp),
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_alpha),
+                obj.backend,
+                obj.used,
+                obj.runtime.child_objects.len(),
+            ),
+        );
+    }
     object_clear_backend_recursive(ctx, obj, stage_idx, obj_idx);
     obj.runtime.child_objects.clear();
     obj.init_type_like();
@@ -4684,6 +5127,19 @@ fn dispatch_object_op(
                 return true;
             }
             if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
+                if sg_debug_enabled_local() {
+                    eprintln!(
+                        "[SG_DEBUG][ANIM_SKIP_TRACE][STAGE] object_event_subop stage={} slot={} file={} op={} subop={} args={:?} action={:?} state=[{}]",
+                        stage_idx,
+                        obj_runtime_slot,
+                        "-",
+                        op,
+                        t[0],
+                        script_args,
+                        match &action { IntEventDispatchAction::Done => "Done", IntEventDispatchAction::Wait { key_skip } => if *key_skip { "WaitKey" } else { "Wait" } },
+                        stage_event_state(ev)
+                    );
+                }
                 match t[0] {
                     int_event_op::CHECK => {
                         ctx.stack
@@ -4902,6 +5358,19 @@ fn dispatch_object_op(
                     return true;
                 }
                 if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
+                if sg_debug_enabled_local() {
+                    eprintln!(
+                        "[SG_DEBUG][ANIM_SKIP_TRACE][STAGE] object_event_subop stage={} slot={} file={} op={} subop={} args={:?} action={:?} state=[{}]",
+                        stage_idx,
+                        obj_runtime_slot,
+                        "-",
+                        op,
+                        t[0],
+                        script_args,
+                        match &action { IntEventDispatchAction::Done => "Done", IntEventDispatchAction::Wait { key_skip } => if *key_skip { "WaitKey" } else { "Wait" } },
+                        stage_event_state(ev)
+                    );
+                }
                     match t[0] {
                         int_event_op::CHECK => {
                             ctx.stack
@@ -4953,6 +5422,11 @@ fn dispatch_object_op(
         }
 
         if arr_idx.is_none() && is_obj_int_event {
+            let config_event_trace_target = config_tr_write_trace_object(obj_u, obj);
+            let config_event_file = config_tr_file_label(obj).to_string();
+            let config_event_base_disp = obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp);
+            let config_event_base_tr = obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr);
+            let config_event_base_alpha = obj.get_int_prop(&ctx.ids, ctx.ids.obj_alpha);
             let ev = obj.int_event_by_op_mut(&ctx.ids, op).unwrap();
             if t.is_empty() {
                 if let Some(Value::Int(v)) = rhs {
@@ -4970,6 +5444,36 @@ fn dispatch_object_op(
                 return true;
             }
             if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
+                if config_event_trace_target {
+                    trace_config_event_subop_raw(
+                        ctx,
+                        stage_idx,
+                        obj_u,
+                        obj_runtime_slot,
+                        &config_event_file,
+                        op,
+                        t[0],
+                        script_args,
+                        ev,
+                        config_event_base_disp,
+                        config_event_base_tr,
+                        config_event_base_alpha,
+                        "OBJECT.EVENT_SUBOP",
+                    );
+                }
+                if sg_debug_enabled_local() {
+                    eprintln!(
+                        "[SG_DEBUG][ANIM_SKIP_TRACE][STAGE] object_event_subop stage={} slot={} file={} op={} subop={} args={:?} action={:?} state=[{}]",
+                        stage_idx,
+                        obj_runtime_slot,
+                        "-",
+                        op,
+                        t[0],
+                        script_args,
+                        match &action { IntEventDispatchAction::Done => "Done", IntEventDispatchAction::Wait { key_skip } => if *key_skip { "WaitKey" } else { "Wait" } },
+                        stage_event_state(ev)
+                    );
+                }
                 match t[0] {
                     int_event_op::CHECK => {
                         ctx.stack
@@ -5007,7 +5511,46 @@ fn dispatch_object_op(
     if op == ctx.ids.obj_all_eve {
         let sub = tail.get(0).copied().unwrap_or(0);
         if sub == ctx.ids.elm_allevent_end {
+            let old_tr = obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr);
+            let old_alpha = obj.get_int_prop(&ctx.ids, ctx.ids.obj_alpha);
+            if config_tr_write_trace_object(obj_u, obj) {
+                config_tr_write_trace(
+                    ctx,
+                    format!(
+                        "kind=ALL_EVE_END_BEFORE stage={} obj_idx={} runtime_slot={} file={} tr={} alpha={} any_event_active={}",
+                        stage_idx,
+                        obj_u,
+                        obj_runtime_slot,
+                        config_tr_file_label(obj),
+                        old_tr,
+                        old_alpha,
+                        obj.any_event_active(),
+                    ),
+                );
+            }
             obj.end_all_events();
+            trace_config_visual_prop_write(
+                ctx,
+                stage_idx,
+                obj_u,
+                obj_runtime_slot,
+                obj,
+                "TR",
+                old_tr,
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+                "OBJECT.ALL_EVE.END",
+            );
+            trace_config_visual_prop_write(
+                ctx,
+                stage_idx,
+                obj_u,
+                obj_runtime_slot,
+                obj,
+                "ALPHA",
+                old_alpha,
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_alpha),
+                "OBJECT.ALL_EVE.END",
+            );
             push_ok(ctx, ret_form);
             return true;
         }
@@ -5199,6 +5742,18 @@ fn dispatch_object_op(
         });
         if let Some(v) = set_v {
             let b = v != 0;
+            let disp_new = if b { 1 } else { 0 };
+            trace_config_visual_prop_write(
+                ctx,
+                stage_idx,
+                obj_u,
+                obj_runtime_slot,
+                obj,
+                "DISP",
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_disp),
+                disp_new,
+                "OBJECT.DISP",
+            );
             sg_debug_stage(format!(
                 "stage={} obj={} DISP {}",
                 stage_idx,
@@ -5524,6 +6079,17 @@ fn dispatch_object_op(
         });
         if let Some(v) = set_v {
             let a = v.clamp(0, 255) as u8;
+            trace_config_visual_prop_write(
+                ctx,
+                stage_idx,
+                obj_u,
+                obj_runtime_slot,
+                obj,
+                "ALPHA",
+                obj.get_int_prop(&ctx.ids, ctx.ids.obj_alpha),
+                i64::from(a),
+                "OBJECT.ALPHA",
+            );
             match obj.backend {
                 ObjectBackend::Rect {
                     layer_id,
@@ -6670,6 +7236,19 @@ fn dispatch_object_op(
     // ---------------------------------------------------------------------
 
     if ctx.ids.obj_clear_button != 0 && op == ctx.ids.obj_clear_button {
+        if sg_debug_enabled_local() {
+            eprintln!(
+                "[SG_DEBUG][BUTTON_TRACE][STAGE] CLEAR_BUTTON stage={} obj_slot={} file={:?} button_no={} group_no={} action_no={} state={} enabled={}",
+                stage_idx,
+                obj_runtime_slot,
+                obj.file_name,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.action_no,
+                obj.button.state,
+                obj.button.enabled
+            );
+        }
         obj.button.clear();
         push_ok(ctx, ret_form);
         return true;
@@ -6712,6 +7291,26 @@ fn dispatch_object_op(
         }
         obj.button.hit = false;
         obj.button.pushed = false;
+        if sg_debug_enabled_local() {
+            eprintln!(
+                "[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON stage={} obj_slot={} file={:?} al_id={:?} args={:?} button_no={} group_no={} group_idx={:?} action_no={} se_no={} state={} enabled={} call={}::{}/{}",
+                stage_idx,
+                obj_runtime_slot,
+                obj.file_name,
+                al_id,
+                script_args,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.group_idx(),
+                obj.button.action_no,
+                obj.button.se_no,
+                obj.button.state,
+                obj.button.enabled,
+                obj.button.decided_action_scn_name,
+                obj.button.decided_action_cmd_name,
+                obj.button.decided_action_z_no
+            );
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -6745,6 +7344,22 @@ fn dispatch_object_op(
         if let Some(gidx) = obj.button.group_idx() {
             ensure_group(ctx, st, stage_idx, gidx);
         }
+        if sg_debug_enabled_local() {
+            eprintln!(
+                "[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON_GROUP stage={} obj_slot={} file={:?} al_id={:?} args={:?} button_no={} group_no={} group_idx={:?} action_no={} state={} enabled={}",
+                stage_idx,
+                obj_runtime_slot,
+                obj.file_name,
+                al_id,
+                script_args,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.group_idx(),
+                obj.button.action_no,
+                obj.button.state,
+                obj.button.enabled
+            );
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -6773,16 +7388,25 @@ fn dispatch_object_op(
 
     if ctx.ids.obj_set_button_state_normal != 0 && op == ctx.ids.obj_set_button_state_normal {
         obj.button.state = TNM_BTN_STATE_NORMAL;
+        if sg_debug_enabled_local() {
+            eprintln!("[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON_STATE_NORMAL stage={} obj_slot={} file={:?} button_no={} group_no={} action_no={} enabled={}", stage_idx, obj_runtime_slot, obj.file_name, obj.button.button_no, obj.button.group_no, obj.button.action_no, obj.button.enabled);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
     if ctx.ids.obj_set_button_state_select != 0 && op == ctx.ids.obj_set_button_state_select {
         obj.button.state = TNM_BTN_STATE_SELECT;
+        if sg_debug_enabled_local() {
+            eprintln!("[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON_STATE_SELECT stage={} obj_slot={} file={:?} button_no={} group_no={} action_no={} enabled={}", stage_idx, obj_runtime_slot, obj.file_name, obj.button.button_no, obj.button.group_no, obj.button.action_no, obj.button.enabled);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
     if ctx.ids.obj_set_button_state_disable != 0 && op == ctx.ids.obj_set_button_state_disable {
         obj.button.state = TNM_BTN_STATE_DISABLE;
+        if sg_debug_enabled_local() {
+            eprintln!("[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON_STATE_DISABLE stage={} obj_slot={} file={:?} button_no={} group_no={} action_no={} enabled={}", stage_idx, obj_runtime_slot, obj.file_name, obj.button.button_no, obj.button.group_no, obj.button.action_no, obj.button.enabled);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -7481,6 +8105,31 @@ fn dispatch_object_op(
                 }
             });
             if let Some(v) = set_v {
+                if ctx.ids.obj_tr != 0 && op == ctx.ids.obj_tr {
+                    trace_config_visual_prop_write(
+                        ctx,
+                        stage_idx,
+                        obj_u,
+                        obj_runtime_slot,
+                        obj,
+                        "TR",
+                        obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr),
+                        v,
+                        "OBJECT.TR",
+                    );
+                } else if ctx.ids.obj_tr_rep != 0 && op == ctx.ids.obj_tr_rep {
+                    trace_config_visual_prop_write(
+                        ctx,
+                        stage_idx,
+                        obj_u,
+                        obj_runtime_slot,
+                        obj,
+                        "TR_REP",
+                        obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr_rep),
+                        v,
+                        "OBJECT.TR_REP",
+                    );
+                }
                 obj.set_int_prop(&ctx.ids, op, v);
                 if ctx.ids.obj_alpha_test != 0 && op == ctx.ids.obj_alpha_test {
                     obj.button.alpha_test = v != 0;
@@ -9105,13 +9754,11 @@ fn resolve_mwnd_list_op(_ids: &constants::RuntimeConstants, op: i32) -> Option<M
 fn resolve_mwnd_op(_ids: &constants::RuntimeConstants, op: i32) -> Option<MwndOpKind> {
     match op {
         constants::MWND_MSG_BLOCK | constants::MWND_MSG_PP_BLOCK => Some(MwndOpKind::MsgBlock),
-        constants::MWND_OPEN_NOWAIT | constants::MWND_OPEN_WAIT | constants::MWND_OPEN => {
-            Some(MwndOpKind::Open)
-        }
-        constants::MWND_CLOSE_NOWAIT
-        | constants::MWND_CLOSE_WAIT
-        | constants::MWND_CLOSE
-        | constants::MWND_END_CLOSE => Some(MwndOpKind::Close),
+        constants::MWND_OPEN | constants::MWND_OPEN_WAIT => Some(MwndOpKind::OpenWait),
+        constants::MWND_OPEN_NOWAIT => Some(MwndOpKind::OpenNowait),
+        constants::MWND_CLOSE | constants::MWND_CLOSE_WAIT => Some(MwndOpKind::CloseWait),
+        constants::MWND_CLOSE_NOWAIT => Some(MwndOpKind::CloseNowait),
+        constants::MWND_END_CLOSE => Some(MwndOpKind::EndClose),
         constants::MWND_CHECK_OPEN => Some(MwndOpKind::CheckOpen),
         constants::MWND____NOVEL_CLEAR => Some(MwndOpKind::NovelClear),
         constants::MWND_CLEAR => Some(MwndOpKind::Clear),
@@ -9640,7 +10287,10 @@ fn start_mwnd_auto_message(ctx: &mut CommandContext, m: &mut MwndState) {
     m.key_icon_pos = None;
     m.key_icon_mode = 0;
     if !m.open {
+        let (scene, scene_no, line) = mwnd_state_trace_context(ctx);
+        let old_open = m.open;
         m.open = true;
+        mwnd_state_trace_event(&scene, &scene_no, line, "AUTO_MESSAGE_OPEN", -1, usize::MAX, old_open, m.open, m);
         ctx.ui.begin_mwnd_open(m.open_anime_type, m.open_anime_time);
     } else {
         ctx.ui.show_message_bg(true);
@@ -9896,7 +10546,7 @@ fn dispatch_mwnd_item_op(
             return true;
         }
         MwndOpKind::InitWakuFile => {
-            apply_mwnd_waku_from_gameexe(ctx, st, stage_idx, mwnd_idx, None);
+            init_mwnd_waku_file_from_current_template(ctx, st, stage_idx, mwnd_idx);
             push_ok(ctx, ret_form);
             return true;
         }
@@ -9973,6 +10623,7 @@ fn dispatch_mwnd_item_op(
         _ => {}
     }
 
+    let (scene, scene_no, line) = mwnd_state_trace_context(ctx);
     let list = st.mwnd_lists.get_mut(&stage_idx).unwrap();
     let m = &mut list[mwnd_idx];
 
@@ -9982,16 +10633,24 @@ fn dispatch_mwnd_item_op(
             push_ok(ctx, ret_form);
             true
         }
-        MwndOpKind::Open => {
+        MwndOpKind::OpenWait | MwndOpKind::OpenNowait => {
+            let old_open = m.open;
             m.open = true;
+            mwnd_state_trace_event(&scene, &scene_no, line, if matches!(k, MwndOpKind::OpenWait) { "MWND_OPEN_WAIT" } else { "MWND_OPEN_NOWAIT" }, stage_idx, mwnd_idx, old_open, m.open, m);
             m.text_dirty = false;
+            let anime_time = m.open_anime_time;
             ctx.ui.show_message_bg(true);
-            ctx.ui.begin_mwnd_open(m.open_anime_type, m.open_anime_time);
+            ctx.ui.begin_mwnd_open(m.open_anime_type, anime_time);
+            if matches!(k, MwndOpKind::OpenWait) && anime_time > 0 {
+                ctx.wait.wait_ms(anime_time.max(0) as u64);
+            }
             push_ok(ctx, ret_form);
             true
         }
-        MwndOpKind::Close => {
+        MwndOpKind::CloseWait | MwndOpKind::CloseNowait => {
+            let old_open = m.open;
             m.open = false;
+            mwnd_state_trace_event(&scene, &scene_no, line, if matches!(k, MwndOpKind::CloseWait) { "MWND_CLOSE_WAIT" } else { "MWND_CLOSE_NOWAIT" }, stage_idx, mwnd_idx, old_open, m.open, m);
             m.key_icon_appear = false;
             m.key_icon_pos = None;
             ctx.ui.show_message_bg(false);
@@ -10006,8 +10665,19 @@ fn dispatch_mwnd_item_op(
                 ctx.globals.focused_stage_mwnd = None;
             }
             msgbk_next(ctx);
+            let anime_time = m.close_anime_time;
             ctx.ui
-                .begin_mwnd_close(m.close_anime_type, m.close_anime_time);
+                .begin_mwnd_close(m.close_anime_type, anime_time);
+            if matches!(k, MwndOpKind::CloseWait) && anime_time > 0 {
+                ctx.wait.wait_ms(anime_time.max(0) as u64);
+            }
+            push_ok(ctx, ret_form);
+            true
+        }
+        MwndOpKind::EndClose => {
+            // C++ ELM_MWND_END_CLOSE calls C_elm_mwnd::end_close(), which only
+            // terminates the close animation. It must not change
+            // m_window_appear/open or clear message-window state.
             push_ok(ctx, ret_form);
             true
         }
@@ -10162,7 +10832,9 @@ fn dispatch_mwnd_item_op(
             let cancel_enable = matches!(k, MwndOpKind::SelCancel | MwndOpKind::SelMsgCancel);
             let close_mwnd = matches!(k, MwndOpKind::Sel | MwndOpKind::SelCancel);
 
+            let old_open = m.open;
             m.open = true;
+            mwnd_state_trace_event(&scene, &scene_no, line, "MWND_SELECTION_OPEN", stage_idx, mwnd_idx, old_open, m.open, m);
             ctx.ui.begin_mwnd_open(m.open_anime_type, m.open_anime_time);
 
             m.selection = Some(MwndSelectionState {
@@ -10427,6 +11099,14 @@ fn dispatch_mwnd_item_op(
             true
         }
         MwndOpKind::InitWakuFile => {
+            let fallback = ctx.tables.mwnd_templates.get(mwnd_idx).map(|t| t.waku_no);
+            let waku_no = m.msg_waku_no.or(fallback);
+            if let Some(waku) = waku_no
+                .and_then(|n| (n >= 0).then_some(n as usize))
+                .and_then(|idx| ctx.tables.waku_templates.get(idx))
+            {
+                m.waku_file = waku.waku_file.clone();
+            }
             push_ok(ctx, ret_form);
             true
         }
@@ -10444,8 +11124,14 @@ fn dispatch_mwnd_item_op(
             true
         }
         MwndOpKind::InitFilterFile => {
-            m.filter_file.clear();
-
+            let fallback = ctx.tables.mwnd_templates.get(mwnd_idx).map(|t| t.waku_no);
+            let waku_no = m.msg_waku_no.or(fallback);
+            if let Some(waku) = waku_no
+                .and_then(|n| (n >= 0).then_some(n as usize))
+                .and_then(|idx| ctx.tables.waku_templates.get(idx))
+            {
+                m.filter_file = waku.filter_file.clone();
+            }
             push_ok(ctx, ret_form);
             true
         }

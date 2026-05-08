@@ -43,6 +43,18 @@ fn default_for_ret_form(ret_form: i64) -> Value {
     }
 }
 
+fn anim_skip_trace_enabled() -> bool {
+    std::env::var_os("SG_DEBUG").is_some()
+}
+
+fn screen_event_state(ev: &crate::runtime::int_event::IntEvent) -> String {
+    format!(
+        "value={} cur={} start={} end={} cur_time={} end_time={} delay={} loop_type={} speed={} real={} active={}",
+        ev.value, ev.cur_value, ev.start_value, ev.end_value, ev.cur_time, ev.end_time,
+        ev.delay_time, ev.loop_type, ev.speed_type, ev.real_flag, ev.check_event()
+    )
+}
+
 fn effect_prop_ref_mut<'a>(
     ids: &crate::runtime::constants::RuntimeConstants,
     effect: &'a mut ScreenEffectState,
@@ -126,6 +138,12 @@ fn run_int_event_command(
                 0
             };
             ev.set_event(value, total_time, delay_time, speed_type, real_flag);
+            if anim_skip_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.SET subop={} value={} total_time={} delay={} speed={} real={} state=[{}]",
+                    subop, value, total_time, delay_time, speed_type, real_flag, screen_event_state(ev)
+                );
+            }
             ctx.stack.push(default_for_ret_form(ret_form));
         }
         int_event_op::LOOP | int_event_op::LOOP_REAL => {
@@ -147,6 +165,12 @@ fn run_int_event_command(
                 speed_type,
                 real_flag,
             );
+            if anim_skip_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.LOOP subop={} start={} end={} loop_time={} delay={} speed={} real={} state=[{}]",
+                    subop, start_value, end_value, loop_time, delay_time, speed_type, real_flag, screen_event_state(ev)
+                );
+            }
             ctx.stack.push(default_for_ret_form(ret_form));
         }
         int_event_op::TURN | int_event_op::TURN_REAL => {
@@ -168,14 +192,42 @@ fn run_int_event_command(
                 speed_type,
                 real_flag,
             );
+            if anim_skip_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.TURN subop={} start={} end={} loop_time={} delay={} speed={} real={} state=[{}]",
+                    subop, start_value, end_value, loop_time, delay_time, speed_type, real_flag, screen_event_state(ev)
+                );
+            }
             ctx.stack.push(default_for_ret_form(ret_form));
         }
         int_event_op::END => {
+            if anim_skip_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.END before state=[{}]",
+                    screen_event_state(ev)
+                );
+            }
             ev.end_event();
+            if anim_skip_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.END after state=[{}]",
+                    screen_event_state(ev)
+                );
+            }
             ctx.stack.push(default_for_ret_form(ret_form));
         }
-        int_event_op::WAIT => ctx.wait.wait_generic_int_event(0, None, false, false),
-        int_event_op::WAIT_KEY => ctx.wait.wait_generic_int_event(0, None, true, true),
+        int_event_op::WAIT => {
+            if anim_skip_trace_enabled() {
+                eprintln!("[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.WAIT requested NOTE=current implementation routes through generic form_id=0");
+            }
+            ctx.wait.wait_generic_int_event(0, None, false, false)
+        }
+        int_event_op::WAIT_KEY => {
+            if anim_skip_trace_enabled() {
+                eprintln!("[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.WAIT_KEY requested NOTE=current implementation routes through generic form_id=0");
+            }
+            ctx.wait.wait_generic_int_event(0, None, true, true)
+        }
         int_event_op::CHECK => ctx
             .stack
             .push(Value::Int(if ev.check_event() { 1 } else { 0 })),

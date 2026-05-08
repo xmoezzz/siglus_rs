@@ -131,6 +131,7 @@ impl IntEvent {
 
     pub fn end_event(&mut self) {
         self.loop_type = -1;
+        self.cur_value = self.value;
     }
 
     pub fn check_event(&self) -> bool {

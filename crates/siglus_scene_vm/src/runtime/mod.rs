@@ -174,6 +174,47 @@ struct DebugActiveTextureAccum {
     ref_labels: Vec<String>,
 }
 
+fn sg_mwnd_state_trace_runtime(
+    scene: &str,
+    scene_no: &str,
+    line: i64,
+    reason: &str,
+    stage_idx: i64,
+    mwnd_idx: usize,
+    old_open: bool,
+    new_open: bool,
+    m: &globals::MwndState,
+) {
+    if std::env::var_os("SG_DEBUG").is_none() {
+        return;
+    }
+    eprintln!(
+        "[SG_DEBUG][MWND_STATE_TRACE] scene={} scene_no={} line={} reason={} stage={} mwnd={} old_open={} new_open={} buttons={} faces={} objects={} waku={} filter={} pos={:?} size={:?} open_anim=({}, {}) close_anim=({}, {}) selection={} msg_len={} name_len={}",
+        scene,
+        scene_no,
+        line,
+        reason,
+        stage_idx,
+        mwnd_idx,
+        old_open,
+        new_open,
+        m.button_list.len(),
+        m.face_list.len(),
+        m.object_list.len(),
+        if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+        if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+        m.window_pos,
+        m.window_size,
+        m.open_anime_type,
+        m.open_anime_time,
+        m.close_anime_type,
+        m.close_anime_time,
+        m.selection.is_some(),
+        m.msg_text.len(),
+        m.name_text.len(),
+    );
+}
+
 pub struct CommandContext {
     pub project_dir: PathBuf,
 
@@ -3129,6 +3170,9 @@ impl CommandContext {
         let Some((form_id, stage_idx, mwnd_idx)) = self.globals.focused_stage_mwnd else {
             return false;
         };
+        let trace_scene = self.current_scene_name.as_deref().unwrap_or("<none>").to_string();
+        let trace_scene_no = self.current_scene_no.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+        let trace_line = self.current_line_no;
         let mut clear_focus = false;
         let mut handled = false;
         let mut close_anim: Option<(i64, i64)> = None;
@@ -3183,7 +3227,9 @@ impl CommandContext {
                         m.selection = None;
                     }
                     if close_after {
+                        let old_open = m.open;
                         m.open = false;
+                        sg_mwnd_state_trace_runtime(&trace_scene, &trace_scene_no, trace_line, "MWND_SELECTION_KEY_CLOSE", stage_idx, mwnd_idx, old_open, m.open, m);
                         close_anim = Some((close_type, close_time));
                     }
                 } else {
@@ -3211,6 +3257,9 @@ impl CommandContext {
         let Some((form_id, stage_idx, mwnd_idx)) = self.globals.focused_stage_mwnd else {
             return false;
         };
+        let trace_scene = self.current_scene_name.as_deref().unwrap_or("<none>").to_string();
+        let trace_scene_no = self.current_scene_no.map(|v| v.to_string()).unwrap_or_else(|| "-".to_string());
+        let trace_line = self.current_line_no;
         let mut clear_focus = false;
         let mut handled = false;
         let mut close_anim: Option<(i64, i64)> = None;
@@ -3249,7 +3298,9 @@ impl CommandContext {
                         m.selection = None;
                     }
                     if close_after {
+                        let old_open = m.open;
                         m.open = false;
+                        sg_mwnd_state_trace_runtime(&trace_scene, &trace_scene_no, trace_line, "MWND_SELECTION_MOUSE_CLOSE", stage_idx, mwnd_idx, old_open, m.open, m);
                         close_anim = Some((close_type, close_time));
                     }
                 } else {
@@ -3854,23 +3905,61 @@ impl CommandContext {
         let (pre_wipe_list, debug_lines) = self.build_render_list_pre_wipe();
         let mut list = if self.globals.wipe.is_some() {
             let base = self.layers.render_list();
-            let (next_list, _) = build_siglus_object_render_list(self, &base, TNM_STAGE_NEXT_I64);
+            let (next_list, next_debug_lines) = build_siglus_object_render_list(self, &base, TNM_STAGE_NEXT_I64);
+            if config_button_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][CONFIG_BUTTON_TRACE][RENDER_PHASE] wipe_active=true pre_wipe_len={} next_len={} next_debug_lines={} wipe_type={:?}",
+                    pre_wipe_list.len(),
+                    next_list.len(),
+                    next_debug_lines.len(),
+                    self.globals.wipe.as_ref().map(|w| w.wipe_type)
+                );
+                for line in next_debug_lines.iter().filter(|line| line.contains("CONFIG_BUTTON_TRACE")) {
+                    eprintln!("{}", line);
+                }
+            }
             if let Some(composed) = build_dual_source_wipe_list(self, &pre_wipe_list, &next_list) {
+                if config_button_trace_enabled() {
+                    eprintln!("[SG_DEBUG][CONFIG_BUTTON_TRACE][RENDER_PHASE] wipe_compose=dual_source");
+                }
                 composed
             } else if let Some(composed) =
                 build_regular_stage_wipe_list(self, &pre_wipe_list, &next_list)
             {
+                if config_button_trace_enabled() {
+                    eprintln!("[SG_DEBUG][CONFIG_BUTTON_TRACE][RENDER_PHASE] wipe_compose=regular");
+                }
                 composed
             } else {
+                if config_button_trace_enabled() {
+                    eprintln!("[SG_DEBUG][CONFIG_BUTTON_TRACE][RENDER_PHASE] wipe_compose=effect_fallback");
+                }
                 let mut l = pre_wipe_list.clone();
                 apply_wipe_effect(self, &mut l);
                 l.retain(render_sprite_visible_for_submit);
                 l
             }
         } else {
+            if config_button_trace_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][CONFIG_BUTTON_TRACE][RENDER_PHASE] wipe_active=false pre_wipe_len={}",
+                    pre_wipe_list.len()
+                );
+            }
             pre_wipe_list.clone()
         };
+        let before_retain_len = list.len();
         list.retain(render_sprite_visible_for_submit);
+        if config_button_trace_enabled() && before_retain_len != list.len() {
+            eprintln!(
+                "[SG_DEBUG][CONFIG_BUTTON_TRACE][RENDER_PHASE] final_retain before={} after={}",
+                before_retain_len,
+                list.len()
+            );
+        }
+        if config_button_trace_enabled() {
+            trace_final_render_order(self, &list);
+        }
         overlay_precompose_if_needed(self, &mut list);
         if self.globals.wipe.is_none() {
             self.last_presented_render_list = pre_wipe_list.clone();
@@ -4147,6 +4236,277 @@ fn sg_render_tree_debug_enabled() -> bool {
     sg_debug_enabled()
 }
 
+fn config_button_trace_enabled() -> bool {
+    sg_debug_enabled()
+}
+
+fn config_button_trace_object(obj: &globals::ObjectState) -> bool {
+    if obj.button.enabled || obj.button.state == TNM_BTN_STATE_DISABLE {
+        return true;
+    }
+    let Some(file) = obj.file_name.as_deref() else {
+        return false;
+    };
+    let f = file.to_ascii_lowercase();
+    f.starts_with("mn_")
+        || f.contains("config")
+        || f.contains("conf")
+        || f.contains("sys")
+        || f.contains("mw")
+}
+
+fn config_tr_write_trace_file(file: Option<&str>) -> bool {
+    let Some(name) = file else {
+        return false;
+    };
+    name.starts_with("mn_sm_menu_cbox")
+        || name.starts_with("mn_cfa_tab_pbtn")
+        || name.starts_with("mn_cfb_")
+        || name.starts_with("mn_cfe_")
+        || name.starts_with("mn_tt_menu")
+        || name.starts_with("mn_tt_copy")
+}
+
+fn config_tr_write_trace_object(obj_i64: i64, obj: &globals::ObjectState) -> bool {
+    (100057..=100067).contains(&obj_i64) || config_tr_write_trace_file(obj.file_name.as_deref())
+}
+
+fn trace_config_event_frame_prop_write(
+    ids: &constants::RuntimeConstants,
+    stage_i64: i64,
+    obj_i64: i64,
+    obj: &globals::ObjectState,
+    prop_id: i32,
+    old_value: i64,
+    new_value: i64,
+) {
+    if !sg_debug_enabled() || !config_tr_write_trace_object(obj_i64, obj) {
+        return;
+    }
+    let prop = if ids.obj_tr != 0 && prop_id == ids.obj_tr {
+        "TR"
+    } else if ids.obj_alpha != 0 && prop_id == ids.obj_alpha {
+        "ALPHA"
+    } else {
+        return;
+    };
+    eprintln!(
+        "[SG_DEBUG][CONFIG_TR_WRITE_TRACE][EVENT_FRAME] stage={} runtime_slot={} file={} prop={} old={} new={} disp={} tr={} alpha={} backend={:?} used={} children={}",
+        stage_i64,
+        obj_i64,
+        obj.file_name.as_deref().unwrap_or("-"),
+        prop,
+        old_value,
+        new_value,
+        obj.get_int_prop(ids, ids.obj_disp),
+        obj.get_int_prop(ids, ids.obj_tr),
+        obj.get_int_prop(ids, ids.obj_alpha),
+        obj.backend,
+        obj.used,
+        obj.runtime.child_objects.len(),
+    );
+}
+
+fn trace_final_render_order(ctx: &CommandContext, list: &[RenderSprite]) {
+    eprintln!(
+        "[SG_DEBUG][CONFIG_BUTTON_TRACE][FINAL_ORDER] len={} wipe_active={} selected_stage=front",
+        list.len(),
+        ctx.globals.wipe.is_some()
+    );
+    for (idx, rs) in list.iter().enumerate() {
+        let source = render_sprite_source_name(ctx, rs);
+        eprintln!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][FINAL_ORDER] idx={} source={} layer_id={:?} sprite_id={:?} sorter=({}, {}) packed_order={} visible={} alpha={} tr={} pos=({}, {}) z={} fit={:?} size={:?} image={:?} blend={:?} clip={:?}",
+            idx,
+            source,
+            rs.layer_id,
+            rs.sprite_id,
+            rs.sorter_order,
+            rs.sorter_layer,
+            rs.sprite.order,
+            rs.sprite.visible,
+            rs.sprite.alpha,
+            rs.sprite.tr,
+            rs.sprite.x,
+            rs.sprite.y,
+            rs.sprite.z,
+            rs.sprite.fit,
+            rs.sprite.size_mode,
+            rs.sprite.image_id,
+            rs.sprite.blend,
+            rs.sprite.dst_clip
+        );
+    }
+}
+
+fn render_sprite_source_name(ctx: &CommandContext, rs: &RenderSprite) -> String {
+    let Some(layer_id) = rs.layer_id else {
+        return "background".to_string();
+    };
+    let Some(sprite_id) = rs.sprite_id else {
+        return "background".to_string();
+    };
+    let mut found: Vec<String> = Vec::new();
+    let mut form_ids: Vec<u32> = ctx.globals.stage_forms.keys().copied().collect();
+    form_ids.sort_unstable();
+    for form_id in form_ids {
+        let Some(st) = ctx.globals.stage_forms.get(&form_id) else {
+            continue;
+        };
+        let mut stage_ids: Vec<i64> = st
+            .object_lists
+            .keys()
+            .chain(st.mwnd_lists.keys())
+            .copied()
+            .collect();
+        stage_ids.sort_unstable();
+        stage_ids.dedup();
+        for stage_idx in stage_ids {
+            if let Some(list) = st.object_lists.get(&stage_idx) {
+                for (obj_idx, obj) in list.iter().enumerate() {
+                    collect_render_sprite_source_for_object(
+                        ctx,
+                        form_id,
+                        stage_idx,
+                        obj_idx,
+                        obj,
+                        layer_id,
+                        sprite_id,
+                        "object",
+                        &mut found,
+                    );
+                }
+            }
+            if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
+                for (mwnd_idx, m) in mwnds.iter().enumerate() {
+                    for (obj_idx, obj) in m.button_list.iter().enumerate() {
+                        collect_render_sprite_source_for_object(
+                            ctx,
+                            form_id,
+                            stage_idx,
+                            obj_idx,
+                            obj,
+                            layer_id,
+                            sprite_id,
+                            &format!("mwnd{mwnd_idx}.button"),
+                            &mut found,
+                        );
+                    }
+                    for (obj_idx, obj) in m.face_list.iter().enumerate() {
+                        collect_render_sprite_source_for_object(
+                            ctx,
+                            form_id,
+                            stage_idx,
+                            obj_idx,
+                            obj,
+                            layer_id,
+                            sprite_id,
+                            &format!("mwnd{mwnd_idx}.face"),
+                            &mut found,
+                        );
+                    }
+                    for (obj_idx, obj) in m.object_list.iter().enumerate() {
+                        collect_render_sprite_source_for_object(
+                            ctx,
+                            form_id,
+                            stage_idx,
+                            obj_idx,
+                            obj,
+                            layer_id,
+                            sprite_id,
+                            &format!("mwnd{mwnd_idx}.object"),
+                            &mut found,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    if found.is_empty() {
+        format!("unowned:{layer_id}/{sprite_id}")
+    } else {
+        found.join("|")
+    }
+}
+
+fn collect_render_sprite_source_for_object(
+    ctx: &CommandContext,
+    form_id: u32,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    layer_id: LayerId,
+    sprite_id: SpriteId,
+    source_kind: &str,
+    found: &mut Vec<String>,
+) {
+    let file = obj.file_name.as_deref().unwrap_or("-");
+    if object_backend_owns_sprite(ctx, stage_idx, obj_idx, obj, layer_id, sprite_id) {
+        found.push(format!(
+            "form{form_id}:stage{stage_idx}:{source_kind}[{obj_idx}]:slot{}:file{}",
+            effective_object_slot_for_trace(obj_idx, obj),
+            file
+        ));
+    }
+    for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+        collect_render_sprite_source_for_object(
+            ctx,
+            form_id,
+            stage_idx,
+            child_idx,
+            child,
+            layer_id,
+            sprite_id,
+            &format!("{source_kind}[{obj_idx}].child"),
+            found,
+        );
+    }
+}
+
+fn effective_object_slot_for_trace(obj_idx: usize, obj: &globals::ObjectState) -> i64 {
+    obj.runtime_slot_or(obj_idx) as i64
+}
+
+fn object_backend_owns_sprite(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    layer_id: LayerId,
+    sprite_id: SpriteId,
+) -> bool {
+    match &obj.backend {
+        globals::ObjectBackend::Gfx => ctx
+            .gfx
+            .object_sprite_binding(stage_idx, effective_object_slot_for_trace(obj_idx, obj))
+            == Some((layer_id, sprite_id)),
+        globals::ObjectBackend::Rect {
+            layer_id: lid,
+            sprite_id: sid,
+            ..
+        }
+        | globals::ObjectBackend::String {
+            layer_id: lid,
+            sprite_id: sid,
+            ..
+        }
+        | globals::ObjectBackend::Movie {
+            layer_id: lid,
+            sprite_id: sid,
+            ..
+        } => *lid == layer_id && *sid == sprite_id,
+        globals::ObjectBackend::Number {
+            layer_id: lid,
+            sprite_ids,
+        }
+        | globals::ObjectBackend::Weather {
+            layer_id: lid,
+            sprite_ids,
+        } => *lid == layer_id && sprite_ids.iter().any(|sid| *sid == sprite_id),
+        globals::ObjectBackend::None => false,
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 struct ObjectRenderInfo {
     runtime_slot: usize,
@@ -4315,6 +4675,21 @@ fn push_object_button_decided_action(
     out: &mut Vec<globals::PendingButtonAction>,
 ) {
     if !obj.button.decided_action_scn_name.is_empty() {
+        if sg_debug_enabled() {
+            eprintln!(
+                "[SG_DEBUG][BUTTON_TRACE][CALLBACK] enqueue user_call file={:?} button_no={} group_no={} action_no={} state={} hit={} pushed={} call={}::{}/{}",
+                obj.file_name,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.action_no,
+                obj.button.state,
+                obj.button.hit,
+                obj.button.pushed,
+                obj.button.decided_action_scn_name,
+                obj.button.decided_action_cmd_name,
+                obj.button.decided_action_z_no
+            );
+        }
         out.push(globals::PendingButtonAction {
             kind: globals::PendingButtonActionKind::UserCall {
                 scn_name: obj.button.decided_action_scn_name.clone(),
@@ -4323,6 +4698,21 @@ fn push_object_button_decided_action(
             },
         });
     } else if obj.button.sys_type != 0 {
+        if sg_debug_enabled() {
+            eprintln!(
+                "[SG_DEBUG][BUTTON_TRACE][CALLBACK] enqueue syscom file={:?} button_no={} group_no={} action_no={} state={} hit={} pushed={} sys_type={} sys_opt={} mode={}",
+                obj.file_name,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.action_no,
+                obj.button.state,
+                obj.button.hit,
+                obj.button.pushed,
+                obj.button.sys_type,
+                obj.button.sys_type_opt,
+                obj.button.mode
+            );
+        }
         out.push(globals::PendingButtonAction {
             kind: globals::PendingButtonActionKind::Syscom {
                 sys_type: obj.button.sys_type,
@@ -4330,6 +4720,17 @@ fn push_object_button_decided_action(
                 mode: obj.button.mode,
             },
         });
+    } else if sg_debug_enabled() {
+        eprintln!(
+            "[SG_DEBUG][BUTTON_TRACE][CALLBACK] no_callback file={:?} button_no={} group_no={} action_no={} state={} hit={} pushed={}",
+            obj.file_name,
+            obj.button.button_no,
+            obj.button.group_no,
+            obj.button.action_no,
+            obj.button.state,
+            obj.button.hit,
+            obj.button.pushed
+        );
     }
 }
 
@@ -4395,9 +4796,35 @@ fn button_effective_disabled(
     obj: &globals::ObjectState,
     mwnd_button_idx: Option<usize>,
 ) -> bool {
-    obj.button.is_disabled()
-        || mwnd_button_forced_disabled(syscom, mwnd_button_idx)
-        || !syscom_feature_enabled_for_button(syscom, &obj.button)
+    button_disabled_reason(syscom, obj, mwnd_button_idx).is_some()
+}
+
+fn button_disabled_reason(
+    syscom: &globals::SyscomRuntimeState,
+    obj: &globals::ObjectState,
+    mwnd_button_idx: Option<usize>,
+) -> Option<&'static str> {
+    if obj.button.is_disabled() {
+        return Some("object_state_disable");
+    }
+    if mwnd_button_forced_disabled(syscom, mwnd_button_idx) {
+        return Some("syscom_mwnd_button_disable");
+    }
+    if !syscom_feature_enabled_for_button(syscom, &obj.button) {
+        return Some("syscom_feature_disable");
+    }
+    None
+}
+
+fn button_state_name(state: i64) -> &'static str {
+    match state {
+        TNM_BTN_STATE_NORMAL => "normal",
+        TNM_BTN_STATE_HIT => "hit",
+        TNM_BTN_STATE_PUSH => "push",
+        TNM_BTN_STATE_SELECT => "select",
+        TNM_BTN_STATE_DISABLE => "disable",
+        _ => "unknown",
+    }
 }
 
 fn object_button_renderable_by_syscom(
@@ -4414,13 +4841,40 @@ fn button_real_state_for_visual(
     obj: &globals::ObjectState,
     mwnd_button_idx: Option<usize>,
 ) -> i64 {
-    if button_effective_disabled(syscom, obj, mwnd_button_idx) {
+    if let Some(reason) = button_disabled_reason(syscom, obj, mwnd_button_idx) {
+        if sg_debug_enabled() {
+            eprintln!(
+                "[SG_DEBUG][BUTTON_TRACE][VISUAL] real_state=disable reason={} stage={} file={:?} mwnd_button_idx={:?} button_no={} group_no={} group_idx={:?} action_no={} raw_state={} enabled={} hit={} pushed={} sys_type={} sys_opt={} mode={} touch_disable={}",
+                reason,
+                stage_idx,
+                obj.file_name,
+                mwnd_button_idx,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.group_idx(),
+                obj.button.action_no,
+                obj.button.state,
+                obj.button.enabled,
+                obj.button.hit,
+                obj.button.pushed,
+                obj.button.sys_type,
+                obj.button.sys_type_opt,
+                obj.button.mode,
+                syscom.mwnd_btn_touch_disable
+            );
+        }
         return TNM_BTN_STATE_DISABLE;
     }
     if obj.button.state == TNM_BTN_STATE_SELECT || obj.button.state == TNM_BTN_STATE_DISABLE {
         return obj.button.state;
     }
     if syscom.mwnd_btn_touch_disable {
+        if sg_debug_enabled() && obj.button.enabled {
+            eprintln!(
+                "[SG_DEBUG][BUTTON_TRACE][VISUAL] real_state=normal reason=touch_disable stage={} file={:?} mwnd_button_idx={:?} button_no={} group_no={} action_no={}",
+                stage_idx, obj.file_name, mwnd_button_idx, obj.button.button_no, obj.button.group_no, obj.button.action_no
+            );
+        }
         return TNM_BTN_STATE_NORMAL;
     }
     if let Some(gidx) = obj.button.group_idx() {
@@ -5283,6 +5737,31 @@ fn object_button_hit_sort_key_from_render(
         || button_effective_disabled(syscom, obj, None)
         || syscom.mwnd_btn_touch_disable
     {
+        if sg_debug_enabled() && obj.button.enabled {
+            eprintln!(
+                "[SG_DEBUG][BUTTON_TRACE][HIT] reject stage={} obj_idx={} runtime_slot={} file={:?} mx={} my={} visible={} disabled_reason={:?} touch_disable={} button_no={} group_no={} group_idx={:?} action_no={} state={} hit={} pushed={} alpha_test={} sys_type={} sys_opt={} mode={}",
+                stage_idx,
+                obj_idx,
+                object_runtime_slot(obj_idx, obj),
+                obj.file_name,
+                mx,
+                my,
+                object_button_renderable_by_syscom(syscom, obj),
+                button_disabled_reason(syscom, obj, None),
+                syscom.mwnd_btn_touch_disable,
+                obj.button.button_no,
+                obj.button.group_no,
+                obj.button.group_idx(),
+                obj.button.action_no,
+                obj.button.state,
+                obj.button.hit,
+                obj.button.pushed,
+                obj.button.alpha_test,
+                obj.button.sys_type,
+                obj.button.sys_type_opt,
+                obj.button.mode
+            );
+        }
         return None;
     }
     let runtime_slot = object_runtime_slot(obj_idx, obj);
@@ -5296,13 +5775,33 @@ fn object_button_hit_sort_key_from_render(
         }
         finalize_button_object_center_rep_to_sprite(&mut rs.sprite, &info);
         if hit_test_render_sprite(images, &rs.sprite, mx, my, obj.button.alpha_test) {
-            return Some(object_button_sort_key(
-                ids,
-                gfx,
-                stage_idx,
-                runtime_slot,
-                obj,
-            ));
+            let sort_key = object_button_sort_key(ids, gfx, stage_idx, runtime_slot, obj);
+            if sg_debug_enabled() {
+                eprintln!(
+                    "[SG_DEBUG][BUTTON_TRACE][HIT] success stage={} obj_idx={} runtime_slot={} file={:?} mx={} my={} button_no={} group_no={} group_idx={:?} action_no={} state={} hit={} pushed={} alpha_test={} sprite=({:?},{:?}) pos=({}, {}) size_mode={:?} sort={}",
+                    stage_idx,
+                    obj_idx,
+                    runtime_slot,
+                    obj.file_name,
+                    mx,
+                    my,
+                    obj.button.button_no,
+                    obj.button.group_no,
+                    obj.button.group_idx(),
+                    obj.button.action_no,
+                    obj.button.state,
+                    obj.button.hit,
+                    obj.button.pushed,
+                    obj.button.alpha_test,
+                    rs.layer_id,
+                    rs.sprite_id,
+                    rs.sprite.x,
+                    rs.sprite.y,
+                    rs.sprite.size_mode,
+                    sort_key.display_tuple()
+                );
+            }
+            return Some(sort_key);
         }
     }
 
@@ -5835,7 +6334,17 @@ fn apply_object_event_animations_recursive(
         let mut set_extra_prop = |prop_id: i32, val: Option<i64>| {
             if prop_id != 0 {
                 if let Some(v) = val {
-                    obj.set_int_prop(ids, prop_id, v);
+                    let old_value = obj.get_int_prop(ids, prop_id);
+                    trace_config_event_frame_prop_write(
+                        ids,
+                        stage_i64,
+                        obj_i64,
+                        obj,
+                        prop_id,
+                        old_value,
+                        v,
+                    );
+                    obj.set_int_prop_from_event_frame(ids, prop_id, v);
                 }
             }
         };
@@ -7939,6 +8448,69 @@ fn append_object_tree_sprites(
     }
 
     let mut bound = fetch_bound_render_sprites(ctx, stage_idx, info.runtime_slot, obj);
+    if config_button_trace_enabled() && config_button_trace_object(obj) {
+        let bind_dbg = match &obj.backend {
+            globals::ObjectBackend::Gfx => ctx
+                .gfx
+                .object_sprite_binding(stage_idx, info.runtime_slot as i64),
+            globals::ObjectBackend::Rect {
+                layer_id,
+                sprite_id,
+                ..
+            }
+            | globals::ObjectBackend::String {
+                layer_id,
+                sprite_id,
+                ..
+            }
+            | globals::ObjectBackend::Movie {
+                layer_id,
+                sprite_id,
+                ..
+            } => Some((*layer_id, *sprite_id)),
+            globals::ObjectBackend::Number {
+                layer_id,
+                sprite_ids,
+            }
+            | globals::ObjectBackend::Weather {
+                layer_id,
+                sprite_ids,
+            } => sprite_ids.first().copied().map(|sid| (*layer_id, sid)),
+            globals::ObjectBackend::None => None,
+        };
+        let syscom_renderable = object_button_renderable_by_syscom(&ctx.globals.syscom, obj);
+        debug_lines.push(format!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][COLLECT] stage={} obj_idx={} runtime_slot={} file={} backend={:?} participates={} parent_visible={} disp={} local_tr={} tr={} tr_rep={} syscom_renderable={} visible={} bound_len={} bind={:?} order={} layer={} total_order={} total_layer={} button_enabled={} button_state={} button_no={} group_no={} action_no={} hit={} pushed={} disabled_reason={:?} parent_state={}",
+            stage_idx,
+            obj_idx,
+            info.runtime_slot,
+            obj.file_name.as_deref().unwrap_or("-"),
+            obj.backend,
+            object_participates_in_tree(obj),
+            parent_visible,
+            info.disp,
+            local_tr,
+            info.tr,
+            info.tr_rep,
+            syscom_renderable,
+            visible,
+            bound.len(),
+            bind_dbg,
+            info.order,
+            info.layer,
+            total_order,
+            total_layer,
+            obj.button.enabled,
+            obj.button.state,
+            obj.button.button_no,
+            obj.button.group_no,
+            obj.button.action_no,
+            obj.button.hit,
+            obj.button.pushed,
+            button_disabled_reason(&ctx.globals.syscom, obj, None),
+            parent_state.is_some()
+        ));
+    }
     for rs in &bound {
         if let (Some(lid), Some(sid)) = (rs.layer_id, rs.sprite_id) {
             object_keys.insert((lid, sid));
@@ -7987,6 +8559,19 @@ fn append_object_tree_sprites(
                 }
             }
         }
+    }
+
+    if config_button_trace_enabled() && config_button_trace_object(obj) {
+        debug_lines.push(format!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][EMIT_DONE] stage={} obj_idx={} runtime_slot={} file={} out_len_now={} visible={} child_count={}",
+            stage_idx,
+            obj_idx,
+            info.runtime_slot,
+            obj.file_name.as_deref().unwrap_or("-"),
+            out.len(),
+            visible,
+            obj.runtime.child_objects.len()
+        ));
     }
 
     if debug_enabled && !obj.runtime.child_objects.is_empty() {
@@ -8520,14 +9105,54 @@ fn append_mwnd_embedded_sprites(
     debug: &mut Vec<String>,
 ) {
     if ctx.globals.script.mwnd_disp_off_flag || ctx.globals.syscom.hide_mwnd.onoff {
+        if config_button_trace_enabled() {
+            debug.push(format!(
+                "[SG_DEBUG][CONFIG_BUTTON_TRACE][MWND_SKIP] stage={} reason=hidden script_off={} sys_hide={} open={} buttons={} objects={} waku={} filter={} pos={:?} size={:?}",
+                stage_idx,
+                ctx.globals.script.mwnd_disp_off_flag,
+                ctx.globals.syscom.hide_mwnd.onoff,
+                m.open,
+                m.button_list.len(),
+                m.object_list.len(),
+                if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+                if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+                m.window_pos,
+                m.window_size
+            ));
+        }
         return;
     }
     let Some((window_x, window_y, window_w, window_h, ui_state)) =
         mwnd_window_rect_for_embedded(ctx, m)
     else {
+        if config_button_trace_enabled() {
+            debug.push(format!(
+                "[SG_DEBUG][CONFIG_BUTTON_TRACE][MWND_SKIP] stage={} reason=no_window_rect open={} buttons={} objects={} waku={} filter={} pos={:?} size={:?}",
+                stage_idx,
+                m.open,
+                m.button_list.len(),
+                m.object_list.len(),
+                if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+                if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+                m.window_pos,
+                m.window_size
+            ));
+        }
         return;
     };
     if !m.open && ui_state.is_none() {
+        if config_button_trace_enabled() {
+            debug.push(format!(
+                "[SG_DEBUG][CONFIG_BUTTON_TRACE][MWND_SKIP] stage={} reason=closed_no_anim open={} buttons={} objects={} waku={} filter={} rect=({}, {}, {}, {})",
+                stage_idx,
+                m.open,
+                m.button_list.len(),
+                m.object_list.len(),
+                if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+                if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+                window_x, window_y, window_w, window_h
+            ));
+        }
         return;
     }
     let mwnd_order_source = if m.order <= 0 {
@@ -8538,8 +9163,38 @@ fn append_mwnd_embedded_sprites(
     let mwnd_order = mwnd_order_source;
     let mwnd_layer = m.layer;
     let anim_parent = ui_state.map(|ui| mwnd_anim_parent_from_ui_state(m, ui));
+    if config_button_trace_enabled() {
+        debug.push(format!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][MWND_COLLECT] stage={} open={} buttons={} faces={} objects={} waku={} filter={} rect=({}, {}, {}, {}) ui_anim={} order={} layer={} hide_flags=(script:{},sys:{})",
+            stage_idx,
+            m.open,
+            m.button_list.len(),
+            m.face_list.len(),
+            m.object_list.len(),
+            if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+            if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+            window_x, window_y, window_w, window_h,
+            anim_parent.is_some(),
+            mwnd_order,
+            mwnd_layer,
+            ctx.globals.script.mwnd_disp_off_flag,
+            ctx.globals.syscom.hide_mwnd.onoff
+        ));
+    }
     for (button_idx, obj) in m.button_list.iter().enumerate() {
         if !object_participates_in_tree(obj) {
+            if config_button_trace_enabled() {
+                debug.push(format!(
+                    "[SG_DEBUG][CONFIG_BUTTON_TRACE][MWND_BUTTON_SKIP] stage={} button_idx={} reason=not_participating file={} used={} type={} disp={} backend={:?}",
+                    stage_idx,
+                    button_idx,
+                    obj.file_name.as_deref().unwrap_or("-"),
+                    obj.used,
+                    obj.object_type,
+                    obj.base.disp,
+                    obj.backend
+                ));
+            }
             continue;
         }
         let local_parent =
@@ -8744,6 +9399,15 @@ fn build_siglus_object_render_list(
     let focused_mwnd = ctx.globals.focused_stage_mwnd;
     let mut object_list = Vec::new();
     let mut debug = Vec::new();
+    if config_button_trace_enabled() {
+        debug.push(format!(
+            "[SG_DEBUG][CONFIG_BUTTON_TRACE][BUILD] selected_stage={} focused_mwnd={:?} base_len={} wipe_active={}",
+            selected_stage,
+            ctx.globals.focused_stage_mwnd,
+            base.len(),
+            ctx.globals.wipe.is_some()
+        ));
+    }
 
     let mut form_ids: Vec<u32> = ctx.globals.stage_forms.keys().copied().collect();
     form_ids.sort_unstable();
@@ -8864,6 +9528,33 @@ fn build_siglus_object_render_list(
                 }
             }
             if stage_idx != selected_stage {
+                if config_button_trace_enabled() {
+                    let mwnd_summary = st.mwnd_lists.get(&stage_idx).map(|mwnds| {
+                        mwnds.iter().enumerate().map(|(idx, m)| {
+                            format!(
+                                "{}:open={} buttons={} objects={} waku={} filter={} pos={:?} size={:?}",
+                                idx,
+                                m.open,
+                                m.button_list.len(),
+                                m.object_list.len(),
+                                if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+                                if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+                                m.window_pos,
+                                m.window_size
+                            )
+                        }).collect::<Vec<_>>()
+                    }).unwrap_or_default();
+                    debug.push(format!(
+                        "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_SKIP] form={} stage={} selected_stage={} active_objects={} mwnd_embedded={} mwnds={:?} focused_mwnd={:?}",
+                        form_id,
+                        stage_idx,
+                        selected_stage,
+                        active_cnt,
+                        mwnd_embedded_cnt,
+                        mwnd_summary,
+                        focused_mwnd
+                    ));
+                }
                 if let Some((focused_form, focused_stage, focused_idx)) = focused_mwnd {
                     if focused_form == form_id && focused_stage == stage_idx {
                         if let Some(mwnds) = st.mwnd_lists.get(&stage_idx) {
@@ -9178,6 +9869,36 @@ fn collect_button_visuals_recursive(
                 obj,
                 mwnd_button_idx,
             );
+            if sg_debug_enabled() {
+                let runtime_slot = object_runtime_slot(obj_idx, obj);
+                eprintln!(
+                    "[SG_DEBUG][BUTTON_TRACE][VISUAL] collect stage={} obj_idx={} runtime_slot={} file={:?} mwnd_button_idx={:?} state={}({}) raw_state={} enabled={} visible={} disabled_reason={:?} button_no={} group_no={} group_idx={:?} action_no={} cut_no={} hit={} pushed={} sys_type={} sys_opt={} mode={} call={}::{}/{}",
+                    stage_idx,
+                    obj_idx,
+                    runtime_slot,
+                    obj.file_name,
+                    mwnd_button_idx,
+                    state,
+                    button_state_name(state),
+                    obj.button.state,
+                    obj.button.enabled,
+                    button_syscom_mode_visible(&ctx.globals.syscom, &obj.button),
+                    button_disabled_reason(&ctx.globals.syscom, obj, mwnd_button_idx),
+                    obj.button.button_no,
+                    obj.button.group_no,
+                    obj.button.group_idx(),
+                    obj.button.action_no,
+                    obj.button.cut_no,
+                    obj.button.hit,
+                    obj.button.pushed,
+                    obj.button.sys_type,
+                    obj.button.sys_type_opt,
+                    obj.button.mode,
+                    obj.button.decided_action_scn_name,
+                    obj.button.decided_action_cmd_name,
+                    obj.button.decided_action_z_no
+                );
+            }
             let base_patno = obj
                 .lookup_int_prop(&ctx.ids, ctx.ids.obj_patno)
                 .unwrap_or(obj.base.patno);

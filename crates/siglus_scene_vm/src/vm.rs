@@ -110,6 +110,7 @@ impl VmConfig {
 struct CallProp {
     prop_id: i32,
     form: i32,
+    decl_size: usize,
     element: Vec<i32>,
     value: CallPropValue,
 }
@@ -314,6 +315,45 @@ impl<'a> SceneVm<'a> {
             int_args,
             str_args,
         }
+    }
+
+    fn shared_user_prop_count(&self) -> usize {
+        self.scene_pck_cache
+            .as_ref()
+            .map(|pck| pck.inc_props.len())
+            .unwrap_or_else(|| self.stream.header.scn_prop_cnt.max(0) as usize)
+    }
+
+    fn enter_cross_scene_user_prop_scope(&mut self) -> BTreeMap<u16, UserPropCell> {
+        let saved_user_props = std::mem::take(&mut self.user_props);
+        let shared_count = self.shared_user_prop_count();
+        self.user_props = saved_user_props
+            .iter()
+            .filter_map(|(&prop_id, cell)| {
+                if (prop_id as usize) < shared_count {
+                    Some((prop_id, cell.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        saved_user_props
+    }
+
+    fn restore_cross_scene_user_prop_scope(
+        &mut self,
+        mut saved_user_props: BTreeMap<u16, UserPropCell>,
+    ) {
+        let shared_count = self.shared_user_prop_count();
+        for prop_id in 0..shared_count {
+            saved_user_props.remove(&(prop_id as u16));
+        }
+        for (&prop_id, cell) in self.user_props.iter() {
+            if (prop_id as usize) < shared_count {
+                saved_user_props.insert(prop_id, cell.clone());
+            }
+        }
+        self.user_props = saved_user_props;
     }
 
     fn capture_interpreter_exec_state(&self) -> InterpreterExecState<'a> {
@@ -641,6 +681,287 @@ impl<'a> SceneVm<'a> {
         {
             self.sg_cgm_coord_trace(format!("global S[{}] <- {:?}", idx, rhs));
         }
+    }
+
+
+    fn cf_branch_trace_interesting_line(&self) -> bool {
+        if self.current_scene_name.as_deref() != Some("sys10_cf01") {
+            return false;
+        }
+        matches!(self.current_line_no, 700..=730 | 870..=895)
+    }
+
+    fn cf_condition_trace_interesting_line(&self) -> bool {
+        if !Self::sg_debug_enabled() {
+            return false;
+        }
+        matches!(
+            self.current_scene_name.as_deref(),
+            Some("sys10_cf01")
+        ) && matches!(self.current_line_no, 700..=730 | 870..=895)
+    }
+
+    fn cf_condition_trace_prop_name(prop_id: u16) -> Option<&'static str> {
+        match prop_id {
+            14 => Some("ip_mx"),
+            15 => Some("ip_my"),
+            16 => Some("ip_wheel"),
+            18 => Some("ip_bl_is"),
+            19 => Some("ip_br_is"),
+            20 => Some("ip_bl_on"),
+            21 => Some("ip_br_on"),
+            22 => Some("ip_key_enable_enter"),
+            23 => Some("ip_key_enable_esc"),
+            24 => Some("ip_key_is_enter"),
+            25 => Some("ip_key_is_esc"),
+            26 => Some("ip_key_on_enter"),
+            27 => Some("ip_key_on_esc"),
+            39 => Some("cntr_now"),
+            40 => Some("cntr_exit"),
+            41 => Some("skip_flag"),
+            _ => None,
+        }
+    }
+
+    fn cf_condition_trace_value_summary(&self, cell: &UserPropCell, array_idx: Option<usize>) -> String {
+        if let Some(idx) = array_idx {
+            if cell.form == self.cfg.fm_intlist {
+                return format!("intlist[{}]={}", idx, cell.int_list.get(idx).copied().unwrap_or(0));
+            }
+            if cell.form == self.cfg.fm_strlist {
+                return format!("strlist[{}]={:?}", idx, cell.str_list.get(idx).cloned().unwrap_or_default());
+            }
+            if let Some(slot) = cell.list_items.get(idx) {
+                return format!("list[{}] form={} int={} str={:?} int_list_len={} str_list_len={} items={}",
+                    idx,
+                    slot.form,
+                    slot.int_value,
+                    slot.str_value,
+                    slot.int_list.len(),
+                    slot.str_list.len(),
+                    slot.list_items.len()
+                );
+            }
+            return format!("array[{}] <missing> form={} int_list_len={} str_list_len={} items={}",
+                idx, cell.form, cell.int_list.len(), cell.str_list.len(), cell.list_items.len());
+        }
+        if cell.form == self.cfg.fm_int {
+            return format!("int={}", cell.int_value);
+        }
+        if cell.form == self.cfg.fm_str {
+            return format!("str={:?}", cell.str_value);
+        }
+        if cell.form == self.cfg.fm_intlist {
+            let preview = cell.int_list.iter().take(20).copied().collect::<Vec<_>>();
+            return format!("intlist len={} head={:?}", cell.int_list.len(), preview);
+        }
+        if cell.form == self.cfg.fm_strlist {
+            let preview = cell.str_list.iter().take(6).cloned().collect::<Vec<_>>();
+            return format!("strlist len={} head={:?}", cell.str_list.len(), preview);
+        }
+        format!("form={} int={} str={:?} int_list_len={} str_list_len={} items={}",
+            cell.form, cell.int_value, cell.str_value, cell.int_list.len(), cell.str_list.len(), cell.list_items.len())
+    }
+
+    fn sg_cf_condition_trace(&self, pc: usize, msg: impl AsRef<str>) {
+        if !Self::sg_debug_enabled() {
+            return;
+        }
+        let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
+        let scene_no = self
+            .current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let int_tail_start = self.int_stack.len().saturating_sub(12);
+        let int_tail = &self.int_stack[int_tail_start..];
+        eprintln!(
+            "[SG_DEBUG][CF_CONDITION_TRACE] scene={} scene_no={} line={} pc=0x{:x} {} | int_tail={:?}",
+            scene,
+            scene_no,
+            self.current_line_no,
+            pc,
+            msg.as_ref(),
+            int_tail
+        );
+    }
+
+    fn trace_cf_condition_user_prop_read(&self, pc: usize, prop_id: u16, array_idx: Option<usize>, cell: &UserPropCell, elm: &[i32]) {
+        if !self.cf_condition_trace_interesting_line() {
+            return;
+        }
+        let Some(name) = Self::cf_condition_trace_prop_name(prop_id) else {
+            return;
+        };
+        self.sg_cf_condition_trace(
+            pc,
+            format!(
+                "kind=USER_PROP_READ prop={}({}) array={:?} value={} elm={:?}",
+                prop_id,
+                name,
+                array_idx,
+                self.cf_condition_trace_value_summary(cell, array_idx),
+                elm
+            ),
+        );
+    }
+
+    fn trace_cf_condition_user_prop_assign(&self, pc: usize, prop_id: u16, array_idx: Option<usize>, old: Option<&UserPropCell>, new: Option<&UserPropCell>, rhs: &Value, elm: &[i32]) {
+        if !self.cf_condition_trace_interesting_line() {
+            return;
+        }
+        let Some(name) = Self::cf_condition_trace_prop_name(prop_id) else {
+            return;
+        };
+        let old_summary = old
+            .map(|cell| self.cf_condition_trace_value_summary(cell, array_idx))
+            .unwrap_or_else(|| "<default/missing>".to_string());
+        let new_summary = new
+            .map(|cell| self.cf_condition_trace_value_summary(cell, array_idx))
+            .unwrap_or_else(|| "<missing>".to_string());
+        self.sg_cf_condition_trace(
+            pc,
+            format!(
+                "kind=USER_PROP_ASSIGN prop={}({}) array={:?} old={} new={} rhs={:?} elm={:?}",
+                prop_id,
+                name,
+                array_idx,
+                old_summary,
+                new_summary,
+                rhs,
+                elm
+            ),
+        );
+    }
+
+    fn cf_condition_op_name(opr: u8) -> &'static str {
+        match opr {
+            OP_PLUS => "+",
+            OP_MINUS => "-",
+            OP_MULTIPLE => "*",
+            OP_DIVIDE => "/",
+            OP_AMARI => "%",
+            OP_EQUAL => "==",
+            OP_NOT_EQUAL => "!=",
+            OP_GREATER => ">",
+            OP_GREATER_EQUAL => ">=",
+            OP_LESS => "<",
+            OP_LESS_EQUAL => "<=",
+            OP_LOGICAL_AND => "&&",
+            OP_LOGICAL_OR => "||",
+            OP_TILDE => "~",
+            OP_AND => "&",
+            OP_OR => "|",
+            OP_HAT => "^",
+            OP_SL => "<<",
+            OP_SR => ">>",
+            OP_SR3 => ">>>",
+            _ => "?",
+        }
+    }
+
+    fn cf_branch_trace_stack_snapshot(&self) -> String {
+        let int_tail_start = self.int_stack.len().saturating_sub(16);
+        let int_tail = &self.int_stack[int_tail_start..];
+        let str_tail_start = self.str_stack.len().saturating_sub(4);
+        let str_tail = &self.str_stack[str_tail_start..];
+        let (cur_l, cur_s, arg_cnt) = if let Some(frame) = self.call_stack.last() {
+            let l_take = frame.int_args.len().min(16);
+            let s_take = frame.str_args.len().min(6);
+            (
+                format!("{:?}", &frame.int_args[..l_take]),
+                format!("{:?}", &frame.str_args[..s_take]),
+                frame.arg_cnt,
+            )
+        } else {
+            ("[]".to_string(), "[]".to_string(), 0)
+        };
+        format!(
+            "int_len={} int_tail={:?} str_len={} str_tail={:?} elm_points={:?} call_depth={} arg_cnt={} cur_call_l0_15={} cur_call_s0_5={}",
+            self.int_stack.len(),
+            int_tail,
+            self.str_stack.len(),
+            str_tail,
+            self.element_points,
+            self.call_stack.len(),
+            arg_cnt,
+            cur_l,
+            cur_s,
+        )
+    }
+
+    fn sg_cf_branch_trace(&self, pc: usize, msg: impl AsRef<str>) {
+        if !Self::sg_debug_enabled() {
+            return;
+        }
+        let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
+        let scene_no = self
+            .current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        eprintln!(
+            "[SG_DEBUG][CF_BRANCH_TRACE] scene={} scene_no={} line={} pc=0x{:x} {} | {}",
+            scene,
+            scene_no,
+            self.current_line_no,
+            pc,
+            msg.as_ref(),
+            self.cf_branch_trace_stack_snapshot(),
+        );
+    }
+
+    fn trace_cf_branch_goto(
+        &self,
+        pc: usize,
+        opcode_name: &str,
+        label_no: i32,
+        cond: i32,
+        taken: bool,
+        before_tail: &[i32],
+    ) {
+        if self.cf_branch_trace_interesting_line() {
+            self.sg_cf_branch_trace(
+                pc,
+                format!(
+                    "kind=GOTO opcode={} label={} cond={} taken={} before_int_tail={:?}",
+                    opcode_name, label_no, cond, taken, before_tail
+                ),
+            );
+        }
+    }
+
+    fn trace_cf_branch_farcall(
+        &self,
+        pc: usize,
+        scene_name: &str,
+        z_no: i32,
+        ret_form: i32,
+        ex_call_proc: bool,
+        scratch_source_args: &[Value],
+    ) {
+        if !(self.current_scene_name.as_deref() == Some("sys10_cf01")
+            && matches!(self.current_line_no, 700..=730 | 870..=895)
+            && matches!(scene_name, "sys10_sm00" | "sys10_cf00")
+            && matches!(z_no, 14 | 15))
+        {
+            return;
+        }
+        let args_dbg = scratch_source_args
+            .iter()
+            .map(|v| format!("{v:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.sg_cf_branch_trace(
+            pc,
+            format!(
+                "kind=FARCALL target={} z={} ret_form={} ex_call_proc={} argc={} args=[{}]",
+                scene_name,
+                z_no,
+                ret_form,
+                ex_call_proc,
+                scratch_source_args.len(),
+                args_dbg
+            ),
+        );
     }
 
     fn sg_omv_trace(&self, msg: impl AsRef<str>) {
@@ -1041,7 +1362,7 @@ impl<'a> SceneVm<'a> {
         let saved_ctx_scene_name = self.ctx.current_scene_name.clone();
         let saved_ctx_line_no = self.ctx.current_line_no;
         let saved_halted = self.halted;
-        let saved_user_props = std::mem::take(&mut self.user_props);
+        let saved_user_props = self.enter_cross_scene_user_prop_scope();
 
         self.current_scene_no = Some(target_scene_no);
         self.current_scene_name = target_scene_name;
@@ -1076,7 +1397,7 @@ impl<'a> SceneVm<'a> {
         self.ctx.current_scene_name = saved_ctx_scene_name;
         self.ctx.current_line_no = saved_ctx_line_no;
         self.halted = saved_halted;
-        self.user_props = saved_user_props;
+        self.restore_cross_scene_user_prop_scope(saved_user_props);
         result
     }
 
@@ -1457,7 +1778,7 @@ impl<'a> SceneVm<'a> {
             element_points: std::mem::take(&mut self.element_points),
             call_stack: std::mem::take(&mut self.call_stack),
             gosub_return_stack: std::mem::take(&mut self.gosub_return_stack),
-            user_props: std::mem::take(&mut self.user_props),
+            user_props: self.enter_cross_scene_user_prop_scope(),
             current_scene_no: self.current_scene_no,
             current_scene_name: self.current_scene_name.clone(),
             current_line_no: self.current_line_no,
@@ -1669,7 +1990,7 @@ impl<'a> SceneVm<'a> {
         let saved_ctx_scene_name = self.ctx.current_scene_name.clone();
         let saved_ctx_line_no = self.ctx.current_line_no;
         let saved_halted = self.halted;
-        let saved_user_props = std::mem::take(&mut self.user_props);
+        let saved_user_props = self.enter_cross_scene_user_prop_scope();
 
         self.current_scene_no = Some(target_scene_no);
         self.current_scene_name = pck.find_scene_name(target_scene_no).map(ToOwned::to_owned);
@@ -1704,7 +2025,7 @@ impl<'a> SceneVm<'a> {
         self.ctx.current_scene_name = saved_ctx_scene_name;
         self.ctx.current_line_no = saved_ctx_line_no;
         self.halted = saved_halted;
-        self.user_props = saved_user_props;
+        self.restore_cross_scene_user_prop_scope(saved_user_props);
         result
     }
 
@@ -2896,6 +3217,7 @@ impl<'a> SceneVm<'a> {
                 frame.user_props.push(CallProp {
                     prop_id,
                     form: form_code,
+                    decl_size: size,
                     element: prop_element,
                     value,
                 });
@@ -2984,18 +3306,24 @@ impl<'a> SceneVm<'a> {
             }
             CD_GOTO_TRUE => {
                 let label_no = self.stream.pop_i32()?;
+                let before_tail_start = self.int_stack.len().saturating_sub(16);
+                let before_tail = self.int_stack[before_tail_start..].to_vec();
                 let cond = self.pop_int()?;
                 let taken = cond != 0;
                 self.sg_omv_trace(format!("GOTO_TRUE label={} cond={} taken={}", label_no, cond, taken));
+                self.trace_cf_branch_goto(pc_before, "GOTO_TRUE", label_no, cond, taken, &before_tail);
                 if taken {
                     self.stream.jump_to_label(label_no.max(0) as usize)?;
                 }
             }
             CD_GOTO_FALSE => {
                 let label_no = self.stream.pop_i32()?;
+                let before_tail_start = self.int_stack.len().saturating_sub(16);
+                let before_tail = self.int_stack[before_tail_start..].to_vec();
                 let cond = self.pop_int()?;
                 let taken = cond == 0;
                 self.sg_omv_trace(format!("GOTO_FALSE label={} cond={} taken={}", label_no, cond, taken));
+                self.trace_cf_branch_goto(pc_before, "GOTO_FALSE", label_no, cond, taken, &before_tail);
                 if taken {
                     self.stream.jump_to_label(label_no.max(0) as usize)?;
                 }
@@ -3760,6 +4088,7 @@ impl<'a> SceneVm<'a> {
             frame.user_props.push(CallProp {
                 prop_id: idx,
                 form: self.cfg.fm_list,
+                decl_size: 0,
                 element: Self::call_prop_element(idx),
                 value: CallPropValue::Element(Self::call_prop_element(idx)),
             });
@@ -4121,6 +4450,49 @@ impl<'a> SceneVm<'a> {
         Ok(())
     }
 
+    fn exec_user_prop_list_init_command(
+        &mut self,
+        prop_id: u16,
+        sub: &[i32],
+        ret_form: i32,
+    ) -> Result<bool> {
+        use crate::runtime::forms::codes::{ELM_INTLIST_INIT, ELM_STRLIST_INIT};
+
+        if sub.len() != 1 {
+            return Ok(false);
+        }
+        let (form, size) = self
+            .user_prop_decl(prop_id)
+            .unwrap_or((self.cfg.fm_list, 0));
+        if form == self.cfg.fm_intlist && sub[0] == ELM_INTLIST_INIT {
+            let mut cell = self
+                .user_props
+                .remove(&prop_id)
+                .unwrap_or_else(|| self.default_user_prop_cell(prop_id));
+            cell.form = form;
+            cell.element = self.default_user_prop_element(prop_id, form);
+            cell.int_list.clear();
+            cell.int_list.resize(size, 0);
+            self.user_props.insert(prop_id, cell);
+            self.push_default_for_ret(ret_form);
+            return Ok(true);
+        }
+        if form == self.cfg.fm_strlist && sub[0] == ELM_STRLIST_INIT {
+            let mut cell = self
+                .user_props
+                .remove(&prop_id)
+                .unwrap_or_else(|| self.default_user_prop_cell(prop_id));
+            cell.form = form;
+            cell.element = self.default_user_prop_element(prop_id, form);
+            cell.str_list.clear();
+            cell.str_list.resize_with(size, String::new);
+            self.user_props.insert(prop_id, cell);
+            self.push_default_for_ret(ret_form);
+            return Ok(true);
+        }
+        Ok(false)
+    }
+
     fn exec_call_prop_command(
         &mut self,
         frame_idx: usize,
@@ -4138,13 +4510,13 @@ impl<'a> SceneVm<'a> {
             FM_STRLISTREF, FM_STRREF,
         };
 
-        let (form, mut value, mut element) = {
+        let (form, decl_size, mut value, mut element) = {
             let prop = self
                 .call_stack
                 .get(frame_idx)
                 .and_then(|f| f.user_props.get(prop_idx))
                 .ok_or_else(|| anyhow!("call prop frame/index out of range"))?;
-            (prop.form, prop.value.clone(), prop.element.clone())
+            (prop.form, prop.decl_size, prop.value.clone(), prop.element.clone())
         };
 
         let mut write_back = false;
@@ -4230,6 +4602,7 @@ impl<'a> SceneVm<'a> {
                         }
                         ELM_INTLIST_INIT => {
                             list.clear();
+                            list.resize(decl_size, 0);
                             write_back = true;
                             self.push_default_for_ret(ret_form);
                         }
@@ -4313,6 +4686,7 @@ impl<'a> SceneVm<'a> {
                     match sub[0] {
                         ELM_STRLIST_INIT => {
                             list.clear();
+                            list.resize_with(decl_size, String::new);
                             write_back = true;
                             self.push_default_for_ret(ret_form);
                         }
@@ -5662,6 +6036,14 @@ impl<'a> SceneVm<'a> {
                 .get(&prop_id)
                 .cloned()
                 .unwrap_or_else(|| self.default_user_prop_cell(prop_id));
+            let array_idx = self.extract_array_index(&elm);
+            self.trace_cf_condition_user_prop_read(
+                self.stream.get_prg_cntr(),
+                prop_id,
+                array_idx,
+                &cell,
+                &elm,
+            );
             self.push_user_prop_cell_result(&cell, &elm[1..], &elm)?;
             self.vm_trace(
                 None,
@@ -5796,7 +6178,18 @@ impl<'a> SceneVm<'a> {
         if head_owner == elm_code::ELM_OWNER_USER_PROP {
             let prop_id = elm_code::code(head);
             let array_idx = self.extract_array_index(&elm);
-            self.assign_user_prop(prop_id, array_idx, rhs);
+            let old_cell = self.user_props.get(&prop_id).cloned();
+            self.assign_user_prop(prop_id, array_idx, rhs.clone());
+            let new_cell = self.user_props.get(&prop_id);
+            self.trace_cf_condition_user_prop_assign(
+                self.stream.get_prg_cntr(),
+                prop_id,
+                array_idx,
+                old_cell.as_ref(),
+                new_cell,
+                &rhs,
+                &elm,
+            );
             return Ok(());
         }
 
@@ -6052,6 +6445,9 @@ impl<'a> SceneVm<'a> {
 
         if owner == elm_code::ELM_OWNER_USER_PROP {
             let prop_id = elm_code::code(raw_head);
+            if self.exec_user_prop_list_init_command(prop_id, &elm[1..], ret_form)? {
+                return Ok(());
+            }
             let cell = self
                 .user_props
                 .get(&prop_id)
@@ -6420,6 +6816,14 @@ impl<'a> SceneVm<'a> {
             ex_call_proc,
             scratch_source_args.len()
         ));
+        self.trace_cf_branch_farcall(
+            self.stream.get_prg_cntr(),
+            scene_name,
+            z_no,
+            ret_form,
+            ex_call_proc,
+            scratch_source_args,
+        );
         if (scene_name == "sys20_adv00" && matches!(z_no, 10 | 13 | 17))
             || (scene_name == "sys20_adv01" && z_no == 0)
         {
@@ -6447,7 +6851,7 @@ impl<'a> SceneVm<'a> {
             element_points: std::mem::take(&mut self.element_points),
             call_stack: std::mem::take(&mut self.call_stack),
             gosub_return_stack: std::mem::take(&mut self.gosub_return_stack),
-            user_props: std::mem::take(&mut self.user_props),
+            user_props: self.enter_cross_scene_user_prop_scope(),
             current_scene_no: self.current_scene_no,
             current_scene_name: self.current_scene_name.clone(),
             current_line_no: self.current_line_no,
@@ -6503,7 +6907,7 @@ impl<'a> SceneVm<'a> {
         self.element_points = saved.element_points;
         self.call_stack = saved.call_stack;
         self.gosub_return_stack = saved.gosub_return_stack;
-        self.user_props = saved.user_props;
+        self.restore_cross_scene_user_prop_scope(saved.user_props);
         self.current_scene_no = saved.current_scene_no;
         self.current_scene_name = saved.current_scene_name;
         self.current_line_no = saved.current_line_no;
@@ -6530,6 +6934,12 @@ impl<'a> SceneVm<'a> {
         }
         if was_excall_proc {
             self.mark_excall_script_proc_pop_requested();
+        }
+        if self.cf_branch_trace_interesting_line() {
+            self.sg_cf_branch_trace(
+                self.stream.get_prg_cntr(),
+                format!("kind=RETURN_RESTORED ret_form={} args={:?}", saved.ret_form, args),
+            );
         }
         self.sg_omv_trace(format!(
             "scene_return_restored scene={:?} scene_no={:?} line={} pc=0x{:x} call_depth={} scene_stack={}",
@@ -6963,6 +7373,17 @@ impl<'a> SceneVm<'a> {
             OP_TILDE => !v,
             _ => v,
         };
+        if self.cf_condition_trace_interesting_line() {
+            self.sg_cf_condition_trace(
+                self.stream.get_prg_cntr(),
+                format!(
+                    "kind=OPERATE_1 op={} in={} out={}",
+                    Self::cf_condition_op_name(opr),
+                    v,
+                    out
+                ),
+            );
+        }
         self.push_int(out);
         Ok(())
     }
@@ -6973,6 +7394,18 @@ impl<'a> SceneVm<'a> {
             let r = self.pop_int()?;
             let l = self.pop_int()?;
             let out = self.calc_int_int(l, r, opr);
+            if self.cf_condition_trace_interesting_line() {
+                self.sg_cf_condition_trace(
+                    self.stream.get_prg_cntr(),
+                    format!(
+                        "kind=OPERATE_2 op={} left={} right={} out={}",
+                        Self::cf_condition_op_name(opr),
+                        l,
+                        r,
+                        out
+                    ),
+                );
+            }
             self.push_int(out);
             return Ok(());
         }

@@ -15,6 +15,78 @@ use super::globals::{GlobalState, ObjectState, StageFormState};
 use super::int_event::IntEvent;
 use super::Value;
 
+fn anim_skip_trace_enabled() -> bool {
+    std::env::var_os("SG_DEBUG").is_some()
+}
+
+fn anim_skip_trace(msg: impl AsRef<str>) {
+    if anim_skip_trace_enabled() {
+        eprintln!("[SG_DEBUG][ANIM_SKIP_TRACE][WAIT] {}", msg.as_ref());
+    }
+}
+
+fn int_event_state(ev: &IntEvent) -> String {
+    format!(
+        "def={} value={} cur={} start={} end={} cur_time={} end_time={} delay={} loop_type={} speed={} real={} active={}",
+        ev.def_value,
+        ev.value,
+        ev.cur_value,
+        ev.start_value,
+        ev.end_value,
+        ev.cur_time,
+        ev.end_time,
+        ev.delay_time,
+        ev.loop_type,
+        ev.speed_type,
+        ev.real_flag,
+        ev.check_event(),
+    )
+}
+
+fn object_event_op_name(ids: &RuntimeConstants, op: i32) -> &'static str {
+    if ids.obj_patno_eve != 0 && op == ids.obj_patno_eve { return "PATNO_EVE"; }
+    if ids.obj_x_eve != 0 && op == ids.obj_x_eve { return "X_EVE"; }
+    if ids.obj_y_eve != 0 && op == ids.obj_y_eve { return "Y_EVE"; }
+    if ids.obj_z_eve != 0 && op == ids.obj_z_eve { return "Z_EVE"; }
+    if ids.obj_center_x_eve != 0 && op == ids.obj_center_x_eve { return "CENTER_X_EVE"; }
+    if ids.obj_center_y_eve != 0 && op == ids.obj_center_y_eve { return "CENTER_Y_EVE"; }
+    if ids.obj_center_z_eve != 0 && op == ids.obj_center_z_eve { return "CENTER_Z_EVE"; }
+    if ids.obj_center_rep_x_eve != 0 && op == ids.obj_center_rep_x_eve { return "CENTER_REP_X_EVE"; }
+    if ids.obj_center_rep_y_eve != 0 && op == ids.obj_center_rep_y_eve { return "CENTER_REP_Y_EVE"; }
+    if ids.obj_center_rep_z_eve != 0 && op == ids.obj_center_rep_z_eve { return "CENTER_REP_Z_EVE"; }
+    if ids.obj_scale_x_eve != 0 && op == ids.obj_scale_x_eve { return "SCALE_X_EVE"; }
+    if ids.obj_scale_y_eve != 0 && op == ids.obj_scale_y_eve { return "SCALE_Y_EVE"; }
+    if ids.obj_scale_z_eve != 0 && op == ids.obj_scale_z_eve { return "SCALE_Z_EVE"; }
+    if ids.obj_rotate_x_eve != 0 && op == ids.obj_rotate_x_eve { return "ROTATE_X_EVE"; }
+    if ids.obj_rotate_y_eve != 0 && op == ids.obj_rotate_y_eve { return "ROTATE_Y_EVE"; }
+    if ids.obj_rotate_z_eve != 0 && op == ids.obj_rotate_z_eve { return "ROTATE_Z_EVE"; }
+    if ids.obj_clip_left_eve != 0 && op == ids.obj_clip_left_eve { return "CLIP_LEFT_EVE"; }
+    if ids.obj_clip_top_eve != 0 && op == ids.obj_clip_top_eve { return "CLIP_TOP_EVE"; }
+    if ids.obj_clip_right_eve != 0 && op == ids.obj_clip_right_eve { return "CLIP_RIGHT_EVE"; }
+    if ids.obj_clip_bottom_eve != 0 && op == ids.obj_clip_bottom_eve { return "CLIP_BOTTOM_EVE"; }
+    if ids.obj_src_clip_left_eve != 0 && op == ids.obj_src_clip_left_eve { return "SRC_CLIP_LEFT_EVE"; }
+    if ids.obj_src_clip_top_eve != 0 && op == ids.obj_src_clip_top_eve { return "SRC_CLIP_TOP_EVE"; }
+    if ids.obj_src_clip_right_eve != 0 && op == ids.obj_src_clip_right_eve { return "SRC_CLIP_RIGHT_EVE"; }
+    if ids.obj_src_clip_bottom_eve != 0 && op == ids.obj_src_clip_bottom_eve { return "SRC_CLIP_BOTTOM_EVE"; }
+    if ids.obj_tr_eve != 0 && op == ids.obj_tr_eve { return "TR_EVE"; }
+    if ids.obj_mono_eve != 0 && op == ids.obj_mono_eve { return "MONO_EVE"; }
+    if ids.obj_reverse_eve != 0 && op == ids.obj_reverse_eve { return "REVERSE_EVE"; }
+    if ids.obj_bright_eve != 0 && op == ids.obj_bright_eve { return "BRIGHT_EVE"; }
+    if ids.obj_dark_eve != 0 && op == ids.obj_dark_eve { return "DARK_EVE"; }
+    if ids.obj_color_r_eve != 0 && op == ids.obj_color_r_eve { return "COLOR_R_EVE"; }
+    if ids.obj_color_g_eve != 0 && op == ids.obj_color_g_eve { return "COLOR_G_EVE"; }
+    if ids.obj_color_b_eve != 0 && op == ids.obj_color_b_eve { return "COLOR_B_EVE"; }
+    if ids.obj_color_rate_eve != 0 && op == ids.obj_color_rate_eve { return "COLOR_RATE_EVE"; }
+    if ids.obj_color_add_r_eve != 0 && op == ids.obj_color_add_r_eve { return "COLOR_ADD_R_EVE"; }
+    if ids.obj_color_add_g_eve != 0 && op == ids.obj_color_add_g_eve { return "COLOR_ADD_G_EVE"; }
+    if ids.obj_color_add_b_eve != 0 && op == ids.obj_color_add_b_eve { return "COLOR_ADD_B_EVE"; }
+    if ids.obj_x_rep_eve != 0 && op == ids.obj_x_rep_eve { return "X_REP_EVE"; }
+    if ids.obj_y_rep_eve != 0 && op == ids.obj_y_rep_eve { return "Y_REP_EVE"; }
+    if ids.obj_z_rep_eve != 0 && op == ids.obj_z_rep_eve { return "Z_REP_EVE"; }
+    if ids.obj_tr_rep_eve != 0 && op == ids.obj_tr_rep_eve { return "TR_REP_EVE"; }
+    "UNKNOWN_EVE"
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum AudioWait {
     Bgm,
@@ -246,8 +318,20 @@ fn object_active_by_runtime_slot_mut(
 }
 
 fn finish_wait_skipped_event(ev: &mut IntEvent) {
+    let before = if anim_skip_trace_enabled() {
+        Some(int_event_state(ev))
+    } else {
+        None
+    };
     ev.end_event();
     ev.frame();
+    if let Some(before) = before {
+        anim_skip_trace(format!(
+            "finish_event before=[{}] after=[{}]",
+            before,
+            int_event_state(ev)
+        ));
+    }
 }
 
 fn event_prop_pairs(ids: &RuntimeConstants) -> [(i32, i32); 36] {
@@ -302,33 +386,115 @@ fn finish_wait_skipped_object_event_by_op(
     ids: &RuntimeConstants,
     event_op: i32,
 ) {
+    let file = obj.file_name.as_deref().unwrap_or("-").to_string();
+    let runtime_slot = obj.runtime_slot_or(usize::MAX);
+    let event_name = object_event_op_name(ids, event_op);
     let Some(value) = obj.int_event_by_op_mut(ids, event_op).map(|ev| {
+        anim_skip_trace(format!(
+            "finish_object_event begin slot={} file={} op={}({}) state=[{}]",
+            runtime_slot,
+            file,
+            event_op,
+            event_name,
+            int_event_state(ev)
+        ));
         finish_wait_skipped_event(ev);
+        anim_skip_trace(format!(
+            "finish_object_event event_done slot={} file={} op={}({}) state=[{}]",
+            runtime_slot,
+            file,
+            event_op,
+            event_name,
+            int_event_state(ev)
+        ));
         ev.get_total_value() as i64
     }) else {
+        anim_skip_trace(format!(
+            "finish_object_event missing slot={} file={} op={}({})",
+            runtime_slot, file, event_op, event_name
+        ));
         return;
     };
     if let Some(prop_op) = object_prop_op_for_event_op(ids, event_op) {
         obj.set_int_prop(ids, prop_op, value);
+        anim_skip_trace(format!(
+            "finish_object_event prop_write slot={} file={} event_op={}({}) prop_op={} value={} obj_tr={} obj_alpha={} obj_pos=({}, {})",
+            runtime_slot,
+            file,
+            event_op,
+            event_name,
+            prop_op,
+            value,
+            obj.get_int_prop(ids, ids.obj_tr),
+            obj.base.alpha,
+            obj.get_int_prop(ids, ids.obj_x),
+            obj.get_int_prop(ids, ids.obj_y),
+        ));
+    } else {
+        anim_skip_trace(format!(
+            "finish_object_event no_prop_map slot={} file={} event_op={}({}) value={}",
+            runtime_slot, file, event_op, event_name, value
+        ));
     }
 }
 
 fn finish_wait_skipped_object_events(obj: &mut ObjectState, ids: &RuntimeConstants) {
+    let file = obj.file_name.as_deref().unwrap_or("-").to_string();
+    let runtime_slot = obj.runtime_slot_or(usize::MAX);
+    anim_skip_trace(format!(
+        "finish_object_all begin slot={} file={} any_active={} tr={} alpha={} pos=({}, {})",
+        runtime_slot,
+        file,
+        obj.any_event_active(),
+        obj.get_int_prop(ids, ids.obj_tr),
+        obj.base.alpha,
+        obj.get_int_prop(ids, ids.obj_x),
+        obj.get_int_prop(ids, ids.obj_y),
+    ));
     let mut final_values = Vec::new();
     for (event_op, prop_op) in event_prop_pairs(ids) {
         if event_op == 0 || prop_op == 0 {
             continue;
         }
         if let Some(ev) = obj.int_event_by_op_mut(ids, event_op) {
+            if ev.check_event() {
+                anim_skip_trace(format!(
+                    "finish_object_all active slot={} file={} op={}({}) state=[{}]",
+                    runtime_slot,
+                    file,
+                    event_op,
+                    object_event_op_name(ids, event_op),
+                    int_event_state(ev)
+                ));
+            }
             finish_wait_skipped_event(ev);
-            final_values.push((prop_op, ev.get_total_value() as i64));
+            final_values.push((event_op, prop_op, ev.get_total_value() as i64));
         }
     }
     obj.runtime.prop_event_lists.end_all();
     obj.runtime.prop_event_lists.frame();
-    for (prop_op, value) in final_values {
+    for (event_op, prop_op, value) in final_values {
         obj.set_int_prop(ids, prop_op, value);
+        anim_skip_trace(format!(
+            "finish_object_all prop_write slot={} file={} event_op={}({}) prop_op={} value={}",
+            runtime_slot,
+            file,
+            event_op,
+            object_event_op_name(ids, event_op),
+            prop_op,
+            value
+        ));
     }
+    anim_skip_trace(format!(
+        "finish_object_all end slot={} file={} any_active={} tr={} alpha={} pos=({}, {})",
+        runtime_slot,
+        file,
+        obj.any_event_active(),
+        obj.get_int_prop(ids, ids.obj_tr),
+        obj.base.alpha,
+        obj.get_int_prop(ids, ids.obj_x),
+        obj.get_int_prop(ids, ids.obj_y),
+    ));
 }
 
 fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &RuntimeConstants) {
@@ -375,10 +541,44 @@ fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &Runt
                 *stage_idx,
                 *runtime_slot,
             ) {
+                let file = obj.file_name.as_deref().unwrap_or("-").to_string();
                 if let Some(ev) = object_event_list_for_wait_mut(obj, ids, *list_op)
                     .and_then(|v| v.get_mut(*list_idx))
                 {
+                    anim_skip_trace(format!(
+                        "finish_object_list_event begin stage_form={} stage={} slot={} file={} list_op={}({}) list_idx={} state=[{}]",
+                        stage_form_id,
+                        stage_idx,
+                        runtime_slot,
+                        file,
+                        list_op,
+                        object_event_op_name(ids, *list_op),
+                        list_idx,
+                        int_event_state(ev)
+                    ));
                     finish_wait_skipped_event(ev);
+                    anim_skip_trace(format!(
+                        "finish_object_list_event end stage_form={} stage={} slot={} file={} list_op={}({}) list_idx={} state=[{}]",
+                        stage_form_id,
+                        stage_idx,
+                        runtime_slot,
+                        file,
+                        list_op,
+                        object_event_op_name(ids, *list_op),
+                        list_idx,
+                        int_event_state(ev)
+                    ));
+                } else {
+                    anim_skip_trace(format!(
+                        "finish_object_list_event missing stage_form={} stage={} slot={} file={} list_op={}({}) list_idx={}",
+                        stage_form_id,
+                        stage_idx,
+                        runtime_slot,
+                        file,
+                        list_op,
+                        object_event_op_name(ids, *list_op),
+                        list_idx
+                    ));
                 }
             }
         }
@@ -389,12 +589,28 @@ fn finish_event_wait_by_key(w: &EventWait, globals: &mut GlobalState, ids: &Runt
                     .get_mut(form_id)
                     .and_then(|v| v.get_mut(*i))
                 {
+                    anim_skip_trace(format!(
+                        "finish_generic_int_event begin form_id={} index={} state=[{}]",
+                        form_id, i, int_event_state(ev)
+                    ));
                     finish_wait_skipped_event(ev);
+                    anim_skip_trace(format!(
+                        "finish_generic_int_event end form_id={} index={} state=[{}]",
+                        form_id, i, int_event_state(ev)
+                    ));
                 }
             }
             None => {
                 if let Some(ev) = globals.int_event_roots.get_mut(form_id) {
+                    anim_skip_trace(format!(
+                        "finish_generic_int_event begin form_id={} index=None state=[{}]",
+                        form_id, int_event_state(ev)
+                    ));
                     finish_wait_skipped_event(ev);
+                    anim_skip_trace(format!(
+                        "finish_generic_int_event end form_id={} index=None state=[{}]",
+                        form_id, int_event_state(ev)
+                    ));
                 }
             }
         },
@@ -494,6 +710,7 @@ impl VmWait {
                 self.until = None;
                 self.skip_time_on_key = false;
                 if key_skippable_timewait {
+                    anim_skip_trace("timewait_key naturally finished pending=0");
                     self.pending_value = Some(Value::Int(0));
                 }
             }
@@ -608,6 +825,10 @@ impl VmWait {
         };
         if event_done {
             let was_event_key_skip = self.event_key_skip;
+            anim_skip_trace(format!(
+                "event_wait naturally finished event={:?} key_skip={} return_value={}",
+                self.event.as_ref(), was_event_key_skip, self.event_return_value
+            ));
             self.event = None;
             self.event_key_skip = false;
             if was_event_key_skip {
@@ -704,11 +925,13 @@ impl VmWait {
     /// Wait for a duration, but allow any key/mouse press to cancel the wait.
     pub fn wait_ms_key(&mut self, ms: u64) {
         if ms == 0 {
+            anim_skip_trace("wait_ms_key ignored ms=0");
             return;
         }
         self.mark_block_request();
         self.until = Some(Instant::now() + Duration::from_millis(ms));
         self.skip_time_on_key = true;
+        anim_skip_trace(format!("wait_ms_key start ms={} block_generation={}", ms, self.block_generation));
     }
 
     pub fn wait_key(&mut self) {
@@ -742,6 +965,10 @@ impl VmWait {
             stage_idx,
             runtime_slot,
         });
+        anim_skip_trace(format!(
+            "wait_object_all_events start stage_form={} stage={} slot={} key_skip={} block_generation={}",
+            stage_form_id, stage_idx, runtime_slot, key_skip, self.block_generation
+        ));
         self.event_key_skip = key_skip;
         self.event_return_value = false;
         if key_skip {
@@ -765,6 +992,10 @@ impl VmWait {
             runtime_slot,
             op,
         });
+        anim_skip_trace(format!(
+            "wait_object_event start stage_form={} stage={} slot={} op={} key_skip={} return_value={} block_generation={}",
+            stage_form_id, stage_idx, runtime_slot, op, key_skip, return_value_flag, self.block_generation
+        ));
         self.event_key_skip = key_skip;
         self.event_return_value = return_value_flag;
         if key_skip {
@@ -790,6 +1021,10 @@ impl VmWait {
             list_op,
             list_idx,
         });
+        anim_skip_trace(format!(
+            "wait_object_event_list start stage_form={} stage={} slot={} list_op={} list_idx={} key_skip={} return_value={} block_generation={}",
+            stage_form_id, stage_idx, runtime_slot, list_op, list_idx, key_skip, return_value_flag, self.block_generation
+        ));
         self.event_key_skip = key_skip;
         self.event_return_value = return_value_flag;
         if key_skip {
@@ -837,6 +1072,10 @@ impl VmWait {
     ) {
         self.mark_block_request();
         self.event = Some(EventWait::GenericIntEvent { form_id, index });
+        anim_skip_trace(format!(
+            "wait_generic_int_event start form_id={} index={:?} key_skip={} return_value={} block_generation={}",
+            form_id, index, key_skip, return_value_flag, self.block_generation
+        ));
         self.event_key_skip = key_skip;
         self.event_return_value = return_value_flag;
         if key_skip {
@@ -900,6 +1139,7 @@ impl VmWait {
         // C++ MOV/OBJECT movie waits are not skipped by arbitrary input here.
         // They are skipped only by DECIDE/CANCEL down-up in notify_movie_down_up().
         if self.skip_time_on_key {
+            anim_skip_trace("notify_key skipped TIMEWAIT_KEY pending=1");
             self.until = None;
             self.skip_time_on_key = false;
             self.pending_value = Some(Value::Int(1));
@@ -927,11 +1167,20 @@ impl VmWait {
         let mut skipped = false;
         if result == 1 && self.event_key_skip {
             if let Some(w) = self.event.take() {
+                anim_skip_trace(format!(
+                    "notify_movie_down_up skip event result={} event={:?} return_value={}",
+                    result, w, self.event_return_value
+                ));
                 finish_event_wait_by_key(&w, globals, ids);
                 if self.event_return_value {
                     self.pending_value = Some(Value::Int(1));
                 }
                 skipped = true;
+            } else {
+                anim_skip_trace(format!(
+                    "notify_movie_down_up event_key_skip without event result={}",
+                    result
+                ));
             }
             self.event_key_skip = false;
             self.event_return_value = false;

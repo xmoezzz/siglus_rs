@@ -370,7 +370,29 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
     // TIMETABLE(now_time, rep_time, start_value, [start_time,end_time,end_value,speed_type]...)
     if op == elm_value::MATH_TIMETABLE {
-        ctx.push(Value::Int(timetable_value(params)));
+        let ret = timetable_value(params);
+        if std::env::var_os("SG_DEBUG").is_some()
+            && matches!(
+                ctx.current_scene_name.as_deref(),
+                Some("sys10_sm00") | Some("sys10_cf00") | Some("sys10_cf01")
+            )
+            && matches!(ctx.current_line_no, 140..=185 | 240..=285 | 700..=730 | 870..=895)
+        {
+            let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
+            let scene_no = ctx
+                .current_scene_no
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "-".to_string());
+            eprintln!(
+                "[SG_DEBUG][CF_CONDITION_TRACE] scene={} scene_no={} line={} kind=MATH_TIMETABLE params={:?} result={}",
+                scene,
+                scene_no,
+                ctx.current_line_no,
+                params,
+                ret
+            );
+        }
+        ctx.push(Value::Int(ret));
         return Ok(true);
     }
 

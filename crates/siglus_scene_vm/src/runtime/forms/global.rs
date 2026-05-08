@@ -1034,9 +1034,15 @@ fn dispatch_global_message_command(
         }
         constants::elm_value::GLOBAL_CLOSE
         | constants::elm_value::GLOBAL_CLOSE_WAIT
-        | constants::elm_value::GLOBAL_CLOSE_NOWAIT
-        | constants::elm_value::GLOBAL_END_CLOSE => {
+        | constants::elm_value::GLOBAL_CLOSE_NOWAIT => {
             ctx.ui.show_message_bg(false);
+            push_global_message_ok(ctx);
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_END_CLOSE => {
+            // C++ GLOBAL.END_CLOSE dispatches MWND.END_CLOSE for the current
+            // message window. If the stage/current-MWND route above did not
+            // handle it, this fallback must not perform CLOSE semantics.
             push_global_message_ok(ctx);
             Ok(true)
         }

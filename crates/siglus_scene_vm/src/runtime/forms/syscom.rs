@@ -37,6 +37,10 @@ fn p_bool(params: &[Value], idx: usize) -> bool {
     p_i64(params, idx) != 0
 }
 
+fn sg_debug_enabled_local() -> bool {
+    std::env::var_os("SG_DEBUG").is_some()
+}
+
 fn gameexe_unquoted_owned(ctx: &CommandContext, key: &str) -> String {
     ctx.tables
         .gameexe
@@ -1103,38 +1107,57 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         SET_MWND_BTN_ENABLE => {
             if params.is_empty() {
                 ctx.globals.syscom.mwnd_btn_disable_all = false;
+                if sg_debug_enabled_local() {
+                    eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_ENABLE all disable_all=false");
+                }
             } else {
-                ctx.globals
-                    .syscom
-                    .mwnd_btn_disable
-                    .insert(p_i64(params, 0), false);
+                let idx = p_i64(params, 0);
+                ctx.globals.syscom.mwnd_btn_disable.insert(idx, false);
+                if sg_debug_enabled_local() {
+                    eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_ENABLE idx={} disabled=false", idx);
+                }
             }
         }
         SET_MWND_BTN_DISABLE => {
             if params.is_empty() {
                 ctx.globals.syscom.mwnd_btn_disable_all = true;
+                if sg_debug_enabled_local() {
+                    eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_DISABLE all disable_all=true");
+                }
             } else {
-                ctx.globals
-                    .syscom
-                    .mwnd_btn_disable
-                    .insert(p_i64(params, 0), true);
+                let idx = p_i64(params, 0);
+                ctx.globals.syscom.mwnd_btn_disable.insert(idx, true);
+                if sg_debug_enabled_local() {
+                    eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_DISABLE idx={} disabled=true", idx);
+                }
             }
         }
-        SET_MWND_BTN_TOUCH_ENABLE => ctx.globals.syscom.mwnd_btn_touch_disable = false,
-        SET_MWND_BTN_TOUCH_DISABLE => ctx.globals.syscom.mwnd_btn_touch_disable = true,
+        SET_MWND_BTN_TOUCH_ENABLE => {
+            ctx.globals.syscom.mwnd_btn_touch_disable = false;
+            if sg_debug_enabled_local() {
+                eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_TOUCH_ENABLE touch_disable=false");
+            }
+        }
+        SET_MWND_BTN_TOUCH_DISABLE => {
+            ctx.globals.syscom.mwnd_btn_touch_disable = true;
+            if sg_debug_enabled_local() {
+                eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_TOUCH_DISABLE touch_disable=true");
+            }
+        }
         INIT_SYSCOM_FLAG => {
-            ctx.globals.syscom.read_skip = ToggleFeatureState::default();
-            ctx.globals.syscom.auto_skip = ToggleFeatureState::default();
-            ctx.globals.syscom.auto_mode = ToggleFeatureState::default();
-            ctx.globals.syscom.hide_mwnd = ToggleFeatureState::default();
-            ctx.globals.syscom.local_extra_switch = ToggleFeatureState::default();
-            ctx.globals.syscom.local_extra_mode = ValueFeatureState::default();
-            ctx.globals.syscom.msg_back = ToggleFeatureState::default();
-            ctx.globals.syscom.return_to_sel = ToggleFeatureState::default();
-            ctx.globals.syscom.return_to_menu = ToggleFeatureState::default();
-            ctx.globals.syscom.end_game = ToggleFeatureState::default();
-            ctx.globals.syscom.save_feature = ToggleFeatureState::default();
-            ctx.globals.syscom.load_feature = ToggleFeatureState::default();
+            let enabled = ToggleFeatureState { onoff: false, enable: true, exist: true };
+            ctx.globals.syscom.read_skip = enabled;
+            ctx.globals.syscom.auto_skip = enabled;
+            ctx.globals.syscom.auto_mode = enabled;
+            ctx.globals.syscom.hide_mwnd = enabled;
+            ctx.globals.syscom.local_extra_switch = enabled;
+            ctx.globals.syscom.local_extra_mode = ValueFeatureState { value: 0, enable: true, exist: true };
+            ctx.globals.syscom.msg_back = enabled;
+            ctx.globals.syscom.return_to_sel = enabled;
+            ctx.globals.syscom.return_to_menu = enabled;
+            ctx.globals.syscom.end_game = enabled;
+            ctx.globals.syscom.save_feature = enabled;
+            ctx.globals.syscom.load_feature = enabled;
             ctx.globals.syscom.msg_back_open = false;
         }
         SET_LOCAL_EXTRA_MODE_VALUE => ctx.globals.syscom.local_extra_mode.value = p_i64(params, 0),

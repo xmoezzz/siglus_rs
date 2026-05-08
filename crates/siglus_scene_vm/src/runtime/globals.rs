@@ -366,7 +366,7 @@ pub struct SyscomPendingProc {
     pub save_id: i64,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct SyscomRuntimeState {
     pub syscom_menu_disable: bool,
     pub menu_open: bool,
@@ -410,6 +410,53 @@ pub struct SyscomRuntimeState {
     pub msg_back_load_tid: i64,
 }
 
+
+impl Default for SyscomRuntimeState {
+    fn default() -> Self {
+        Self {
+            syscom_menu_disable: false,
+            menu_open: false,
+            menu_kind: None,
+            menu_result: None,
+            menu_cursor: 0,
+            font_list: Vec::new(),
+            mwnd_btn_disable_all: false,
+            mwnd_btn_touch_disable: false,
+            mwnd_btn_disable: HashMap::new(),
+            read_skip: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            auto_skip: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            auto_mode: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            hide_mwnd: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            local_extra_switch: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            local_extra_mode: ValueFeatureState { value: 0, enable: true, exist: true },
+            msg_back: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            msg_back_open: false,
+            return_to_sel: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            return_to_menu: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            end_game: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            save_feature: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            load_feature: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            replay_koe: None,
+            current_save_scene_title: String::new(),
+            current_save_message: String::new(),
+            total_play_time: 0,
+            save_slots: Vec::new(),
+            quick_save_slots: Vec::new(),
+            inner_save_exists: false,
+            end_save_exists: false,
+            last_menu_call: 0,
+            system_extra_int_value: 0,
+            system_extra_str_value: String::new(),
+            config_int: HashMap::new(),
+            config_str: HashMap::new(),
+            capture_buffer: None,
+            capture_size: None,
+            return_scene_once: None,
+            pending_proc: None,
+            msg_back_load_tid: 0,
+        }
+    }
+}
 /// Global mutable state used by various "global element" (form) handlers.
 ///
 /// This crate keeps these structures generic on purpose: many Siglus
@@ -3023,6 +3070,61 @@ impl ObjectState {
         assert!(ok, "unknown object int property op {}", op);
     }
 
+    pub fn set_int_prop_from_event_frame(
+        &mut self,
+        ids: &crate::runtime::constants::RuntimeConstants,
+        op: i32,
+        value: i64,
+    ) {
+        self.runtime.explicit_int_props.insert(op);
+        macro_rules! set_if {
+            ($id:expr, $field:ident) => {
+                if $id != 0 && op == $id {
+                    self.base.$field = value;
+                    return;
+                }
+            };
+        }
+        set_if!(ids.obj_patno, patno);
+        set_if!(ids.obj_x, x);
+        set_if!(ids.obj_y, y);
+        set_if!(ids.obj_z, z);
+        set_if!(ids.obj_center_x, center_x);
+        set_if!(ids.obj_center_y, center_y);
+        set_if!(ids.obj_center_z, center_z);
+        set_if!(ids.obj_center_rep_x, center_rep_x);
+        set_if!(ids.obj_center_rep_y, center_rep_y);
+        set_if!(ids.obj_center_rep_z, center_rep_z);
+        set_if!(ids.obj_scale_x, scale_x);
+        set_if!(ids.obj_scale_y, scale_y);
+        set_if!(ids.obj_scale_z, scale_z);
+        set_if!(ids.obj_rotate_x, rotate_x);
+        set_if!(ids.obj_rotate_y, rotate_y);
+        set_if!(ids.obj_rotate_z, rotate_z);
+        set_if!(ids.obj_clip_left, clip_left);
+        set_if!(ids.obj_clip_top, clip_top);
+        set_if!(ids.obj_clip_right, clip_right);
+        set_if!(ids.obj_clip_bottom, clip_bottom);
+        set_if!(ids.obj_src_clip_left, src_clip_left);
+        set_if!(ids.obj_src_clip_top, src_clip_top);
+        set_if!(ids.obj_src_clip_right, src_clip_right);
+        set_if!(ids.obj_src_clip_bottom, src_clip_bottom);
+        set_if!(ids.obj_alpha, alpha);
+        set_if!(ids.obj_tr, tr);
+        set_if!(ids.obj_mono, mono);
+        set_if!(ids.obj_reverse, reverse);
+        set_if!(ids.obj_bright, bright);
+        set_if!(ids.obj_dark, dark);
+        set_if!(ids.obj_color_r, color_r);
+        set_if!(ids.obj_color_g, color_g);
+        set_if!(ids.obj_color_b, color_b);
+        set_if!(ids.obj_color_rate, color_rate);
+        set_if!(ids.obj_color_add_r, color_add_r);
+        set_if!(ids.obj_color_add_g, color_add_g);
+        set_if!(ids.obj_color_add_b, color_add_b);
+        assert!(false, "unknown object event-backed int property op {}", op);
+    }
+
     pub fn has_int_prop(&self, op: i32) -> bool {
         self.runtime.explicit_int_props.contains(&op)
     }
@@ -4096,8 +4198,11 @@ pub enum MwndListOpKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MwndOpKind {
     MsgBlock,
-    Open,
-    Close,
+    OpenWait,
+    OpenNowait,
+    CloseWait,
+    CloseNowait,
+    EndClose,
     CheckOpen,
     Clear,
     NovelClear,
@@ -4216,6 +4321,7 @@ pub struct MwndState {
     pub open: bool,
     pub name_text: String,
     pub msg_text: String,
+    pub msg_waku_no: Option<i64>,
     pub waku_file: String,
     pub filter_file: String,
     pub filter_margin: Option<(i64, i64, i64, i64)>,
@@ -4758,8 +4864,32 @@ impl StageFormState {
 
     pub fn close_all_mwnd(&mut self, stage_idx: i64) {
         if let Some(list) = self.mwnd_lists.get_mut(&stage_idx) {
-            for m in list {
+            for (idx, m) in list.iter_mut().enumerate() {
+                let old_open = m.open;
                 m.open = false;
+                if std::env::var_os("SG_DEBUG").is_some() {
+                    eprintln!(
+                        "[SG_DEBUG][MWND_STATE_TRACE] scene=<runtime> scene_no=- line=- reason=STAGE_CLOSE_ALL_MWND stage={} mwnd={} old_open={} new_open={} buttons={} faces={} objects={} waku={} filter={} pos={:?} size={:?} open_anim=({}, {}) close_anim=({}, {}) selection={} msg_len={} name_len={}",
+                        stage_idx,
+                        idx,
+                        old_open,
+                        m.open,
+                        m.button_list.len(),
+                        m.face_list.len(),
+                        m.object_list.len(),
+                        if m.waku_file.is_empty() { "-" } else { m.waku_file.as_str() },
+                        if m.filter_file.is_empty() { "-" } else { m.filter_file.as_str() },
+                        m.window_pos,
+                        m.window_size,
+                        m.open_anime_type,
+                        m.open_anime_time,
+                        m.close_anime_type,
+                        m.close_anime_time,
+                        m.selection.is_some(),
+                        m.msg_text.len(),
+                        m.name_text.len(),
+                    );
+                }
             }
         }
     }

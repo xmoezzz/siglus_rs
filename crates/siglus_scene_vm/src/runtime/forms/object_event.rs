@@ -14,6 +14,35 @@ fn default_push(ctx: &mut CommandContext) {
     ctx.push(Value::Int(0));
 }
 
+fn anim_skip_trace_enabled() -> bool {
+    std::env::var_os("SG_DEBUG").is_some()
+}
+
+fn anim_skip_trace(ctx: &CommandContext, msg: impl AsRef<str>) {
+    if anim_skip_trace_enabled() {
+        let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
+        let scene_no = ctx
+            .current_scene_no
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "-".to_string());
+        eprintln!(
+            "[SG_DEBUG][ANIM_SKIP_TRACE][OBJECTEVENT] scene={} scene_no={} line={} {}",
+            scene,
+            scene_no,
+            ctx.current_line_no,
+            msg.as_ref()
+        );
+    }
+}
+
+fn int_event_state(ev: &crate::runtime::int_event::IntEvent) -> String {
+    format!(
+        "value={} cur={} start={} end={} cur_time={} end_time={} delay={} loop_type={} speed={} real={} active={}",
+        ev.value, ev.cur_value, ev.start_value, ev.end_value, ev.cur_time, ev.end_time,
+        ev.delay_time, ev.loop_type, ev.speed_type, ev.real_flag, ev.check_event()
+    )
+}
+
 fn parse_chain<'a>(ctx: &'a CommandContext, args: &'a [Value]) -> Option<(usize, &'a [i32])> {
     prop_access::parse_element_chain_ctx(ctx, FM_OBJECTEVENT as u32, args)
 }
@@ -276,6 +305,10 @@ fn dispatch_object_event_on_runtime_slot(
                 .map(|o| o.any_event_active())
                 .unwrap_or(false)
         };
+        anim_skip_trace(ctx, format!(
+            "OBJECTEVENT.WAIT_ALL stage={} slot={} active={}",
+            stage_idx, runtime_slot, active
+        ));
         if active {
             ctx.wait.wait_object_all_events(
                 ctx.ids.form_global_stage,
@@ -289,6 +322,10 @@ fn dispatch_object_event_on_runtime_slot(
     }
 
     if op == elm_value::OBJECTEVENT_STOP_ALL {
+        anim_skip_trace(ctx, format!(
+            "OBJECTEVENT.STOP_ALL stage={} slot={}",
+            stage_idx, runtime_slot
+        ));
         let stage_form = ctx.ids.form_global_stage;
         if let Some(st) = ctx.globals.stage_forms.get_mut(&stage_form) {
             if let Some(obj) = object_by_runtime_slot_mut(st, stage_idx, runtime_slot) {
@@ -318,6 +355,10 @@ fn dispatch_object_event_on_runtime_slot(
                 .map(|ev| ev.check_event())
                 .unwrap_or(false)
         };
+        anim_skip_trace(ctx, format!(
+            "OBJECTEVENT.WAIT target={:?} stage={} slot={} op={} event_prop={} active={}",
+            target, stage_idx, runtime_slot, op, event_prop, active
+        ));
         if active {
             ctx.wait.wait_object_event(
                 ctx.ids.form_global_stage,
@@ -350,6 +391,12 @@ fn dispatch_object_event_on_runtime_slot(
         let delay_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
         let speed_type = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
         ev.set_event(value, total_time, delay_time, speed_type, 0);
+        if anim_skip_trace_enabled() {
+            eprintln!(
+                "[SG_DEBUG][ANIM_SKIP_TRACE][OBJECTEVENT] OBJECTEVENT.SET target={:?} stage={} slot={} value={} total_time={} delay={} speed={} state=[{}]",
+                target, stage_idx, runtime_slot, value, total_time, delay_time, speed_type, int_event_state(ev)
+            );
+        }
         default_push(ctx);
         return Ok(true);
     }
@@ -360,6 +407,12 @@ fn dispatch_object_event_on_runtime_slot(
         let loop_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
         let delay_time = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
         ev.loop_event(start_value, end_value, loop_time, delay_time, 0, 0);
+        if anim_skip_trace_enabled() {
+            eprintln!(
+                "[SG_DEBUG][ANIM_SKIP_TRACE][OBJECTEVENT] OBJECTEVENT.LOOP target={:?} stage={} slot={} start={} end={} loop_time={} delay={} state=[{}]",
+                target, stage_idx, runtime_slot, start_value, end_value, loop_time, delay_time, int_event_state(ev)
+            );
+        }
         default_push(ctx);
         return Ok(true);
     }
@@ -370,12 +423,30 @@ fn dispatch_object_event_on_runtime_slot(
         let loop_time = script_args.get(2).and_then(as_i64).unwrap_or(0) as i32;
         let delay_time = script_args.get(3).and_then(as_i64).unwrap_or(0) as i32;
         ev.turn_event(start_value, end_value, loop_time, delay_time, 0, 0);
+        if anim_skip_trace_enabled() {
+            eprintln!(
+                "[SG_DEBUG][ANIM_SKIP_TRACE][OBJECTEVENT] OBJECTEVENT.TURN target={:?} stage={} slot={} start={} end={} loop_time={} delay={} state=[{}]",
+                target, stage_idx, runtime_slot, start_value, end_value, loop_time, delay_time, int_event_state(ev)
+            );
+        }
         default_push(ctx);
         return Ok(true);
     }
 
     if is_stop_op(op) {
+        if anim_skip_trace_enabled() {
+            eprintln!(
+                "[SG_DEBUG][ANIM_SKIP_TRACE][OBJECTEVENT] OBJECTEVENT.STOP before target={:?} stage={} slot={} state=[{}]",
+                target, stage_idx, runtime_slot, int_event_state(ev)
+            );
+        }
         ev.end_event();
+        if anim_skip_trace_enabled() {
+            eprintln!(
+                "[SG_DEBUG][ANIM_SKIP_TRACE][OBJECTEVENT] OBJECTEVENT.STOP after target={:?} stage={} slot={} state=[{}]",
+                target, stage_idx, runtime_slot, int_event_state(ev)
+            );
+        }
         default_push(ctx);
         return Ok(true);
     }

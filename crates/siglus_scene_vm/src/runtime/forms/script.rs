@@ -222,6 +222,25 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         CHECK_SKIP => {
             let v = !st.skip_disable && (st.skip_trigger || st.auto_mode_flag || st.msg_nowait);
+            if std::env::var_os("SG_DEBUG").is_some()
+                && ctx.current_scene_name.as_deref() == Some("sys10_cf01")
+                && matches!(ctx.current_line_no, 700..=730 | 870..=895)
+            {
+                let scene_no = ctx
+                    .current_scene_no
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "-".to_string());
+                eprintln!(
+                    "[SG_DEBUG][CF_CONDITION_TRACE] scene=sys10_cf01 scene_no={} line={} kind=SCRIPT_CHECK_SKIP result={} skip_disable={} skip_trigger={} auto_mode_flag={} msg_nowait={}",
+                    scene_no,
+                    ctx.current_line_no,
+                    if v { 1 } else { 0 },
+                    st.skip_disable,
+                    st.skip_trigger,
+                    st.auto_mode_flag,
+                    st.msg_nowait
+                );
+            }
             ctx.push(Value::Int(if v { 1 } else { 0 }));
             return Ok(true);
         }
