@@ -177,6 +177,126 @@ pub struct SysOverlayRuntime {
     pub text_dirty: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct MsgBackTextProjection {
+    pub history_index: usize,
+    pub text: String,
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+    pub style: TextStyle,
+}
+
+#[derive(Debug, Clone)]
+pub struct MsgBackImageProjection {
+    pub file: Option<String>,
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct MsgBackEntryButtonProjection {
+    pub history_index: usize,
+    pub file: Option<String>,
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Debug, Clone)]
+pub struct MsgBackUiProjection {
+    pub window_x: i32,
+    pub window_y: i32,
+    pub window_w: u32,
+    pub window_h: u32,
+    pub disp_margin: (i64, i64, i64, i64),
+    pub msg_pos: i32,
+    pub moji_size: i64,
+    pub moji_space: Option<(i64, i64)>,
+    pub order: i32,
+    pub filter_layer_rep: i32,
+    pub waku_layer_rep: i32,
+    pub moji_layer_rep: i32,
+    pub waku_file: Option<String>,
+    pub filter_file: Option<String>,
+    pub filter_margin: (i64, i64, i64, i64),
+    /// MSGBK.FILTER_COLOR, used when no filter texture is configured.
+    pub filter_rgba: (u8, u8, u8, u8),
+    /// Runtime CONFIG.FILTER_COLOR/Gp_config->filter_color, applied to the filter sprite.
+    pub filter_config_rgba: (u8, u8, u8, u8),
+    pub text_entries: Vec<MsgBackTextProjection>,
+    pub separators: Vec<MsgBackImageProjection>,
+    pub koe_buttons: Vec<MsgBackEntryButtonProjection>,
+    pub load_buttons: Vec<MsgBackEntryButtonProjection>,
+    pub close_btn_file: Option<String>,
+    pub close_btn_pos: (i32, i32),
+    pub msg_up_btn_file: Option<String>,
+    pub msg_up_btn_pos: (i32, i32),
+    pub msg_down_btn_file: Option<String>,
+    pub msg_down_btn_pos: (i32, i32),
+    pub slider_file: Option<String>,
+    pub slider_rect: (i32, i32, i32, i32),
+    pub slider_pos: (i32, i32),
+    pub ex_btn_files: [Option<String>; 4],
+    pub ex_btn_pos: [(i32, i32); 4],
+}
+
+
+fn msg_back_packed_sorter_key(order: i32, layer: i32) -> i32 {
+    let packed = (order as i64)
+        .clamp(i32::MIN as i64 / 1024, i32::MAX as i64 / 1024)
+        .saturating_mul(1024)
+        .saturating_add((layer as i64).clamp(-1023, 1023));
+    packed as i32
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MsgBackHitAction {
+    Close,
+    Up,
+    Down,
+    Slider,
+}
+
+#[derive(Debug, Default)]
+pub struct MsgBackButtonRuntime {
+    pub sprite: Option<SpriteId>,
+    pub image: Option<ImageId>,
+    pub cached_file: Option<String>,
+    pub size: Option<(u32, u32)>,
+}
+
+#[derive(Debug, Default)]
+pub struct MsgBackTextRuntime {
+    pub sprite: Option<SpriteId>,
+    pub image: Option<ImageId>,
+}
+
+#[derive(Debug, Default)]
+pub struct MsgBackRuntime {
+    pub projection: Option<MsgBackUiProjection>,
+    pub waku_sprite: Option<SpriteId>,
+    pub filter_sprite: Option<SpriteId>,
+    pub text_sprite: Option<SpriteId>,
+    pub waku_image: Option<ImageId>,
+    pub filter_image: Option<ImageId>,
+    pub solid_filter_image: Option<ImageId>,
+    pub solid_filter_color: Option<(u8, u8, u8, u8)>,
+    pub text_image: Option<ImageId>,
+    pub cached_waku_file: Option<String>,
+    pub cached_filter_file: Option<String>,
+    pub text_dirty: bool,
+    pub text_entries: Vec<MsgBackTextRuntime>,
+    pub separators: Vec<MsgBackButtonRuntime>,
+    pub koe_buttons: Vec<MsgBackButtonRuntime>,
+    pub load_buttons: Vec<MsgBackButtonRuntime>,
+    pub close_btn: MsgBackButtonRuntime,
+    pub msg_up_btn: MsgBackButtonRuntime,
+    pub msg_down_btn: MsgBackButtonRuntime,
+    pub slider: MsgBackButtonRuntime,
+    pub ex_buttons: Vec<MsgBackButtonRuntime>,
+}
+
 #[derive(Debug, Default)]
 pub struct EditBoxOverlayEntry {
     pub bg_sprite: Option<SpriteId>,
@@ -247,6 +367,7 @@ pub struct MwndProjectionState {
 pub struct UiRuntime {
     pub mwnd: MwndRuntime,
     pub sys: SysOverlayRuntime,
+    pub msg_back: MsgBackRuntime,
     pub editbox: EditBoxOverlayRuntime,
     text_color: (u8, u8, u8),
     shadow_color: (u8, u8, u8),
@@ -1277,6 +1398,7 @@ impl UiRuntime {
         self.update_message_reveal(script, syscom);
         self.refresh_text_images(images, w, h, script);
         self.sync_sys_overlay(layers, images, w, h);
+        self.sync_msg_back_ui(layers, images, project_dir);
         self.sync_editbox_overlay(layers, images, editbox_lists, focused_editbox);
 
         let Some(ui_layer) = self.mwnd.layer else {
@@ -1285,13 +1407,15 @@ impl UiRuntime {
         let Some(bg_sprite) = self.mwnd.waku.bg_sprite else {
             return;
         };
+        let mwnd_hidden = script.mwnd_disp_off_flag || syscom.hide_mwnd.onoff || syscom.msg_back_open;
+        let mwnd_visible = self.mwnd.anim.visible && !mwnd_hidden;
         let anim_alpha = self.current_window_anim(self.window_rect(w, h), w, h).alpha;
 
         if let Some(s) = layers
             .layer_mut(ui_layer)
             .and_then(|l| l.sprite_mut(bg_sprite))
         {
-            s.visible = self.mwnd.anim.visible && self.mwnd.waku.bg_image.is_some();
+            s.visible = mwnd_visible && self.mwnd.waku.bg_image.is_some();
             s.alpha = anim_alpha;
             s.image_id = self.mwnd.waku.bg_image;
         }
@@ -1306,7 +1430,7 @@ impl UiRuntime {
                     .waku
                     .filter_image
                     .or(self.mwnd.waku.solid_filter_image);
-                let visible = self.mwnd.anim.visible && image_id.is_some();
+                let visible = mwnd_visible && image_id.is_some();
                 s.visible = visible;
                 s.image_id = image_id;
                 const GET_FILTER_COLOR_R: i32 = 84;
@@ -1363,7 +1487,7 @@ impl UiRuntime {
                 .layer_mut(ui_layer)
                 .and_then(|l| l.sprite_mut(sprite_id))
             {
-                s.visible = self.mwnd.anim.visible && self.mwnd.face.image.is_some();
+                s.visible = mwnd_visible && self.mwnd.face.image.is_some();
                 s.image_id = self.mwnd.face.image;
                 s.alpha = anim_alpha;
             }
@@ -1374,7 +1498,7 @@ impl UiRuntime {
                 .layer_mut(ui_layer)
                 .and_then(|l| l.sprite_mut(sprite_id))
             {
-                s.visible = self.mwnd.anim.visible && self.mwnd.msg.text_image.is_some();
+                s.visible = mwnd_visible && self.mwnd.msg.text_image.is_some();
                 s.image_id = self.mwnd.msg.text_image;
                 s.alpha = anim_alpha;
             }
@@ -1385,7 +1509,7 @@ impl UiRuntime {
                 .layer_mut(ui_layer)
                 .and_then(|l| l.sprite_mut(sprite_id))
             {
-                s.visible = self.mwnd.anim.visible && self.mwnd.name.text_image.is_some();
+                s.visible = mwnd_visible && self.mwnd.name.text_image.is_some();
                 s.image_id = self.mwnd.name.text_image;
                 s.alpha = anim_alpha;
             }
@@ -1396,7 +1520,7 @@ impl UiRuntime {
                 .layer_mut(ui_layer)
                 .and_then(|l| l.sprite_mut(sprite_id))
             {
-                s.visible = self.mwnd.anim.visible
+                s.visible = mwnd_visible
                     && self.mwnd.key_icon.appear
                     && self.mwnd.key_icon.image.is_some();
                 s.image_id = self.mwnd.key_icon.image;
@@ -1750,6 +1874,18 @@ impl UiRuntime {
 
     pub fn message_wait_text_fully_revealed(&self) -> bool {
         self.message_fully_revealed()
+    }
+
+    pub fn message_waiting(&self) -> bool {
+        self.mwnd.msg.waiting
+    }
+
+    pub fn message_visible_chars(&self) -> usize {
+        self.mwnd.msg.visible_chars
+    }
+
+    pub fn message_wait_message_len(&self) -> usize {
+        self.mwnd.msg.wait_message_len
     }
 
     pub fn needs_continuous_frame(
@@ -2215,6 +2351,579 @@ impl UiRuntime {
                     s.visible = false;
                 }
             }
+        }
+    }
+
+    pub fn set_msg_back_projection(&mut self, projection: Option<MsgBackUiProjection>) {
+        match projection {
+            Some(next) => {
+                self.msg_back.projection = Some(next);
+                self.msg_back.text_dirty = true;
+            }
+            None => {
+                if self.msg_back.projection.is_some() {
+                    self.msg_back.projection = None;
+                    self.msg_back.text_dirty = true;
+                }
+            }
+        }
+    }
+
+    pub fn msg_back_slider_size(&self) -> Option<(u32, u32)> {
+        self.msg_back.slider.size
+    }
+
+    pub fn msg_back_slider_screen_pos(&self) -> Option<(i32, i32)> {
+        let projection = self.msg_back.projection.as_ref()?;
+        Some((
+            projection.window_x + projection.slider_pos.0,
+            projection.window_y + projection.slider_pos.1,
+        ))
+    }
+
+    pub fn msg_back_hit_action(&self, x: i32, y: i32) -> Option<MsgBackHitAction> {
+        let projection = self.msg_back.projection.as_ref()?;
+        if let Some(action) = Self::msg_back_button_hit(
+            projection,
+            &self.msg_back.slider,
+            projection.slider_pos,
+            x,
+            y,
+            MsgBackHitAction::Slider,
+        ) {
+            return Some(action);
+        }
+        if let Some(action) = Self::msg_back_button_hit(
+            projection,
+            &self.msg_back.close_btn,
+            projection.close_btn_pos,
+            x,
+            y,
+            MsgBackHitAction::Close,
+        ) {
+            return Some(action);
+        }
+        if let Some(action) = Self::msg_back_button_hit(
+            projection,
+            &self.msg_back.msg_up_btn,
+            projection.msg_up_btn_pos,
+            x,
+            y,
+            MsgBackHitAction::Up,
+        ) {
+            return Some(action);
+        }
+        if let Some(action) = Self::msg_back_button_hit(
+            projection,
+            &self.msg_back.msg_down_btn,
+            projection.msg_down_btn_pos,
+            x,
+            y,
+            MsgBackHitAction::Down,
+        ) {
+            return Some(action);
+        }
+        None
+    }
+
+    fn msg_back_button_hit(
+        projection: &MsgBackUiProjection,
+        button: &MsgBackButtonRuntime,
+        pos: (i32, i32),
+        x: i32,
+        y: i32,
+        action: MsgBackHitAction,
+    ) -> Option<MsgBackHitAction> {
+        let (w, h) = button.size?;
+        if w == 0 || h == 0 || button.image.is_none() {
+            return None;
+        }
+        let left = projection.window_x + pos.0;
+        let top = projection.window_y + pos.1;
+        let right = left.saturating_add(w as i32);
+        let bottom = top.saturating_add(h as i32);
+        (left <= x && x < right && top <= y && y < bottom).then_some(action)
+    }
+
+    fn hide_msg_back_sprites(&mut self, layers: &mut crate::layer::LayerManager) {
+        let Some(ui_layer) = self.mwnd.layer else {
+            return;
+        };
+        let mut hide = |slot: Option<SpriteId>| {
+            if let Some(sprite_id) = slot {
+                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                    s.visible = false;
+                }
+            }
+        };
+        hide(self.msg_back.waku_sprite);
+        hide(self.msg_back.filter_sprite);
+        hide(self.msg_back.text_sprite);
+        for entry in &self.msg_back.text_entries {
+            hide(entry.sprite);
+        }
+        for sep in &self.msg_back.separators {
+            hide(sep.sprite);
+        }
+        for button in &self.msg_back.koe_buttons {
+            hide(button.sprite);
+        }
+        for button in &self.msg_back.load_buttons {
+            hide(button.sprite);
+        }
+        hide(self.msg_back.close_btn.sprite);
+        hide(self.msg_back.msg_up_btn.sprite);
+        hide(self.msg_back.msg_down_btn.sprite);
+        hide(self.msg_back.slider.sprite);
+        for button in &self.msg_back.ex_buttons {
+            hide(button.sprite);
+        }
+    }
+
+    fn ensure_msg_back_button_sprite(
+        layers: &mut crate::layer::LayerManager,
+        ui_layer: LayerId,
+        button: &mut MsgBackButtonRuntime,
+    ) -> SpriteId {
+        if let Some(id) = button.sprite {
+            if layers.layer(ui_layer).and_then(|l| l.sprite(id)).is_some() {
+                return id;
+            }
+        }
+        let sprite_id = layers
+            .layer_mut(ui_layer)
+            .expect("ui_layer exists")
+            .create_sprite();
+        button.sprite = Some(sprite_id);
+        sprite_id
+    }
+
+    fn load_msg_back_image(
+        images: &mut crate::image_manager::ImageManager,
+        project_dir: &Path,
+        file: Option<&String>,
+    ) -> Option<ImageId> {
+        let raw = file.map(|s| s.trim()).filter(|s| !s.is_empty())?;
+        if let Ok(id) = images.load_g00(raw, 0) {
+            return Some(id);
+        }
+        if let Ok(id) = images.load_bg_frame(raw, 0) {
+            return Some(id);
+        }
+        let path = project_dir.join(raw);
+        if path.exists() {
+            if let Ok(id) = images.load_file(&path, 0) {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    fn refresh_msg_back_button_image(
+        button: &mut MsgBackButtonRuntime,
+        images: &mut crate::image_manager::ImageManager,
+        project_dir: &Path,
+        file: Option<&String>,
+    ) {
+        if button.cached_file.as_ref() == file {
+            return;
+        }
+        button.image = Self::load_msg_back_image(images, project_dir, file);
+        button.size = button
+            .image
+            .and_then(|id| images.get(id).map(|img| (img.width, img.height)));
+        button.cached_file = file.cloned();
+    }
+
+    fn sync_msg_back_button_sprite(
+        layers: &mut crate::layer::LayerManager,
+        ui_layer: LayerId,
+        button: &mut MsgBackButtonRuntime,
+        projection: &MsgBackUiProjection,
+        pos: (i32, i32),
+        order: i32,
+    ) {
+        let sprite_id = Self::ensure_msg_back_button_sprite(layers, ui_layer, button);
+        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+            s.visible = button.image.is_some();
+            s.image_id = button.image;
+            s.fit = SpriteFit::PixelRect;
+            s.size_mode = SpriteSizeMode::Intrinsic;
+            s.x = projection.window_x + pos.0;
+            s.y = projection.window_y + pos.1;
+            s.order = order;
+            s.alpha = 255;
+            s.tr = 255;
+            s.alpha_test = true;
+            s.alpha_blend = true;
+            s.color_rate = 0;
+            s.color_add_r = 0;
+            s.color_add_g = 0;
+            s.color_add_b = 0;
+            s.color_r = 0;
+            s.color_g = 0;
+            s.color_b = 0;
+            s.mask_mode = 0;
+            s.dst_clip = None;
+            s.src_clip = None;
+        }
+    }
+
+    fn hide_msg_back_button_sprite(
+        layers: &mut crate::layer::LayerManager,
+        ui_layer: LayerId,
+        button: &MsgBackButtonRuntime,
+    ) {
+        if let Some(sprite_id) = button.sprite {
+            if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                s.visible = false;
+            }
+        }
+    }
+
+    fn sync_msg_back_abs_button_sprite(
+        layers: &mut crate::layer::LayerManager,
+        ui_layer: LayerId,
+        button: &mut MsgBackButtonRuntime,
+        pos: (i32, i32),
+        order: i32,
+        clip: Option<crate::layer::ClipRect>,
+    ) {
+        let sprite_id = Self::ensure_msg_back_button_sprite(layers, ui_layer, button);
+        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+            s.visible = button.image.is_some();
+            s.image_id = button.image;
+            s.fit = SpriteFit::PixelRect;
+            s.size_mode = SpriteSizeMode::Intrinsic;
+            s.x = pos.0;
+            s.y = pos.1;
+            s.order = order;
+            s.alpha = 255;
+            s.tr = 255;
+            s.alpha_test = true;
+            s.alpha_blend = true;
+            s.color_rate = 0;
+            s.color_add_r = 0;
+            s.color_add_g = 0;
+            s.color_add_b = 0;
+            s.color_r = 0;
+            s.color_g = 0;
+            s.color_b = 0;
+            s.mask_mode = 0;
+            s.dst_clip = clip;
+            s.src_clip = None;
+        }
+    }
+
+    fn sync_msg_back_ui(
+        &mut self,
+        layers: &mut crate::layer::LayerManager,
+        images: &mut crate::image_manager::ImageManager,
+        project_dir: &Path,
+    ) {
+        let Some(projection) = self.msg_back.projection.clone() else {
+            self.hide_msg_back_sprites(layers);
+            return;
+        };
+        let ui_layer = Self::ensure_layer(layers, &mut self.mwnd.layer);
+
+        let waku_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut self.msg_back.waku_sprite);
+        let filter_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut self.msg_back.filter_sprite);
+        let old_text_sprite = Self::ensure_text_sprite(layers, ui_layer, &mut self.msg_back.text_sprite);
+        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(old_text_sprite)) {
+            s.visible = false;
+        }
+
+        if self.msg_back.cached_waku_file.as_ref() != projection.waku_file.as_ref() {
+            self.msg_back.waku_image = Self::load_msg_back_image(images, project_dir, projection.waku_file.as_ref());
+            self.msg_back.cached_waku_file = projection.waku_file.clone();
+        }
+        if self.msg_back.cached_filter_file.as_ref() != projection.filter_file.as_ref() {
+            self.msg_back.filter_image = Self::load_msg_back_image(images, project_dir, projection.filter_file.as_ref());
+            self.msg_back.cached_filter_file = projection.filter_file.clone();
+        }
+        if self.msg_back.solid_filter_color != Some(projection.filter_rgba) {
+            self.msg_back.solid_filter_image = Some(images.solid_rgba(projection.filter_rgba));
+            self.msg_back.solid_filter_color = Some(projection.filter_rgba);
+        }
+
+        Self::refresh_msg_back_button_image(
+            &mut self.msg_back.close_btn,
+            images,
+            project_dir,
+            projection.close_btn_file.as_ref(),
+        );
+        Self::refresh_msg_back_button_image(
+            &mut self.msg_back.msg_up_btn,
+            images,
+            project_dir,
+            projection.msg_up_btn_file.as_ref(),
+        );
+        Self::refresh_msg_back_button_image(
+            &mut self.msg_back.msg_down_btn,
+            images,
+            project_dir,
+            projection.msg_down_btn_file.as_ref(),
+        );
+        Self::refresh_msg_back_button_image(
+            &mut self.msg_back.slider,
+            images,
+            project_dir,
+            projection.slider_file.as_ref(),
+        );
+        if self.msg_back.ex_buttons.len() < 4 {
+            self.msg_back.ex_buttons.resize_with(4, MsgBackButtonRuntime::default);
+        }
+        for i in 0..4 {
+            Self::refresh_msg_back_button_image(
+                &mut self.msg_back.ex_buttons[i],
+                images,
+                project_dir,
+                projection.ex_btn_files[i].as_ref(),
+            );
+        }
+
+        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(waku_sprite)) {
+            s.visible = self.msg_back.waku_image.is_some();
+            s.image_id = self.msg_back.waku_image;
+            s.fit = SpriteFit::PixelRect;
+            s.size_mode = if self.msg_back.waku_image.is_some() {
+                SpriteSizeMode::Intrinsic
+            } else {
+                SpriteSizeMode::Explicit {
+                    width: projection.window_w,
+                    height: projection.window_h,
+                }
+            };
+            s.x = projection.window_x;
+            s.y = projection.window_y;
+            s.order = msg_back_packed_sorter_key(projection.order, projection.waku_layer_rep);
+            s.alpha = 255;
+            s.tr = 255;
+            s.alpha_test = true;
+            s.alpha_blend = true;
+            s.color_rate = 0;
+            s.color_add_r = 0;
+            s.color_add_g = 0;
+            s.color_add_b = 0;
+            s.color_r = 0;
+            s.color_g = 0;
+            s.color_b = 0;
+            s.mask_mode = 0;
+            s.dst_clip = None;
+            s.src_clip = None;
+        }
+
+        let filter_image = self.msg_back.filter_image.or(self.msg_back.solid_filter_image);
+        if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(filter_sprite)) {
+            let (ml, mt, mr, mb) = projection.filter_margin;
+            s.visible = filter_image.is_some();
+            s.image_id = filter_image;
+            s.fit = SpriteFit::PixelRect;
+            if self.msg_back.filter_image.is_some() {
+                s.size_mode = SpriteSizeMode::Intrinsic;
+                s.x = projection.window_x;
+                s.y = projection.window_y;
+            } else {
+                s.size_mode = SpriteSizeMode::Explicit {
+                    width: (projection.window_w as i64 - ml - mr).max(1) as u32,
+                    height: (projection.window_h as i64 - mt - mb).max(1) as u32,
+                };
+                s.x = projection.window_x + ml as i32;
+                s.y = projection.window_y + mt as i32;
+            }
+            s.order = msg_back_packed_sorter_key(projection.order, projection.filter_layer_rep);
+            let (cfg_r, cfg_g, cfg_b, cfg_a) = projection.filter_config_rgba;
+            s.alpha = 255;
+            s.tr = cfg_a;
+            s.alpha_test = true;
+            s.alpha_blend = true;
+            s.color_rate = 0;
+            s.color_add_r = cfg_r;
+            s.color_add_g = cfg_g;
+            s.color_add_b = cfg_b;
+            s.color_r = 0;
+            s.color_g = 0;
+            s.color_b = 0;
+            s.mask_mode = 0;
+            s.dst_clip = None;
+            s.src_clip = None;
+        }
+
+        let (dl, dt, dr, db) = projection.disp_margin;
+        let clip = crate::layer::ClipRect {
+            left: projection.window_x + dl as i32,
+            top: projection.window_y + dt as i32,
+            right: projection.window_x + projection.window_w as i32 - dr as i32,
+            bottom: projection.window_y + projection.window_h as i32 - db as i32,
+        };
+
+        if self.msg_back.separators.len() < projection.separators.len() {
+            self.msg_back.separators.resize_with(projection.separators.len(), MsgBackButtonRuntime::default);
+        }
+        for i in 0..projection.separators.len() {
+            let sep = &projection.separators[i];
+            Self::refresh_msg_back_button_image(
+                &mut self.msg_back.separators[i],
+                images,
+                project_dir,
+                sep.file.as_ref(),
+            );
+            Self::sync_msg_back_abs_button_sprite(
+                layers,
+                ui_layer,
+                &mut self.msg_back.separators[i],
+                (projection.window_x + sep.x, projection.window_y + sep.y),
+                msg_back_packed_sorter_key(projection.order, projection.waku_layer_rep),
+                Some(clip),
+            );
+        }
+        for i in projection.separators.len()..self.msg_back.separators.len() {
+            Self::hide_msg_back_button_sprite(layers, ui_layer, &self.msg_back.separators[i]);
+        }
+
+        if self.msg_back.text_entries.len() < projection.text_entries.len() {
+            self.msg_back.text_entries.resize_with(projection.text_entries.len(), MsgBackTextRuntime::default);
+        }
+        for i in 0..projection.text_entries.len() {
+            let entry = &projection.text_entries[i];
+            let runtime = &mut self.msg_back.text_entries[i];
+            let sprite_id = Self::ensure_text_sprite(layers, ui_layer, &mut runtime.sprite);
+            runtime.image = self.font_cache.render_mwnd_text_styled_into(
+                images,
+                runtime.image,
+                &entry.text,
+                projection.moji_size.max(1) as f32,
+                entry.width.max(1),
+                entry.height.max(1),
+                projection.moji_space,
+                entry.style,
+            );
+            if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                s.visible = runtime.image.is_some();
+                s.image_id = runtime.image;
+                s.fit = SpriteFit::PixelRect;
+                s.size_mode = SpriteSizeMode::Explicit {
+                    width: entry.width.max(1),
+                    height: entry.height.max(1),
+                };
+                s.x = projection.window_x + entry.x;
+                s.y = projection.window_y + entry.y;
+                s.order = msg_back_packed_sorter_key(projection.order, 0);
+                s.alpha = 255;
+                s.tr = 255;
+                s.alpha_test = false;
+                s.alpha_blend = true;
+                s.color_rate = 0;
+                s.color_add_r = 0;
+                s.color_add_g = 0;
+                s.color_add_b = 0;
+                s.color_r = 0;
+                s.color_g = 0;
+                s.color_b = 0;
+                s.mask_mode = 0;
+                s.src_clip = None;
+                s.dst_clip = Some(clip);
+            }
+        }
+        for i in projection.text_entries.len()..self.msg_back.text_entries.len() {
+            if let Some(sprite_id) = self.msg_back.text_entries[i].sprite {
+                if let Some(s) = layers.layer_mut(ui_layer).and_then(|l| l.sprite_mut(sprite_id)) {
+                    s.visible = false;
+                }
+            }
+        }
+
+        if self.msg_back.koe_buttons.len() < projection.koe_buttons.len() {
+            self.msg_back.koe_buttons.resize_with(projection.koe_buttons.len(), MsgBackButtonRuntime::default);
+        }
+        for i in 0..projection.koe_buttons.len() {
+            let btn = &projection.koe_buttons[i];
+            Self::refresh_msg_back_button_image(
+                &mut self.msg_back.koe_buttons[i],
+                images,
+                project_dir,
+                btn.file.as_ref(),
+            );
+            Self::sync_msg_back_abs_button_sprite(
+                layers,
+                ui_layer,
+                &mut self.msg_back.koe_buttons[i],
+                (projection.window_x + btn.x, projection.window_y + btn.y),
+                msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
+                Some(clip),
+            );
+        }
+        for i in projection.koe_buttons.len()..self.msg_back.koe_buttons.len() {
+            Self::hide_msg_back_button_sprite(layers, ui_layer, &self.msg_back.koe_buttons[i]);
+        }
+
+        if self.msg_back.load_buttons.len() < projection.load_buttons.len() {
+            self.msg_back.load_buttons.resize_with(projection.load_buttons.len(), MsgBackButtonRuntime::default);
+        }
+        for i in 0..projection.load_buttons.len() {
+            let btn = &projection.load_buttons[i];
+            Self::refresh_msg_back_button_image(
+                &mut self.msg_back.load_buttons[i],
+                images,
+                project_dir,
+                btn.file.as_ref(),
+            );
+            Self::sync_msg_back_abs_button_sprite(
+                layers,
+                ui_layer,
+                &mut self.msg_back.load_buttons[i],
+                (projection.window_x + btn.x, projection.window_y + btn.y),
+                msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
+                Some(clip),
+            );
+        }
+        for i in projection.load_buttons.len()..self.msg_back.load_buttons.len() {
+            Self::hide_msg_back_button_sprite(layers, ui_layer, &self.msg_back.load_buttons[i]);
+        }
+
+        Self::sync_msg_back_button_sprite(
+            layers,
+            ui_layer,
+            &mut self.msg_back.close_btn,
+            &projection,
+            projection.close_btn_pos,
+            msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
+        );
+        Self::sync_msg_back_button_sprite(
+            layers,
+            ui_layer,
+            &mut self.msg_back.msg_up_btn,
+            &projection,
+            projection.msg_up_btn_pos,
+            msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
+        );
+        Self::sync_msg_back_button_sprite(
+            layers,
+            ui_layer,
+            &mut self.msg_back.msg_down_btn,
+            &projection,
+            projection.msg_down_btn_pos,
+            msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
+        );
+        Self::sync_msg_back_button_sprite(
+            layers,
+            ui_layer,
+            &mut self.msg_back.slider,
+            &projection,
+            projection.slider_pos,
+            msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
+        );
+        for i in 0..4 {
+            let button = &mut self.msg_back.ex_buttons[i];
+            Self::sync_msg_back_button_sprite(
+                layers,
+                ui_layer,
+                button,
+                &projection,
+                projection.ex_btn_pos[i],
+                msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
+            );
         }
     }
 

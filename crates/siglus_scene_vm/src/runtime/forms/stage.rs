@@ -366,6 +366,13 @@ fn sg_debug_enabled_local() -> bool {
     std::env::var_os("SG_DEBUG").is_some()
 }
 
+fn config_button_trace_enabled_local() -> bool {
+    matches!(
+        std::env::var("SG_CONFIG_BUTTON_TRACE").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
+}
+
 fn sg_debug_stage(msg: impl AsRef<str>) {
     if sg_debug_enabled_local() {
         eprintln!("[SG_DEBUG][STAGE] {}", msg.as_ref());
@@ -373,7 +380,10 @@ fn sg_debug_stage(msg: impl AsRef<str>) {
 }
 
 fn sg_mwnd_object_trace_enabled() -> bool {
-    std::env::var_os("SG_DEBUG").is_some()
+    matches!(
+        std::env::var("SG_MWND_OBJECT_TRACE").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
 }
 
 fn sg_mwnd_object_trace(msg: impl AsRef<str>) {
@@ -1712,7 +1722,7 @@ fn clear_root_object_for_stage_wipe(
         list.resize_with(idx + 1, ObjectState::default);
     }
     let used = list[idx].used;
-    if sg_debug_enabled_local() {
+    if config_button_trace_enabled_local() {
         let obj = &list[idx];
         eprintln!(
             "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clear_root stage={} idx={} runtime_slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} layer={} button_enabled={} button_no={} action_no={}",
@@ -1737,7 +1747,7 @@ fn copy_root_object_for_stage_wipe(
 ) {
     extend_stage_object_list_at_least(st, dst_stage, dst_idx + 1);
     let mut copy = src.clone();
-    if sg_debug_enabled_local() {
+    if config_button_trace_enabled_local() {
         eprintln!(
             "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] copy_root dst_stage={} dst_idx={} src_runtime_slot={} src_file={} src_used={} src_type={} src_backend={:?} src_disp={} src_pos=({}, {}) src_tr={} src_layer={} src_button_enabled={} src_button_no={} src_action_no={}",
             dst_stage, dst_idx, src.runtime_slot_or(dst_idx), src.file_name.as_deref().unwrap_or("-"),
@@ -1765,7 +1775,7 @@ fn clear_embedded_objects_for_stage_wipe(
 ) {
     for (idx, obj) in list.iter_mut().enumerate() {
         let slot = obj.runtime_slot_or(idx);
-        if sg_debug_enabled_local() {
+        if config_button_trace_enabled_local() {
             eprintln!(
                 "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clear_embedded stage={} idx={} slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} button_enabled={} button_no={} action_no={}",
                 stage_idx, idx, slot, obj.file_name.as_deref().unwrap_or("-"), obj.used, obj.object_type, obj.backend,
@@ -1787,7 +1797,7 @@ fn clone_embedded_objects_for_stage_wipe(
 ) -> Vec<ObjectState> {
     let mut out = Vec::with_capacity(src.len());
     for (src_idx, src_obj) in src.iter().enumerate() {
-        if sg_debug_enabled_local() {
+        if config_button_trace_enabled_local() {
             eprintln!(
                 "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clone_embedded dst_stage={} src_idx={} src_runtime_slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} button_enabled={} button_no={} action_no={} children={}",
                 dst_stage, src_idx, src_obj.runtime_slot_or(src_idx), src_obj.file_name.as_deref().unwrap_or("-"),
@@ -1825,7 +1835,7 @@ fn copy_mwnd_for_stage_wipe(
     src: &MwndState,
 ) {
     extend_stage_mwnd_list_at_least(st, dst_stage, dst_idx + 1);
-    if sg_debug_enabled_local() {
+    if config_button_trace_enabled_local() {
         eprintln!(
             "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] copy_mwnd dst_stage={} dst_idx={} src_open={} src_order={} src_layer={} buttons={} faces={} objects={} waku={} filter={} pos={:?} size={:?}",
             dst_stage, dst_idx, src.open, src.order, src.layer, src.button_list.len(), src.face_list.len(), src.object_list.len(),
@@ -1858,7 +1868,7 @@ fn reset_mwnd_for_stage_wipe(
     idx: usize,
 ) {
     extend_stage_mwnd_list_at_least(st, stage_idx, idx + 1);
-    if sg_debug_enabled_local() {
+    if config_button_trace_enabled_local() {
         if let Some(old) = st.mwnd_lists.get(&stage_idx).and_then(|list| list.get(idx)) {
             eprintln!(
                 "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] reset_mwnd stage={} idx={} old_open={} old_buttons={} old_faces={} old_objects={} old_waku={} old_filter={} old_pos={:?} old_size={:?}",
@@ -1950,7 +1960,7 @@ fn stage_wipe_object_lists(
             end_layer,
         ) || back_prepared
         {
-            if sg_debug_enabled_local() {
+            if config_button_trace_enabled_local() {
                 eprintln!(
                     "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] object_slot idx={} front_file={} front_order={} front_layer={} back_file={} back_prepared={} front_wipe_copy={} back_wipe_erase={} range=({},{})->({},{})",
                     idx, front.file_name.as_deref().unwrap_or("-"), front_order, front_layer,
@@ -2004,7 +2014,7 @@ fn stage_wipe_mwnd_lists(
             end_order,
             end_layer,
         ) {
-            if sg_debug_enabled_local() {
+            if config_button_trace_enabled_local() {
                 eprintln!(
                     "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] mwnd_slot idx={} front_open={} front_order={} front_layer={} front_buttons={} front_objects={} front_waku={} front_filter={} range=({},{})->({},{})",
                     idx, front.open, front.order, front.layer, front.button_list.len(), front.object_list.len(),
@@ -2211,7 +2221,7 @@ pub fn apply_stage_wipe(
     end_layer: i32,
 ) {
     let form_id = ctx.ids.form_global_stage;
-    if sg_debug_enabled_local() {
+    if config_button_trace_enabled_local() {
         eprintln!(
             "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] apply form={} range=({},{})->({},{})",
             form_id, begin_order, begin_layer, end_order, end_layer

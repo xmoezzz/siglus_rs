@@ -21,6 +21,7 @@ use crate::runtime::globals::{
     WipeState,
 };
 use crate::runtime::input::{VmKey, VmMouseButton};
+use crate::runtime::wait::VmWait;
 use crate::runtime::{native_ui, CommandContext, ProcKind};
 use crate::scene_stream::SceneStream;
 use crate::vm::{SceneVm, VmConfig};
@@ -61,6 +62,7 @@ enum ProcType {
     Script,
     StartWarning,
     SyscomWarning,
+    MsgBack,
     ReturnToMenu,
     GameEndWipe,
     Disp,
@@ -172,6 +174,8 @@ pub struct SiglusHost {
     redraw_count: u32,
     script_needs_pump: bool,
     script_resume_after_redraw: bool,
+    suppress_render_once: bool,
+    syscom_suspended_waits: Vec<(usize, VmWait)>,
     paused: bool,
     pending_exit: bool,
     last_step: Option<Instant>,
@@ -194,6 +198,8 @@ impl SiglusHost {
             redraw_count: 0,
             script_needs_pump: true,
             script_resume_after_redraw: false,
+            suppress_render_once: false,
+            syscom_suspended_waits: Vec::new(),
             paused: false,
             pending_exit: false,
             last_step: None,
@@ -421,6 +427,50 @@ impl SiglusHost {
         Ok(vm)
     }
 
+    fn suspend_wait_for_syscom_excall(&mut self, key: &str) {
+        let flow_depth = self.flow.stack.len();
+        let saved_wait = std::mem::take(&mut self.vm.ctx.wait);
+        self.vm.ctx.input.use_current();
+        self.vm.ctx.script_input.use_current();
+        self.syscom_suspended_waits.push((flow_depth, saved_wait));
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] host suspend_wait_for_syscom_excall key={} flow_depth={} saved_count={} scene={:?} line={}",
+                key,
+                flow_depth,
+                self.syscom_suspended_waits.len(),
+                self.vm.current_scene_name(),
+                self.vm.current_line_no()
+            );
+        }
+    }
+
+    fn restore_wait_after_syscom_excall(&mut self, popped_depth: usize) {
+        let should_restore = self
+            .syscom_suspended_waits
+            .last()
+            .map(|(depth, _)| *depth == popped_depth)
+            .unwrap_or(false);
+        if !should_restore {
+            return;
+        }
+        let Some((_depth, saved_wait)) = self.syscom_suspended_waits.pop() else {
+            return;
+        };
+        self.vm.ctx.wait = saved_wait;
+        self.vm.ctx.input.clear_all();
+        self.vm.ctx.script_input.clear_all();
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] host restore_wait_after_syscom_excall popped_depth={} remaining={} scene={:?} line={}",
+                popped_depth,
+                self.syscom_suspended_waits.len(),
+                self.vm.current_scene_name(),
+                self.vm.current_line_no()
+            );
+        }
+    }
+
     fn consume_syscom_pending_proc(&mut self) -> Result<bool> {
         let Some(proc) = self.vm.ctx.globals.syscom.pending_proc.take() else {
             return Ok(false);
@@ -428,7 +478,19 @@ impl SiglusHost {
 
         self.vm.ctx.globals.syscom.menu_open = false;
         self.vm.ctx.globals.syscom.menu_kind = None;
-        self.vm.ctx.globals.syscom.msg_back_open = false;
+        if proc.kind != SyscomPendingProcKind::MsgBack {
+            self.vm.ctx.globals.syscom.msg_back_open = false;
+        }
+
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] host consume_syscom_pending kind={:?} before scene={:?} line={} flow={:?}",
+                proc.kind,
+                self.vm.current_scene_name(),
+                self.vm.current_line_no(),
+                self.flow.stack
+            );
+        }
 
         match proc.kind {
             SyscomPendingProcKind::ReturnToMenu => {
@@ -466,13 +528,72 @@ impl SiglusHost {
                     Ok(false)
                 }
             }
+            SyscomPendingProcKind::MsgBack => {
+                if self.vm.ctx.globals.syscom.msg_back_open {
+                    self.flow.push(ProcType::MsgBack, 0);
+                    Ok(true)
+                } else {
+                    Ok(false)
+                }
+            }
+            SyscomPendingProcKind::OpenSyscomMenu => {
+                if self.vm.call_syscom_configured_scene("CANCEL_SCENE")? {
+                    self.ensure_requested_script_proc();
+                    self.suspend_wait_for_syscom_excall("CANCEL_SCENE");
+                    Ok(true)
+                } else {
+                    log::error!("SYSCOM MENU native popup is not implemented and CANCEL_SCENE is not configured");
+                    Ok(false)
+                }
+            }
+            SyscomPendingProcKind::OpenSave => {
+                if self.vm.call_syscom_configured_scene("SAVE_SCENE")? {
+                    self.ensure_requested_script_proc();
+                    self.suspend_wait_for_syscom_excall("SAVE_SCENE");
+                    Ok(true)
+                } else {
+                    log::error!("SYSCOM SAVE native dialog is not implemented and SAVE_SCENE is not configured");
+                    Ok(false)
+                }
+            }
+            SyscomPendingProcKind::OpenLoad => {
+                if self.vm.call_syscom_configured_scene("LOAD_SCENE")? {
+                    self.ensure_requested_script_proc();
+                    self.suspend_wait_for_syscom_excall("LOAD_SCENE");
+                    Ok(true)
+                } else {
+                    log::error!("SYSCOM LOAD native dialog is not implemented and LOAD_SCENE is not configured");
+                    Ok(false)
+                }
+            }
+            SyscomPendingProcKind::OpenConfig => {
+                if self.vm.call_syscom_configured_scene("CONFIG_SCENE")? {
+                    self.ensure_requested_script_proc();
+                    self.suspend_wait_for_syscom_excall("CONFIG_SCENE");
+                    Ok(true)
+                } else {
+                    log::error!("SYSCOM CONFIG native dialog is not implemented and CONFIG_SCENE is not configured");
+                    Ok(false)
+                }
+            }
         }
     }
 
     fn ensure_requested_script_proc(&mut self) {
         let requested = self.vm.take_script_proc_request();
         if requested {
+            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+                eprintln!(
+                    "[SG_PROC_FLOW] host ensure_requested_script_proc push before scene={:?} line={} flow={:?}",
+                    self.vm.current_scene_name(),
+                    self.vm.current_line_no(),
+                    self.flow.stack
+                );
+            }
             self.flow.push(ProcType::Script, 0);
+            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+                eprintln!("[SG_PROC_FLOW] host ensure_requested_script_proc push after flow={:?}", self.flow.stack);
+            }
         }
     }
 
@@ -617,10 +738,36 @@ impl SiglusHost {
     }
 
     fn pump_vm(&mut self) -> Result<()> {
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] host pump_vm start paused={} script_needs_pump={} scene={:?} line={} flow={:?} pending_proc={:?}",
+                self.paused,
+                self.script_needs_pump,
+                self.vm.current_scene_name(),
+                self.vm.current_line_no(),
+                self.flow.stack,
+                self.vm.ctx.globals.syscom.pending_proc
+            );
+        }
         self.script_needs_pump = false;
         self.ensure_requested_script_proc();
         if self.paused {
             return Ok(());
+        }
+
+        self.vm.process_pending_button_actions()?;
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] host pump_vm after_process_button_actions scene={:?} line={} flow={:?} pending_proc={:?}",
+                self.vm.current_scene_name(),
+                self.vm.current_line_no(),
+                self.flow.stack,
+                self.vm.ctx.globals.syscom.pending_proc
+            );
+        }
+        if self.vm.ctx.globals.syscom.pending_proc.is_some() {
+            self.consume_syscom_pending_proc()?;
+            self.ensure_requested_script_proc();
         }
 
         self.vm.begin_script_proc_pump();
@@ -630,6 +777,15 @@ impl SiglusHost {
                 self.paused = true;
                 break;
             };
+            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+                eprintln!(
+                    "[SG_PROC_FLOW] host pump_vm loop top proc={:?} scene={:?} line={} flow={:?}",
+                    proc,
+                    self.vm.current_scene_name(),
+                    self.vm.current_line_no(),
+                    self.flow.stack
+                );
+            }
 
             match proc.ty {
                 ProcType::Script => {
@@ -649,7 +805,9 @@ impl SiglusHost {
 
                     self.ensure_requested_script_proc();
                     if pop_script_proc {
+                        let popped_depth = self.flow.stack.len();
                         self.flow.pop();
+                        self.restore_wait_after_syscom_excall(popped_depth);
                         continue;
                     }
                     if !running || halted {
@@ -669,12 +827,15 @@ impl SiglusHost {
                         if self.vm.is_blocked() {
                             break;
                         }
-                    } else if blocked {
-                        break;
                     } else if proc_boundary {
                         match boundary_kind {
                             ProcKind::Disp => {
                                 self.script_resume_after_redraw = true;
+                                break;
+                            }
+                            ProcKind::Frame => {
+                                self.script_resume_after_redraw = true;
+                                self.suppress_render_once = true;
                                 break;
                             }
                             ProcKind::Command
@@ -689,9 +850,14 @@ impl SiglusHost {
                             | ProcKind::Selection
                             | ProcKind::SystemModal
                             | ProcKind::Script => {
+                                if blocked {
+                                    break;
+                                }
                                 continue;
                             }
                         }
+                    } else if blocked {
+                        break;
                     }
                 }
                 ProcType::StartWarning => {
@@ -757,6 +923,13 @@ impl SiglusHost {
                     }
                     continue;
                 }
+                ProcType::MsgBack => {
+                    if !self.vm.ctx.globals.syscom.msg_back_open {
+                        self.flow.pop();
+                        continue;
+                    }
+                    break;
+                }
                 ProcType::Disp => {
                     self.flow.pop();
                     self.script_resume_after_redraw = true;
@@ -804,14 +977,57 @@ impl SiglusHost {
     }
 
     fn redraw(&mut self) -> Result<()> {
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] host redraw start scene={:?} line={} flow={:?} pending_proc={:?}",
+                self.vm.current_scene_name(),
+                self.vm.current_line_no(),
+                self.flow.stack,
+                self.vm.ctx.globals.syscom.pending_proc
+            );
+        }
+        // Match the original C++ frame order: script/input processing runs before
+        // element frame evaluation and rendering.  If an input event woke the script,
+        // pump it here before tick_frame(), otherwise the redraw for the same input
+        // can show stale pre-script object/event state for one frame.
+        if self.script_needs_pump {
+            self.pump_vm()?;
+        }
         let wait_poll_needed = self.vm.ctx.wait.needs_runtime_poll();
         self.vm.tick_frame()?;
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] host redraw after_tick scene={:?} line={} flow={:?} pending_proc={:?}",
+                self.vm.current_scene_name(),
+                self.vm.current_line_no(),
+                self.flow.stack,
+                self.vm.ctx.globals.syscom.pending_proc
+            );
+        }
+        if self.vm.ctx.globals.syscom.pending_proc.is_some() {
+            self.consume_syscom_pending_proc()?;
+            self.ensure_requested_script_proc();
+            self.script_needs_pump = true;
+        }
         if wait_poll_needed && !self.vm.is_blocked() {
             self.script_needs_pump = true;
         }
         self.ensure_requested_script_proc();
-        let list = self.vm.ctx.render_list_with_effects();
-        self.renderer.render_sprites(&self.vm.ctx.images, &list)?;
+        let render_suppressed = self.suppress_render_once;
+        self.suppress_render_once = false;
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] host redraw render_decision render_suppressed={} scene={:?} line={} flow={:?}",
+                render_suppressed,
+                self.vm.current_scene_name(),
+                self.vm.current_line_no(),
+                self.flow.stack
+            );
+        }
+        if !render_suppressed {
+            let list = self.vm.ctx.render_list_with_effects();
+            self.renderer.render_sprites(&self.vm.ctx.images, &list)?;
+        }
         if self.script_resume_after_redraw {
             self.script_resume_after_redraw = false;
             self.script_needs_pump = true;

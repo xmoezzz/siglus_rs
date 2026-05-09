@@ -512,6 +512,84 @@ impl<'a> SceneVm<'a> {
         self.current_scene_no
     }
 
+    pub fn call_syscom_configured_scene(&mut self, key: &str) -> Result<bool> {
+        // Match the original C++ Gp_ini fields: SAVE_SCENE, LOAD_SCENE and
+        // CONFIG_SCENE store both scene name and z label number.  GameexeConfig
+        // get_unquoted() returns only the first item, so using it here loses the
+        // z value and incorrectly calls sys10_sc00,0.  Rewrite's Gameexe has:
+        //   #SAVE_SCENE   = "sys10_sc00",02
+        //   #LOAD_SCENE   = "sys10_sc00",03
+        //   #CONFIG_SCENE = "sys10_sc00",04
+        // The original calls tnm_scene_proc_farcall(name, z, FM_VOID, true, false).
+        let entry = self
+            .ctx
+            .tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| cfg.get_entry(key).or_else(|| cfg.get_entry(&format!("#{key}"))));
+        let Some(entry) = entry else {
+            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+                eprintln!(
+                    "[SG_PROC_FLOW] syscom_config_scene key={} raw=<missing> scene={:?} line={} pending_proc={:?}",
+                    key,
+                    self.current_scene_name.as_deref(),
+                    self.current_line_no,
+                    self.ctx.globals.syscom.pending_proc
+                );
+            }
+            return Ok(false);
+        };
+
+        let scene_name = entry
+            .item_unquoted(0)
+            .map(|s| s.trim().trim_matches('\"').trim().to_string())
+            .unwrap_or_default();
+        let z_no = entry
+            .item_unquoted(1)
+            .and_then(|s| s.trim().parse::<i32>().ok())
+            .unwrap_or(0);
+        let raw = format!("{scene_name},{z_no}");
+
+        if scene_name.is_empty() {
+            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+                eprintln!(
+                    "[SG_PROC_FLOW] syscom_config_scene key={} raw={:?} target=<empty> scene={:?} line={}",
+                    key,
+                    raw,
+                    self.current_scene_name.as_deref(),
+                    self.current_line_no
+                );
+            }
+            return Ok(false);
+        }
+
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] syscom_config_scene key={} raw={:?} target={} z={} before_scene={:?} line={} scene_stack={} call_depth={}",
+                key,
+                raw,
+                scene_name,
+                z_no,
+                self.current_scene_name.as_deref(),
+                self.current_line_no,
+                self.scene_stack.len(),
+                self.call_stack.len()
+            );
+        }
+        self.farcall_scene_name_ex(&scene_name, z_no, self.cfg.fm_void, true, &[])?;
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] syscom_config_scene entered key={} now_scene={:?} line={} scene_stack={} call_depth={}",
+                key,
+                self.current_scene_name.as_deref(),
+                self.current_line_no,
+                self.scene_stack.len(),
+                self.call_stack.len()
+            );
+        }
+        Ok(true)
+    }
+
     fn vm_trace_matches(&self) -> bool {
         if std::env::var_os("SIGLUS_TRACE_VM").is_none() {
             return false;
@@ -2540,6 +2618,15 @@ impl<'a> SceneVm<'a> {
     }
 
     fn run_pending_button_action(&mut self, action: PendingButtonAction) -> Result<()> {
+        // Original tona3/Siglus copies runtime input into script input before
+        // frame_main_proc(), while object button actions are decided later from
+        // the element/frame pass.  A scene or user command entered by a button
+        // action must therefore not observe the same mouse down/up stock that
+        // decided the button.  Clear edge stocks here while preserving held
+        // state and mouse position.
+        self.ctx.input.use_current();
+        self.script_input_synced_this_frame = false;
+
         match action.kind {
             PendingButtonActionKind::UserCall {
                 scn_name,
@@ -2578,32 +2665,132 @@ impl<'a> SceneVm<'a> {
         Ok(())
     }
 
+    fn syscom_proc_trace_enabled() -> bool {
+        std::env::var_os("SG_SYSCOM_PROC_TRACE").is_some()
+            || std::env::var_os("SG_DEBUG").is_some()
+    }
+
+    fn syscom_trace_state(&self) -> String {
+        let st = &self.ctx.globals.syscom;
+        let msgbk_form = self.ctx.ids.form_global_msgbk;
+        let msgbk_count = self
+            .ctx
+            .globals
+            .msgbk_forms
+            .get(&msgbk_form)
+            .map(|m| m.history.len())
+            .unwrap_or(0);
+        let msgbk_visible_count = self
+            .ctx
+            .globals
+            .msgbk_forms
+            .get(&msgbk_form)
+            .map(|m| {
+                m.history
+                    .iter()
+                    .filter(|entry| {
+                        entry.pct_flag
+                            || !entry.msg_str.is_empty()
+                            || !entry.disp_name.is_empty()
+                            || !entry.original_name.is_empty()
+                            || !entry.koe_no_list.is_empty()
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+        format!(
+            "read_skip={} auto_mode={} hide_mwnd={} msg_back_open={} msg_back_enable={} pending_proc={:?} msgbk_form={} msgbk_count={} msgbk_visible_count={} mwnd_waiting={} mwnd_visible_chars={} mwnd_wait_len={} msg_chars={}",
+            st.read_skip.onoff,
+            st.auto_mode.onoff,
+            st.hide_mwnd.onoff,
+            st.msg_back_open,
+            st.msg_back.check_enabled(),
+            st.pending_proc,
+            msgbk_form,
+            msgbk_count,
+            msgbk_visible_count,
+            self.ctx.ui.message_waiting(),
+            self.ctx.ui.message_visible_chars(),
+            self.ctx.ui.message_wait_message_len(),
+            self.ctx.ui.message_text().unwrap_or("").chars().count()
+        )
+    }
+
+    fn syscom_button_op(sys_type: i64) -> Option<(i32, &'static str)> {
+        use crate::runtime::forms::codes::syscom_op;
+        Some(match sys_type {
+            1 => (syscom_op::CALL_SAVE_MENU, "CALL_SAVE_MENU"),
+            2 => (syscom_op::CALL_LOAD_MENU, "CALL_LOAD_MENU"),
+            3 => (syscom_op::SET_READ_SKIP_ONOFF_FLAG, "SET_READ_SKIP_ONOFF_FLAG"),
+            4 => (syscom_op::SET_AUTO_MODE_ONOFF_FLAG, "SET_AUTO_MODE_ONOFF_FLAG"),
+            5 => (syscom_op::RETURN_TO_SEL, "RETURN_TO_SEL"),
+            6 => (syscom_op::SET_HIDE_MWND_ONOFF_FLAG, "SET_HIDE_MWND_ONOFF_FLAG"),
+            7 => (syscom_op::OPEN_MSG_BACK, "OPEN_MSG_BACK"),
+            8 => (syscom_op::REPLAY_KOE, "REPLAY_KOE"),
+            9 => (syscom_op::QUICK_SAVE, "QUICK_SAVE"),
+            10 => (syscom_op::QUICK_LOAD, "QUICK_LOAD"),
+            11 => (syscom_op::CALL_CONFIG_MENU, "CALL_CONFIG_MENU"),
+            12 => (syscom_op::SET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG, "SET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG"),
+            13 => (syscom_op::SET_LOCAL_EXTRA_MODE_VALUE, "SET_LOCAL_EXTRA_MODE_VALUE"),
+            14 => (syscom_op::SET_GLOBAL_EXTRA_SWITCH_ONOFF, "SET_GLOBAL_EXTRA_SWITCH_ONOFF"),
+            15 => (syscom_op::SET_GLOBAL_EXTRA_MODE_VALUE, "SET_GLOBAL_EXTRA_MODE_VALUE"),
+            _ => return None,
+        })
+    }
+
+    fn dispatch_syscom_button_op(&mut self, op: i32, params: &[Value]) -> Result<bool> {
+        // In this VM, form dispatch is rooted at the GLOBAL.SYSCOM element id
+        // (normally 63), not at the FM_SYSCOM type id (1600).  A normal script
+        // call reaches syscom.rs as the element chain [GLOBAL_SYSCOM, op].
+        // Button actions must use the same root or global::dispatch_form()
+        // never reaches syscom::dispatch(), and the trace shows handled=false.
+        let form_id = if self.ctx.ids.form_global_syscom != 0 {
+            self.ctx.ids.form_global_syscom as i32
+        } else {
+            constants::global_form::SYSCOM as i32
+        };
+
+        let saved_call = self.ctx.vm_call.take();
+        let saved_stack_len = self.ctx.stack.len();
+        self.ctx.vm_call = Some(runtime::VmCallMeta {
+            element: vec![form_id, op],
+            al_id: 0,
+            ret_form: self.cfg.fm_void as i64,
+        });
+
+        let result = runtime::dispatch_form_code(&mut self.ctx, form_id as u32, params);
+
+        self.ctx.vm_call = saved_call;
+        self.ctx.stack.truncate(saved_stack_len);
+        result
+    }
+
     fn run_pending_button_syscom_action(
         &mut self,
         sys_type: i64,
         sys_type_opt: i64,
         mode: i64,
     ) -> Result<()> {
-        use crate::runtime::forms::codes::syscom_op;
-        use crate::runtime::forms::codes::FM_SYSCOM;
-        let op = match sys_type {
-            1 => syscom_op::CALL_SAVE_MENU,
-            2 => syscom_op::CALL_LOAD_MENU,
-            3 => syscom_op::SET_READ_SKIP_ONOFF_FLAG,
-            4 => syscom_op::SET_AUTO_MODE_ONOFF_FLAG,
-            5 => syscom_op::RETURN_TO_SEL,
-            6 => syscom_op::SET_HIDE_MWND_ONOFF_FLAG,
-            7 => syscom_op::OPEN_MSG_BACK,
-            8 => syscom_op::REPLAY_KOE,
-            9 => syscom_op::QUICK_SAVE,
-            10 => syscom_op::QUICK_LOAD,
-            11 => syscom_op::CALL_CONFIG_MENU,
-            12 => syscom_op::SET_LOCAL_EXTRA_SWITCH_ONOFF_FLAG,
-            13 => syscom_op::SET_LOCAL_EXTRA_MODE_VALUE,
-            14 => syscom_op::SET_GLOBAL_EXTRA_SWITCH_ONOFF,
-            15 => syscom_op::SET_GLOBAL_EXTRA_MODE_VALUE,
-            _ => return Ok(()),
+        let trace = Self::syscom_proc_trace_enabled();
+        let Some((op, op_name)) = Self::syscom_button_op(sys_type) else {
+            if trace {
+                eprintln!(
+                    "[SYSCOM_PROC_TRACE] button sys_type={} sys_opt={} mode={} resolved=UNKNOWN before {}",
+                    sys_type,
+                    sys_type_opt,
+                    mode,
+                    self.syscom_trace_state()
+                );
+            }
+            return Ok(());
         };
+
+        // This follows C_elm_object::check_button_action() in the original engine:
+        // system buttons call the SYSCOM operation directly.  The form dispatcher
+        // expects CommandContext::vm_call to carry the current element chain, so
+        // constructing Value::Element in the argument list is not enough here.
+        // Button actions also ignore command return values, so any values pushed
+        // by the generic SYSCOM command handler are discarded after dispatch.
         let params: Vec<Value> = match sys_type {
             1 | 2 => Vec::new(),
             3 | 4 => vec![Value::Int(if mode == 0 { 1 } else { 0 })],
@@ -2624,9 +2811,33 @@ impl<'a> SceneVm<'a> {
             13 | 15 => vec![Value::Int(sys_type_opt), Value::Int(mode + 1)],
             _ => Vec::new(),
         };
-        let mut args = vec![Value::Element(vec![FM_SYSCOM, op])];
-        args.extend(params);
-        runtime::dispatch_form_code(&mut self.ctx, FM_SYSCOM as u32, &args)?;
+        if trace {
+            eprintln!(
+                "[SYSCOM_PROC_TRACE] button sys_type={} sys_opt={} mode={} resolved={}({}) params={:?} before {}",
+                sys_type,
+                sys_type_opt,
+                mode,
+                op_name,
+                op,
+                params,
+                self.syscom_trace_state()
+            );
+        }
+        let dispatch_result = self.dispatch_syscom_button_op(op, &params);
+        if trace {
+            let status = match dispatch_result.as_ref() {
+                Ok(handled) => format!("ok handled={}", handled),
+                Err(err) => format!("err={}", err),
+            };
+            eprintln!(
+                "[SYSCOM_PROC_TRACE] after resolved={}({}) status={} {}",
+                op_name,
+                op,
+                status,
+                self.syscom_trace_state()
+            );
+        }
+        dispatch_result?;
         Ok(())
     }
 
@@ -2643,6 +2854,10 @@ impl<'a> SceneVm<'a> {
             }
         }
         Ok(())
+    }
+
+    pub fn process_pending_button_actions(&mut self) -> Result<()> {
+        self.drain_pending_button_actions()
     }
 
     fn drain_pending_frame_action_finishes(&mut self) -> Result<()> {
@@ -2672,6 +2887,15 @@ impl<'a> SceneVm<'a> {
             );
         }
         self.drain_pending_button_actions()?;
+        if self.ctx.globals.syscom.pending_proc.is_some() {
+            if trace || std::env::var_os("SG_DEBUG").is_some() {
+                eprintln!(
+                    "[SG_DEBUG][SYSCOM_PROC] stop frame tick before frame actions pending_proc={:?}",
+                    self.ctx.globals.syscom.pending_proc
+                );
+            }
+            return Ok(());
+        }
         if self.ctx.globals.script.frame_action_time_stop_flag && trace {
             eprintln!(
                 "[SG_TICK_TRACE] frame_action_time_stop_flag set; executing callbacks with frozen frame-action time"

@@ -40,7 +40,7 @@ use crate::layer::{
 };
 use crate::movie::MovieManager;
 use crate::soft_render;
-use crate::text_render::{embedded_default_font_names, FontCache};
+use crate::text_render::{embedded_default_font_names, FontCache, TextStyle};
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -99,6 +99,29 @@ pub struct Command {
     pub args: Vec<Value>,
 }
 
+
+#[derive(Debug, Clone)]
+struct MsgBackLayoutEntry {
+    history_index: usize,
+    text: String,
+    total_pos: i32,
+    height: i32,
+}
+
+#[derive(Debug, Clone)]
+struct MsgBackSeparatorLayout {
+    file: Option<String>,
+    total_pos: i32,
+    height: i32,
+}
+
+#[derive(Debug, Clone, Default)]
+struct MsgBackLayout {
+    entries: Vec<MsgBackLayoutEntry>,
+    separators: Vec<MsgBackSeparatorLayout>,
+    total_height: i32,
+}
+
 /// State used by EXCALL runtime helpers.
 ///
 /// We intentionally keep these names offset-based instead of guessing their meaning.
@@ -131,6 +154,7 @@ pub trait ExternalFormHandler: Send + Sync {
 pub enum ProcKind {
     Script,
     Disp,
+    Frame,
     Command,
     MessageBlock,
     MessageWait,
@@ -309,6 +333,7 @@ pub struct CommandContext {
 
     frame_clock_last: Option<std::time::Instant>,
     last_button_hover_sound_pos: Option<(i32, i32)>,
+    suppress_next_right_syscom_open: bool,
 }
 
 impl CommandContext {
@@ -712,6 +737,7 @@ impl CommandContext {
             pending_read_flag_no: false,
             frame_clock_last: None,
             last_button_hover_sound_pos: None,
+            suppress_next_right_syscom_open: false,
         };
         ctx.apply_gameexe_runtime_defaults();
         ctx
@@ -734,6 +760,112 @@ impl CommandContext {
             }
         }
         (255, 255, 255)
+    }
+
+    fn gameexe_raw(&self, key: &str) -> Option<&str> {
+        self.tables.gameexe.as_ref()?.get_unquoted(key)
+    }
+
+    fn gameexe_string(&self, key: &str) -> Option<String> {
+        self.gameexe_raw(key)
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    fn gameexe_rgba_default(&self, key: &str, default: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
+        let vals = Self::parse_i64_list(self.gameexe_raw(key));
+        if vals.len() >= 4 {
+            (
+                vals[0].clamp(0, 255) as u8,
+                vals[1].clamp(0, 255) as u8,
+                vals[2].clamp(0, 255) as u8,
+                vals[3].clamp(0, 255) as u8,
+            )
+        } else {
+            default
+        }
+    }
+
+    fn syscom_filter_config_rgba(&self) -> (u8, u8, u8, u8) {
+        let default = self.gameexe_rgba_default("CONFIG.FILTER_COLOR", (0, 0, 0, 128));
+        let cfg = &self.globals.syscom.config_int;
+        let pick = |key: i32, fallback: u8| -> u8 {
+            cfg.get(&key)
+                .copied()
+                .unwrap_or(fallback as i64)
+                .clamp(0, 255) as u8
+        };
+        (
+            pick(syscom_op::GET_FILTER_COLOR_R, default.0),
+            pick(syscom_op::GET_FILTER_COLOR_G, default.1),
+            pick(syscom_op::GET_FILTER_COLOR_B, default.2),
+            pick(syscom_op::GET_FILTER_COLOR_A, default.3),
+        )
+    }
+
+    fn parse_first_i64(raw: &str) -> Option<i64> {
+        raw.split(|c: char| c == ',' || c.is_whitespace())
+            .find_map(|part| {
+                let t = part.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    t.parse::<i64>().ok()
+                }
+            })
+    }
+
+    fn parse_i64_list(raw: Option<&str>) -> Vec<i64> {
+        let Some(raw) = raw else {
+            return Vec::new();
+        };
+        raw.split(|c: char| c == ',' || c.is_whitespace())
+            .filter_map(|part| {
+                let t = part.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    t.parse::<i64>().ok()
+                }
+            })
+            .collect()
+    }
+
+    fn gameexe_i64_default(&self, key: &str, default: i64) -> i64 {
+        self.gameexe_raw(key)
+            .and_then(Self::parse_first_i64)
+            .unwrap_or(default)
+    }
+
+    fn gameexe_pair_default(&self, key: &str, default: (i64, i64)) -> (i64, i64) {
+        let vals = Self::parse_i64_list(self.gameexe_raw(key));
+        if vals.len() >= 2 {
+            (vals[0], vals[1])
+        } else {
+            default
+        }
+    }
+
+    fn gameexe_rect_default(
+        &self,
+        key: &str,
+        default: (i64, i64, i64, i64),
+    ) -> (i64, i64, i64, i64) {
+        let vals = Self::parse_i64_list(self.gameexe_raw(key));
+        if vals.len() >= 4 {
+            (vals[0], vals[1], vals[2], vals[3])
+        } else {
+            default
+        }
+    }
+
+    fn msg_back_button_pos(&self, key: &str, default: (i32, i32)) -> (i32, i32) {
+        let vals = Self::parse_i64_list(self.gameexe_raw(key));
+        if vals.len() >= 2 {
+            (vals[0] as i32, vals[1] as i32)
+        } else {
+            default
+        }
     }
 
     pub fn lookup_scene_no(&self, scene_name: &str) -> Result<i64> {
@@ -1093,7 +1225,9 @@ impl CommandContext {
                 .ui
                 .current_mwnd_window_render_state(self.screen_w, self.screen_h);
             let mwnd_hidden =
-                self.globals.script.mwnd_disp_off_flag || self.globals.syscom.hide_mwnd.onoff;
+                self.globals.script.mwnd_disp_off_flag
+                    || self.globals.syscom.hide_mwnd.onoff
+                    || self.globals.syscom.msg_back_open;
             if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
                 let images = &mut self.images;
                 let layers = &self.layers;
@@ -1410,7 +1544,9 @@ impl CommandContext {
 
         {
             let mwnd_hidden =
-                self.globals.script.mwnd_disp_off_flag || self.globals.syscom.hide_mwnd.onoff;
+                self.globals.script.mwnd_disp_off_flag
+                    || self.globals.syscom.hide_mwnd.onoff
+                    || self.globals.syscom.msg_back_open;
             let syscom = self.globals.syscom.clone();
             if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
                 let mut stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
@@ -1641,7 +1777,9 @@ impl CommandContext {
 
         {
             let mwnd_hidden =
-                self.globals.script.mwnd_disp_off_flag || self.globals.syscom.hide_mwnd.onoff;
+                self.globals.script.mwnd_disp_off_flag
+                    || self.globals.syscom.hide_mwnd.onoff
+                    || self.globals.syscom.msg_back_open;
             let syscom = self.globals.syscom.clone();
             if let Some(st) = self.globals.stage_forms.get_mut(&form_id) {
                 let mut stage_ids: Vec<i64> = st.mwnd_lists.keys().copied().collect();
@@ -1757,7 +1895,10 @@ impl CommandContext {
         if self.handle_msg_back_key(k) {
             return;
         }
-        if self.handle_syscom_menu_key(k) {
+        if self.globals.syscom.hide_mwnd.onoff
+            && matches!(k, input::VmKey::Enter | input::VmKey::Escape | input::VmKey::Space)
+        {
+            self.input.on_key_down(k);
             return;
         }
         if self.handle_selbtn_key(k) {
@@ -1839,6 +1980,12 @@ impl CommandContext {
             return;
         }
         self.input.on_key_up(k);
+        if self.globals.syscom.hide_mwnd.onoff
+            && matches!(k, input::VmKey::Enter | input::VmKey::Escape | input::VmKey::Space)
+        {
+            self.globals.syscom.hide_mwnd.onoff = false;
+            return;
+        }
         if let Some(vk) = input::vmkey_to_vk_code(k) {
             if self.input.vk_down_up_stock(vk) {
                 match k {
@@ -1875,8 +2022,51 @@ impl CommandContext {
         }
     }
 
+    fn open_syscom_menu_from_cancel_key(&mut self) -> bool {
+        // Original C++ cancel_call_proc(): right-click/Escape/Z is VK_EX_CANCEL.
+        // When the local syscom menu is enabled, it clears read-skip and calls
+        // tnm_syscom_open(); tnm_syscom_open() enters CANCEL_SCENE when configured.
+        if self.globals.syscom.syscom_menu_disable {
+            return false;
+        }
+        if self.globals.syscom.msg_back_open || self.globals.syscom.hide_mwnd.onoff {
+            return false;
+        }
+        // Original C++ cancel_call_proc() does not open another cancel/syscom scene
+        // while an EXCALL scene is active.  This is required for syscom scenes such
+        // as CANCEL_SCENE/sys10_qm00: the right-click stock must remain available to
+        // that scene's own script instead of recursively opening CANCEL_SCENE again.
+        if self.excall_state.ex_call_flag {
+            return false;
+        }
+        if self.movie.current().is_some() {
+            return false;
+        }
+        self.globals.syscom.read_skip.onoff = false;
+        self.globals.syscom.pending_proc = Some(globals::SyscomPendingProc {
+            kind: globals::SyscomPendingProcKind::OpenSyscomMenu,
+            warning: false,
+            se_play: false,
+            fade_out: false,
+            leave_msgbk: false,
+            save_id: 0,
+        });
+        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            eprintln!(
+                "[SG_PROC_FLOW] open_syscom_menu_from_cancel_key scene={:?} line={} pending_proc={:?}",
+                self.current_scene_name,
+                self.current_line_no,
+                self.globals.syscom.pending_proc
+            );
+        }
+        true
+    }
+
     pub fn on_mouse_move(&mut self, x: i32, y: i32) {
         self.input.on_mouse_move(x, y);
+        if self.handle_msg_back_mouse_move() {
+            return;
+        }
         self.update_object_button_hover();
     }
 
@@ -1890,10 +2080,9 @@ impl CommandContext {
         if self.handle_system_messagebox_click(b) {
             return;
         }
-        if self.handle_msg_back_click(b) {
-            return;
-        }
-        if self.handle_syscom_menu_click() {
+        if self.globals.syscom.msg_back_open {
+            self.input.on_mouse_down(b);
+            self.handle_msg_back_mouse_down(b);
             return;
         }
         if self.handle_selbtn_mouse_click(b) {
@@ -1907,6 +2096,9 @@ impl CommandContext {
         } else {
             false
         };
+        if matches!(b, input::VmMouseButton::Right) && handled_button {
+            self.suppress_next_right_syscom_open = true;
+        }
         if !handled_button {
             if !self.advance_message_wait(true) {
                 self.notify_wait_key();
@@ -1945,6 +2137,9 @@ impl CommandContext {
             );
         }
         self.input.on_mouse_up(b);
+        if self.handle_msg_back_mouse_up(b) {
+            return;
+        }
         let movie_skipped = match b {
             input::VmMouseButton::Left if self.input.vk_down_up_stock(0x01) => {
                 self.notify_movie_wait_down_up(1)
@@ -1957,6 +2152,14 @@ impl CommandContext {
         if movie_skipped {
             return;
         }
+        if matches!(b, input::VmMouseButton::Right) && self.input.vk_down_up_stock(0x02) {
+            if std::mem::take(&mut self.suppress_next_right_syscom_open) {
+                return;
+            }
+            if self.open_syscom_menu_from_cancel_key() {
+                return;
+            }
+        }
         let handled_button = self.handle_object_button_mouse_up(b);
         if !handled_button {
             self.notify_wait_key();
@@ -1965,6 +2168,18 @@ impl CommandContext {
 
     pub fn on_mouse_wheel(&mut self, delta_y: i32) {
         self.input.on_mouse_wheel(delta_y);
+        if self.globals.syscom.msg_back_open {
+            if delta_y > 0 {
+                self.msg_back_target_up();
+            } else if delta_y < 0 {
+                self.msg_back_target_down();
+            }
+            return;
+        }
+        if delta_y > 0 && self.msg_back_is_enable() {
+            self.open_msg_back_proc();
+            return;
+        }
         if !self.advance_message_wait(self.should_wheel_advance_message()) {
             self.notify_wait_key();
         }
@@ -2241,10 +2456,8 @@ impl CommandContext {
                 self.notify_wait_key();
             }
         }
-        // If scripts request message-window hide, enforce it after UI tick.
-        if self.globals.script.mwnd_disp_off_flag {
-            self.ui.force_message_bg_visible(false);
-        }
+        // Message-window hide is visibility-only here.  UI.tick applies script hide,
+        // SYSCOM hide, and message-back proc state without clearing message contents.
         self.sync_syscom_menu_ui();
         if trace {
             eprintln!("[SG_CTX_TICK] after sync_syscom_menu_ui");
@@ -2810,29 +3023,13 @@ impl CommandContext {
         let Some(modal) = self.globals.system.messagebox_modal.as_ref() else {
             return false;
         };
+        self.ui.set_sys_overlay(false, String::new());
         if modal.native_pending {
-            self.ui.set_sys_overlay(false, String::new());
             return true;
         }
-        let mut text = String::new();
-        if modal.debug_only {
-            text.push_str("[DEBUG]\n");
-        }
-        text.push_str(&modal.text);
-        text.push_str("\n\n");
-        for (i, button) in modal.buttons.iter().enumerate() {
-            if i == modal.cursor {
-                text.push_str("> ");
-            } else {
-                text.push_str("  ");
-            }
-            text.push_str(&(i + 1).to_string());
-            text.push_str(": ");
-            text.push_str(&button.label);
-            text.push_str("\n");
-        }
-        text.push_str("\nEnter/Space: decide  Esc/Right click: cancel");
-        self.ui.set_sys_overlay(true, text);
+        let cancel_value = modal.cancel_value();
+        log::error!("SYSTEM messagebox native UI is not implemented; fake Rust overlay is disabled");
+        self.finish_system_messagebox(cancel_value);
         true
     }
 
@@ -2865,34 +3062,518 @@ impl CommandContext {
     }
 
     fn msg_back_is_enable(&self) -> bool {
-        self.globals.syscom.msg_back.check_enabled() != 0
-            && !self.globals.script.msg_back_disable
-            && !self.msg_back_visible_entry_indices().is_empty()
+        self.globals.syscom.msg_back.check_enabled() != 0 && !self.globals.script.msg_back_disable
     }
 
-    fn clamp_msg_back_view_pos(&mut self) {
-        let count = self.msg_back_visible_entry_indices().len();
-        if count == 0 {
-            self.globals.syscom.msg_back_view_pos = 0;
-        } else if self.globals.syscom.msg_back_view_pos >= count {
-            self.globals.syscom.msg_back_view_pos = count - 1;
+    fn msg_back_line_step(&self) -> i32 {
+        let moji_size = self.gameexe_i64_default("MSGBK.MOJI_SIZE", 24).max(1) as i32;
+        let moji_space = self.gameexe_pair_default("MSGBK.MOJI_SPACE", (-1, 10));
+        (moji_size + moji_space.1 as i32).max(1)
+    }
+
+    fn msg_back_text_area_width(moji_cnt: (i64, i64), moji_size: i32, moji_space: (i64, i64)) -> i32 {
+        let cols = moji_cnt.0.max(1) as i32;
+        moji_size
+            .saturating_mul(cols)
+            .saturating_add((moji_space.0 as i32).saturating_mul((cols - 1).max(0)))
+            .max(1)
+    }
+
+    fn msg_back_text_area_height(moji_cnt: (i64, i64), moji_size: i32, moji_space: (i64, i64)) -> i32 {
+        let rows = moji_cnt.1.max(1) as i32;
+        moji_size
+            .saturating_mul(rows)
+            .saturating_add((moji_space.1 as i32).saturating_mul((rows - 1).max(0)))
+            .max(1)
+    }
+
+    fn msg_back_is_hankaku(ch: char) -> bool {
+        ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F)
+    }
+
+    fn msg_back_is_kinsoku_moji(ch: char) -> bool {
+        matches!(
+            ch,
+            'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'っ' | 'ゃ' | 'ゅ' | 'ょ' | 'ゎ'
+                | 'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ッ' | 'ャ' | 'ュ' | 'ョ' | 'ヮ'
+                | 'ヵ' | 'ヶ' | 'ﾞ' | 'ﾟ' | '｡' | '､' | '!' | '?' | ':' | ';' | '｣'
+                | ')' | ']' | '>' | '}' | '\'' | '"' | 'ｰ' | '･' | '.' | ','
+                | 'ｧ' | 'ｨ' | 'ｩ' | 'ｪ' | 'ｫ' | 'ｯ' | 'ｬ' | 'ｭ' | 'ｮ'
+        )
+    }
+
+    fn msg_back_entry_text(entry: &globals::MsgBackEntry) -> String {
+        if entry.pct_flag {
+            return String::new();
         }
+        let mut out = String::new();
+        if !entry.disp_name.is_empty() {
+            out.push_str(&entry.disp_name);
+            out.push('\n');
+        }
+        if !entry.msg_str.is_empty() {
+            out.push_str(&entry.msg_str.replace('\u{0007}', "\n"));
+            out.push('\n');
+        }
+        out
+    }
+
+    fn msg_back_measure_entry_text(
+        entry: &globals::MsgBackEntry,
+        moji_cnt: (i64, i64),
+        moji_size: i32,
+        moji_space: (i64, i64),
+    ) -> (String, i32) {
+        let text = Self::msg_back_entry_text(entry);
+        if text.is_empty() {
+            return (text, moji_size.max(1));
+        }
+
+        let msg_w = Self::msg_back_text_area_width(moji_cnt, moji_size, moji_space);
+        let msg_h = Self::msg_back_text_area_height(moji_cnt, moji_size, moji_space);
+        let space_x = moji_space.0 as i32;
+        let space_y = moji_space.1 as i32;
+        let line_step = (moji_size + space_y).max(1);
+        let mut x = 0i32;
+        let mut y = 0i32;
+        let mut indent_pos = 0i32;
+        let mut indent_moji = '\0';
+        let mut indent_cnt = 0i32;
+        let mut line_head = true;
+
+        let clear_indent = |indent_pos: &mut i32, indent_moji: &mut char, indent_cnt: &mut i32| {
+            *indent_pos = 0;
+            *indent_moji = '\0';
+            *indent_cnt = 0;
+        };
+        let new_line_indent = |x: &mut i32, y: &mut i32, indent_pos: i32| {
+            *x = indent_pos;
+            *y = (*y).saturating_add(line_step);
+        };
+
+        for ch in text.chars() {
+            if ch == '\r' {
+                continue;
+            }
+            if ch == '\n' || ch == '\u{0007}' {
+                clear_indent(&mut indent_pos, &mut indent_moji, &mut indent_cnt);
+                new_line_indent(&mut x, &mut y, indent_pos);
+                line_head = true;
+                continue;
+            }
+
+            let this_moji_size = if Self::msg_back_is_hankaku(ch) {
+                (moji_size / 2).max(1)
+            } else {
+                moji_size.max(1)
+            };
+            let this_check_size = this_moji_size.saturating_add(space_x);
+            let mut auto_indent = false;
+            if x.saturating_add(this_check_size) > msg_w.saturating_add(moji_size) {
+                new_line_indent(&mut x, &mut y, indent_pos);
+                auto_indent = true;
+            } else if x.saturating_add(this_check_size) > msg_w && !Self::msg_back_is_kinsoku_moji(ch) {
+                new_line_indent(&mut x, &mut y, indent_pos);
+                auto_indent = true;
+            }
+            if auto_indent && (ch == ' ' || ch == '　') {
+                continue;
+            }
+            if y >= msg_h {
+                break;
+            }
+
+            x = x.saturating_add(this_moji_size).saturating_add(space_x);
+
+            if ch == '「' || ch == '『' || ch == '（' {
+                if line_head {
+                    indent_pos = x;
+                    indent_moji = ch;
+                    indent_cnt = 1;
+                } else if ch == indent_moji {
+                    indent_cnt += 1;
+                }
+            }
+            if indent_cnt > 0 {
+                if (indent_moji == '「' && ch == '」')
+                    || (indent_moji == '『' && ch == '』')
+                    || (indent_moji == '（' && ch == '）')
+                {
+                    indent_cnt -= 1;
+                    if indent_cnt == 0 {
+                        clear_indent(&mut indent_pos, &mut indent_moji, &mut indent_cnt);
+                    }
+                }
+            }
+            line_head = false;
+        }
+
+        let height = y.saturating_sub(space_y).max(moji_size.max(1));
+        (text, height)
+    }
+
+    fn msg_back_image_size_by_name(&mut self, file: Option<&str>) -> Option<(i32, i32)> {
+        let raw = file.map(str::trim).filter(|s| !s.is_empty())?;
+        let id = self
+            .images
+            .load_g00(raw, 0)
+            .or_else(|_| self.images.load_bg_frame(raw, 0))
+            .or_else(|_| {
+                let path = self.project_dir.join(raw);
+                self.images.load_file(&path, 0)
+            })
+            .ok()?;
+        self.images
+            .get(id)
+            .map(|img| (img.width as i32, img.height as i32))
+    }
+
+    fn msg_back_image_size_from_gameexe(&mut self, key: &str) -> Option<(i32, i32)> {
+        let file = self.gameexe_string(key);
+        self.msg_back_image_size_by_name(file.as_deref())
+    }
+
+    fn build_msg_back_layout(&mut self) -> MsgBackLayout {
+        let mut out = MsgBackLayout::default();
+        let indices = self.msg_back_visible_entry_indices();
+        let entries: Vec<(usize, globals::MsgBackEntry)> = {
+            let Some(st) = self.msg_back_state() else {
+                return out;
+            };
+            indices
+                .into_iter()
+                .filter_map(|history_index| {
+                    st.history
+                        .get(history_index)
+                        .cloned()
+                        .map(|entry| (history_index, entry))
+                })
+                .collect()
+        };
+        if entries.is_empty() {
+            return out;
+        }
+
+        let moji_cnt = self.gameexe_pair_default("MSGBK.MOJI_CNT", (20, 15));
+        let moji_size = self.gameexe_i64_default("MSGBK.MOJI_SIZE", 24).max(1) as i32;
+        let moji_space = self.gameexe_pair_default("MSGBK.MOJI_SPACE", (-1, 10));
+        let separator_file = self.gameexe_string("MSGBK.SEPARATOR_FILE");
+        let separator_top_file = self.gameexe_string("MSGBK.SEPARATOR_TOP_FILE");
+        let separator_bottom_file = self.gameexe_string("MSGBK.SEPARATOR_BOTTOM_FILE");
+        let separator_height = self
+            .msg_back_image_size_by_name(separator_file.as_deref())
+            .map(|(_, h)| h.max(0))
+            .unwrap_or(0);
+        let separator_top_height = self
+            .msg_back_image_size_by_name(separator_top_file.as_deref())
+            .map(|(_, h)| h.max(0))
+            .unwrap_or(0);
+        let separator_bottom_height = self
+            .msg_back_image_size_by_name(separator_bottom_file.as_deref())
+            .map(|(_, h)| h.max(0))
+            .unwrap_or(0);
+
+        if separator_top_file.is_some() && separator_top_height > 0 {
+            out.separators.push(MsgBackSeparatorLayout {
+                file: separator_top_file.clone(),
+                total_pos: -separator_top_height,
+                height: separator_top_height,
+            });
+        }
+
+        let mut total_height = 0i32;
+        let mut last_margin = 0i32;
+        for (visible_pos, (history_index, entry)) in entries.iter().enumerate() {
+            if entry.pct_flag {
+                let total_pos = total_height;
+                let height = self
+                    .msg_back_image_size_by_name(Some(entry.msg_str.as_str()))
+                    .map(|(_, h)| h.max(1))
+                    .unwrap_or_else(|| moji_size.max(1));
+                out.entries.push(MsgBackLayoutEntry {
+                    history_index: *history_index,
+                    text: String::new(),
+                    total_pos,
+                    height,
+                });
+                total_height = total_height.saturating_add(height);
+                last_margin = 0;
+            } else {
+                let (text, height) = Self::msg_back_measure_entry_text(entry, moji_cnt, moji_size, moji_space);
+                let total_pos = total_height.saturating_add(last_margin);
+                out.entries.push(MsgBackLayoutEntry {
+                    history_index: *history_index,
+                    text,
+                    total_pos,
+                    height,
+                });
+                total_height = total_height
+                    .saturating_add(last_margin)
+                    .saturating_add(height);
+                last_margin = moji_size;
+            }
+
+            if visible_pos + 1 < entries.len() {
+                if separator_file.is_some() && separator_height > 0 {
+                    out.separators.push(MsgBackSeparatorLayout {
+                        file: separator_file.clone(),
+                        total_pos: total_height,
+                        height: separator_height,
+                    });
+                    total_height = total_height.saturating_add(separator_height);
+                    last_margin = 0;
+                }
+            } else if separator_bottom_file.is_some() && separator_bottom_height > 0 {
+                out.separators.push(MsgBackSeparatorLayout {
+                    file: separator_bottom_file.clone(),
+                    total_pos: total_height,
+                    height: separator_bottom_height,
+                });
+                total_height = total_height.saturating_add(separator_bottom_height);
+                last_margin = 0;
+            }
+        }
+        out.total_height = total_height.max(0);
+        out
+    }
+
+    fn msg_back_slider_track(&self) -> (i32, i32, i32) {
+        let vals = Self::parse_i64_list(self.gameexe_raw("MSGBK_ITEM.SLIDER.POS"));
+        if vals.len() >= 3 {
+            (vals[0] as i32, vals[1] as i32, vals[2] as i32)
+        } else {
+            (0, 0, 0)
+        }
+    }
+
+    fn msg_back_slider_size_i32(&mut self) -> (i32, i32) {
+        if let Some((w, h)) = self.msg_back_image_size_from_gameexe("MSGBK_ITEM.SLIDER.FILE") {
+            return (w.max(0), h.max(0));
+        }
+        self.ui
+            .msg_back_slider_size()
+            .map(|(w, h)| (w as i32, h as i32))
+            .unwrap_or((0, 0))
+    }
+
+    fn limit_i32(a: i32, v: i32, b: i32) -> i32 {
+        let lo = a.min(b);
+        let hi = a.max(b);
+        v.clamp(lo, hi)
+    }
+
+    fn linear_i32(x: i32, x1: i32, y1: i32, x2: i32, y2: i32) -> i32 {
+        if x1 == x2 {
+            return y1;
+        }
+        let num = (x as i64 - x1 as i64) * (y2 as i64 - y1 as i64);
+        (y1 as i64 + num / (x2 as i64 - x1 as i64)) as i32
+    }
+
+    fn msg_back_scroll_limits(&self, layout: &MsgBackLayout) -> Option<(i32, i32)> {
+        let first = layout.entries.first()?;
+        let last = layout.entries.last()?;
+        let window_size = self.gameexe_pair_default("MSGBK.WINDOW_SIZE", (780, 580));
+        let wind_height = window_size.1.max(1) as i32;
+        let msgsp = wind_height / 2 - first.height / 2;
+        let mut msgep = wind_height / 2 + last.height / 2 - layout.total_height;
+        if layout.entries.len() == 1 {
+            msgep = msgsp;
+        }
+        Some((msgep, msgsp))
+    }
+
+    fn msg_back_calc_target_no_from_scroll(&mut self, layout: &MsgBackLayout) {
+        if layout.entries.is_empty() {
+            self.globals.syscom.msg_back_target_no = -1;
+            return;
+        }
+        let window_size = self.gameexe_pair_default("MSGBK.WINDOW_SIZE", (780, 580));
+        let center = (window_size.1.max(1) as i32) / 2;
+        let mut target = layout.entries.last().map(|e| e.history_index as isize).unwrap_or(-1);
+        for entry in layout.entries.iter().rev() {
+            if self.globals.syscom.msg_back_scroll_pos
+                .saturating_add(entry.total_pos)
+                .saturating_add(entry.height)
+                >= center
+            {
+                target = entry.history_index as isize;
+            }
+        }
+        self.globals.syscom.msg_back_target_no = target;
+    }
+
+    fn msg_back_calc_slider_pos_from_scroll(&mut self, layout: &MsgBackLayout) {
+        let Some((msgep, msgsp)) = self.msg_back_scroll_limits(layout) else {
+            let (_x, top, _bottom) = self.msg_back_slider_track();
+            self.globals.syscom.msg_back_scroll_pos = 0;
+            self.globals.syscom.msg_back_slider_pos = top;
+            return;
+        };
+        let (_x, top, bottom) = self.msg_back_slider_track();
+        let slider_h = self.msg_back_slider_size_i32().1.max(0);
+        let slider_end = bottom.saturating_sub(slider_h);
+        self.globals.syscom.msg_back_scroll_pos =
+            Self::limit_i32(msgep, self.globals.syscom.msg_back_scroll_pos, msgsp);
+        self.globals.syscom.msg_back_slider_pos = Self::linear_i32(
+            self.globals.syscom.msg_back_scroll_pos,
+            msgep,
+            slider_end,
+            msgsp,
+            top,
+        );
+        self.globals.syscom.msg_back_slider_pos =
+            Self::limit_i32(top, self.globals.syscom.msg_back_slider_pos, slider_end);
+    }
+
+    fn msg_back_calc_scroll_pos_from_slider(&mut self, layout: &MsgBackLayout) {
+        let Some((msgep, msgsp)) = self.msg_back_scroll_limits(layout) else {
+            self.globals.syscom.msg_back_scroll_pos = 0;
+            return;
+        };
+        let (_x, top, bottom) = self.msg_back_slider_track();
+        let slider_h = self.msg_back_slider_size_i32().1.max(0);
+        let slider_end = bottom.saturating_sub(slider_h);
+        self.globals.syscom.msg_back_slider_pos =
+            Self::limit_i32(top, self.globals.syscom.msg_back_slider_pos, slider_end);
+        self.globals.syscom.msg_back_scroll_pos = Self::linear_i32(
+            self.globals.syscom.msg_back_slider_pos,
+            top,
+            msgsp,
+            slider_end,
+            msgep,
+        );
+        self.globals.syscom.msg_back_scroll_pos =
+            Self::limit_i32(msgep, self.globals.syscom.msg_back_scroll_pos, msgsp);
+    }
+
+    fn msg_back_calc_scroll_pos_from_target(&mut self, layout: &MsgBackLayout) {
+        if layout.entries.is_empty() {
+            self.globals.syscom.msg_back_target_no = -1;
+            self.globals.syscom.msg_back_scroll_pos = 0;
+            return;
+        }
+        let target_no = self.globals.syscom.msg_back_target_no;
+        let entry = layout
+            .entries
+            .iter()
+            .find(|entry| entry.history_index as isize == target_no)
+            .unwrap_or_else(|| layout.entries.last().expect("layout is not empty"));
+        self.globals.syscom.msg_back_target_no = entry.history_index as isize;
+        let window_size = self.gameexe_pair_default("MSGBK.WINDOW_SIZE", (780, 580));
+        let wind_height = window_size.1.max(1) as i32;
+        self.globals.syscom.msg_back_scroll_pos =
+            wind_height / 2 - (entry.total_pos + entry.height / 2);
+    }
+
+    fn msg_back_update_pos_from_scroll(&mut self, layout: &MsgBackLayout) {
+        self.msg_back_calc_target_no_from_scroll(layout);
+        self.msg_back_calc_slider_pos_from_scroll(layout);
+    }
+
+    fn msg_back_update_pos_from_slider(&mut self, layout: &MsgBackLayout) {
+        self.msg_back_calc_scroll_pos_from_slider(layout);
+        self.msg_back_calc_target_no_from_scroll(layout);
+    }
+
+    fn msg_back_update_pos_from_target(&mut self, layout: &MsgBackLayout) {
+        self.msg_back_calc_scroll_pos_from_target(layout);
+        self.msg_back_calc_slider_pos_from_scroll(layout);
+    }
+
+    fn msg_back_target_up(&mut self) {
+        let layout = self.build_msg_back_layout();
+        if layout.entries.is_empty() {
+            return;
+        }
+        let current = self.globals.syscom.msg_back_target_no;
+        let pos = layout
+            .entries
+            .iter()
+            .position(|entry| entry.history_index as isize == current)
+            .unwrap_or_else(|| layout.entries.len().saturating_sub(1));
+        let next_pos = pos.saturating_sub(1);
+        self.globals.syscom.msg_back_target_no = layout.entries[next_pos].history_index as isize;
+        self.msg_back_update_pos_from_target(&layout);
+    }
+
+    fn msg_back_target_down(&mut self) {
+        let layout = self.build_msg_back_layout();
+        if layout.entries.is_empty() {
+            return;
+        }
+        let current = self.globals.syscom.msg_back_target_no;
+        let pos = layout
+            .entries
+            .iter()
+            .position(|entry| entry.history_index as isize == current)
+            .unwrap_or_else(|| layout.entries.len().saturating_sub(1));
+        let next_pos = (pos + 1).min(layout.entries.len() - 1);
+        self.globals.syscom.msg_back_target_no = layout.entries[next_pos].history_index as isize;
+        self.msg_back_update_pos_from_target(&layout);
+    }
+
+    fn msg_back_window_contains(&self, x: i32, y: i32) -> bool {
+        let window_pos = self.gameexe_pair_default("MSGBK.WINDOW_POS", (10, 10));
+        let window_size = self.gameexe_pair_default("MSGBK.WINDOW_SIZE", (780, 580));
+        let left = window_pos.0 as i32;
+        let top = window_pos.1 as i32;
+        let right = left.saturating_add(window_size.0.max(1) as i32);
+        let bottom = top.saturating_add(window_size.1.max(1) as i32);
+        left <= x && x < right && top <= y && y < bottom
+    }
+
+    fn msg_back_initialize_open_state(&mut self, layout: &MsgBackLayout) {
+        let (_x, _top, bottom) = self.msg_back_slider_track();
+        let slider_h = self.msg_back_slider_size_i32().1.max(0);
+        self.globals.syscom.msg_back_msg_total_height = layout.total_height;
+        self.globals.syscom.msg_back_target_no = if layout.entries.is_empty() {
+            -1
+        } else if let Some(st) = self.msg_back_state() {
+            if layout
+                .entries
+                .iter()
+                .any(|entry| entry.history_index == st.history_last_pos)
+            {
+                st.history_last_pos as isize
+            } else {
+                layout.entries.last().map(|entry| entry.history_index as isize).unwrap_or(-1)
+            }
+        } else {
+            layout.entries.last().map(|entry| entry.history_index as isize).unwrap_or(-1)
+        };
+        self.globals.syscom.msg_back_slider_pos = bottom.saturating_sub(slider_h);
+        self.msg_back_update_pos_from_slider(layout);
+        self.msg_back_update_pos_from_scroll(layout);
+        self.globals.syscom.msg_back_slider_dragging = false;
+        self.globals.syscom.msg_back_content_dragging = false;
+        self.globals.syscom.msg_back_proc_initialized = true;
     }
 
     fn open_msg_back_proc(&mut self) {
         if !self.msg_back_is_enable() {
             return;
         }
-        // Original tnm_syscom_open_msg_back() stops read skip before entering
-        // the message-back process.
         self.globals.syscom.read_skip.onoff = false;
-        let count = self.msg_back_visible_entry_indices().len();
-        self.globals.syscom.msg_back_view_pos = count.saturating_sub(1);
         self.globals.syscom.msg_back_open = true;
+        self.globals.syscom.pending_proc = Some(globals::SyscomPendingProc {
+            kind: globals::SyscomPendingProcKind::MsgBack,
+            warning: false,
+            se_play: false,
+            fade_out: false,
+            leave_msgbk: false,
+            save_id: 0,
+        });
+        let layout = self.build_msg_back_layout();
+        self.msg_back_initialize_open_state(&layout);
     }
 
     fn close_msg_back_proc(&mut self) {
         self.globals.syscom.msg_back_open = false;
+        self.globals.syscom.msg_back_slider_dragging = false;
+        self.globals.syscom.msg_back_content_dragging = false;
+        self.globals.syscom.msg_back_proc_initialized = false;
+        self.ui.set_msg_back_projection(None);
         self.ui.set_sys_overlay(false, String::new());
     }
 
@@ -2900,131 +3581,58 @@ impl CommandContext {
         if !self.globals.syscom.msg_back_open {
             return false;
         }
-        let count = self.msg_back_visible_entry_indices().len();
         match k {
             input::VmKey::Escape | input::VmKey::Enter | input::VmKey::Space => {
                 self.close_msg_back_proc();
             }
-            input::VmKey::ArrowUp | input::VmKey::ArrowLeft => {
-                if self.globals.syscom.msg_back_view_pos > 0 {
-                    self.globals.syscom.msg_back_view_pos -= 1;
-                }
-            }
-            input::VmKey::ArrowDown | input::VmKey::ArrowRight => {
-                if count > 0 {
-                    self.globals.syscom.msg_back_view_pos =
-                        (self.globals.syscom.msg_back_view_pos + 1).min(count - 1);
-                }
-            }
+            input::VmKey::ArrowUp | input::VmKey::ArrowLeft => self.msg_back_target_up(),
+            input::VmKey::ArrowDown | input::VmKey::ArrowRight => self.msg_back_target_down(),
             input::VmKey::F(5) => {
-                self.globals.syscom.msg_back_view_pos = 0;
+                let layout = self.build_msg_back_layout();
+                if let Some(entry) = layout.entries.first() {
+                    self.globals.syscom.msg_back_target_no = entry.history_index as isize;
+                    self.msg_back_update_pos_from_target(&layout);
+                }
             }
             input::VmKey::F(6) => {
-                self.globals.syscom.msg_back_view_pos = count.saturating_sub(1);
+                let layout = self.build_msg_back_layout();
+                if let Some(entry) = layout.entries.last() {
+                    self.globals.syscom.msg_back_target_no = entry.history_index as isize;
+                    self.msg_back_update_pos_from_target(&layout);
+                }
             }
             _ => {}
         }
         true
     }
 
-    fn handle_msg_back_click(&mut self, b: input::VmMouseButton) -> bool {
+    fn handle_msg_back_mouse_down(&mut self, b: input::VmMouseButton) -> bool {
         if !self.globals.syscom.msg_back_open {
             return false;
         }
         match b {
-            input::VmMouseButton::Left | input::VmMouseButton::Right => self.close_msg_back_proc(),
-            _ => {}
-        }
-        true
-    }
-
-    fn build_msg_back_overlay_text(&mut self) -> String {
-        let visible = self.msg_back_visible_entry_indices();
-        let count = visible.len();
-        self.clamp_msg_back_view_pos();
-        let pos = self.globals.syscom.msg_back_view_pos.min(count.saturating_sub(1));
-        let mut text = String::new();
-        text.push_str("MESSAGE LOG\n");
-        text.push_str("Esc/Enter/Click: close    Arrow keys: scroll\n\n");
-        if count == 0 {
-            text.push_str("No message history.\n");
-            return text;
-        }
-        let start = pos.saturating_sub(10);
-        if let Some(st) = self.msg_back_state() {
-            for (display_pos, entry_idx) in visible.iter().enumerate().skip(start).take(12) {
-                let entry = &st.history[*entry_idx];
-                let cursor = if display_pos == pos { ">" } else { " " };
-                text.push_str(cursor);
-                text.push(' ');
-                text.push_str(&(display_pos + 1).to_string());
-                text.push('/');
-                text.push_str(&count.to_string());
-                text.push(' ');
-                if !entry.disp_name.is_empty() {
-                    text.push('[');
-                    text.push_str(&entry.disp_name);
-                    text.push_str("] ");
-                } else if !entry.original_name.is_empty() {
-                    text.push('[');
-                    text.push_str(&entry.original_name);
-                    text.push_str("] ");
-                }
-                if entry.pct_flag {
-                    text.push_str("[image] ");
-                }
-                if !entry.msg_str.is_empty() {
-                    text.push_str(&entry.msg_str.replace('\n', " "));
-                }
-                if !entry.koe_no_list.is_empty() {
-                    text.push_str("  [voice]");
-                }
-                text.push('\n');
+            input::VmMouseButton::Right => {
+                self.close_msg_back_proc();
             }
-        }
-        text
-    }
-
-    fn handle_syscom_menu_key(&mut self, k: input::VmKey) -> bool {
-        if !self.globals.syscom.menu_open {
-            return false;
-        }
-        match k {
-            input::VmKey::Escape => {
-                self.close_syscom_menu();
-                return true;
-            }
-            input::VmKey::Enter => {
-                self.activate_syscom_menu_item();
-                return true;
-            }
-            input::VmKey::ArrowUp => {
-                let len = self.menu_items().len();
-                if len > 0 {
-                    let c = self.globals.syscom.menu_cursor;
-                    self.globals.syscom.menu_cursor = if c == 0 { len - 1 } else { c - 1 };
-                }
-                return true;
-            }
-            input::VmKey::ArrowDown => {
-                let len = self.menu_items().len();
-                if len > 0 {
-                    self.globals.syscom.menu_cursor = (self.globals.syscom.menu_cursor + 1) % len;
-                }
-                return true;
-            }
-            input::VmKey::ArrowLeft => {
-                self.menu_adjust(-1);
-                return true;
-            }
-            input::VmKey::ArrowRight => {
-                self.menu_adjust(1);
-                return true;
-            }
-            input::VmKey::Digit(d) => {
-                let idx = d as usize;
-                if self.handle_save_load_digit(idx) {
-                    return true;
+            input::VmMouseButton::Left => {
+                match self.ui.msg_back_hit_action(self.input.mouse_x, self.input.mouse_y) {
+                    Some(ui::MsgBackHitAction::Close) => self.close_msg_back_proc(),
+                    Some(ui::MsgBackHitAction::Up) => self.msg_back_target_up(),
+                    Some(ui::MsgBackHitAction::Down) => self.msg_back_target_down(),
+                    Some(ui::MsgBackHitAction::Slider) => {
+                        self.globals.syscom.msg_back_slider_dragging = true;
+                        self.globals.syscom.msg_back_slider_drag_start_mouse = self.input.mouse_y;
+                        self.globals.syscom.msg_back_slider_drag_start_pos =
+                            self.globals.syscom.msg_back_slider_pos;
+                    }
+                    None => {
+                        if self.msg_back_window_contains(self.input.mouse_x, self.input.mouse_y) {
+                            self.globals.syscom.msg_back_content_dragging = true;
+                            self.globals.syscom.msg_back_content_drag_start_mouse = self.input.mouse_y;
+                            self.globals.syscom.msg_back_content_drag_start_scroll_pos =
+                                self.globals.syscom.msg_back_scroll_pos;
+                        }
+                    }
                 }
             }
             _ => {}
@@ -3032,233 +3640,352 @@ impl CommandContext {
         true
     }
 
-    fn handle_syscom_menu_click(&mut self) -> bool {
-        if !self.globals.syscom.menu_open {
+    fn handle_msg_back_mouse_up(&mut self, b: input::VmMouseButton) -> bool {
+        if !self.globals.syscom.msg_back_open {
             return false;
         }
-        self.activate_syscom_menu_item();
+        if matches!(b, input::VmMouseButton::Left) {
+            self.globals.syscom.msg_back_slider_dragging = false;
+            self.globals.syscom.msg_back_content_dragging = false;
+        }
         true
     }
 
-    fn close_syscom_menu(&mut self) {
-        self.globals.syscom.menu_open = false;
-        self.globals.syscom.menu_kind = None;
-    }
-
-    fn activate_syscom_menu_item(&mut self) {
-        if !self.globals.syscom.menu_open {
-            return;
+    fn handle_msg_back_mouse_move(&mut self) -> bool {
+        if !self.globals.syscom.msg_back_open {
+            return false;
         }
-        let items = self.menu_items();
-        if items.is_empty() {
-            self.close_syscom_menu();
-            return;
-        }
-        let idx = self.globals.syscom.menu_cursor.min(items.len() - 1);
-        match &items[idx] {
-            MenuItem::Action { kind, .. } => self.activate_syscom_action(*kind),
-            MenuItem::Int { .. } | MenuItem::Bool { .. } | MenuItem::FontName => {
-                self.menu_adjust(1)
-            }
-        }
-    }
-
-    fn activate_syscom_action(&mut self, kind: i32) {
-        match kind {
-            syscom_op::CALL_SAVE_MENU
-            | syscom_op::CALL_LOAD_MENU
-            | syscom_op::CALL_CONFIG_MENU
-            | syscom_op::CALL_CONFIG_WINDOW_MODE_MENU
-            | syscom_op::CALL_CONFIG_VOLUME_MENU
-            | syscom_op::CALL_CONFIG_BGMFADE_MENU
-            | syscom_op::CALL_CONFIG_KOEMODE_MENU
-            | syscom_op::CALL_CONFIG_CHARAKOE_MENU
-            | syscom_op::CALL_CONFIG_JITAN_MENU
-            | syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU
-            | syscom_op::CALL_CONFIG_AUTO_MODE_MENU
-            | syscom_op::CALL_CONFIG_FONT_MENU
-            | syscom_op::CALL_CONFIG_FILTER_COLOR_MENU
-            | syscom_op::CALL_CONFIG_SYSTEM_MENU
-            | syscom_op::CALL_CONFIG_MOVIE_MENU => {
-                self.globals.syscom.menu_kind = Some(kind);
-                self.globals.syscom.menu_cursor = 0;
-                self.globals.syscom.last_menu_call = kind;
-            }
-            syscom_op::OPEN_MSG_BACK => {
-                self.open_msg_back_proc();
-                self.globals.syscom.last_menu_call = kind;
-                self.close_syscom_menu();
-            }
-            syscom_op::RETURN_TO_SEL => {
-                self.globals.syscom.pending_proc = Some(globals::SyscomPendingProc {
-                    kind: globals::SyscomPendingProcKind::ReturnToSel,
-                    warning: false,
-                    se_play: false,
-                    fade_out: false,
-                    leave_msgbk: false,
-                    save_id: 0,
-                });
-                self.globals.syscom.last_menu_call = kind;
-                self.close_syscom_menu();
-            }
-            syscom_op::RETURN_TO_MENU => {
-                self.globals.syscom.pending_proc = Some(globals::SyscomPendingProc {
-                    kind: globals::SyscomPendingProcKind::ReturnToMenu,
-                    warning: false,
-                    se_play: false,
-                    fade_out: false,
-                    leave_msgbk: false,
-                    save_id: 0,
-                });
-                self.globals.syscom.last_menu_call = kind;
-                self.close_syscom_menu();
-            }
-            syscom_op::END_GAME => {
-                self.globals.syscom.last_menu_call = kind;
-                self.globals.system.active_flag = false;
-                self.close_syscom_menu();
-            }
-            _ => {
-                self.globals.syscom.last_menu_call = kind;
-                self.close_syscom_menu();
-            }
-        }
-    }
-
-    fn handle_save_load_digit(&mut self, idx: usize) -> bool {
-        if let Some(kind) = self.globals.syscom.menu_kind {
-            if kind == syscom_op::CALL_SAVE_MENU {
-                syscom_form::menu_save_slot(self, false, idx);
-            } else if kind == syscom_op::CALL_LOAD_MENU {
-                syscom_form::menu_load_slot(self, false, idx);
-            } else if kind == syscom_op::QUICK_SAVE {
-                syscom_form::menu_save_slot(self, true, idx);
-            } else if kind == syscom_op::QUICK_LOAD {
-                syscom_form::menu_load_slot(self, true, idx);
-            } else {
-                return false;
-            }
-            self.globals.syscom.menu_result = Some(idx as i64);
-            self.globals.syscom.system_extra_int_value = idx as i64;
-            self.close_syscom_menu();
+        if self.globals.syscom.msg_back_slider_dragging {
+            let layout = self.build_msg_back_layout();
+            self.globals.syscom.msg_back_slider_pos = self
+                .globals
+                .syscom
+                .msg_back_slider_drag_start_pos
+                .saturating_add(self.input.mouse_y - self.globals.syscom.msg_back_slider_drag_start_mouse);
+            self.msg_back_update_pos_from_slider(&layout);
             return true;
+        }
+        if self.globals.syscom.msg_back_content_dragging {
+            let layout = self.build_msg_back_layout();
+            self.globals.syscom.msg_back_scroll_pos = self
+                .globals
+                .syscom
+                .msg_back_content_drag_start_scroll_pos
+                .saturating_sub(self.globals.syscom.msg_back_content_drag_start_mouse - self.input.mouse_y);
+            self.msg_back_update_pos_from_scroll(&layout);
+            return true;
+        }
+
+        let layout = self.build_msg_back_layout();
+        self.globals.syscom.msg_back_mouse_target_no = -1;
+        let window_pos = self.gameexe_pair_default("MSGBK.WINDOW_POS", (10, 10));
+        let window_size = self.gameexe_pair_default("MSGBK.WINDOW_SIZE", (780, 580));
+        let disp_margin = self.gameexe_rect_default("MSGBK.DISP_MARGIN", (20, 20, 20, 20));
+        let local_x = self.input.mouse_x.saturating_sub(window_pos.0 as i32);
+        let local_y = self.input.mouse_y.saturating_sub(window_pos.1 as i32);
+        let in_display_rect = local_x >= disp_margin.0 as i32
+            && local_x < window_size.0.max(1) as i32 - disp_margin.2 as i32
+            && local_y >= disp_margin.1 as i32
+            && local_y < window_size.1.max(1) as i32 - disp_margin.3 as i32;
+        if in_display_rect {
+            for entry in layout.entries.iter() {
+                let top = entry.total_pos.saturating_add(self.globals.syscom.msg_back_scroll_pos);
+                let bottom = top.saturating_add(entry.height);
+                if top <= local_y && local_y < bottom {
+                    self.globals.syscom.msg_back_mouse_target_no = entry.history_index as isize;
+                    break;
+                }
+            }
         }
         false
     }
 
-    fn menu_items(&mut self) -> Vec<MenuItem> {
-        syscom_menu_items(&mut self.globals.syscom, &self.project_dir)
+    fn msg_back_build_visible_text(&self, layout: &MsgBackLayout) -> (String, i32) {
+        if layout.entries.is_empty() {
+            return (String::new(), self.gameexe_rect_default("MSGBK.DISP_MARGIN", (20, 20, 20, 20)).1 as i32);
+        }
+        let window_size = self.gameexe_pair_default("MSGBK.WINDOW_SIZE", (780, 580));
+        let disp_margin = self.gameexe_rect_default("MSGBK.DISP_MARGIN", (20, 20, 20, 20));
+        let clip_top = disp_margin.1 as i32;
+        let clip_bottom = window_size.1.max(1) as i32 - disp_margin.3 as i32;
+        let scroll = self.globals.syscom.msg_back_scroll_pos;
+        let line_step = self.msg_back_line_step();
+        let mut first_idx = None;
+        let mut last_idx = None;
+        for (i, entry) in layout.entries.iter().enumerate() {
+            let top = entry.total_pos.saturating_add(scroll);
+            let bottom = top.saturating_add(entry.height);
+            if bottom > clip_top && top < clip_bottom {
+                if first_idx.is_none() {
+                    first_idx = Some(i);
+                }
+                last_idx = Some(i);
+            }
+        }
+        let Some(first) = first_idx else {
+            let target_no = self.globals.syscom.msg_back_target_no;
+            let entry = layout
+                .entries
+                .iter()
+                .find(|entry| entry.history_index as isize == target_no)
+                .unwrap_or_else(|| layout.entries.last().expect("layout is not empty"));
+            return (entry.text.clone(), entry.total_pos.saturating_add(scroll));
+        };
+        let last = last_idx.unwrap_or(first);
+        let mut text = String::new();
+        for i in first..=last {
+            let entry = &layout.entries[i];
+            if entry.text.is_empty() {
+                continue;
+            }
+            if !text.is_empty() {
+                let prev = &layout.entries[i - 1];
+                let gap = entry.total_pos - (prev.total_pos + prev.height);
+                let blank_lines = (gap / line_step).max(0) as usize;
+                for _ in 0..blank_lines {
+                    text.push('\n');
+                }
+            }
+            text.push_str(&entry.text);
+            if !text.ends_with('\n') {
+                text.push('\n');
+            }
+        }
+        (text, layout.entries[first].total_pos.saturating_add(scroll))
     }
 
-    fn menu_adjust(&mut self, dir: i32) {
-        let mut items = self.menu_items();
-        if items.is_empty() {
-            return;
+    fn build_msg_back_projection(&mut self) -> Option<ui::MsgBackUiProjection> {
+        if !self.globals.syscom.msg_back_open {
+            return None;
         }
-        let idx = self.globals.syscom.menu_cursor.min(items.len() - 1);
-        match items.get_mut(idx) {
-            Some(MenuItem::Int {
-                key,
-                min,
-                max,
-                step,
-                ..
-            }) => {
-                let cur = self
-                    .globals
-                    .syscom
-                    .config_int
-                    .get(key)
-                    .copied()
-                    .unwrap_or(*min as i64);
-                let next = (cur + (*step as i64 * dir as i64)).clamp(*min as i64, *max as i64);
-                self.globals.syscom.config_int.insert(*key, next);
-                if *key == GET_ALL_VOLUME
-                    || *key == GET_BGM_VOLUME
-                    || *key == GET_KOE_VOLUME
-                    || *key == GET_PCM_VOLUME
-                    || *key == GET_SE_VOLUME
-                    || *key == GET_MOV_VOLUME
-                    || *key == GET_BGMFADE_VOLUME
-                {
-                    syscom_form::apply_audio_config(self);
-                }
-            }
-            Some(MenuItem::Bool { key, .. }) => {
-                let cur = self
-                    .globals
-                    .syscom
-                    .config_int
-                    .get(key)
-                    .copied()
-                    .unwrap_or(0);
-                let next = if cur == 0 { 1 } else { 0 };
-                self.globals.syscom.config_int.insert(*key, next);
-                if *key == GET_ALL_ONOFF
-                    || *key == GET_BGM_ONOFF
-                    || *key == GET_KOE_ONOFF
-                    || *key == GET_PCM_ONOFF
-                    || *key == GET_SE_ONOFF
-                    || *key == GET_MOV_ONOFF
-                    || *key == GET_BGMFADE_ONOFF
-                {
-                    syscom_form::apply_audio_config(self);
-                }
-            }
-            Some(MenuItem::Action { kind, .. }) => {
-                self.activate_syscom_action(*kind);
-            }
-            Some(MenuItem::FontName) => {
-                let list = self.globals.syscom.font_list.clone();
-                if list.is_empty() {
-                    return;
-                }
-                let cur = self
-                    .globals
-                    .syscom
-                    .config_str
-                    .get(&GET_FONT_NAME)
-                    .cloned()
-                    .unwrap_or_default();
-                let mut pos = list.iter().position(|s| s == &cur).unwrap_or(0) as i32;
-                pos += dir;
-                if pos < 0 {
-                    pos = list.len() as i32 - 1;
-                }
-                let pos = (pos as usize) % list.len();
-                self.globals
-                    .syscom
-                    .config_str
-                    .insert(GET_FONT_NAME, list[pos].clone());
-            }
-            None => {}
+        let layout = self.build_msg_back_layout();
+        self.globals.syscom.msg_back_msg_total_height = layout.total_height;
+        if !self.globals.syscom.msg_back_proc_initialized {
+            self.msg_back_initialize_open_state(&layout);
+        } else {
+            self.msg_back_update_pos_from_scroll(&layout);
         }
+
+        let window_pos = self.gameexe_pair_default("MSGBK.WINDOW_POS", (10, 10));
+        let window_size = self.gameexe_pair_default("MSGBK.WINDOW_SIZE", (780, 580));
+        let disp_margin = self.gameexe_rect_default("MSGBK.DISP_MARGIN", (20, 20, 20, 20));
+        let filter_margin = self.gameexe_rect_default("MSGBK.FILTER_MARGIN", (0, 0, 0, 0));
+        let filter_rgba = self.gameexe_rgba_default("MSGBK.FILTER_COLOR", (0, 0, 0, 0));
+        let filter_config_rgba = self.syscom_filter_config_rgba();
+        let moji_space = self.gameexe_pair_default("MSGBK.MOJI_SPACE", (-1, 10));
+        let moji_size = self.gameexe_i64_default("MSGBK.MOJI_SIZE", 24).max(1);
+        let msg_pos = self.gameexe_i64_default("MSGBK.MESSAGE_POS", 30) as i32;
+        let order = self.gameexe_i64_default("MSGBK.ORDER", 10000) as i32;
+        let scroll = self.globals.syscom.msg_back_scroll_pos;
+        let (dl, dt, dr, db) = disp_margin;
+        let clip_top = dt as i32;
+        let clip_bottom = window_size.1.max(1) as i32 - db as i32;
+        let moji_cnt = self.gameexe_pair_default("MSGBK.MOJI_CNT", (20, 15));
+        let text_width = Self::msg_back_text_area_width(moji_cnt, moji_size as i32, moji_space) as u32;
+        let base_style = TextStyle {
+            color: self.gameexe_color(self.tables.mwnd_render.moji_color),
+            shadow_color: self.gameexe_color(self.tables.mwnd_render.shadow_color),
+            fuchi_color: self.gameexe_color(self.tables.mwnd_render.fuchi_color),
+            shadow: self.globals.script.font_shadow != 0,
+            fuchi: self.tables.mwnd_render.fuchi_color >= 0,
+            bold: self.globals.script.font_bold != 0,
+        };
+        let active_style = TextStyle {
+            color: self.gameexe_color(self.gameexe_i64_default("MSGBK.ACTIVE_MOJI_COLOR", 7)),
+            shadow_color: self.gameexe_color(self.gameexe_i64_default("MSGBK.ACTIVE_MOJI_SHADOW_COLOR", 0)),
+            fuchi_color: self.gameexe_color(self.gameexe_i64_default("MSGBK.ACTIVE_MOJI_FUCHI_COLOR", 0)),
+            shadow: self.globals.script.font_shadow != 0,
+            fuchi: self.gameexe_i64_default("MSGBK.ACTIVE_MOJI_FUCHI_COLOR", 0) >= 0,
+            bold: self.globals.script.font_bold != 0,
+        };
+        let debug_style = TextStyle {
+            color: self.gameexe_color(self.gameexe_i64_default("MSGBK.DEBUG_MOJI_COLOR", 5)),
+            shadow_color: self.gameexe_color(self.gameexe_i64_default("MSGBK.DEBUG_MOJI_SHADOW_COLOR", 0)),
+            fuchi_color: self.gameexe_color(self.gameexe_i64_default("MSGBK.DEBUG_MOJI_FUCHI_COLOR", 0)),
+            shadow: self.globals.script.font_shadow != 0,
+            fuchi: self.gameexe_i64_default("MSGBK.DEBUG_MOJI_FUCHI_COLOR", 0) >= 0,
+            bold: self.globals.script.font_bold != 0,
+        };
+
+        let koe_btn_file = self.gameexe_string("MSGBK_ITEM.KOE_BTN.FILE");
+        let koe_btn_pos = self.msg_back_button_pos("MSGBK_ITEM.KOE_BTN.POS", (-20, -10));
+        let load_btn_file = self.gameexe_string("MSGBK_ITEM.LOAD_BTN.FILE");
+        let load_btn_pos = self.msg_back_button_pos("MSGBK_ITEM.LOAD_BTN.POS", (-20, 0));
+
+        let mut text_entries = Vec::new();
+        let mut koe_buttons = Vec::new();
+        let mut load_buttons = Vec::new();
+        let separators = layout
+            .separators
+            .iter()
+            .filter_map(|sep| {
+                if sep.file.is_none() || sep.height <= 0 {
+                    return None;
+                }
+                let local_y = sep.total_pos.saturating_add(scroll);
+                let bottom = local_y.saturating_add(sep.height);
+                if bottom > clip_top && local_y < clip_bottom {
+                    Some(ui::MsgBackImageProjection {
+                        file: sep.file.clone(),
+                        x: 0,
+                        y: local_y,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+
+        if let Some(st) = self.msg_back_state() {
+            for layout_entry in layout.entries.iter() {
+                let Some(entry) = st.history.get(layout_entry.history_index) else {
+                    continue;
+                };
+                let local_y = layout_entry.total_pos.saturating_add(scroll);
+                let bottom = local_y.saturating_add(layout_entry.height);
+                let is_in_rect = bottom > clip_top && local_y < clip_bottom;
+                if is_in_rect && !layout_entry.text.is_empty() {
+                    let mut style = base_style;
+                    if self.globals.system.debug_flag
+                        && self.globals.syscom.msg_back_target_no == layout_entry.history_index as isize
+                    {
+                        style = debug_style;
+                    }
+                    if self.globals.syscom.msg_back_mouse_target_no == layout_entry.history_index as isize {
+                        style = active_style;
+                    }
+                    text_entries.push(ui::MsgBackTextProjection {
+                        history_index: layout_entry.history_index,
+                        text: layout_entry.text.clone(),
+                        x: msg_pos,
+                        y: local_y,
+                        width: text_width,
+                        height: layout_entry.height.max(1) as u32,
+                        style,
+                    });
+                }
+                if is_in_rect && entry.pct_flag {
+                    koe_buttons.push(ui::MsgBackEntryButtonProjection {
+                        history_index: layout_entry.history_index,
+                        file: Some(entry.msg_str.clone()),
+                        x: msg_pos.saturating_add(entry.pct_pos_x),
+                        y: local_y.saturating_add(entry.pct_pos_y),
+                    });
+                } else if is_in_rect && !entry.koe_no_list.is_empty() {
+                    koe_buttons.push(ui::MsgBackEntryButtonProjection {
+                        history_index: layout_entry.history_index,
+                        file: koe_btn_file.clone(),
+                        x: msg_pos.saturating_add(koe_btn_pos.0),
+                        y: local_y.saturating_add(koe_btn_pos.1),
+                    });
+                }
+                if is_in_rect && entry.save_id_check_flag {
+                    load_buttons.push(ui::MsgBackEntryButtonProjection {
+                        history_index: layout_entry.history_index,
+                        file: load_btn_file.clone(),
+                        x: msg_pos.saturating_add(load_btn_pos.0),
+                        y: local_y.saturating_add(load_btn_pos.1),
+                    });
+                }
+            }
+        }
+
+        let (slider_x, _slider_top, _slider_bottom) = self.msg_back_slider_track();
+        if std::env::var_os("SG_MSGBK_TRACE").is_some() {
+            eprintln!(
+                "[SG_MSGBK_TRACE][PROJECTION] entries={} separators={} text={} koe={} load={} total_height={} scroll={} slider={} target={} mouse_target={}",
+                layout.entries.len(),
+                layout.separators.len(),
+                text_entries.len(),
+                koe_buttons.len(),
+                load_buttons.len(),
+                layout.total_height,
+                self.globals.syscom.msg_back_scroll_pos,
+                self.globals.syscom.msg_back_slider_pos,
+                self.globals.syscom.msg_back_target_no,
+                self.globals.syscom.msg_back_mouse_target_no
+            );
+            for entry in &layout.entries {
+                eprintln!(
+                    "[SG_MSGBK_TRACE][LAYOUT] history_index={} total_pos={} height={} has_text={}",
+                    entry.history_index,
+                    entry.total_pos,
+                    entry.height,
+                    !entry.text.is_empty()
+                );
+            }
+            for sep in &layout.separators {
+                eprintln!(
+                    "[SG_MSGBK_TRACE][SEPARATOR] file={:?} total_pos={} height={}",
+                    sep.file,
+                    sep.total_pos,
+                    sep.height
+                );
+            }
+        }
+        Some(ui::MsgBackUiProjection {
+            window_x: window_pos.0 as i32,
+            window_y: window_pos.1 as i32,
+            window_w: window_size.0.max(1) as u32,
+            window_h: window_size.1.max(1) as u32,
+            disp_margin,
+            msg_pos,
+            moji_size,
+            moji_space: Some(moji_space),
+            order,
+            filter_layer_rep: self.tables.mwnd_render.filter_layer_rep as i32,
+            waku_layer_rep: self.tables.mwnd_render.waku_layer_rep as i32,
+            moji_layer_rep: self.tables.mwnd_render.moji_layer_rep as i32,
+            waku_file: self.gameexe_string("MSGBK.BACK_FILE"),
+            filter_file: self.gameexe_string("MSGBK.FILTER_FILE"),
+            filter_margin,
+            filter_rgba,
+            filter_config_rgba,
+            text_entries,
+            separators,
+            koe_buttons,
+            load_buttons,
+            close_btn_file: self.gameexe_string("MSGBK_ITEM.CLOSE_BTN.FILE"),
+            close_btn_pos: self.msg_back_button_pos("MSGBK_ITEM.CLOSE_BTN.POS", (0, 0)),
+            msg_up_btn_file: self.gameexe_string("MSGBK_ITEM.MSG_UP_BTN.FILE"),
+            msg_up_btn_pos: self.msg_back_button_pos("MSGBK_ITEM.MSG_UP_BTN.POS", (0, 0)),
+            msg_down_btn_file: self.gameexe_string("MSGBK_ITEM.MSG_DOWN_BTN.FILE"),
+            msg_down_btn_pos: self.msg_back_button_pos("MSGBK_ITEM.MSG_DOWN_BTN.POS", (0, 0)),
+            slider_file: self.gameexe_string("MSGBK_ITEM.SLIDER.FILE"),
+            slider_rect: (slider_x, self.msg_back_slider_track().1, slider_x, self.msg_back_slider_track().2),
+            slider_pos: (slider_x, self.globals.syscom.msg_back_slider_pos),
+            ex_btn_files: [
+                self.gameexe_string("MSGBK_ITEM.EX_BTN_1.FILE"),
+                self.gameexe_string("MSGBK_ITEM.EX_BTN_2.FILE"),
+                self.gameexe_string("MSGBK_ITEM.EX_BTN_3.FILE"),
+                self.gameexe_string("MSGBK_ITEM.EX_BTN_4.FILE"),
+            ],
+            ex_btn_pos: [
+                self.msg_back_button_pos("MSGBK_ITEM.EX_BTN_1.POS", (0, 0)),
+                self.msg_back_button_pos("MSGBK_ITEM.EX_BTN_2.POS", (0, 0)),
+                self.msg_back_button_pos("MSGBK_ITEM.EX_BTN_3.POS", (0, 0)),
+                self.msg_back_button_pos("MSGBK_ITEM.EX_BTN_4.POS", (0, 0)),
+            ],
+        })
     }
 
     fn sync_syscom_menu_ui(&mut self) {
+        self.ui.set_msg_back_projection(None);
+        self.ui.set_sys_overlay(false, String::new());
         if self.sync_system_messagebox_ui() {
             return;
         }
         if self.globals.syscom.msg_back_open {
-            let text = self.build_msg_back_overlay_text();
-            self.ui.set_sys_overlay(true, text);
+            let projection = self.build_msg_back_projection();
+            self.ui.set_msg_back_projection(projection);
             return;
         }
-        if !self.globals.syscom.menu_open {
-            if self.globals.selbtn.started {
-                let text = build_selbtn_menu_text(&self.globals.selbtn);
-                self.ui.set_sys_overlay(true, text);
-            } else {
-                self.ui.set_sys_overlay(false, String::new());
-            }
-            return;
+        if self.globals.syscom.menu_open {
+            log::error!("SYSCOM menu proc is not implemented; fake Rust text menu is disabled");
+            self.globals.syscom.menu_open = false;
+            self.globals.syscom.menu_kind = None;
+            self.globals.syscom.menu_result = None;
         }
-        let len = self.menu_items().len();
-        if len > 0 && self.globals.syscom.menu_cursor >= len {
-            self.globals.syscom.menu_cursor = 0;
-        }
-        let text = build_syscom_menu_text(&mut self.globals.syscom, &self.project_dir);
-        self.ui.set_sys_overlay(true, text);
     }
 
     fn handle_selbtn_key(&mut self, k: input::VmKey) -> bool {
@@ -3609,36 +4336,7 @@ impl CommandContext {
     }
 
     fn sync_mwnd_selection_ui(&mut self) {
-        if self.globals.syscom.menu_open || self.globals.syscom.msg_back_open {
-            return;
-        }
-        let text = if let Some((form_id, stage_idx, mwnd_idx)) = self.globals.focused_stage_mwnd {
-            self.globals
-                .stage_forms
-                .get(&form_id)
-                .and_then(|st| st.mwnd_lists.get(&stage_idx))
-                .and_then(|list| list.get(mwnd_idx))
-                .and_then(|m| m.selection.as_ref())
-                .map(|sel| {
-                    let mut lines = Vec::new();
-                    lines.push("Select".to_string());
-                    for (i, choice) in sel.choices.iter().enumerate() {
-                        let cursor = if i == sel.cursor { ">" } else { " " };
-                        lines.push(format!("{cursor} {}", choice.text));
-                    }
-                    if sel.cancel_enable {
-                        lines.push("[Esc] Cancel".to_string());
-                    }
-                    lines.join("\n")
-                })
-        } else {
-            None
-        };
-        if let Some(text) = text {
-            self.ui.set_sys_overlay(true, text);
-        } else {
-            self.ui.set_sys_overlay(false, String::new());
-        }
+        self.ui.set_sys_overlay(false, String::new());
     }
 
     fn sync_movie_objects(&mut self) {
@@ -4390,15 +5088,24 @@ fn sg_input_trace_enabled() -> bool {
 }
 
 fn sg_mwnd_object_trace_enabled() -> bool {
-    sg_debug_enabled()
+    matches!(
+        std::env::var("SG_MWND_OBJECT_TRACE").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
 }
 
 fn sg_render_tree_debug_enabled() -> bool {
-    sg_debug_enabled()
+    matches!(
+        std::env::var("SG_RENDER_TREE_DEBUG").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
 }
 
 fn config_button_trace_enabled() -> bool {
-    sg_debug_enabled()
+    matches!(
+        std::env::var("SG_CONFIG_BUTTON_TRACE").ok().as_deref(),
+        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
+    )
 }
 
 fn config_button_trace_object(obj: &globals::ObjectState) -> bool {
@@ -8422,6 +9129,149 @@ fn configure_sprite_3d(
     sprite.camera_view_angle_deg = 45.0;
 }
 
+
+fn object_motion_trace_enabled() -> bool {
+    std::env::var_os("SG_OBJECT_MOTION_TRACE").is_some()
+}
+
+fn object_motion_trace_object(obj: &globals::ObjectState) -> bool {
+    let Some(file_name) = obj.file_name.as_deref() else {
+        return false;
+    };
+    file_name
+        .rsplit(|c| c == '/' || c == '\\')
+        .next()
+        .map(|base| base.to_ascii_lowercase().starts_with("mp_"))
+        .unwrap_or(false)
+}
+
+fn object_motion_trace_bind(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    info: &ObjectRenderInfo,
+    obj: &globals::ObjectState,
+) -> Option<(LayerId, SpriteId)> {
+    match &obj.backend {
+        globals::ObjectBackend::Gfx => ctx
+            .gfx
+            .object_sprite_binding(stage_idx, info.runtime_slot as i64),
+        globals::ObjectBackend::Rect {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::String {
+            layer_id,
+            sprite_id,
+            ..
+        }
+        | globals::ObjectBackend::Movie {
+            layer_id,
+            sprite_id,
+            ..
+        } => Some((*layer_id, *sprite_id)),
+        globals::ObjectBackend::Number {
+            layer_id,
+            sprite_ids,
+        }
+        | globals::ObjectBackend::Weather {
+            layer_id,
+            sprite_ids,
+        } => sprite_ids.first().copied().map(|sid| (*layer_id, sid)),
+        globals::ObjectBackend::None => None,
+    }
+}
+
+fn object_motion_trace_emit(
+    ctx: &CommandContext,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    info: &ObjectRenderInfo,
+    parent_visible: bool,
+    visible: bool,
+    local_tr: i64,
+    total_order: i64,
+    total_layer: i64,
+    bound_len: usize,
+    bind_dbg: Option<(LayerId, SpriteId)>,
+    emitted: bool,
+    sprite: Option<&Sprite>,
+) {
+    let ev = &obj.runtime.prop_events;
+    let sprite_desc = sprite
+        .map(|s| {
+            format!(
+                "sprite_pos=({}, {}, {:.3}) sprite_order={} sprite_sorter=({}, {}) sprite_alpha={} sprite_tr={} image={:?}",
+                s.x,
+                s.y,
+                s.z,
+                s.order,
+                unpack_legacy_sorter_key(s.order).0,
+                unpack_legacy_sorter_key(s.order).1,
+                s.alpha,
+                s.tr,
+                s.image_id
+            )
+        })
+        .unwrap_or_else(|| "sprite_pos=(none) sprite_order=(none) sprite_sorter=(none) sprite_alpha=(none) sprite_tr=(none) image=None".to_string());
+    eprintln!(
+        "[SG_OBJECT_MOTION_TRACE][RENDER] frame={} stage={} obj_idx={} slot={} file={} used={} backend={:?} parent_visible={} visible={} emitted={} disp={} local=({}, {}, {}) rep=({}, {}, {}) center=({}, {}, {}) center_rep=({}, {}, {}) prop_final=({}, {}, {}) order={} layer={} total_order={} total_layer={} alpha={} tr={} tr_rep={} local_tr={} bound_len={} bind={:?} x_eve=active:{} total:{} value:{} time:{}/{} y_eve=active:{} total:{} value:{} time:{}/{} tr_eve=active:{} total:{} value:{} time:{}/{} {}",
+        ctx.globals.render_frame,
+        stage_idx,
+        obj_idx,
+        info.runtime_slot,
+        obj.file_name.as_deref().unwrap_or("-"),
+        obj.used,
+        obj.backend,
+        parent_visible,
+        visible,
+        emitted,
+        info.disp,
+        info.x,
+        info.y,
+        info.z,
+        info.x_rep,
+        info.y_rep,
+        info.z_rep,
+        info.center_x,
+        info.center_y,
+        info.center_z,
+        info.center_rep_x,
+        info.center_rep_y,
+        info.center_rep_z,
+        info.x + info.x_rep + info.center_rep_x,
+        info.y + info.y_rep + info.center_rep_y,
+        info.z + info.z_rep + info.center_rep_z,
+        info.order,
+        info.layer,
+        total_order,
+        total_layer,
+        info.alpha,
+        info.tr,
+        info.tr_rep,
+        local_tr,
+        bound_len,
+        bind_dbg,
+        ev.x.check_event(),
+        ev.x.get_total_value(),
+        ev.x.get_value(),
+        ev.x.cur_time,
+        ev.x.end_time,
+        ev.y.check_event(),
+        ev.y.get_total_value(),
+        ev.y.get_value(),
+        ev.y.cur_time,
+        ev.y.end_time,
+        ev.tr.check_event(),
+        ev.tr.get_total_value(),
+        ev.tr.get_value(),
+        ev.tr.cur_time,
+        ev.tr.end_time,
+        sprite_desc,
+    );
+}
+
 fn append_object_tree_sprites(
     ctx: &CommandContext,
     worlds: Option<&Vec<globals::WorldState>>,
@@ -8609,6 +9459,30 @@ fn append_object_tree_sprites(
     }
 
     let mut bound = fetch_bound_render_sprites(ctx, stage_idx, info.runtime_slot, obj);
+    let motion_trace = object_motion_trace_enabled() && object_motion_trace_object(obj);
+    let motion_bind_dbg = if motion_trace {
+        object_motion_trace_bind(ctx, stage_idx, &info, obj)
+    } else {
+        None
+    };
+    if motion_trace && (!visible || bound.is_empty()) {
+        object_motion_trace_emit(
+            ctx,
+            stage_idx,
+            obj_idx,
+            obj,
+            &info,
+            parent_visible,
+            visible,
+            local_tr,
+            total_order,
+            total_layer,
+            bound.len(),
+            motion_bind_dbg,
+            false,
+            None,
+        );
+    }
     if config_button_trace_enabled() && config_button_trace_object(obj) {
         let bind_dbg = match &obj.backend {
             globals::ObjectBackend::Gfx => ctx
@@ -8702,8 +9576,27 @@ fn append_object_tree_sprites(
                 finalize_object_center_rep_to_sprite(&mut rs.sprite, &info);
                 apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
                 apply_runtime_light_and_fog(ctx, &mut rs.sprite);
+                if motion_trace {
+                    object_motion_trace_emit(
+                        ctx,
+                        stage_idx,
+                        obj_idx,
+                        obj,
+                        &info,
+                        parent_visible,
+                        visible,
+                        local_tr,
+                        total_order,
+                        total_layer,
+                        bound.len(),
+                        motion_bind_dbg,
+                        rs.sprite.tr > 0,
+                        Some(&rs.sprite),
+                    );
+                }
             }
         } else {
+            let bound_len_for_trace = bound.len();
             for mut rs in bound.drain(..) {
                 apply_object_render_info_to_sprite(&mut rs.sprite, &info);
                 rs.set_sorter(total_order, total_layer);
@@ -8715,6 +9608,24 @@ fn append_object_tree_sprites(
                 finalize_object_center_rep_to_sprite(&mut rs.sprite, &info);
                 apply_world_camera_mode(&mut rs.sprite, worlds, ctx.screen_w, ctx.screen_h);
                 apply_runtime_light_and_fog(ctx, &mut rs.sprite);
+                if motion_trace {
+                    object_motion_trace_emit(
+                        ctx,
+                        stage_idx,
+                        obj_idx,
+                        obj,
+                        &info,
+                        parent_visible,
+                        visible,
+                        local_tr,
+                        total_order,
+                        total_layer,
+                        bound_len_for_trace,
+                        motion_bind_dbg,
+                        rs.sprite.tr > 0,
+                        Some(&rs.sprite),
+                    );
+                }
                 if rs.sprite.tr > 0 {
                     out.push(rs);
                 }
@@ -9265,7 +10176,9 @@ fn append_mwnd_embedded_sprites(
     object_keys: &mut HashSet<(LayerId, SpriteId)>,
     debug: &mut Vec<String>,
 ) {
-    if ctx.globals.script.mwnd_disp_off_flag || ctx.globals.syscom.hide_mwnd.onoff {
+    if ctx.globals.script.mwnd_disp_off_flag
+        || ctx.globals.syscom.hide_mwnd.onoff
+        || ctx.globals.syscom.msg_back_open {
         if config_button_trace_enabled() {
             debug.push(format!(
                 "[SG_DEBUG][CONFIG_BUTTON_TRACE][MWND_SKIP] stage={} reason=hidden script_off={} sys_hide={} open={} buttons={} objects={} waku={} filter={} pos={:?} size={:?}",
@@ -11588,500 +12501,6 @@ fn apply_wipe_mask_image(base: &RgbaImage, mask: &RgbaImage, threshold: f32) -> 
     }
 
     out
-}
-
-fn build_selbtn_menu_text(sel: &globals::BtnSelectRuntimeState) -> String {
-    let mut s = String::from(
-        "SELBTN
-Esc: cancel  Enter/Click: decide
-",
-    );
-    for (i, choice) in sel.choices.iter().enumerate() {
-        let mark = if i == sel.cursor { ">" } else { " " };
-        s.push_str(&format!(
-            "{} {}
-",
-            mark, choice.text
-        ));
-    }
-    if sel.choices.is_empty() {
-        s.push_str(
-            "  No choices
-",
-        );
-    }
-    s
-}
-
-fn build_syscom_menu_text(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path) -> String {
-    let kind = syscom.menu_kind.unwrap_or(syscom_op::CALL_SYSCOM_MENU);
-    match kind {
-        syscom_op::CALL_SAVE_MENU => {
-            build_save_slot_menu_text("SAVE MENU", &syscom.save_slots, false)
-        }
-        syscom_op::CALL_LOAD_MENU => {
-            build_save_slot_menu_text("LOAD MENU", &syscom.save_slots, true)
-        }
-        syscom_op::QUICK_SAVE => {
-            build_save_slot_menu_text("QUICK SAVE MENU", &syscom.quick_save_slots, false)
-        }
-        syscom_op::QUICK_LOAD => {
-            build_save_slot_menu_text("QUICK LOAD MENU", &syscom.quick_save_slots, true)
-        }
-        _ => {
-            ensure_font_list(syscom, project_dir);
-            let title = match kind {
-                syscom_op::CALL_SYSCOM_MENU => "SYSCOM MENU",
-                syscom_op::CALL_CONFIG_MENU => "CONFIG MENU",
-                syscom_op::CALL_CONFIG_WINDOW_MODE_MENU => "WINDOW MODE CONFIG",
-                syscom_op::CALL_CONFIG_VOLUME_MENU => "VOLUME CONFIG",
-                syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU => "MESSAGE SPEED CONFIG",
-                syscom_op::CALL_CONFIG_AUTO_MODE_MENU => "AUTO MODE CONFIG",
-                syscom_op::CALL_CONFIG_FILTER_COLOR_MENU => "FILTER COLOR CONFIG",
-                syscom_op::CALL_CONFIG_FONT_MENU => "FONT CONFIG",
-                syscom_op::CALL_CONFIG_MOVIE_MENU => "MOVIE CONFIG",
-                syscom_op::CALL_CONFIG_SYSTEM_MENU => "SYSTEM CONFIG",
-                syscom_op::CALL_CONFIG_BGMFADE_MENU => "BGM FADE CONFIG",
-                syscom_op::CALL_CONFIG_KOEMODE_MENU => "KOE MODE CONFIG",
-                syscom_op::CALL_CONFIG_CHARAKOE_MENU => "CHARA KOE CONFIG",
-                syscom_op::CALL_CONFIG_JITAN_MENU => "JITAN CONFIG",
-                _ => "MENU",
-            };
-            let items = syscom_menu_items(syscom, project_dir);
-            build_menu_text_from_items(title, syscom, &items)
-        }
-    }
-}
-
-fn build_save_slot_menu_text(title: &str, slots: &[globals::SaveSlotState], load: bool) -> String {
-    let action = if load { "load" } else { "save" };
-    let mut s = format!(
-        "{}\nPress 0-9 to {} slot\nEsc: close  Enter/Click: activate selected item\n",
-        title, action
-    );
-    for i in 0..10 {
-        let exist = slots.get(i).map(|v| v.exist).unwrap_or(false);
-        let slot_title = slots.get(i).map(|v| v.title.as_str()).unwrap_or("");
-        let used = if exist { "USED" } else { "EMPTY" };
-        if slot_title.is_empty() {
-            s.push_str(&format!("  Slot {}: {}\n", i, used));
-        } else {
-            s.push_str(&format!("  Slot {}: {} {}\n", i, used, slot_title));
-        }
-    }
-    s
-}
-
-#[derive(Clone)]
-enum MenuItem {
-    Action {
-        label: &'static str,
-        kind: i32,
-    },
-    Int {
-        label: &'static str,
-        key: i32,
-        min: i32,
-        max: i32,
-        step: i32,
-    },
-    Bool {
-        label: &'static str,
-        key: i32,
-    },
-    FontName,
-}
-
-const GET_WINDOW_MODE: i32 = syscom_op::GET_WINDOW_MODE;
-const GET_WINDOW_MODE_SIZE: i32 = syscom_op::GET_WINDOW_MODE_SIZE;
-const GET_ALL_VOLUME: i32 = syscom_op::GET_ALL_VOLUME;
-const GET_BGM_VOLUME: i32 = syscom_op::GET_BGM_VOLUME;
-const GET_KOE_VOLUME: i32 = syscom_op::GET_KOE_VOLUME;
-const GET_PCM_VOLUME: i32 = syscom_op::GET_PCM_VOLUME;
-const GET_SE_VOLUME: i32 = syscom_op::GET_SE_VOLUME;
-const GET_MOV_VOLUME: i32 = syscom_op::GET_MOV_VOLUME;
-const GET_MOV_ONOFF: i32 = syscom_op::GET_MOV_ONOFF;
-const GET_ALL_ONOFF: i32 = syscom_op::GET_ALL_ONOFF;
-const GET_BGM_ONOFF: i32 = syscom_op::GET_BGM_ONOFF;
-const GET_KOE_ONOFF: i32 = syscom_op::GET_KOE_ONOFF;
-const GET_PCM_ONOFF: i32 = syscom_op::GET_PCM_ONOFF;
-const GET_SE_ONOFF: i32 = syscom_op::GET_SE_ONOFF;
-const GET_MESSAGE_SPEED: i32 = syscom_op::GET_MESSAGE_SPEED;
-const GET_AUTO_MODE_MOJI_WAIT: i32 = syscom_op::GET_AUTO_MODE_MOJI_WAIT;
-const GET_AUTO_MODE_MIN_WAIT: i32 = syscom_op::GET_AUTO_MODE_MIN_WAIT;
-const GET_FILTER_COLOR_R: i32 = syscom_op::GET_FILTER_COLOR_R;
-const GET_FILTER_COLOR_G: i32 = syscom_op::GET_FILTER_COLOR_G;
-const GET_FILTER_COLOR_B: i32 = syscom_op::GET_FILTER_COLOR_B;
-const GET_FILTER_COLOR_A: i32 = syscom_op::GET_FILTER_COLOR_A;
-const GET_NO_WIPE_ANIME_ONOFF: i32 = syscom_op::GET_NO_WIPE_ANIME_ONOFF;
-const GET_SKIP_WIPE_ANIME_ONOFF: i32 = syscom_op::GET_SKIP_WIPE_ANIME_ONOFF;
-const GET_WHEEL_NEXT_MESSAGE_ONOFF: i32 = syscom_op::GET_WHEEL_NEXT_MESSAGE_ONOFF;
-const GET_KOE_DONT_STOP_ONOFF: i32 = syscom_op::GET_KOE_DONT_STOP_ONOFF;
-const GET_SKIP_UNREAD_MESSAGE_ONOFF: i32 = syscom_op::GET_SKIP_UNREAD_MESSAGE_ONOFF;
-const GET_PLAY_SILENT_SOUND_ONOFF: i32 = syscom_op::GET_PLAY_SILENT_SOUND_ONOFF;
-const GET_FONT_NAME: i32 = syscom_op::GET_FONT_NAME;
-const GET_BGMFADE_VOLUME: i32 = syscom_op::GET_BGMFADE_VOLUME;
-const GET_BGMFADE_ONOFF: i32 = syscom_op::GET_BGMFADE_ONOFF;
-const GET_KOEMODE: i32 = syscom_op::GET_KOEMODE;
-const GET_CHARAKOE_ONOFF: i32 = syscom_op::GET_CHARAKOE_ONOFF;
-const GET_CHARAKOE_VOLUME: i32 = syscom_op::GET_CHARAKOE_VOLUME;
-const GET_JITAN_NORMAL_ONOFF: i32 = syscom_op::GET_JITAN_NORMAL_ONOFF;
-const GET_JITAN_AUTO_MODE_ONOFF: i32 = syscom_op::GET_JITAN_AUTO_MODE_ONOFF;
-const GET_JITAN_KOE_REPLAY_ONOFF: i32 = syscom_op::GET_JITAN_KOE_REPLAY_ONOFF;
-const GET_JITAN_SPEED: i32 = syscom_op::GET_JITAN_SPEED;
-
-fn syscom_menu_items(
-    syscom: &mut globals::SyscomRuntimeState,
-    project_dir: &Path,
-) -> Vec<MenuItem> {
-    let kind = syscom.menu_kind.unwrap_or(syscom_op::CALL_SYSCOM_MENU);
-    match kind {
-        syscom_op::CALL_SYSCOM_MENU => vec![
-            MenuItem::Action {
-                label: "SAVE",
-                kind: syscom_op::CALL_SAVE_MENU,
-            },
-            MenuItem::Action {
-                label: "LOAD",
-                kind: syscom_op::CALL_LOAD_MENU,
-            },
-            MenuItem::Action {
-                label: "CONFIG",
-                kind: syscom_op::CALL_CONFIG_MENU,
-            },
-            MenuItem::Action {
-                label: "MESSAGE BACK",
-                kind: syscom_op::OPEN_MSG_BACK,
-            },
-            MenuItem::Action {
-                label: "RETURN TO SELECT",
-                kind: syscom_op::RETURN_TO_SEL,
-            },
-            MenuItem::Action {
-                label: "RETURN TO MENU",
-                kind: syscom_op::RETURN_TO_MENU,
-            },
-            MenuItem::Action {
-                label: "END GAME",
-                kind: syscom_op::END_GAME,
-            },
-        ],
-        syscom_op::CALL_CONFIG_MENU => vec![
-            MenuItem::Action {
-                label: "WINDOW MODE",
-                kind: syscom_op::CALL_CONFIG_WINDOW_MODE_MENU,
-            },
-            MenuItem::Action {
-                label: "VOLUME",
-                kind: syscom_op::CALL_CONFIG_VOLUME_MENU,
-            },
-            MenuItem::Action {
-                label: "BGM FADE",
-                kind: syscom_op::CALL_CONFIG_BGMFADE_MENU,
-            },
-            MenuItem::Action {
-                label: "KOE MODE",
-                kind: syscom_op::CALL_CONFIG_KOEMODE_MENU,
-            },
-            MenuItem::Action {
-                label: "CHARA KOE",
-                kind: syscom_op::CALL_CONFIG_CHARAKOE_MENU,
-            },
-            MenuItem::Action {
-                label: "JITAN",
-                kind: syscom_op::CALL_CONFIG_JITAN_MENU,
-            },
-            MenuItem::Action {
-                label: "MESSAGE SPEED",
-                kind: syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU,
-            },
-            MenuItem::Action {
-                label: "AUTO MODE",
-                kind: syscom_op::CALL_CONFIG_AUTO_MODE_MENU,
-            },
-            MenuItem::Action {
-                label: "FILTER COLOR",
-                kind: syscom_op::CALL_CONFIG_FILTER_COLOR_MENU,
-            },
-            MenuItem::Action {
-                label: "FONT",
-                kind: syscom_op::CALL_CONFIG_FONT_MENU,
-            },
-            MenuItem::Action {
-                label: "MOVIE",
-                kind: syscom_op::CALL_CONFIG_MOVIE_MENU,
-            },
-            MenuItem::Action {
-                label: "SYSTEM",
-                kind: syscom_op::CALL_CONFIG_SYSTEM_MENU,
-            },
-        ],
-        syscom_op::CALL_CONFIG_WINDOW_MODE_MENU => vec![
-            MenuItem::Bool {
-                label: "WINDOW_MODE",
-                key: GET_WINDOW_MODE,
-            },
-            MenuItem::Int {
-                label: "WINDOW_SIZE",
-                key: GET_WINDOW_MODE_SIZE,
-                min: 0,
-                max: 7,
-                step: 1,
-            },
-        ],
-        syscom_op::CALL_CONFIG_VOLUME_MENU => vec![
-            MenuItem::Int {
-                label: "ALL_VOL",
-                key: GET_ALL_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "BGM_VOL",
-                key: GET_BGM_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "KOE_VOL",
-                key: GET_KOE_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "PCM_VOL",
-                key: GET_PCM_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "SE_VOL",
-                key: GET_SE_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Bool {
-                label: "ALL_ONOFF",
-                key: GET_ALL_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "BGM_ONOFF",
-                key: GET_BGM_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "KOE_ONOFF",
-                key: GET_KOE_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "PCM_ONOFF",
-                key: GET_PCM_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "SE_ONOFF",
-                key: GET_SE_ONOFF,
-            },
-        ],
-        syscom_op::CALL_CONFIG_BGMFADE_MENU => vec![
-            MenuItem::Int {
-                label: "BGMFADE_VOL",
-                key: GET_BGMFADE_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Bool {
-                label: "BGMFADE_ONOFF",
-                key: GET_BGMFADE_ONOFF,
-            },
-        ],
-        syscom_op::CALL_CONFIG_KOEMODE_MENU => vec![MenuItem::Int {
-            label: "KOEMODE",
-            key: GET_KOEMODE,
-            min: 0,
-            max: 2,
-            step: 1,
-        }],
-        syscom_op::CALL_CONFIG_CHARAKOE_MENU => vec![
-            MenuItem::Bool {
-                label: "CHARAKOE_ONOFF",
-                key: GET_CHARAKOE_ONOFF,
-            },
-            MenuItem::Int {
-                label: "CHARAKOE_VOL",
-                key: GET_CHARAKOE_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-        ],
-        syscom_op::CALL_CONFIG_JITAN_MENU => vec![
-            MenuItem::Bool {
-                label: "JITAN_NORMAL",
-                key: GET_JITAN_NORMAL_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "JITAN_AUTO",
-                key: GET_JITAN_AUTO_MODE_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "JITAN_KOE_REPLAY",
-                key: GET_JITAN_KOE_REPLAY_ONOFF,
-            },
-            MenuItem::Int {
-                label: "JITAN_SPEED",
-                key: GET_JITAN_SPEED,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-        ],
-        syscom_op::CALL_CONFIG_MESSAGE_SPEED_MENU => vec![MenuItem::Int {
-            label: "MSG_SPEED",
-            key: GET_MESSAGE_SPEED,
-            min: 0,
-            max: 100,
-            step: 5,
-        }],
-        syscom_op::CALL_CONFIG_AUTO_MODE_MENU => vec![
-            MenuItem::Int {
-                label: "AUTO_MOJI_WAIT",
-                key: GET_AUTO_MODE_MOJI_WAIT,
-                min: 0,
-                max: 300,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "AUTO_MIN_WAIT",
-                key: GET_AUTO_MODE_MIN_WAIT,
-                min: 0,
-                max: 10000,
-                step: 100,
-            },
-        ],
-        syscom_op::CALL_CONFIG_FILTER_COLOR_MENU => vec![
-            MenuItem::Int {
-                label: "FILTER_R",
-                key: GET_FILTER_COLOR_R,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_G",
-                key: GET_FILTER_COLOR_G,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_B",
-                key: GET_FILTER_COLOR_B,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-            MenuItem::Int {
-                label: "FILTER_A",
-                key: GET_FILTER_COLOR_A,
-                min: 0,
-                max: 255,
-                step: 5,
-            },
-        ],
-        syscom_op::CALL_CONFIG_FONT_MENU => {
-            ensure_font_list(syscom, project_dir);
-            vec![MenuItem::FontName]
-        }
-        syscom_op::CALL_CONFIG_MOVIE_MENU => vec![
-            MenuItem::Int {
-                label: "MOV_VOL",
-                key: GET_MOV_VOLUME,
-                min: 0,
-                max: 100,
-                step: 5,
-            },
-            MenuItem::Bool {
-                label: "MOV_ONOFF",
-                key: GET_MOV_ONOFF,
-            },
-        ],
-        syscom_op::CALL_CONFIG_SYSTEM_MENU => vec![
-            MenuItem::Bool {
-                label: "NO_WIPE",
-                key: GET_NO_WIPE_ANIME_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "SKIP_WIPE",
-                key: GET_SKIP_WIPE_ANIME_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "WHEEL_NEXT",
-                key: GET_WHEEL_NEXT_MESSAGE_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "KOE_DONT_STOP",
-                key: GET_KOE_DONT_STOP_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "SKIP_UNREAD",
-                key: GET_SKIP_UNREAD_MESSAGE_ONOFF,
-            },
-            MenuItem::Bool {
-                label: "PLAY_SILENT",
-                key: GET_PLAY_SILENT_SOUND_ONOFF,
-            },
-        ],
-        _ => Vec::new(),
-    }
-}
-
-fn build_menu_text_from_items(
-    title: &str,
-    syscom: &globals::SyscomRuntimeState,
-    items: &[MenuItem],
-) -> String {
-    let mut s = format!(
-        "{}\nEsc: close  Enter/Click: activate  Left/Right: change\n",
-        title
-    );
-    for (i, item) in items.iter().enumerate() {
-        let mark = if i == syscom.menu_cursor { ">" } else { " " };
-        match item {
-            MenuItem::Action { label, .. } => {
-                s.push_str(&format!("{} {}\n", mark, label));
-            }
-            MenuItem::Int { label, key, .. } => {
-                let v = syscom.config_int.get(key).copied().unwrap_or(0);
-                s.push_str(&format!("{} {} = {}\n", mark, label, v));
-            }
-            MenuItem::Bool { label, key } => {
-                let v = syscom.config_int.get(key).copied().unwrap_or(0);
-                s.push_str(&format!(
-                    "{} {} = {}\n",
-                    mark,
-                    label,
-                    if v == 0 { "OFF" } else { "ON" }
-                ));
-            }
-            MenuItem::FontName => {
-                let v = syscom
-                    .config_str
-                    .get(&GET_FONT_NAME)
-                    .map(|s| s.as_str())
-                    .unwrap_or("");
-                s.push_str(&format!("{} FONT = {}\n", mark, v));
-            }
-        }
-    }
-    if items.is_empty() {
-        s.push_str("  No in-engine menu items are available for this system page.\n");
-    }
-    s
 }
 
 fn ensure_font_list(syscom: &mut globals::SyscomRuntimeState, project_dir: &Path) {

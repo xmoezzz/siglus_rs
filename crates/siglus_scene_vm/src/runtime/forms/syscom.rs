@@ -41,6 +41,20 @@ fn sg_debug_enabled_local() -> bool {
     std::env::var_os("SG_DEBUG").is_some()
 }
 
+fn set_syscom_pending_proc(ctx: &mut CommandContext, kind: SyscomPendingProcKind) {
+    ctx.globals.syscom.pending_proc = Some(SyscomPendingProc {
+        kind,
+        warning: false,
+        se_play: false,
+        fade_out: false,
+        leave_msgbk: false,
+        save_id: 0,
+    });
+    ctx.globals.syscom.menu_open = false;
+    ctx.globals.syscom.menu_kind = None;
+    ctx.globals.syscom.menu_result = None;
+}
+
 fn gameexe_unquoted_owned(ctx: &CommandContext, key: &str) -> String {
     ctx.tables
         .gameexe
@@ -48,6 +62,34 @@ fn gameexe_unquoted_owned(ctx: &CommandContext, key: &str) -> String {
         .and_then(|cfg| cfg.get_unquoted(key))
         .unwrap_or("")
         .to_string()
+}
+
+fn parse_i64_list_local(raw: &str) -> Vec<i64> {
+    raw.split(|c: char| c == ',' || c.is_whitespace())
+        .filter_map(|part| {
+            let t = part.trim();
+            if t.is_empty() {
+                None
+            } else {
+                t.parse::<i64>().ok()
+            }
+        })
+        .collect()
+}
+
+fn config_filter_color_default(ctx: &CommandContext) -> (i64, i64, i64, i64) {
+    let raw = gameexe_unquoted_owned(ctx, "CONFIG.FILTER_COLOR");
+    let vals = parse_i64_list_local(&raw);
+    if vals.len() >= 4 {
+        (
+            vals[0].clamp(0, 255),
+            vals[1].clamp(0, 255),
+            vals[2].clamp(0, 255),
+            vals[3].clamp(0, 255),
+        )
+    } else {
+        (0, 0, 0, 128)
+    }
 }
 
 fn get_toggle_get(op: i32, st: &crate::runtime::globals::SyscomRuntimeState) -> Option<i64> {
@@ -847,35 +889,13 @@ fn write_msg_back(ctx: &CommandContext) {
     let _ = std::fs::write(path, out);
 }
 
-fn msg_back_has_visible_history(ctx: &CommandContext) -> bool {
-    let form_id = ctx.ids.form_global_msgbk;
-    if form_id == 0 {
+fn open_msg_back_proc(ctx: &mut CommandContext) -> bool {
+    if ctx.globals.script.msg_back_disable || ctx.globals.syscom.msg_back.check_enabled() == 0 {
         return false;
-    }
-    ctx.globals
-        .msgbk_forms
-        .get(&form_id)
-        .map(|st| {
-            st.history.iter().any(|entry| {
-                entry.pct_flag
-                    || !entry.msg_str.is_empty()
-                    || !entry.disp_name.is_empty()
-                    || !entry.original_name.is_empty()
-                    || !entry.koe_no_list.is_empty()
-            })
-        })
-        .unwrap_or(false)
-}
-
-fn open_msg_back_proc(ctx: &mut CommandContext) {
-    if ctx.globals.script.msg_back_disable
-        || ctx.globals.syscom.msg_back.check_enabled() == 0
-        || !msg_back_has_visible_history(ctx)
-    {
-        return;
     }
     ctx.globals.syscom.read_skip.onoff = false;
     ctx.globals.syscom.msg_back_open = true;
+    ctx.globals.syscom.msg_back_proc_initialized = false;
     let form_id = ctx.ids.form_global_msgbk;
     let count = ctx
         .globals
@@ -895,6 +915,8 @@ fn open_msg_back_proc(ctx: &mut CommandContext) {
         })
         .unwrap_or(0);
     ctx.globals.syscom.msg_back_view_pos = count.saturating_sub(1);
+    ctx.globals.syscom.msg_back_target_no = count as isize - 1;
+    true
 }
 
 fn configured_save_count(ctx: &CommandContext, quick: bool) -> usize {
@@ -1144,12 +1166,19 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             return Ok(false);
         }
         CALL_SYSCOM_MENU => {
-            ctx.globals.syscom.menu_open = true;
-            ctx.globals.syscom.menu_kind = Some(CALL_SYSCOM_MENU);
+            ctx.globals.syscom.menu_open = false;
+            ctx.globals.syscom.menu_kind = None;
             ctx.globals.syscom.menu_result = None;
-            ctx.globals.syscom.menu_cursor = 0;
+            ctx.globals.syscom.read_skip.onoff = false;
+            ctx.globals.syscom.pending_proc = Some(SyscomPendingProc {
+                kind: SyscomPendingProcKind::OpenSyscomMenu,
+                warning: false,
+                se_play: false,
+                fade_out: false,
+                leave_msgbk: false,
+                save_id: 0,
+            });
             ctx.globals.syscom.last_menu_call = CALL_SYSCOM_MENU;
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         SET_SYSCOM_MENU_ENABLE => ctx.globals.syscom.syscom_menu_disable = false,
@@ -1212,11 +1241,21 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         SET_LOCAL_EXTRA_MODE_VALUE => ctx.globals.syscom.local_extra_mode.value = p_i64(params, 0),
         OPEN_MSG_BACK => {
-            open_msg_back_proc(ctx);
+            if open_msg_back_proc(ctx) {
+                ctx.globals.syscom.pending_proc = Some(SyscomPendingProc {
+                    kind: SyscomPendingProcKind::MsgBack,
+                    warning: false,
+                    se_play: false,
+                    fade_out: false,
+                    leave_msgbk: false,
+                    save_id: 0,
+                });
+            }
             ctx.globals.syscom.last_menu_call = OPEN_MSG_BACK;
         }
         CLOSE_MSG_BACK => {
             ctx.globals.syscom.msg_back_open = false;
+            ctx.globals.syscom.msg_back_proc_initialized = false;
             ctx.globals.syscom.last_menu_call = CLOSE_MSG_BACK;
         }
         RETURN_TO_SEL => {
@@ -1291,21 +1330,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         SET_TOTAL_PLAY_TIME => ctx.globals.syscom.total_play_time = p_i64(params, 0),
         CALL_SAVE_MENU => {
-            ctx.globals.syscom.menu_open = true;
-            ctx.globals.syscom.menu_kind = Some(CALL_SAVE_MENU);
-            ctx.globals.syscom.menu_result = None;
-            ctx.globals.syscom.menu_cursor = 0;
+            set_syscom_pending_proc(ctx, SyscomPendingProcKind::OpenSave);
             ctx.globals.syscom.last_menu_call = CALL_SAVE_MENU;
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         CALL_LOAD_MENU => {
-            ctx.globals.syscom.menu_open = true;
-            ctx.globals.syscom.menu_kind = Some(CALL_LOAD_MENU);
-            ctx.globals.syscom.menu_result = None;
-            ctx.globals.syscom.menu_cursor = 0;
+            set_syscom_pending_proc(ctx, SyscomPendingProcKind::OpenLoad);
             ctx.globals.syscom.last_menu_call = CALL_LOAD_MENU;
-            ctx.push(Value::Int(0));
             return Ok(true);
         }
         SAVE => {
@@ -1837,10 +1868,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         | CALL_CONFIG_FONT_MENU
         | CALL_CONFIG_SYSTEM_MENU
         | CALL_CONFIG_MOVIE_MENU => {
-            ctx.globals.syscom.menu_open = true;
-            ctx.globals.syscom.menu_kind = Some(op);
-            ctx.globals.syscom.menu_result = None;
-            ctx.globals.syscom.menu_cursor = 0;
+            set_syscom_pending_proc(ctx, SyscomPendingProcKind::OpenConfig);
             ctx.globals.syscom.last_menu_call = op;
         }
         SET_WINDOW_MODE => cfg_set_int(&mut ctx.globals.syscom, GET_WINDOW_MODE, p_i64(params, 0)),
@@ -2211,12 +2239,32 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             GET_FILTER_COLOR_A,
             p_i64(params, 0),
         ),
-        SET_FILTER_COLOR_R_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_R, 0),
-        SET_FILTER_COLOR_G_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_G, 0),
-        SET_FILTER_COLOR_B_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_B, 0),
-        SET_FILTER_COLOR_A_DEFAULT => cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_A, 0),
+        SET_FILTER_COLOR_R_DEFAULT => {
+            let (r, _, _, _) = config_filter_color_default(ctx);
+            cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_R, r)
+        }
+        SET_FILTER_COLOR_G_DEFAULT => {
+            let (_, g, _, _) = config_filter_color_default(ctx);
+            cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_G, g)
+        }
+        SET_FILTER_COLOR_B_DEFAULT => {
+            let (_, _, b, _) = config_filter_color_default(ctx);
+            cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_B, b)
+        }
+        SET_FILTER_COLOR_A_DEFAULT => {
+            let (_, _, _, a) = config_filter_color_default(ctx);
+            cfg_set_int(&mut ctx.globals.syscom, GET_FILTER_COLOR_A, a)
+        }
         GET_FILTER_COLOR_R | GET_FILTER_COLOR_G | GET_FILTER_COLOR_B | GET_FILTER_COLOR_A => {
-            let v = cfg_get_int(&ctx.globals.syscom, op, 0);
+            let (r, g, b, a) = config_filter_color_default(ctx);
+            let default = match op {
+                GET_FILTER_COLOR_R => r,
+                GET_FILTER_COLOR_G => g,
+                GET_FILTER_COLOR_B => b,
+                GET_FILTER_COLOR_A => a,
+                _ => 0,
+            };
+            let v = cfg_get_int(&ctx.globals.syscom, op, default);
             ctx.push(Value::Int(v));
             return Ok(true);
         }

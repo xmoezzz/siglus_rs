@@ -1188,9 +1188,14 @@ pub fn dispatch_global_form(
             return Ok(true);
         }
     }
-    if form_id == 6 || form_id == 96 {
+    if form_id == constants::elm_value::GLOBAL_DISP as u32 {
         ctx.wait.wait_next_frame(ctx.globals.render_frame);
         ctx.request_disp_proc_boundary();
+        return Ok(true);
+    }
+    if form_id == constants::elm_value::GLOBAL_FRAME as u32 {
+        ctx.wait.wait_next_frame(ctx.globals.render_frame);
+        ctx.request_proc_boundary(crate::runtime::ProcKind::Frame);
         return Ok(true);
     }
     if form_id == constants::elm_value::GLOBAL_SET_MWND as u32

@@ -197,8 +197,28 @@ impl FontCache {
         moji_space: Option<(i64, i64)>,
         style: TextStyle,
     ) -> Option<ImageId> {
+        self.render_mwnd_text_styled_into(images, None, text, font_px, max_w, max_h, moji_space, style)
+    }
+
+    pub fn render_mwnd_text_styled_into(
+        &self,
+        images: &mut ImageManager,
+        target: Option<ImageId>,
+        text: &str,
+        font_px: f32,
+        max_w: u32,
+        max_h: u32,
+        moji_space: Option<(i64, i64)>,
+        style: TextStyle,
+    ) -> Option<ImageId> {
         let img = self.render_mwnd_text_rgba_styled(text, font_px, max_w, max_h, moji_space, style)?;
-        Some(images.insert_image(img))
+        match target {
+            Some(id) => {
+                images.replace_image(id, img).ok()?;
+                Some(id)
+            }
+            None => Some(images.insert_image(img)),
+        }
     }
 
     pub fn render_text_into(
