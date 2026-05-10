@@ -20,6 +20,25 @@ use winit::window::{Window, WindowAttributes, WindowId};
 use crate::render::Renderer;
 use crate::runtime::native_ui::{NativeMessageBoxRequest, NativeUiBackend};
 
+fn configure_egui_default_font(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        "siglus_default".to_string(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/default.ttf")).into(),
+    );
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, "siglus_default".to_string());
+    fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default()
+        .insert(0, "siglus_default".to_string());
+    ctx.set_fonts(fonts);
+}
+
 #[derive(Clone, Default)]
 pub struct DesktopMessageBoxBridge {
     queue: Arc<Mutex<VecDeque<NativeMessageBoxRequest>>>,
@@ -103,6 +122,8 @@ impl DesktopMessageBoxWindow {
         let window: &'static Window = Box::leak(Box::new(window));
         let renderer = pollster::block_on(Renderer::new(window)).context("messagebox renderer init")?;
         let egui_renderer = EguiRenderer::new(&renderer.device, renderer.config.format, None, 1);
+        let egui_ctx = egui::Context::default();
+        configure_egui_default_font(&egui_ctx);
         let selected = request.buttons.len().saturating_sub(1).min(1);
         window.request_redraw();
         Ok(Self {
@@ -111,7 +132,7 @@ impl DesktopMessageBoxWindow {
             window,
             renderer,
             egui_renderer,
-            egui_ctx: egui::Context::default(),
+            egui_ctx,
             start_time: Instant::now(),
             selected,
             cursor_pos: None,
