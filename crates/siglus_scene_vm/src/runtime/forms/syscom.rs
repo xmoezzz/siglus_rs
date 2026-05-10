@@ -1297,8 +1297,16 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             ctx.globals.syscom.menu_open = false;
         }
         END_GAME => {
+            ctx.globals.syscom.pending_proc = Some(SyscomPendingProc {
+                kind: SyscomPendingProcKind::EndGame,
+                warning: p_bool(params, 0),
+                se_play: p_bool(params, 1),
+                fade_out: p_bool(params, 2),
+                leave_msgbk: false,
+                save_id: 0,
+            });
             ctx.globals.syscom.last_menu_call = END_GAME;
-            ctx.globals.system.active_flag = false;
+            ctx.globals.syscom.menu_open = false;
         }
         REPLAY_KOE => ctx.globals.syscom.replay_koe = Some((p_i64(params, 0), p_i64(params, 1))),
         CHECK_REPLAY_KOE => {

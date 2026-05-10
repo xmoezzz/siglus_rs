@@ -3723,37 +3723,118 @@ fn update_number_backend(ctx: &mut CommandContext, obj: &mut ObjectState) {
     }
 }
 
-fn string_layout(obj: &ObjectState) -> (u32, u32, u32) {
-    let font_px = obj.string_param.moji_size.max(0) as u32;
-    let font_px = if font_px == 0 { 26 } else { font_px };
-
-    let max_chars = obj.string_param.moji_cnt.max(0) as u32;
-    let max_chars = if max_chars == 0 { 40 } else { max_chars };
-
-    let max_w = (font_px.saturating_mul(max_chars)).max(font_px * 4);
-
-    let text = obj.string_value.as_deref().unwrap_or("");
-    let mut line_cnt = 1u32;
-    if !text.is_empty() {
-        let mut cur = 0u32;
-        line_cnt = 0;
-        for ch in text.chars() {
-            if ch == '\n' {
-                line_cnt += 1;
-                cur = 0;
-                continue;
-            }
-            cur += 1;
-            if cur >= max_chars {
-                line_cnt += 1;
-                cur = 0;
-            }
+fn object_string_display_text(src: &str) -> String {
+    let mut out = String::new();
+    let mut it = src.chars().peekable();
+    while let Some(ch) = it.next() {
+        if ch != '#' {
+            out.push(ch);
+            continue;
         }
-        line_cnt += 1;
+        match it.peek().copied() {
+            Some('#') => {
+                it.next();
+                out.push('#');
+            }
+            Some('D') => {
+                it.next();
+                out.push('\n');
+            }
+            Some(c) if c.is_ascii_digit() || c == '-' || c == '+' => {
+                while matches!(it.peek().copied(), Some(c) if c.is_ascii_digit() || c == '-' || c == '+') {
+                    it.next();
+                }
+                match it.peek().copied() {
+                    Some('C') | Some('S') | Some('X') | Some('Y') => {
+                        it.next();
+                    }
+                    Some('R') => {
+                        it.next();
+                        if matches!(it.peek().copied(), Some('X') | Some('Y')) {
+                            it.next();
+                        }
+                    }
+                    _ => out.push('#'),
+                }
+            }
+            _ => out.push('#'),
+        }
     }
-    let line_h = (font_px * 8 / 7).max(font_px);
-    let max_h = (line_cnt.max(1)).saturating_mul(line_h).max(line_h * 2);
+    out
+}
+
+fn string_layout(obj: &ObjectState, text: &str) -> (u32, u32, u32) {
+    let font_px = obj.string_param.moji_size.max(1) as u32;
+    let space_x = obj.string_param.moji_space_x as i32;
+    let space_y = obj.string_param.moji_space_y as i32;
+    let max_chars = obj.string_param.moji_cnt.max(0) as u32;
+    let max_units = max_chars.saturating_mul(2);
+
+    let mut line_cnt = 1u32;
+    let mut cur_units = 0u32;
+    let mut max_line_units = 0u32;
+    for ch in text.chars() {
+        if ch == '\r' {
+            continue;
+        }
+        if ch == '\n' || ch == '\u{0007}' {
+            max_line_units = max_line_units.max(cur_units);
+            cur_units = 0;
+            line_cnt = line_cnt.saturating_add(1);
+            continue;
+        }
+        let units = if ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F) { 1 } else { 2 };
+        if max_units > 0 && cur_units > 0 && cur_units.saturating_add(units) > max_units {
+            max_line_units = max_line_units.max(cur_units);
+            cur_units = 0;
+            line_cnt = line_cnt.saturating_add(1);
+        }
+        cur_units = cur_units.saturating_add(units);
+    }
+    max_line_units = max_line_units.max(cur_units).max(2);
+
+    let cells = if max_chars > 0 {
+        max_chars
+    } else {
+        (max_line_units + 1) / 2
+    }
+    .max(1);
+    let max_w = (font_px as i32 * cells as i32 + space_x * (cells as i32 - 1))
+        .max(font_px as i32) as u32;
+    let line_h = (font_px as i32 + space_y).max(font_px as i32).max(1) as u32;
+    let max_h = line_cnt.max(1).saturating_mul(line_h).max(line_h);
     (font_px, max_w, max_h)
+}
+
+fn table_color_or_default(
+    tables: &crate::runtime::tables::AssetTables,
+    color_no: i64,
+    fallback: (u8, u8, u8),
+) -> (u8, u8, u8) {
+    if color_no < 0 {
+        return fallback;
+    }
+    tables
+        .color_table
+        .get(color_no as usize)
+        .copied()
+        .unwrap_or(fallback)
+}
+
+fn object_string_text_style(ctx: &CommandContext, obj: &ObjectState) -> crate::text_render::TextStyle {
+    let shadow_mode = if obj.string_param.shadow_mode == -1 {
+        ctx.tables.font_defaults.shadow
+    } else {
+        obj.string_param.shadow_mode
+    };
+    crate::text_render::TextStyle {
+        color: table_color_or_default(&ctx.tables, obj.string_param.moji_color, (255, 255, 255)),
+        shadow_color: table_color_or_default(&ctx.tables, obj.string_param.shadow_color, (0, 0, 0)),
+        fuchi_color: table_color_or_default(&ctx.tables, obj.string_param.fuchi_color, (0, 0, 0)),
+        shadow: shadow_mode == 1 || shadow_mode == 3,
+        fuchi: shadow_mode == 2 || shadow_mode == 3,
+        bold: ctx.tables.font_defaults.futoku != 0,
+    }
 }
 
 fn duplicate_sprite_to_layer(
@@ -4223,8 +4304,9 @@ fn update_string_backend(
     obj: &mut ObjectState,
     stage_idx: i64,
 ) {
-    let text = obj.string_value.clone().unwrap_or_default();
-    let (font_px, max_w, max_h) = string_layout(obj);
+    let source_text = obj.string_value.clone().unwrap_or_default();
+    let text = object_string_display_text(&source_text);
+    let (font_px, max_w, max_h) = string_layout(obj, &text);
 
     let disp = obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_disp).unwrap_or(0) != 0;
     let x = if ctx.ids.obj_x != 0 {
@@ -4256,16 +4338,28 @@ fn update_string_backend(
     if !ctx.font_cache.is_loaded() {
         let _ = ctx.font_cache.load_for_project(&ctx.project_dir);
     }
-    let img_id = ctx
-        .font_cache
-        .render_text(&mut ctx.images, &text, font_px as f32, max_w, max_h);
+    let text_style = object_string_text_style(ctx, obj);
+    let text_space = Some((obj.string_param.moji_space_x, obj.string_param.moji_space_y));
+    let img_id = ctx.font_cache.render_mwnd_text_styled(
+        &mut ctx.images,
+        &text,
+        font_px as f32,
+        max_w,
+        max_h,
+        text_space,
+        text_style,
+    );
 
     if let Some(layer) = ctx.layers.layer_mut(layer_id) {
         if let Some(spr) = layer.sprite_mut(sprite_id) {
             spr.fit = SpriteFit::PixelRect;
-            spr.size_mode = SpriteSizeMode::Explicit {
-                width: max_w,
-                height: max_h,
+            spr.size_mode = if img_id.is_some() {
+                SpriteSizeMode::Intrinsic
+            } else {
+                SpriteSizeMode::Explicit {
+                    width: max_w,
+                    height: max_h,
+                }
             };
             spr.visible = disp;
             spr.x = x;

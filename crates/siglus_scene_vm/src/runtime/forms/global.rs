@@ -914,105 +914,6 @@ fn global_message_arg_str(args: &[Value]) -> Option<&str> {
     args.iter().rev().find_map(|v| v.unwrap_named().as_str())
 }
 
-fn show_native_message_box_ok(title: &str, text: &str) {
-    if !platform_message_box_ok(title, text) {
-        log::error!(
-            "GLOBAL.MESSAGE_BOX native dialog backend is unavailable on this platform/session: title={:?}",
-            title
-        );
-    }
-}
-
-#[cfg(target_os = "windows")]
-fn platform_message_box_ok(title: &str, text: &str) -> bool {
-    use std::ffi::c_void;
-
-    const MB_OK: u32 = 0x0000_0000;
-
-    #[link(name = "user32")]
-    extern "system" {
-        fn MessageBoxW(
-            h_wnd: *mut c_void,
-            lp_text: *const u16,
-            lp_caption: *const u16,
-            u_type: u32,
-        ) -> i32;
-    }
-
-    fn wide(s: &str) -> Vec<u16> {
-        s.chars()
-            .map(|ch| if ch == '\0' { ' ' } else { ch })
-            .collect::<String>()
-            .encode_utf16()
-            .chain(std::iter::once(0))
-            .collect()
-    }
-
-    let title_w = wide(title);
-    let text_w = wide(text);
-    unsafe {
-        MessageBoxW(
-            std::ptr::null_mut(),
-            text_w.as_ptr(),
-            title_w.as_ptr(),
-            MB_OK,
-        );
-    }
-    true
-}
-
-#[cfg(target_os = "macos")]
-fn platform_message_box_ok(title: &str, text: &str) -> bool {
-    let script = concat!(
-        "display dialog (system attribute \"SIGLUS_MESSAGEBOX_TEXT\") ",
-        "buttons {\"OK\"} default button \"OK\" ",
-        "with title (system attribute \"SIGLUS_MESSAGEBOX_TITLE\")"
-    );
-    std::process::Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(script)
-        .env("SIGLUS_MESSAGEBOX_TITLE", title)
-        .env("SIGLUS_MESSAGEBOX_TEXT", text)
-        .status()
-        .is_ok()
-}
-
-#[cfg(all(unix, not(target_os = "macos")))]
-fn platform_message_box_ok(title: &str, text: &str) -> bool {
-    let attempts: &[(&str, &[&str])] = &[
-        ("zenity", &["--info", "--modal", "--no-wrap"]),
-        ("kdialog", &["--msgbox"]),
-        ("xmessage", &["-center"]),
-    ];
-
-    for (program, fixed_args) in attempts {
-        let mut cmd = std::process::Command::new(program);
-        match *program {
-            "zenity" => {
-                cmd.args(*fixed_args)
-                    .arg(format!("--title={title}"))
-                    .arg(format!("--text={text}"));
-            }
-            "kdialog" => {
-                cmd.args(*fixed_args).arg(text).arg("--title").arg(title);
-            }
-            "xmessage" => {
-                cmd.args(*fixed_args).arg("-title").arg(title).arg(text);
-            }
-            _ => unreachable!(),
-        }
-        if cmd.status().is_ok() {
-            return true;
-        }
-    }
-    false
-}
-
-#[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
-fn platform_message_box_ok(_title: &str, _text: &str) -> bool {
-    false
-}
-
 fn dispatch_global_message_command(
     ctx: &mut CommandContext,
     form_id: u32,
@@ -1020,9 +921,17 @@ fn dispatch_global_message_command(
 ) -> Result<bool> {
     match form_id as i32 {
         constants::elm_value::GLOBAL_MESSAGE_BOX => {
-            let text = global_message_arg_str(args).unwrap_or("");
-            let title = ctx.game_title();
-            show_native_message_box_ok(&title, text);
+            let text = global_message_arg_str(args).unwrap_or("").to_string();
+            ctx.request_system_messagebox(
+                constants::elm_value::SYSTEM_MESSAGEBOX_OK,
+                false,
+                text,
+                vec![crate::runtime::globals::SystemMessageBoxButton {
+                    label: "OK".to_string(),
+                    value: 0,
+                }],
+                false,
+            );
             Ok(true)
         }
         constants::elm_value::GLOBAL_OPEN

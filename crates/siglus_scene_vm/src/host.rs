@@ -225,6 +225,23 @@ impl SiglusHost {
         self.script_needs_pump = true;
     }
 
+    pub fn request_close(&mut self) {
+        if self.pending_exit || self.vm.ctx.globals.system.messagebox_modal.is_some() {
+            return;
+        }
+        if self.vm.ctx.globals.syscom.pending_proc.is_none() {
+            self.vm.ctx.globals.syscom.pending_proc = Some(SyscomPendingProc {
+                kind: SyscomPendingProcKind::EndGame,
+                warning: true,
+                se_play: false,
+                fade_out: false,
+                leave_msgbk: false,
+                save_id: 0,
+            });
+        }
+        self.script_needs_pump = true;
+    }
+
     pub fn resize(&mut self, width: u32, height: u32, scale_factor: f32) {
         self.renderer.resize_with_scale(width, height, scale_factor.max(1.0));
         let logical_w = ((width as f32) / scale_factor.max(1.0)).max(1.0).round() as u32;
@@ -501,6 +518,14 @@ impl SiglusHost {
                 }
                 Ok(true)
             }
+            SyscomPendingProcKind::EndGame => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    self.queue_end_game_proc(proc);
+                }
+                Ok(true)
+            }
             SyscomPendingProcKind::ReturnToSel => {
                 if self.vm.restore_last_sel_point() {
                     self.flow.stack.clear();
@@ -598,6 +623,7 @@ impl SiglusHost {
     }
 
     fn begin_syscom_warning(&mut self, mut proc: SyscomPendingProc) {
+        let kind = proc.kind;
         proc.warning = false;
         self.flow.pending_syscom_proc = Some(proc);
         self.vm.ctx.globals.system.messagebox_modal_result = None;
@@ -612,7 +638,7 @@ impl SiglusHost {
                 value: 1,
             },
         ];
-        let text = self.return_to_menu_warning_text();
+        let text = self.syscom_warning_text(kind);
         let native_pending = self.vm.ctx.native_ui_backend.is_some();
         self.vm.ctx.globals.system.messagebox_modal = Some(SystemMessageBoxModalState {
             request_id,
@@ -642,16 +668,29 @@ impl SiglusHost {
         self.flow.push(ProcType::SyscomWarning, 0);
     }
 
-    fn return_to_menu_warning_text(&self) -> String {
-        self.vm
-            .ctx
-            .tables
-            .gameexe
-            .as_ref()
-            .and_then(|cfg| cfg.get_unquoted("WARNINGINFO.RETURNMENU_WARNING_STR"))
-            .filter(|s| !s.is_empty())
-            .map(str::to_string)
-            .unwrap_or_else(|| "Return to title menu?".to_string())
+    fn syscom_warning_text(&self, kind: SyscomPendingProcKind) -> String {
+        match kind {
+            SyscomPendingProcKind::EndGame => self
+                .vm
+                .ctx
+                .tables
+                .gameexe
+                .as_ref()
+                .and_then(|cfg| cfg.get_unquoted("WARNINGINFO.GAMEEND_WARNING_STR"))
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| "終了してもよろしいですか？".to_string()),
+            _ => self
+                .vm
+                .ctx
+                .tables
+                .gameexe
+                .as_ref()
+                .and_then(|cfg| cfg.get_unquoted("WARNINGINFO.RETURNMENU_WARNING_STR"))
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+                .unwrap_or_else(|| "Return to title menu?".to_string()),
+        }
     }
 
     fn load_wipe_params(&self) -> (i32, i32) {
@@ -683,6 +722,17 @@ impl SiglusHost {
         if proc.fade_out {
             self.flow.push(ProcType::GameEndWipe, 0);
             self.flow.push(ProcType::Disp, 0);
+        }
+    }
+
+    fn queue_end_game_proc(&mut self, proc: SyscomPendingProc) {
+        self.flow.pending_syscom_proc = Some(proc.clone());
+        if proc.fade_out {
+            self.flow.push(ProcType::GameEndWipe, 0);
+            self.flow.push(ProcType::Disp, 0);
+        } else {
+            self.vm.ctx.globals.system.active_flag = false;
+            self.pending_exit = true;
         }
     }
 
@@ -917,6 +967,9 @@ impl SiglusHost {
                                 SyscomPendingProcKind::ReturnToMenu => {
                                     self.queue_return_to_menu_proc(proc);
                                 }
+                                SyscomPendingProcKind::EndGame => {
+                                    self.queue_end_game_proc(proc);
+                                }
                                 _ => {}
                             }
                         }
@@ -948,7 +1001,19 @@ impl SiglusHost {
                         break;
                     }
                     if self.vm.ctx.globals.wipe_done() {
+                        let pending_is_end_game = self
+                            .flow
+                            .pending_syscom_proc
+                            .as_ref()
+                            .map(|proc| proc.kind == SyscomPendingProcKind::EndGame)
+                            .unwrap_or(false);
                         self.flow.pop();
+                        if pending_is_end_game {
+                            self.vm.ctx.globals.system.active_flag = false;
+                            self.pending_exit = true;
+                            self.flow.pending_syscom_proc = None;
+                            break;
+                        }
                         continue;
                     }
                     break;

@@ -783,7 +783,7 @@ fn nested_indexed_field<'a>(
         format!("{prefix}.{index}.{nested}.{nested_index:03}.{field}"),
         format!("{prefix}.{index:03}.{nested}.{nested_index:03}.{field}"),
     ] {
-        if let Some(v) = cfg.get_unquoted(&direct) {
+        if let Some(v) = cfg.get_value(&direct) {
             return Some(v);
         }
     }

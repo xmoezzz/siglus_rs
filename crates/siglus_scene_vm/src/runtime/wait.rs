@@ -647,8 +647,9 @@ pub struct VmWait {
     movie_skip_info: Option<MovieWait>,
     pending_value: Option<Value>,
 
-    /// Blocks VM execution until a runtime modal UI supplies a return value.
+    /// Blocks VM execution until a runtime modal UI supplies a result.
     system_modal: bool,
+    system_modal_returns_value: bool,
 
     wipe: bool,
     wipe_key_skip: bool,
@@ -891,15 +892,19 @@ impl VmWait {
             || self.wipe
     }
 
-    pub fn wait_system_modal(&mut self) {
+    pub fn wait_system_modal(&mut self, returns_value: bool) {
         self.mark_block_request();
         self.system_modal = true;
+        self.system_modal_returns_value = returns_value;
     }
 
     pub fn finish_system_modal(&mut self, value: Value) {
         if self.system_modal {
             self.system_modal = false;
-            self.pending_value = Some(value);
+            if self.system_modal_returns_value {
+                self.pending_value = Some(value);
+            }
+            self.system_modal_returns_value = false;
         }
     }
 
@@ -1238,6 +1243,7 @@ impl VmWait {
         self.movie_skip_info = None;
         self.pending_value = None;
         self.system_modal = false;
+        self.system_modal_returns_value = false;
         self.wipe = false;
         self.wipe_key_skip = false;
     }

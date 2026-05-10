@@ -441,85 +441,60 @@ fn render_mwnd_text_ab_glyph_rgba_styled(
 
     let (space_x, space_y) = moji_space.unwrap_or((-1, 10));
     let font_cell = font_px.round().max(1.0) as i32;
-    let full_cell_w = font_cell.max(1);
-    let half_cell_w = (font_cell / 2).max(1);
     let line_h = (font_cell + space_y as i32).max(font_cell).max(1);
-    let mut rgba = vec![0u8; (max_w * max_h * 4) as usize];
+    let scaled = font.as_scaled(PxScale::from(font_px.max(1.0)));
+    let baseline_y = scaled.ascent().ceil().max(1.0) as i32;
+    let effect_pad = text_effect_padding(font_cell, style);
+    let render_w = max_w.saturating_add(effect_pad.max(0) as u32 + 2);
+    let render_h = max_h.saturating_add((baseline_y + effect_pad).max(font_cell / 4 + effect_pad + 2).max(0) as u32);
+    let mut rgba = vec![0u8; (render_w * render_h * 4) as usize];
 
-    let mut x = 0i32;
-    let mut y = 0i32;
-
-    for ch in text.chars() {
-        match ch {
-            '\r' => continue,
-            '\n' => {
-                x = 0;
-                y += line_h;
-                if y >= max_h as i32 {
-                    break;
-                }
-                continue;
-            }
-            '\t' => {
-                x += (full_cell_w + space_x as i32).max(1) * 2;
-                continue;
-            }
-            _ => {}
-        }
-
-        let cell_w = if is_hankaku(ch) { half_cell_w } else { full_cell_w };
-        let advance = (cell_w + space_x as i32).max(1);
-        if x > 0 && x + cell_w > max_w as i32 {
-            x = 0;
-            y += line_h;
-            if y >= max_h as i32 {
-                break;
-            }
-        }
-
-        let glyph = rasterize_ab_glyph(font, ch, font_px);
+    for placed in layout_mwnd_text(text, font_cell, space_x as i32, line_h, max_w, max_h) {
+        let glyph = rasterize_ab_glyph(font, placed.ch, font_px);
         if glyph.width == 0 || glyph.height == 0 {
-            x += advance;
             continue;
         }
 
-        let cell_inner_x = ((cell_w - glyph.width as i32) / 2).max(0);
-        let cell_inner_y = ((line_h - glyph.height as i32) / 2).max(0);
-        let draw_x = x + cell_inner_x + glyph.xmin.min(0);
-        let draw_y = y + cell_inner_y;
+        let draw_x = placed.x + glyph.xmin;
+        let draw_y = placed.y + baseline_y + glyph.ymin;
 
         if style.fuchi {
-            for (ox, oy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+            for (ox, oy) in [
+                (-1, -1), (0, -1), (1, -1),
+                (-1,  0),          (1,  0),
+                (-1,  1), (0,  1), (1,  1),
+            ] {
                 draw_glyph_bitmap(
                     &mut rgba,
-                    max_w,
-                    max_h,
+                    render_w,
+                    render_h,
                     draw_x + ox,
                     draw_y + oy,
                     glyph.width,
                     glyph.height,
                     &glyph.bitmap,
-                    (style.fuchi_color.0, style.fuchi_color.1, style.fuchi_color.2, 220),
+                    (style.fuchi_color.0, style.fuchi_color.1, style.fuchi_color.2, 255),
                 );
             }
         }
         if style.shadow {
+            let shadow_offset = shadow_offset_for_size(font_cell);
             draw_glyph_bitmap(
                 &mut rgba,
-                max_w,
-                max_h,
-                draw_x + 1,
-                draw_y + 1,
+                render_w,
+                render_h,
+                draw_x + shadow_offset,
+                draw_y + shadow_offset,
                 glyph.width,
                 glyph.height,
                 &glyph.bitmap,
-                (style.shadow_color.0, style.shadow_color.1, style.shadow_color.2, 180),
+                (style.shadow_color.0, style.shadow_color.1, style.shadow_color.2, 255),
             );
         }
         draw_glyph_bitmap(
             &mut rgba,
-            max_w,
-            max_h,
+            render_w,
+            render_h,
             draw_x,
             draw_y,
             glyph.width,
@@ -530,8 +505,8 @@ fn render_mwnd_text_ab_glyph_rgba_styled(
         if style.bold {
             draw_glyph_bitmap(
                 &mut rgba,
-                max_w,
-                max_h,
+                render_w,
+                render_h,
                 draw_x + 1,
                 draw_y,
                 glyph.width,
@@ -540,17 +515,141 @@ fn render_mwnd_text_ab_glyph_rgba_styled(
                 (style.color.0, style.color.1, style.color.2, 220),
             );
         }
-
-        x += advance;
     }
 
     Some(RgbaImage {
-        width: max_w,
-        height: max_h,
+        width: render_w,
+        height: render_h,
         center_x: 0,
         center_y: 0,
         rgba,
     })
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MwndPlacedChar {
+    ch: char,
+    x: i32,
+    y: i32,
+    cell_w: i32,
+}
+
+fn layout_mwnd_text(
+    text: &str,
+    font_cell: i32,
+    space_x: i32,
+    line_h: i32,
+    max_w: u32,
+    max_h: u32,
+) -> Vec<MwndPlacedChar> {
+    let full_cell_w = font_cell.max(1);
+    let half_cell_w = ((font_cell + 1) / 2).max(1);
+    let max_w = max_w as i32;
+    let max_h = max_h as i32;
+    let mut out = Vec::new();
+    let mut x = 0i32;
+    let mut y = 0i32;
+    let mut indent_x = 0i32;
+    let mut line_head = true;
+
+    for ch in text.chars() {
+        match ch {
+            '\r' => continue,
+            '\n' => {
+                x = indent_x;
+                y += line_h;
+                line_head = true;
+                if y >= max_h {
+                    break;
+                }
+                continue;
+            }
+            '\u{0007}' => {
+                indent_x = 0;
+                x = 0;
+                y += line_h;
+                line_head = true;
+                if y >= max_h {
+                    break;
+                }
+                continue;
+            }
+            '\t' => {
+                x += (full_cell_w + space_x).max(1) * 2;
+                line_head = false;
+                continue;
+            }
+            _ => {}
+        }
+
+        let cell_w = if is_hankaku(ch) { half_cell_w } else { full_cell_w };
+        let check_size = cell_w + space_x;
+        let force_wrap = x > 0 && x + check_size > max_w + full_cell_w;
+        let soft_wrap = x > 0 && x + check_size > max_w && !is_siglus_forbidden_line_head(ch);
+        if force_wrap || soft_wrap {
+            x = indent_x;
+            y += line_h;
+            line_head = true;
+            if y >= max_h {
+                break;
+            }
+            if ch == ' ' || ch == '\u{3000}' {
+                continue;
+            }
+        }
+
+        if line_head {
+            if is_siglus_indent_open(ch) {
+                indent_x = full_cell_w;
+            } else if is_siglus_indent_close(ch) {
+                indent_x = 0;
+            }
+        }
+
+        out.push(MwndPlacedChar { ch, x, y, cell_w });
+        x += (cell_w + space_x).max(1);
+        line_head = false;
+    }
+    out
+}
+
+fn is_siglus_indent_open(ch: char) -> bool {
+    matches!(ch, '「' | '『' | '（')
+}
+
+fn is_siglus_indent_close(ch: char) -> bool {
+    matches!(ch, '」' | '』' | '）')
+}
+
+fn is_siglus_forbidden_line_head(ch: char) -> bool {
+    matches!(
+        ch,
+        '、' | '。' | '，' | '．' | '・' | '：' | '；' | '？' | '！' |
+        '」' | '』' | '）' | '］' | '｝' | '〉' | '》' | '】' | '〕' |
+        'ぁ' | 'ぃ' | 'ぅ' | 'ぇ' | 'ぉ' | 'っ' | 'ゃ' | 'ゅ' | 'ょ' | 'ゎ' |
+        'ァ' | 'ィ' | 'ゥ' | 'ェ' | 'ォ' | 'ッ' | 'ャ' | 'ュ' | 'ョ' | 'ヮ' |
+        'ｰ' | 'ー' | '～' | '…' | '‥'
+    )
+}
+
+fn shadow_offset_for_size(size: i32) -> i32 {
+    if size <= 0 {
+        return 1;
+    }
+    // Original shadow offset is linear_limit(size, 0, 0.5, 32, 2.0).
+    let t = (size as f32 / 32.0).clamp(0.0, 1.0);
+    (0.5 + (2.0 - 0.5) * t).round().max(1.0) as i32
+}
+
+fn text_effect_padding(size: i32, style: TextStyle) -> i32 {
+    let mut pad = 1;
+    if style.fuchi {
+        pad = pad.max(1);
+    }
+    if style.shadow {
+        pad = pad.max(shadow_offset_for_size(size));
+    }
+    pad + 1
 }
 
 fn is_hankaku(ch: char) -> bool {

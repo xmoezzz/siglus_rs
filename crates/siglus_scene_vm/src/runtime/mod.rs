@@ -2348,6 +2348,7 @@ impl CommandContext {
         debug_only: bool,
         text: String,
         buttons: Vec<globals::SystemMessageBoxButton>,
+        returns_value: bool,
     ) {
         let request_id = self.native_ui.next_messagebox_request_id();
         let native_pending = self.native_ui_backend.is_some();
@@ -2361,7 +2362,7 @@ impl CommandContext {
             cursor: 0,
             native_pending,
         });
-        self.wait.wait_system_modal();
+        self.wait.wait_system_modal(returns_value);
 
         if let Some(backend) = self.native_ui_backend.as_ref() {
             backend.show_system_messagebox(native_ui::NativeMessageBoxRequest {
@@ -4336,26 +4337,44 @@ impl CommandContext {
         }
 
         if let Some(proj) = selected {
-            let moji_no = proj
+            let msg_moji_no = proj
                 .chara_moji_color
-                .or(proj.name_moji_color)
                 .or(proj.moji_color)
                 .unwrap_or(self.tables.mwnd_render.moji_color);
-            let shadow_no = proj
+            let msg_shadow_no = proj
                 .chara_shadow_color
-                .or(proj.name_shadow_color)
                 .or(proj.shadow_color)
                 .unwrap_or(self.tables.mwnd_render.shadow_color);
-            let fuchi_no = proj
+            let msg_fuchi_no = proj
                 .chara_fuchi_color
-                .or(proj.name_fuchi_color)
                 .or(proj.fuchi_color)
                 .unwrap_or(self.tables.mwnd_render.fuchi_color);
-            let text_color = self.gameexe_color(moji_no);
-            let shadow_color = self.gameexe_color(shadow_no);
-            let fuchi_color = (fuchi_no >= 0).then_some(self.gameexe_color(fuchi_no));
-            self.ui
-                .set_text_colors_full(text_color, shadow_color, fuchi_color);
+            let name_moji_no = proj
+                .name_moji_color
+                .or(proj.moji_color)
+                .unwrap_or(self.tables.mwnd_render.moji_color);
+            let name_shadow_no = proj
+                .name_shadow_color
+                .or(proj.shadow_color)
+                .unwrap_or(self.tables.mwnd_render.shadow_color);
+            let name_fuchi_no = proj
+                .name_fuchi_color
+                .or(proj.fuchi_color)
+                .unwrap_or(self.tables.mwnd_render.fuchi_color);
+            let msg_text_color = self.gameexe_color(msg_moji_no);
+            let msg_shadow_color = self.gameexe_color(msg_shadow_no);
+            let msg_fuchi_color = (msg_fuchi_no >= 0).then_some(self.gameexe_color(msg_fuchi_no));
+            let name_text_color = self.gameexe_color(name_moji_no);
+            let name_shadow_color = self.gameexe_color(name_shadow_no);
+            let name_fuchi_color = (name_fuchi_no >= 0).then_some(self.gameexe_color(name_fuchi_no));
+            self.ui.set_mwnd_text_colors_full(
+                msg_text_color,
+                msg_shadow_color,
+                msg_fuchi_color,
+                name_text_color,
+                name_shadow_color,
+                name_fuchi_color,
+            );
             self.ui.apply_mwnd_projection(&proj);
         } else if !self.ui.mwnd.anim.visible {
             self.ui.clear_mwnd_window_state();

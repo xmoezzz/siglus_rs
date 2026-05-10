@@ -354,6 +354,7 @@ pub enum SyscomPendingProcKind {
     ReturnToSel,
     ReturnToMenu,
     BacklogLoad,
+    EndGame,
     MsgBack,
     OpenSyscomMenu,
     OpenSave,
@@ -1889,7 +1890,7 @@ impl ObjectButtonState {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct ObjectStringParam {
     pub moji_size: i64,
     pub moji_space_x: i64,
@@ -1900,6 +1901,21 @@ pub struct ObjectStringParam {
     pub fuchi_color: i64,
     /// -1: auto/default in original engine
     pub shadow_mode: i64,
+}
+
+impl Default for ObjectStringParam {
+    fn default() -> Self {
+        Self {
+            moji_size: 12,
+            moji_space_x: 0,
+            moji_space_y: 0,
+            moji_cnt: 0,
+            moji_color: 0,
+            shadow_color: 1,
+            fuchi_color: 1,
+            shadow_mode: -1,
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone)]

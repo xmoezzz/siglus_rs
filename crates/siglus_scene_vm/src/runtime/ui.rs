@@ -374,6 +374,10 @@ pub struct UiRuntime {
     shadow_color: (u8, u8, u8),
     fuchi_color: (u8, u8, u8),
     fuchi_enabled: bool,
+    name_text_color: (u8, u8, u8),
+    name_shadow_color: (u8, u8, u8),
+    name_fuchi_color: (u8, u8, u8),
+    name_fuchi_enabled: bool,
     font_paths: Vec<PathBuf>,
     font_scanned: bool,
     font_cache: FontCache,
@@ -390,23 +394,59 @@ impl UiRuntime {
         shadow_color: (u8, u8, u8),
         fuchi_color: Option<(u8, u8, u8)>,
     ) {
-        self.text_color = text_color;
-        self.shadow_color = shadow_color;
-        self.fuchi_enabled = fuchi_color.is_some();
-        if let Some(color) = fuchi_color {
+        self.set_mwnd_text_colors_full(
+            text_color,
+            shadow_color,
+            fuchi_color,
+            text_color,
+            shadow_color,
+            fuchi_color,
+        );
+    }
+
+    pub fn set_mwnd_text_colors_full(
+        &mut self,
+        msg_text_color: (u8, u8, u8),
+        msg_shadow_color: (u8, u8, u8),
+        msg_fuchi_color: Option<(u8, u8, u8)>,
+        name_text_color: (u8, u8, u8),
+        name_shadow_color: (u8, u8, u8),
+        name_fuchi_color: Option<(u8, u8, u8)>,
+    ) {
+        self.text_color = msg_text_color;
+        self.shadow_color = msg_shadow_color;
+        self.fuchi_enabled = msg_fuchi_color.is_some();
+        if let Some(color) = msg_fuchi_color {
             self.fuchi_color = color;
+        }
+        self.name_text_color = name_text_color;
+        self.name_shadow_color = name_shadow_color;
+        self.name_fuchi_enabled = name_fuchi_color.is_some();
+        if let Some(color) = name_fuchi_color {
+            self.name_fuchi_color = color;
         }
         self.mwnd.msg.text_dirty = true;
         self.mwnd.name.text_dirty = true;
     }
 
-    fn mwnd_text_style(&self, script: &ScriptRuntimeState) -> TextStyle {
+    fn mwnd_message_text_style(&self, script: &ScriptRuntimeState) -> TextStyle {
         TextStyle {
             color: self.text_color,
             shadow_color: self.shadow_color,
             fuchi_color: self.fuchi_color,
             shadow: script.font_shadow != 0,
             fuchi: self.fuchi_enabled,
+            bold: script.font_bold != 0,
+        }
+    }
+
+    fn mwnd_name_text_style(&self, script: &ScriptRuntimeState) -> TextStyle {
+        TextStyle {
+            color: self.name_text_color,
+            shadow_color: self.name_shadow_color,
+            fuchi_color: self.name_fuchi_color,
+            shadow: script.font_shadow != 0,
+            fuchi: self.name_fuchi_enabled,
             bold: script.font_bold != 0,
         }
     }
@@ -1344,9 +1384,13 @@ impl UiRuntime {
             .layer_mut(ui_layer)
             .and_then(|l| l.sprite_mut(msg_text_sprite))
         {
-            s.size_mode = SpriteSizeMode::Explicit {
-                width: mw,
-                height: mh,
+            s.size_mode = if self.mwnd.msg.text_image.is_some() {
+                SpriteSizeMode::Intrinsic
+            } else {
+                SpriteSizeMode::Explicit {
+                    width: mw,
+                    height: mh,
+                }
             };
             apply_anim(s, mx + self.current_slide_offset_px(), my, 1_000_010);
         }
@@ -1356,9 +1400,13 @@ impl UiRuntime {
             .layer_mut(ui_layer)
             .and_then(|l| l.sprite_mut(name_text_sprite))
         {
-            s.size_mode = SpriteSizeMode::Explicit {
-                width: nw,
-                height: nh,
+            s.size_mode = if self.mwnd.name.text_image.is_some() {
+                SpriteSizeMode::Intrinsic
+            } else {
+                SpriteSizeMode::Explicit {
+                    width: nw,
+                    height: nh,
+                }
             };
             apply_anim(s, nx, ny, 1_000_020);
         }
@@ -2203,7 +2251,8 @@ impl UiRuntime {
         h: u32,
         script: &ScriptRuntimeState,
     ) {
-        let style = self.mwnd_text_style(script);
+        let msg_style = self.mwnd_message_text_style(script);
+        let name_style = self.mwnd_name_text_style(script);
         if self.mwnd.msg.text_dirty {
             let (x, y, mw, mh) = self.msg_rect(w, h);
             let _ = (x, y);
@@ -2215,7 +2264,7 @@ impl UiRuntime {
                 mw,
                 mh,
                 self.mwnd.window.moji_space,
-                style,
+                msg_style,
             );
             self.mwnd.msg.text_dirty = false;
         }
@@ -2231,7 +2280,7 @@ impl UiRuntime {
                 mw,
                 mh,
                 self.mwnd.window.moji_space,
-                style,
+                name_style,
             );
             self.mwnd.name.text_dirty = false;
         }
@@ -2320,10 +2369,14 @@ impl UiRuntime {
                     s.visible = entry.text_image.is_some();
                     s.image_id = entry.text_image;
                     s.fit = SpriteFit::PixelRect;
-                    s.size_mode = SpriteSizeMode::Explicit {
-                        width: w.saturating_sub(8).max(1),
-                        height: h,
-                    };
+                    if entry.text_image.is_some() {
+                        s.size_mode = SpriteSizeMode::Intrinsic;
+                    } else {
+                        s.size_mode = SpriteSizeMode::Explicit {
+                            width: w.saturating_sub(8).max(1),
+                            height: h,
+                        };
+                    }
                     s.x = eb.window_x.saturating_add(4);
                     s.y = eb.window_y;
                     s.order = 1_950_001 + idx as i32 * 2;
@@ -2838,10 +2891,14 @@ impl UiRuntime {
                 s.visible = runtime.image.is_some();
                 s.image_id = runtime.image;
                 s.fit = SpriteFit::PixelRect;
-                s.size_mode = SpriteSizeMode::Explicit {
-                    width: entry.width.max(1),
-                    height: entry.height.max(1),
-                };
+                if runtime.image.is_some() {
+                    s.size_mode = SpriteSizeMode::Intrinsic;
+                } else {
+                    s.size_mode = SpriteSizeMode::Explicit {
+                        width: entry.width.max(1),
+                        height: entry.height.max(1),
+                    };
+                }
                 s.x = projection.window_x + entry.x;
                 s.y = projection.window_y + entry.y;
                 s.order = msg_back_packed_sorter_key(projection.order, 0);

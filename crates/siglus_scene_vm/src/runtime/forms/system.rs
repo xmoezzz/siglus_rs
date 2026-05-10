@@ -246,7 +246,7 @@ fn handle_messagebox(
         return Some(v.clamp(0, max_value));
     }
 
-    ctx.request_system_messagebox(kind, debug_only, text, buttons);
+    ctx.request_system_messagebox(kind, debug_only, text, buttons, true);
     None
 }
 
