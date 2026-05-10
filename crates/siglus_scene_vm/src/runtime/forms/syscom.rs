@@ -64,6 +64,16 @@ fn gameexe_unquoted_owned(ctx: &CommandContext, key: &str) -> String {
         .to_string()
 }
 
+
+fn gameexe_value_owned(ctx: &CommandContext, key: &str) -> String {
+    ctx.tables
+        .gameexe
+        .as_ref()
+        .and_then(|cfg| cfg.get_value(key))
+        .unwrap_or("")
+        .to_string()
+}
+
 fn parse_i64_list_local(raw: &str) -> Vec<i64> {
     raw.split(|c: char| c == ',' || c.is_whitespace())
         .filter_map(|part| {
@@ -78,7 +88,7 @@ fn parse_i64_list_local(raw: &str) -> Vec<i64> {
 }
 
 fn config_filter_color_default(ctx: &CommandContext) -> (i64, i64, i64, i64) {
-    let raw = gameexe_unquoted_owned(ctx, "CONFIG.FILTER_COLOR");
+    let raw = gameexe_value_owned(ctx, "CONFIG.FILTER_COLOR");
     let vals = parse_i64_list_local(&raw);
     if vals.len() >= 4 {
         (
@@ -859,8 +869,9 @@ fn write_msg_back(ctx: &CommandContext) {
     let path = dir.join("msg_back.txt");
 
     let mut out = String::new();
-    for (i, entry) in st.history.iter().enumerate() {
-        out.push_str(&format!("-- entry {} --\n", i));
+    for idx in st.ordered_history_indices() {
+        let Some(entry) = st.history.get(idx) else { continue; };
+        out.push_str(&format!("-- entry {} --\n", idx));
         if !entry.original_name.is_empty() || !entry.disp_name.is_empty() {
             out.push_str("NAME: ");
             out.push_str(&entry.disp_name);
@@ -897,25 +908,22 @@ fn open_msg_back_proc(ctx: &mut CommandContext) -> bool {
     ctx.globals.syscom.msg_back_open = true;
     ctx.globals.syscom.msg_back_proc_initialized = false;
     let form_id = ctx.ids.form_global_msgbk;
-    let count = ctx
+    let (count, target) = ctx
         .globals
         .msgbk_forms
         .get(&form_id)
         .map(|st| {
-            st.history
-                .iter()
-                .filter(|entry| {
-                    entry.pct_flag
-                        || !entry.msg_str.is_empty()
-                        || !entry.disp_name.is_empty()
-                        || !entry.original_name.is_empty()
-                        || !entry.koe_no_list.is_empty()
-                })
-                .count()
+            let indices = st.ordered_history_indices();
+            let target = if indices.contains(&st.history_last_pos) {
+                st.history_last_pos as isize
+            } else {
+                indices.last().copied().map(|idx| idx as isize).unwrap_or(-1)
+            };
+            (indices.len(), target)
         })
-        .unwrap_or(0);
+        .unwrap_or((0, -1));
     ctx.globals.syscom.msg_back_view_pos = count.saturating_sub(1);
-    ctx.globals.syscom.msg_back_target_no = count as isize - 1;
+    ctx.globals.syscom.msg_back_target_no = target;
     true
 }
 

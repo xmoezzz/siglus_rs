@@ -1637,7 +1637,7 @@ impl App {
         }
         let cfg = vm.ctx.tables.gameexe.as_ref();
         for key in ["LOAD.WIPE", "LOAD . WIPE", "#LOAD.WIPE", "#LOAD . WIPE"] {
-            if let Some(pair) = cfg.and_then(|c| c.get_unquoted(key)).and_then(parse_pair) {
+            if let Some(pair) = cfg.and_then(|c| c.get_value(key)).and_then(parse_pair) {
                 return pair;
             }
         }

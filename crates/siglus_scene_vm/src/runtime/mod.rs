@@ -762,6 +762,10 @@ impl CommandContext {
         (255, 255, 255)
     }
 
+    fn gameexe_value(&self, key: &str) -> Option<&str> {
+        self.tables.gameexe.as_ref()?.get_value(key)
+    }
+
     fn gameexe_raw(&self, key: &str) -> Option<&str> {
         self.tables.gameexe.as_ref()?.get_unquoted(key)
     }
@@ -773,7 +777,7 @@ impl CommandContext {
     }
 
     fn gameexe_rgba_default(&self, key: &str, default: (u8, u8, u8, u8)) -> (u8, u8, u8, u8) {
-        let vals = Self::parse_i64_list(self.gameexe_raw(key));
+        let vals = Self::parse_i64_list(self.gameexe_value(key));
         if vals.len() >= 4 {
             (
                 vals[0].clamp(0, 255) as u8,
@@ -832,13 +836,13 @@ impl CommandContext {
     }
 
     fn gameexe_i64_default(&self, key: &str, default: i64) -> i64 {
-        self.gameexe_raw(key)
+        self.gameexe_value(key)
             .and_then(Self::parse_first_i64)
             .unwrap_or(default)
     }
 
     fn gameexe_pair_default(&self, key: &str, default: (i64, i64)) -> (i64, i64) {
-        let vals = Self::parse_i64_list(self.gameexe_raw(key));
+        let vals = Self::parse_i64_list(self.gameexe_value(key));
         if vals.len() >= 2 {
             (vals[0], vals[1])
         } else {
@@ -851,7 +855,7 @@ impl CommandContext {
         key: &str,
         default: (i64, i64, i64, i64),
     ) -> (i64, i64, i64, i64) {
-        let vals = Self::parse_i64_list(self.gameexe_raw(key));
+        let vals = Self::parse_i64_list(self.gameexe_value(key));
         if vals.len() >= 4 {
             (vals[0], vals[1], vals[2], vals[3])
         } else {
@@ -860,7 +864,7 @@ impl CommandContext {
     }
 
     fn msg_back_button_pos(&self, key: &str, default: (i32, i32)) -> (i32, i32) {
-        let vals = Self::parse_i64_list(self.gameexe_raw(key));
+        let vals = Self::parse_i64_list(self.gameexe_value(key));
         if vals.len() >= 2 {
             (vals[0] as i32, vals[1] as i32)
         } else {
@@ -3041,6 +3045,19 @@ impl CommandContext {
         self.globals.msgbk_forms.get(&form_id)
     }
 
+    fn sync_msg_back_history_capacity(&mut self) {
+        let max_count = self
+            .gameexe_i64_default("MSGBK.HISTORY_CNT", 256)
+            .clamp(1, 4096) as usize;
+        let form_id = self.ids.form_global_msgbk;
+        if form_id == 0 {
+            return;
+        }
+        if let Some(st) = self.globals.msgbk_forms.get_mut(&form_id) {
+            st.set_history_cnt_max(max_count);
+        }
+    }
+
     fn msg_back_entry_has_content(entry: &globals::MsgBackEntry) -> bool {
         entry.pct_flag
             || !entry.msg_str.is_empty()
@@ -3052,10 +3069,9 @@ impl CommandContext {
     fn msg_back_visible_entry_indices(&self) -> Vec<usize> {
         self.msg_back_state()
             .map(|st| {
-                st.history
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(i, entry)| Self::msg_back_entry_has_content(entry).then_some(i))
+                st.ordered_history_indices()
+                    .into_iter()
+                    .filter(|&i| st.history.get(i).map_or(false, Self::msg_back_entry_has_content))
                     .collect()
             })
             .unwrap_or_default()
@@ -3109,11 +3125,11 @@ impl CommandContext {
         let mut out = String::new();
         if !entry.disp_name.is_empty() {
             out.push_str(&entry.disp_name);
-            out.push('\n');
+            out.push('\u{0007}');
         }
         if !entry.msg_str.is_empty() {
-            out.push_str(&entry.msg_str.replace('\u{0007}', "\n"));
-            out.push('\n');
+            out.push_str(&entry.msg_str);
+            out.push('\u{0007}');
         }
         out
     }
@@ -3155,7 +3171,12 @@ impl CommandContext {
             if ch == '\r' {
                 continue;
             }
-            if ch == '\n' || ch == '\u{0007}' {
+            if ch == '\n' {
+                new_line_indent(&mut x, &mut y, indent_pos);
+                line_head = true;
+                continue;
+            }
+            if ch == '\u{0007}' {
                 clear_indent(&mut indent_pos, &mut indent_moji, &mut indent_cnt);
                 new_line_indent(&mut x, &mut y, indent_pos);
                 line_head = true;
@@ -3234,6 +3255,7 @@ impl CommandContext {
     }
 
     fn build_msg_back_layout(&mut self) -> MsgBackLayout {
+        self.sync_msg_back_history_capacity();
         let mut out = MsgBackLayout::default();
         let indices = self.msg_back_visible_entry_indices();
         let entries: Vec<(usize, globals::MsgBackEntry)> = {
@@ -3338,7 +3360,7 @@ impl CommandContext {
     }
 
     fn msg_back_slider_track(&self) -> (i32, i32, i32) {
-        let vals = Self::parse_i64_list(self.gameexe_raw("MSGBK_ITEM.SLIDER.POS"));
+        let vals = Self::parse_i64_list(self.gameexe_value("MSGBK_ITEM.SLIDER.POS"));
         if vals.len() >= 3 {
             (vals[0] as i32, vals[1] as i32, vals[2] as i32)
         } else {
@@ -3527,6 +3549,14 @@ impl CommandContext {
         let (_x, _top, bottom) = self.msg_back_slider_track();
         let slider_h = self.msg_back_slider_size_i32().1.max(0);
         self.globals.syscom.msg_back_msg_total_height = layout.total_height;
+
+        // C_elm_msg_back::open() first places the slider at the bottom, derives
+        // scroll/slider from that position, and only then assigns m_target_no to
+        // m_history_last_pos. Do not use the last message target to drive the
+        // initial scroll position here.
+        self.globals.syscom.msg_back_slider_pos = bottom.saturating_sub(slider_h);
+        self.msg_back_update_pos_from_slider(layout);
+        self.msg_back_update_pos_from_scroll(layout);
         self.globals.syscom.msg_back_target_no = if layout.entries.is_empty() {
             -1
         } else if let Some(st) = self.msg_back_state() {
@@ -3542,9 +3572,6 @@ impl CommandContext {
         } else {
             layout.entries.last().map(|entry| entry.history_index as isize).unwrap_or(-1)
         };
-        self.globals.syscom.msg_back_slider_pos = bottom.saturating_sub(slider_h);
-        self.msg_back_update_pos_from_slider(layout);
-        self.msg_back_update_pos_from_scroll(layout);
         self.globals.syscom.msg_back_slider_dragging = false;
         self.globals.syscom.msg_back_content_dragging = false;
         self.globals.syscom.msg_back_proc_initialized = true;

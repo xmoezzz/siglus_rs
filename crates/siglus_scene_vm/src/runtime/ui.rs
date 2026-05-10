@@ -1,7 +1,7 @@
 //! Message-window rendering state projected from runtime MWND state.
 
 use crate::image_manager::ImageId;
-use crate::layer::{LayerId, SpriteFit, SpriteId, SpriteSizeMode};
+use crate::layer::{LayerId, Sprite, SpriteFit, SpriteId, SpriteSizeMode};
 use crate::runtime::globals::{EditBoxListState, ScriptRuntimeState, SyscomRuntimeState};
 use crate::text_render::{FontCache, TextStyle};
 use std::collections::HashMap;
@@ -264,6 +264,7 @@ pub struct MsgBackButtonRuntime {
     pub image: Option<ImageId>,
     pub cached_file: Option<String>,
     pub size: Option<(u32, u32)>,
+    pub center: Option<(i32, i32)>,
 }
 
 #[derive(Debug, Default)]
@@ -2438,8 +2439,9 @@ impl UiRuntime {
         if w == 0 || h == 0 || button.image.is_none() {
             return None;
         }
-        let left = projection.window_x + pos.0;
-        let top = projection.window_y + pos.1;
+        let (center_x, center_y) = button.center.unwrap_or((0, 0));
+        let left = projection.window_x + pos.0 - center_x;
+        let top = projection.window_y + pos.1 - center_y;
         let right = left.saturating_add(w as i32);
         let bottom = top.saturating_add(h as i32);
         (left <= x && x < right && top <= y && y < bottom).then_some(action)
@@ -2532,12 +2534,32 @@ impl UiRuntime {
         button.size = button
             .image
             .and_then(|id| images.get(id).map(|img| (img.width, img.height)));
+        button.center = button
+            .image
+            .and_then(|id| images.get(id).map(|img| (img.center_x, img.center_y)));
         button.cached_file = file.cloned();
+    }
+
+    fn apply_msg_back_pct_anchor(
+        sprite: &mut Sprite,
+        images: &crate::image_manager::ImageManager,
+        image: Option<ImageId>,
+    ) {
+        if let Some(img) = image.and_then(|id| images.get(id)) {
+            sprite.object_anchor = true;
+            sprite.texture_center_x = img.center_x as f32;
+            sprite.texture_center_y = img.center_y as f32;
+        } else {
+            sprite.object_anchor = false;
+            sprite.texture_center_x = 0.0;
+            sprite.texture_center_y = 0.0;
+        }
     }
 
     fn sync_msg_back_button_sprite(
         layers: &mut crate::layer::LayerManager,
         ui_layer: LayerId,
+        images: &crate::image_manager::ImageManager,
         button: &mut MsgBackButtonRuntime,
         projection: &MsgBackUiProjection,
         pos: (i32, i32),
@@ -2564,6 +2586,7 @@ impl UiRuntime {
             s.color_g = 0;
             s.color_b = 0;
             s.mask_mode = 0;
+            Self::apply_msg_back_pct_anchor(s, images, button.image);
             s.dst_clip = None;
             s.src_clip = None;
         }
@@ -2584,6 +2607,7 @@ impl UiRuntime {
     fn sync_msg_back_abs_button_sprite(
         layers: &mut crate::layer::LayerManager,
         ui_layer: LayerId,
+        images: &crate::image_manager::ImageManager,
         button: &mut MsgBackButtonRuntime,
         pos: (i32, i32),
         order: i32,
@@ -2610,6 +2634,7 @@ impl UiRuntime {
             s.color_g = 0;
             s.color_b = 0;
             s.mask_mode = 0;
+            Self::apply_msg_back_pct_anchor(s, images, button.image);
             s.dst_clip = clip;
             s.src_clip = None;
         }
@@ -2710,6 +2735,7 @@ impl UiRuntime {
             s.color_g = 0;
             s.color_b = 0;
             s.mask_mode = 0;
+            Self::apply_msg_back_pct_anchor(s, images, self.msg_back.waku_image);
             s.dst_clip = None;
             s.src_clip = None;
         }
@@ -2746,6 +2772,13 @@ impl UiRuntime {
             s.color_g = 0;
             s.color_b = 0;
             s.mask_mode = 0;
+            if self.msg_back.filter_image.is_some() {
+                Self::apply_msg_back_pct_anchor(s, images, self.msg_back.filter_image);
+            } else {
+                s.object_anchor = false;
+                s.texture_center_x = 0.0;
+                s.texture_center_y = 0.0;
+            }
             s.dst_clip = None;
             s.src_clip = None;
         }
@@ -2772,6 +2805,7 @@ impl UiRuntime {
             Self::sync_msg_back_abs_button_sprite(
                 layers,
                 ui_layer,
+                images,
                 &mut self.msg_back.separators[i],
                 (projection.window_x + sep.x, projection.window_y + sep.y),
                 msg_back_packed_sorter_key(projection.order, projection.waku_layer_rep),
@@ -2789,10 +2823,11 @@ impl UiRuntime {
             let entry = &projection.text_entries[i];
             let runtime = &mut self.msg_back.text_entries[i];
             let sprite_id = Self::ensure_text_sprite(layers, ui_layer, &mut runtime.sprite);
+            let render_text = entry.text.replace('\u{0007}', "\n");
             runtime.image = self.font_cache.render_mwnd_text_styled_into(
                 images,
                 runtime.image,
-                &entry.text,
+                &render_text,
                 projection.moji_size.max(1) as f32,
                 entry.width.max(1),
                 entry.height.max(1),
@@ -2848,6 +2883,7 @@ impl UiRuntime {
             Self::sync_msg_back_abs_button_sprite(
                 layers,
                 ui_layer,
+                images,
                 &mut self.msg_back.koe_buttons[i],
                 (projection.window_x + btn.x, projection.window_y + btn.y),
                 msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
@@ -2872,6 +2908,7 @@ impl UiRuntime {
             Self::sync_msg_back_abs_button_sprite(
                 layers,
                 ui_layer,
+                images,
                 &mut self.msg_back.load_buttons[i],
                 (projection.window_x + btn.x, projection.window_y + btn.y),
                 msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep),
@@ -2885,6 +2922,7 @@ impl UiRuntime {
         Self::sync_msg_back_button_sprite(
             layers,
             ui_layer,
+            images,
             &mut self.msg_back.close_btn,
             &projection,
             projection.close_btn_pos,
@@ -2893,6 +2931,7 @@ impl UiRuntime {
         Self::sync_msg_back_button_sprite(
             layers,
             ui_layer,
+            images,
             &mut self.msg_back.msg_up_btn,
             &projection,
             projection.msg_up_btn_pos,
@@ -2901,6 +2940,7 @@ impl UiRuntime {
         Self::sync_msg_back_button_sprite(
             layers,
             ui_layer,
+            images,
             &mut self.msg_back.msg_down_btn,
             &projection,
             projection.msg_down_btn_pos,
@@ -2909,6 +2949,7 @@ impl UiRuntime {
         Self::sync_msg_back_button_sprite(
             layers,
             ui_layer,
+            images,
             &mut self.msg_back.slider,
             &projection,
             projection.slider_pos,
@@ -2919,6 +2960,7 @@ impl UiRuntime {
             Self::sync_msg_back_button_sprite(
                 layers,
                 ui_layer,
+                images,
                 button,
                 &projection,
                 projection.ex_btn_pos[i],

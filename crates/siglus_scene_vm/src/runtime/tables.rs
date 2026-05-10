@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use siglus_assets::{
     cgm::CgTableData,
     dbs::DbsDatabase,
-    gameexe::{decode_gameexe_dat_bytes, GameexeConfig, GameexeDecodeOptions, GameexeDecodeReport},
+    gameexe::{decode_gameexe_dat_bytes, normalize_gameexe_key, GameexeConfig, GameexeDecodeOptions, GameexeDecodeReport},
     thumb_table::ThumbTable,
 };
 
@@ -865,7 +865,7 @@ fn raw_gameexe_field(raw_text: Option<&str>, key: &str) -> Option<String> {
         let Some((lhs, rhs)) = s.split_once('=') else {
             continue;
         };
-        if !lhs.trim().eq_ignore_ascii_case(key) {
+        if normalize_gameexe_key(lhs) != normalize_gameexe_key(key) {
             continue;
         }
         let v = rhs.trim();
@@ -1258,7 +1258,7 @@ fn load_color_table(cfg: &GameexeConfig) -> Vec<(u8, u8, u8)> {
 
     for i in 0..cnt {
         let Some(raw) = cfg
-            .get_indexed_unquoted("COLOR_TABLE", i)
+            .get_indexed_value("COLOR_TABLE", i)
             .or_else(|| cfg.get_indexed_field("COLOR_TABLE", i, "RGB"))
             .or_else(|| cfg.get_indexed_field("COLOR_TABLE", i, "COLOR"))
         else {

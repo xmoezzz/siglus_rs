@@ -4714,12 +4714,16 @@ pub struct MsgBackEntry {
     pub debug_msg: String,
     pub scn_no: i64,
     pub line_no: i64,
+    pub save_id: i64,
     pub save_id_check_flag: bool,
 }
 
 #[derive(Debug, Clone)]
 pub struct MsgBackState {
     pub history: Vec<MsgBackEntry>,
+    pub history_cnt_max: usize,
+    pub history_cnt: usize,
+    pub history_start_pos: usize,
     pub history_insert_pos: usize,
     pub history_last_pos: usize,
     pub new_msg_flag: bool,
@@ -4727,8 +4731,12 @@ pub struct MsgBackState {
 
 impl Default for MsgBackState {
     fn default() -> Self {
+        let history_cnt_max = 256usize;
         Self {
-            history: Vec::new(),
+            history: vec![MsgBackEntry { scn_no: -1, line_no: -1, ..MsgBackEntry::default() }; history_cnt_max],
+            history_cnt_max,
+            history_cnt: 0,
+            history_start_pos: 0,
             history_insert_pos: 0,
             history_last_pos: 0,
             new_msg_flag: true,
@@ -4745,30 +4753,86 @@ impl MsgBackState {
         };
     }
 
+    fn ensure_capacity(&mut self) {
+        if self.history_cnt_max == 0 {
+            self.history_cnt_max = 256;
+        }
+        if self.history.len() != self.history_cnt_max {
+            self.history.resize_with(self.history_cnt_max, || MsgBackEntry {
+                scn_no: -1,
+                line_no: -1,
+                ..MsgBackEntry::default()
+            });
+        }
+        self.history_insert_pos %= self.history_cnt_max;
+        self.history_start_pos %= self.history_cnt_max;
+        self.history_last_pos %= self.history_cnt_max;
+    }
+
+    pub fn set_history_cnt_max(&mut self, max_count: usize) {
+        let max_count = max_count.max(1);
+        if max_count == self.history_cnt_max {
+            self.ensure_capacity();
+            return;
+        }
+        let mut ordered = self
+            .ordered_history_indices()
+            .into_iter()
+            .filter_map(|idx| self.history.get(idx).cloned())
+            .collect::<Vec<_>>();
+        if ordered.len() > max_count {
+            let drop_count = ordered.len() - max_count;
+            ordered.drain(0..drop_count);
+        }
+        self.history_cnt_max = max_count;
+        self.history = vec![MsgBackEntry { scn_no: -1, line_no: -1, ..MsgBackEntry::default() }; max_count];
+        self.history_cnt = ordered.len();
+        self.history_start_pos = 0;
+        for (i, entry) in ordered.into_iter().enumerate() {
+            self.history[i] = entry;
+        }
+        self.history_insert_pos = self.history_cnt % self.history_cnt_max;
+        self.history_last_pos = self.history_cnt.saturating_sub(1).min(self.history_cnt_max - 1);
+        self.new_msg_flag = true;
+    }
+
     fn ready_msg(&mut self) -> &mut MsgBackEntry {
+        self.ensure_capacity();
         if self.new_msg_flag {
-            if self.history_insert_pos >= self.history.len() {
-                self.history.push(MsgBackEntry {
-                    scn_no: -1,
-                    line_no: -1,
-                    ..MsgBackEntry::default()
-                });
+            if self.history_cnt < self.history_cnt_max {
+                self.history_cnt += 1;
             } else {
-                Self::reset_entry(&mut self.history[self.history_insert_pos]);
+                self.history_start_pos = (self.history_start_pos + 1) % self.history_cnt_max;
             }
+            Self::reset_entry(&mut self.history[self.history_insert_pos]);
             self.new_msg_flag = false;
         }
         &mut self.history[self.history_insert_pos]
     }
 
     pub fn clear(&mut self) {
-        self.history.clear();
+        self.ensure_capacity();
+        for entry in &mut self.history {
+            Self::reset_entry(entry);
+        }
+        self.history_cnt = 0;
+        self.history_start_pos = 0;
         self.history_insert_pos = 0;
         self.history_last_pos = 0;
         self.new_msg_flag = true;
     }
 
+    pub fn ordered_history_indices(&self) -> Vec<usize> {
+        if self.history_cnt_max == 0 || self.history_cnt == 0 {
+            return Vec::new();
+        }
+        (0..self.history_cnt)
+            .map(|i| (self.history_start_pos + i) % self.history_cnt_max)
+            .collect()
+    }
+
     pub fn next(&mut self) {
+        self.ensure_capacity();
         if self.new_msg_flag {
             return;
         }
@@ -4779,7 +4843,7 @@ impl MsgBackState {
         if !cur.pct_flag && cur.msg_str.is_empty() {
             return;
         }
-        self.history_insert_pos += 1;
+        self.history_insert_pos = (self.history_insert_pos + 1) % self.history_cnt_max;
         self.new_msg_flag = true;
     }
 
@@ -4787,12 +4851,13 @@ impl MsgBackState {
         if koe_no < 0 {
             return true;
         }
+        let insert_pos = self.history_insert_pos;
         let entry = self.ready_msg();
         entry.koe_no_list.push(koe_no);
         entry.chr_no_list.push(chara_no);
         entry.scn_no = scn_no;
         entry.line_no = line_no;
-        self.history_last_pos = self.history_insert_pos;
+        self.history_last_pos = insert_pos;
         true
     }
 
@@ -4806,6 +4871,7 @@ impl MsgBackState {
         if disp_name.is_empty() {
             return true;
         }
+        let insert_pos = self.history_insert_pos;
         let entry = self.ready_msg();
         entry.original_name.clear();
         entry.original_name.push_str(original_name);
@@ -4813,7 +4879,7 @@ impl MsgBackState {
         entry.disp_name.push_str(disp_name);
         entry.scn_no = scn_no;
         entry.line_no = line_no;
-        self.history_last_pos = self.history_insert_pos;
+        self.history_last_pos = insert_pos;
         true
     }
 
@@ -4821,13 +4887,34 @@ impl MsgBackState {
         if msg.is_empty() {
             return true;
         }
+        let insert_pos = self.history_insert_pos;
         let entry = self.ready_msg();
         entry.msg_str.push_str(msg);
         entry.debug_msg.clear();
         entry.debug_msg.push_str(debug_msg);
         entry.scn_no = scn_no;
         entry.line_no = line_no;
-        self.history_last_pos = self.history_insert_pos;
+        self.history_last_pos = insert_pos;
+        true
+    }
+
+    pub fn add_new_line_indent(&mut self, scn_no: i64, line_no: i64) -> bool {
+        let insert_pos = self.history_insert_pos;
+        let entry = self.ready_msg();
+        entry.msg_str.push('\n');
+        entry.scn_no = scn_no;
+        entry.line_no = line_no;
+        self.history_last_pos = insert_pos;
+        true
+    }
+
+    pub fn add_new_line_no_indent(&mut self, scn_no: i64, line_no: i64) -> bool {
+        let insert_pos = self.history_insert_pos;
+        let entry = self.ready_msg();
+        entry.msg_str.push('\u{0007}');
+        entry.scn_no = scn_no;
+        entry.line_no = line_no;
+        self.history_last_pos = insert_pos;
         true
     }
 
@@ -4836,13 +4923,14 @@ impl MsgBackState {
             return false;
         }
         self.next();
+        let insert_pos = self.history_insert_pos;
         let entry = self.ready_msg();
         entry.pct_flag = true;
         entry.pct_pos_x = x;
         entry.pct_pos_y = y;
         entry.msg_str.clear();
         entry.msg_str.push_str(file_name);
-        self.history_last_pos = self.history_insert_pos;
+        self.history_last_pos = insert_pos;
         self.next();
         true
     }

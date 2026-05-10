@@ -1061,6 +1061,10 @@ fn dispatch_global_message_command(
         }
         constants::elm_value::GLOBAL_CLEAR_MSGBK => {
             ctx.ui.clear_message();
+            let form_id = ctx.ids.form_global_msgbk;
+            if form_id != 0 {
+                ctx.globals.msgbk_forms.entry(form_id).or_default().clear();
+            }
             push_global_message_ok(ctx);
             Ok(true)
         }

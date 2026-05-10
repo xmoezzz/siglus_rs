@@ -149,6 +149,10 @@ impl GameexeConfig {
         self.map.get(&normalize_key(key)).map(|s| s.as_str())
     }
 
+    pub fn get_value(&self, key: &str) -> Option<&str> {
+        self.get_entry(key).map(|e| e.value.as_str())
+    }
+
     pub fn get_entry(&self, key: &str) -> Option<&GameexeEntry> {
         let nk = normalize_key(key);
         self.entries.iter().rev().find(|e| e.key == nk)
@@ -186,6 +190,11 @@ impl GameexeConfig {
     pub fn get_indexed(&self, prefix: &str, index: usize) -> Option<&str> {
         let key = format!("{}.{}", normalize_key(prefix), index);
         self.get(&key)
+    }
+
+    pub fn get_indexed_value(&self, prefix: &str, index: usize) -> Option<&str> {
+        self.get_indexed_entry(prefix, index)
+            .map(|e| e.value.as_str())
     }
 
     pub fn get_indexed_unquoted(&self, prefix: &str, index: usize) -> Option<&str> {
@@ -281,12 +290,17 @@ impl GameexeConfig {
     pub fn from_text(text: &str) -> Self {
         let mut out = Self::default();
         for (line_no, raw_line) in text.lines().enumerate() {
-            let line = raw_line.trim();
-            if line.is_empty() || line.starts_with(';') || !line.starts_with('#') {
+            let mut line = raw_line.trim();
+            if line.is_empty() || line.starts_with(';') {
                 continue;
             }
-            let body = &line[1..];
-            let Some((k, v)) = body.split_once('=') else {
+            if let Some(rest) = line.strip_prefix('\u{feff}') {
+                line = rest.trim_start();
+            }
+            if let Some(rest) = line.strip_prefix('#') {
+                line = rest.trim_start();
+            }
+            let Some((k, v)) = line.split_once('=') else {
                 continue;
             };
             let key = normalize_key(k);
@@ -321,9 +335,21 @@ fn split_key_parts(k: &str) -> Vec<String> {
         .collect()
 }
 
+pub fn normalize_gameexe_key(k: &str) -> String {
+    normalize_key(k)
+}
+
 fn normalize_key(k: &str) -> String {
+    let mut src = k.trim();
+    if let Some(rest) = src.strip_prefix('\u{feff}') {
+        src = rest.trim_start();
+    }
+    if let Some(rest) = src.strip_prefix('#') {
+        src = rest.trim_start();
+    }
+
     let mut out = String::new();
-    for ch in k.trim().chars() {
+    for ch in src.chars() {
         if ch.is_ascii_whitespace() {
             continue;
         }
@@ -390,6 +416,45 @@ fn strip_inline_comment(s: &str) -> &str {
         }
     }
     s
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lookup_accepts_hash_and_spaced_keys() {
+        let cfg = GameexeConfig::from_text(
+            "#MSGBK . WINDOW_SIZE = 1280, 720\nMSGBK_ITEM . SLIDER . POS = 1076,70,590\n",
+        );
+        assert_eq!(cfg.get_value("MSGBK.WINDOW_SIZE"), Some("1280, 720"));
+        assert_eq!(cfg.get_value("#MSGBK.WINDOW_SIZE"), Some("1280, 720"));
+        assert_eq!(cfg.get_value("MSGBK_ITEM.SLIDER.POS"), Some("1076,70,590"));
+    }
+
+    #[test]
+    fn scalar_unquoted_and_full_value_are_distinct() {
+        let cfg = GameexeConfig::from_text(
+            "#MSGBK.WINDOW_SIZE = 1280, 720\n#MSGBK.BACK_FILE = \"mn_mw_log00a00\"\n",
+        );
+        assert_eq!(cfg.get_unquoted("MSGBK.WINDOW_SIZE"), Some("1280"));
+        assert_eq!(cfg.get_value("MSGBK.WINDOW_SIZE"), Some("1280, 720"));
+        assert_eq!(cfg.get_unquoted("#MSGBK.BACK_FILE"), Some("mn_mw_log00a00"));
+    }
+
+    #[test]
+    fn indexed_lookup_accepts_zero_padded_source_keys() {
+        let cfg = GameexeConfig::from_text("#WAKU.000.EXTEND_TYPE = 2\n");
+        assert_eq!(cfg.get_indexed_field("WAKU", 0, "EXTEND_TYPE"), Some("2"));
+    }
+
+    #[test]
+    fn indexed_value_preserves_full_rhs_tuple() {
+        let cfg = GameexeConfig::from_text("#COLOR_TABLE.000 = 255, 255, 255\n");
+        assert_eq!(cfg.get_indexed_value("COLOR_TABLE", 0), Some("255, 255, 255"));
+        assert_eq!(cfg.get_indexed_unquoted("COLOR_TABLE", 0), Some("255"));
+    }
 }
 
 pub fn decode_gameexe_dat_bytes(

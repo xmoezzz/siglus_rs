@@ -2283,6 +2283,22 @@ fn msgbk_add_koe(ctx: &mut CommandContext, koe_no: i64, chara_no: i64) {
     st.add_koe(koe_no, chara_no, scn_no, line_no);
 }
 
+fn msgbk_add_new_line_indent(ctx: &mut CommandContext) {
+    let (scn_no, line_no) = msgbk_scene_line(ctx);
+    let Some(st) = msgbk_state_mut(ctx) else {
+        return;
+    };
+    st.add_new_line_indent(scn_no, line_no);
+}
+
+fn msgbk_add_new_line_no_indent(ctx: &mut CommandContext) {
+    let (scn_no, line_no) = msgbk_scene_line(ctx);
+    let Some(st) = msgbk_state_mut(ctx) else {
+        return;
+    };
+    st.add_new_line_no_indent(scn_no, line_no);
+}
+
 fn msgbk_next(ctx: &mut CommandContext) {
     let Some(st) = msgbk_state_mut(ctx) else {
         return;
@@ -10716,6 +10732,7 @@ fn dispatch_mwnd_item_op(
         MwndOpKind::NewLineNoIndent => {
             m.msg_text.push('\n');
             ctx.ui.append_linebreak();
+            msgbk_add_new_line_no_indent(ctx);
             m.indent = false;
             m.text_dirty = true;
             push_ok(ctx, ret_form);
@@ -10724,6 +10741,7 @@ fn dispatch_mwnd_item_op(
         MwndOpKind::NewLineIndent => {
             m.msg_text.push('\n');
             ctx.ui.append_linebreak();
+            msgbk_add_new_line_indent(ctx);
             m.text_dirty = true;
             push_ok(ctx, ret_form);
             true
