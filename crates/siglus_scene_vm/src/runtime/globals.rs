@@ -144,6 +144,7 @@ pub struct ScriptRuntimeState {
 
     pub cursor_disp_off: bool,
     pub cursor_move_by_key_disable: bool,
+    pub cursor_runtime_visible: bool,
     pub key_disable: HashSet<u8>,
 
     pub mwnd_anime_off_flag: bool,
@@ -197,6 +198,7 @@ impl Default for ScriptRuntimeState {
             msg_back_disp_off: false,
             cursor_disp_off: false,
             cursor_move_by_key_disable: false,
+            cursor_runtime_visible: true,
             key_disable: HashSet::new(),
             mwnd_anime_off_flag: false,
             mwnd_anime_on_flag: false,
@@ -210,7 +212,7 @@ impl Default for ScriptRuntimeState {
             wait_display_vsync_off_flag: false,
             skip_trigger: false,
             ignore_r_flag: false,
-            cursor_no: 0,
+            cursor_no: -1,
             time_stop_flag: false,
             counter_time_stop_flag: false,
             frame_action_time_stop_flag: false,
@@ -244,6 +246,7 @@ pub struct SystemMessageBoxModalState {
     pub buttons: Vec<SystemMessageBoxButton>,
     pub cursor: usize,
     pub native_pending: bool,
+    pub complete_wait_with_value: bool,
 }
 
 impl SystemMessageBoxModalState {
@@ -351,10 +354,10 @@ pub struct SaveSlotState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyscomPendingProcKind {
+    EndGame,
     ReturnToSel,
     ReturnToMenu,
     BacklogLoad,
-    EndGame,
     MsgBack,
     OpenSyscomMenu,
     OpenSave,
@@ -389,6 +392,8 @@ pub struct SyscomRuntimeState {
     pub hide_mwnd: ToggleFeatureState,
     pub local_extra_switch: ToggleFeatureState,
     pub local_extra_mode: ValueFeatureState,
+    pub local_extra_switches: [ToggleFeatureState; 4],
+    pub local_extra_modes: [ValueFeatureState; 4],
     pub msg_back: ToggleFeatureState,
     pub msg_back_open: bool,
     pub msg_back_view_pos: usize,
@@ -412,10 +417,14 @@ pub struct SyscomRuntimeState {
     pub replay_koe: Option<(i64, i64)>,
     pub current_save_scene_title: String,
     pub current_save_message: String,
+    pub current_save_full_message: String,
     pub total_play_time: i64,
     pub save_slots: Vec<SaveSlotState>,
     pub quick_save_slots: Vec<SaveSlotState>,
     pub inner_save_exists: bool,
+    pub inner_save_streams: Vec<Vec<u8>>,
+    pub sel_save_stock_stream: Vec<u8>,
+    pub sel_save_ids: Vec<[u16; 7]>,
     pub end_save_exists: bool,
     pub last_menu_call: i32,
     pub system_extra_int_value: i64,
@@ -448,6 +457,8 @@ impl Default for SyscomRuntimeState {
             hide_mwnd: ToggleFeatureState { onoff: false, enable: true, exist: true },
             local_extra_switch: ToggleFeatureState { onoff: false, enable: true, exist: true },
             local_extra_mode: ValueFeatureState { value: 0, enable: true, exist: true },
+            local_extra_switches: [ToggleFeatureState { onoff: false, enable: true, exist: true }; 4],
+            local_extra_modes: [ValueFeatureState { value: 0, enable: true, exist: true }; 4],
             msg_back: ToggleFeatureState { onoff: false, enable: true, exist: true },
             msg_back_open: false,
             msg_back_view_pos: 0,
@@ -471,10 +482,14 @@ impl Default for SyscomRuntimeState {
             replay_koe: None,
             current_save_scene_title: String::new(),
             current_save_message: String::new(),
+            current_save_full_message: String::new(),
             total_play_time: 0,
             save_slots: Vec::new(),
             quick_save_slots: Vec::new(),
             inner_save_exists: false,
+            inner_save_streams: Vec::new(),
+            sel_save_stock_stream: Vec::new(),
+            sel_save_ids: Vec::new(),
             end_save_exists: false,
             last_menu_call: 0,
             system_extra_int_value: 0,
@@ -630,6 +645,8 @@ pub struct GlobalState {
 
     /// G00BUF slots. Each slot stores an ImageId loaded from the `g00/` directory.
     pub g00buf: Vec<Option<ImageId>>,
+    /// Original C_elm_g00_buf persists file names, not texture handles.
+    pub g00buf_names: Vec<Option<String>>,
 
     /// RNG state for MATH.RAND (xorshift32). 0 means "uninitialized".
     pub rng_state: u32,
@@ -664,6 +681,18 @@ pub struct GlobalState {
     pub current_mwnd_stage_idx: i64,
     pub current_sel_mwnd_no: Option<usize>,
     pub current_sel_mwnd_stage_idx: i64,
+    pub last_mwnd_no: Option<usize>,
+    pub last_mwnd_stage_idx: i64,
+
+    /// Original C_tnm_timer local fields saved by C_tnm_eng::save_local().
+    pub local_real_time: i64,
+    pub local_game_time: i64,
+    pub local_wipe_time: i64,
+
+    /// Original extend-enable local flag lists H/I/J.
+    pub local_flag_h: Vec<i64>,
+    pub local_flag_i: Vec<i64>,
+    pub local_flag_j: Vec<i64>,
     /// GLOBAL.SELBTN button-selection runtime state.
     pub selbtn: BtnSelectRuntimeState,
     /// Last object target touched by stage/object dispatch. Compact object-only chains in scene bytecode
@@ -695,6 +724,8 @@ pub struct GlobalState {
 
     /// Currently selected append directory used by original file resolution helpers.
     pub append_dir: String,
+    /// Display name for the currently selected append directory.
+    pub append_name: String,
 
     /// BGM table listened flags keyed by registered name.
     pub bgm_table_listened: HashMap<String, bool>,
@@ -731,6 +762,7 @@ impl Default for GlobalState {
             cg_table_off: false,
             database_off: false,
             g00buf: Vec::new(),
+            g00buf_names: Vec::new(),
             rng_state: 0,
             mask_lists: HashMap::new(),
             editbox_lists: HashMap::new(),
@@ -748,6 +780,14 @@ impl Default for GlobalState {
             current_mwnd_stage_idx: 1,
             current_sel_mwnd_no: Some(1),
             current_sel_mwnd_stage_idx: 1,
+            last_mwnd_no: Some(0),
+            last_mwnd_stage_idx: 1,
+            local_real_time: 0,
+            local_game_time: 0,
+            local_wipe_time: 0,
+            local_flag_h: Vec::new(),
+            local_flag_i: Vec::new(),
+            local_flag_j: Vec::new(),
             selbtn: BtnSelectRuntimeState::default(),
             current_stage_object: None,
             current_object_chain: None,
@@ -762,6 +802,7 @@ impl Default for GlobalState {
             capture_image: None,
             capture_for_object_image: None,
             append_dir: String::new(),
+            append_name: String::new(),
 
             bgm_table_listened: HashMap::new(),
             bgm_table_flags: Vec::new(),
@@ -780,6 +821,8 @@ pub struct BtnSelectChoiceState {
     pub text: String,
     pub item_type: i64,
     pub color: i64,
+    pub pos: (i64, i64),
+    pub size: (i64, i64),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1122,6 +1165,41 @@ impl Counter {
 
     pub fn is_running(&self) -> bool {
         self.is_running
+    }
+
+    pub(crate) fn save_parts(&self) -> (bool, bool, bool, bool, i64, i64, i64, i64) {
+        (
+            self.is_running,
+            self.real_flag,
+            self.frame_mode,
+            self.frame_loop_flag,
+            self.frame_start_value,
+            self.frame_end_value,
+            self.frame_time,
+            self.cur_time,
+        )
+    }
+
+    pub(crate) fn from_save_parts(
+        is_running: bool,
+        real_flag: bool,
+        frame_mode: bool,
+        frame_loop_flag: bool,
+        frame_start_value: i64,
+        frame_end_value: i64,
+        frame_time: i64,
+        cur_time: i64,
+    ) -> Self {
+        Self {
+            cur_time,
+            is_running,
+            real_flag,
+            frame_mode,
+            frame_loop_flag,
+            frame_start_value,
+            frame_end_value,
+            frame_time,
+        }
     }
 }
 
@@ -4358,8 +4436,16 @@ pub struct MwndSelectionState {
 
 #[derive(Debug, Default, Clone)]
 pub struct BtnSelItemState {
+    pub generated_objects: Vec<ObjectState>,
     pub object_list: Vec<ObjectState>,
     pub strict: bool,
+    pub text: String,
+    pub item_type: i64,
+    pub color: i64,
+    pub pos: (i64, i64),
+    pub size: (i64, i64),
+    pub visible: bool,
+    pub selected: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -5111,6 +5197,15 @@ impl GlobalState {
 
     pub fn tick_frame(&mut self, past_game_time: i32, past_real_time: i32) {
         self.render_frame = self.render_frame.wrapping_add(1);
+        self.local_real_time = self
+            .local_real_time
+            .saturating_add(past_real_time.max(0) as i64);
+        self.local_game_time = self
+            .local_game_time
+            .saturating_add(past_game_time.max(0) as i64);
+        self.local_wipe_time = self
+            .local_wipe_time
+            .saturating_add(past_game_time.max(0) as i64);
         if self.wipe_done() {
             self.wipe = None;
         }

@@ -19,6 +19,9 @@ fn ensure_buf_size(ctx: &mut CommandContext, idx: usize) {
     if ctx.globals.g00buf.len() < want {
         ctx.globals.g00buf.resize(want, None);
     }
+    if ctx.globals.g00buf_names.len() < want {
+        ctx.globals.g00buf_names.resize(want, None);
+    }
 }
 
 fn composite_slot_op_key(idx: i32, op: i32) -> i32 {
@@ -51,6 +54,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             for slot in &mut ctx.globals.g00buf {
                 *slot = None;
             }
+            for name in &mut ctx.globals.g00buf_names {
+                *name = None;
+            }
             ctx.push(Value::Int(0));
             return Ok(true);
         }
@@ -74,10 +80,12 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 match ctx.images.load_g00(name, 0) {
                     Ok(img_id) => {
                         ctx.globals.g00buf[idx] = Some(img_id);
+                        ctx.globals.g00buf_names[idx] = Some(name.to_string());
                         ctx.push(Value::Int(0));
                     }
                     Err(_) => {
                         ctx.globals.g00buf[idx] = None;
+                        ctx.globals.g00buf_names[idx] = None;
                         ctx.push(Value::Int(0));
                     }
                 }
@@ -86,6 +94,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
 
             if ctx.ids.g00buf_free != 0 && buf_op == ctx.ids.g00buf_free {
                 ctx.globals.g00buf[idx] = None;
+                ctx.globals.g00buf_names[idx] = None;
                 ctx.push(Value::Int(0));
                 return Ok(true);
             }

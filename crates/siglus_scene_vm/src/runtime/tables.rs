@@ -35,6 +35,9 @@ const INIDEF_MWND_WAKU_OBJECT_CNT: usize = 1;
 const INIMAX_MWND_WAKU_OBJECT_CNT: usize = 16;
 const INIDEF_ICON_CNT: usize = 16;
 const INIMAX_ICON_CNT: usize = 256;
+const INIDEF_SEL_BTN_CNT: usize = 16;
+const INIMIN_SEL_BTN_CNT: usize = 0;
+const INIMAX_SEL_BTN_CNT: usize = 256;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ButtonSeTemplate {
@@ -338,6 +341,63 @@ impl Default for WakuTemplate {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SelBtnTemplate {
+    pub base_file: String,
+    pub filter_file: String,
+    pub base_pos: (i64, i64),
+    pub rep_pos: (i64, i64),
+    pub x_align: i64,
+    pub y_align: i64,
+    pub max_y_cnt: i64,
+    pub line_width: i64,
+    pub moji_cnt: i64,
+    pub moji_pos: (i64, i64),
+    pub moji_size: i64,
+    pub moji_space: (i64, i64),
+    pub moji_x_align: i64,
+    pub moji_y_align: i64,
+    pub moji_color: i64,
+    pub moji_hit_color: i64,
+    pub btn_action_no: i64,
+    pub open_anime_type: i64,
+    pub open_anime_time: i64,
+    pub close_anime_type: i64,
+    pub close_anime_time: i64,
+    pub decide_anime_type: i64,
+    pub decide_anime_time: i64,
+}
+
+impl Default for SelBtnTemplate {
+    fn default() -> Self {
+        Self {
+            base_file: String::new(),
+            filter_file: String::new(),
+            base_pos: (0, 0),
+            rep_pos: (0, 0),
+            x_align: 0,
+            y_align: 0,
+            max_y_cnt: 0,
+            line_width: 100,
+            moji_cnt: 0,
+            moji_pos: (0, 0),
+            moji_size: 25,
+            moji_space: (0, 0),
+            moji_x_align: 0,
+            moji_y_align: 0,
+            moji_color: 0,
+            moji_hit_color: 5,
+            btn_action_no: 0,
+            open_anime_type: 1,
+            open_anime_time: 500,
+            close_anime_type: 1,
+            close_anime_time: 500,
+            decide_anime_type: 1,
+            decide_anime_time: 500,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct AssetTables {
     pub gameexe: Option<GameexeConfig>,
@@ -350,6 +410,7 @@ pub struct AssetTables {
     pub mwnd_templates: Vec<MwndTemplate>,
     pub waku_templates: Vec<WakuTemplate>,
     pub icon_templates: Vec<IconTemplate>,
+    pub sel_btn_templates: Vec<SelBtnTemplate>,
     pub namae_entries: Vec<NamaeEntry>,
     pub color_table: Vec<(u8, u8, u8)>,
     pub font_defaults: FontConfigDefaults,
@@ -375,6 +436,7 @@ impl Default for AssetTables {
             mwnd_templates: vec![MwndTemplate::default(); INIDEF_MWND_CNT],
             waku_templates: vec![WakuTemplate::default(); INIDEF_WAKU_CNT],
             icon_templates: vec![IconTemplate::default(); INIDEF_ICON_CNT],
+            sel_btn_templates: vec![SelBtnTemplate::default(); INIDEF_SEL_BTN_CNT],
             namae_entries: Vec::new(),
             color_table: default_color_table(),
             font_defaults: FontConfigDefaults::default(),
@@ -444,6 +506,7 @@ impl AssetTables {
         out.mwnd_templates = load_mwnd_templates(&cfg);
         out.waku_templates = load_waku_templates(&cfg, Some(&text));
         out.icon_templates = load_icon_templates(&cfg);
+        out.sel_btn_templates = load_sel_btn_templates(&cfg);
         out.namae_entries = load_namae_entries(Some(&text));
         out.color_table = load_color_table(&cfg);
         out.font_defaults = load_font_config_defaults(&cfg);
@@ -1416,6 +1479,90 @@ fn load_icon_templates(cfg: &GameexeConfig) -> Vec<IconTemplate> {
         out[i] = t;
     }
 
+    out
+}
+
+
+fn load_sel_btn_templates(cfg: &GameexeConfig) -> Vec<SelBtnTemplate> {
+    let cnt = cfg
+        .get_usize("SELBTN.CNT")
+        .unwrap_or(INIDEF_SEL_BTN_CNT)
+        .clamp(INIMIN_SEL_BTN_CNT, INIMAX_SEL_BTN_CNT);
+    let mut out = vec![SelBtnTemplate::default(); cnt];
+    for i in 0..cnt {
+        let mut t = SelBtnTemplate::default();
+        let get_i64 = |field: &str| {
+            cfg.get_indexed_field("SELBTN", i, field)
+                .and_then(parse_i64_like_local)
+        };
+        let get_tuple = |field: &str| parse_i64_tuple(cfg.get_indexed_field("SELBTN", i, field));
+
+        if let Some(v) = cfg.get_indexed_field_unquoted("SELBTN", i, "BASE_FILE") {
+            t.base_file = v.to_string();
+        }
+        if let Some(v) = cfg.get_indexed_field_unquoted("SELBTN", i, "BACK_FILE") {
+            t.filter_file = v.to_string();
+        }
+        let base_pos = get_tuple("BASE_POS");
+        if base_pos.len() >= 2 {
+            t.base_pos = (base_pos[0], base_pos[1]);
+        }
+        let rep_pos = get_tuple("REP_POS");
+        if rep_pos.len() >= 2 {
+            t.rep_pos = (rep_pos[0], rep_pos[1]);
+        }
+        let align = get_tuple("ALIGN");
+        if align.len() >= 2 {
+            t.x_align = align[0];
+            t.y_align = align[1];
+        }
+        if let Some(v) = get_i64("MAX_Y_CNT") {
+            t.max_y_cnt = v;
+        }
+        if let Some(v) = get_i64("LINE_WIDTH") {
+            t.line_width = v;
+        }
+        let moji_size = get_tuple("MOJI_SIZE");
+        if moji_size.len() >= 4 {
+            t.moji_size = moji_size[0];
+            t.moji_space = (moji_size[1], moji_size[2]);
+            t.moji_cnt = moji_size[3];
+        }
+        let moji_pos = get_tuple("MOJI_POS");
+        if moji_pos.len() >= 2 {
+            t.moji_pos = (moji_pos[0], moji_pos[1]);
+        }
+        let moji_align = get_tuple("MOJI_ALIGN");
+        if moji_align.len() >= 2 {
+            t.moji_x_align = moji_align[0];
+            t.moji_y_align = moji_align[1];
+        }
+        if let Some(v) = get_i64("MOJI_COLOR") {
+            t.moji_color = v;
+        }
+        if let Some(v) = get_i64("MOJI_HIT_COLOR") {
+            t.moji_hit_color = v;
+        }
+        if let Some(v) = get_i64("BTN_ACTION") {
+            t.btn_action_no = v;
+        }
+        let open_anime = get_tuple("OPEN_ANIME");
+        if open_anime.len() >= 2 {
+            t.open_anime_type = open_anime[0];
+            t.open_anime_time = open_anime[1];
+        }
+        let close_anime = get_tuple("CLOSE_ANIME");
+        if close_anime.len() >= 2 {
+            t.close_anime_type = close_anime[0];
+            t.close_anime_time = close_anime[1];
+        }
+        let decide_anime = get_tuple("DECIDE_ANIME");
+        if decide_anime.len() >= 2 {
+            t.decide_anime_type = decide_anime[0];
+            t.decide_anime_time = decide_anime[1];
+        }
+        out[i] = t;
+    }
     out
 }
 

@@ -16,7 +16,6 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use crate::desktop_messagebox::{DesktopMessageBoxBridge, DesktopMessageBoxWindow};
 use crate::host::{cstr_required, parse_bool_exit, SiglusHost, SiglusHostConfig, SiglusNativeMessageBoxCallback};
 use crate::render::Renderer;
 use crate::runtime::game_display_info::resolve_game_name_from_project_dir;
@@ -34,8 +33,8 @@ struct PumpApp {
     host: Option<SiglusHost>,
     init_error: Option<String>,
     exit_requested: bool,
-    messagebox_bridge: DesktopMessageBoxBridge,
-    messagebox_window: Option<DesktopMessageBoxWindow>,
+    native_messagebox_callback: Option<SiglusNativeMessageBoxCallback>,
+    native_messagebox_user_data: *mut c_void,
 }
 
 impl PumpApp {
@@ -47,8 +46,8 @@ impl PumpApp {
             host: None,
             init_error: None,
             exit_requested: false,
-            messagebox_bridge: DesktopMessageBoxBridge::new(),
-            messagebox_window: None,
+            native_messagebox_callback: None,
+            native_messagebox_user_data: std::ptr::null_mut(),
         }
     }
 
@@ -88,9 +87,7 @@ impl PumpApp {
                 return;
             }
         };
-        host.vm_mut()
-            .ctx
-            .set_native_ui_backend(Some(self.messagebox_bridge.backend()));
+        host.set_native_messagebox_callback(self.native_messagebox_callback, self.native_messagebox_user_data);
         self.window_id = Some(window.id());
         self.window = Some(window);
         self.host = Some(host);
@@ -100,24 +97,6 @@ impl PumpApp {
     fn handle_event(&mut self, event: Event<()>, elwt: &ActiveEventLoop) {
         match event {
             Event::Resumed => self.ensure_created(elwt),
-            Event::WindowEvent { window_id, event }
-                if self
-                    .messagebox_window
-                    .as_ref()
-                    .map(|dialog| dialog.window_id() == window_id)
-                    .unwrap_or(false) =>
-            {
-                let result = self
-                    .messagebox_window
-                    .as_mut()
-                    .and_then(|dialog| dialog.handle_window_event(event));
-                if let Some(value) = result {
-                    if let Some(dialog) = self.messagebox_window.as_ref() {
-                        let request_id = dialog.request_id();
-                        self.finish_desktop_messagebox(request_id, value);
-                    }
-                }
-            }
             Event::WindowEvent { window_id, event } if self.window_id == Some(window_id) => {
                 self.handle_window_event(event, elwt);
             }
@@ -126,12 +105,8 @@ impl PumpApp {
                     elwt.exit();
                     return;
                 }
-                self.sync_desktop_messagebox(elwt);
                 if let Some(w) = self.window.as_ref() {
                     w.request_redraw();
-                }
-                if let Some(dialog) = self.messagebox_window.as_ref() {
-                    dialog.request_redraw();
                 }
             }
             _ => {}
@@ -144,7 +119,8 @@ impl PumpApp {
         };
         match event {
             WindowEvent::CloseRequested => {
-                host.request_close();
+                self.exit_requested = true;
+                elwt.exit();
             }
             WindowEvent::Resized(size) => {
                 let sf = self.window.as_ref().map(|w| w.scale_factor() as f32).unwrap_or(1.0);
@@ -218,31 +194,6 @@ impl PumpApp {
                 }
             }
             _ => {}
-        }
-    }
-
-    fn sync_desktop_messagebox(&mut self, elwt: &ActiveEventLoop) {
-        if self.messagebox_window.is_some() {
-            return;
-        }
-        let Some(request) = self.messagebox_bridge.pop_request() else {
-            return;
-        };
-        let dialog = DesktopMessageBoxWindow::new(elwt, request)
-            .expect("create desktop winit messagebox");
-        self.messagebox_window = Some(dialog);
-    }
-
-    fn finish_desktop_messagebox(&mut self, request_id: u64, value: i64) {
-        if let Some(dialog) = self.messagebox_window.as_ref() {
-            dialog.hide();
-        }
-        self.messagebox_window = None;
-        if let Some(host) = self.host.as_mut() {
-            host.submit_native_messagebox_result(request_id, value);
-        }
-        if let Some(w) = self.window.as_ref() {
-            w.request_redraw();
         }
     }
 }
@@ -367,8 +318,12 @@ pub unsafe extern "C" fn siglus_pump_set_native_messagebox_callback(
     if handle.is_null() {
         return;
     }
-    let _ = (&mut *handle, callback, user_data);
-    log::error!("siglus_pump_set_native_messagebox_callback is ignored on desktop; desktop message boxes are handled by winit");
+    let h = &mut *handle;
+    h.app.native_messagebox_callback = callback;
+    h.app.native_messagebox_user_data = user_data;
+    if let Some(host) = h.app.host.as_mut() {
+        host.set_native_messagebox_callback(callback, user_data);
+    }
 }
 
 #[no_mangle]

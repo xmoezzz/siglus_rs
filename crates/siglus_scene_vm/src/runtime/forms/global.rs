@@ -148,12 +148,16 @@ fn mwnd_no_from_value(v: &Value) -> Option<usize> {
     mwnd_ref_from_value(v).map(|(_, no)| no)
 }
 
+const TNM_STAGE_FRONT_SELBTN: i64 = 1;
+const TNM_SEL_ITEM_TYPE_OFF: i64 = 0;
+const TNM_SEL_ITEM_TYPE_ON: i64 = 1;
+
 fn parse_selbtn_choices(
     args: &[Value],
 ) -> (i64, Vec<crate::runtime::globals::BtnSelectChoiceState>) {
     let mut template_no = 0i64;
     let mut start = 0usize;
-    if args.first().and_then(Value::as_i64).is_some() {
+    if args.first().is_some_and(|v| v.named_id().is_none() && v.as_i64().is_some()) {
         template_no = args.first().and_then(Value::as_i64).unwrap_or(0);
         start = 1;
     }
@@ -161,12 +165,14 @@ fn parse_selbtn_choices(
     let mut out = Vec::new();
     let mut last: Option<usize> = None;
     let mut arg_no = 0i32;
-    for v in args.iter().skip(start).map(Value::unwrap_named) {
+    for v in args.iter().skip(start).filter(|v| v.named_id().is_none()).map(Value::unwrap_named) {
         if let Some(s) = v.as_str() {
             out.push(crate::runtime::globals::BtnSelectChoiceState {
                 text: s.to_string(),
-                item_type: 0,
+                item_type: TNM_SEL_ITEM_TYPE_ON,
                 color: -1,
+                pos: (0, 0),
+                size: (0, 0),
             });
             last = Some(out.len() - 1);
             arg_no = 0;
@@ -182,6 +188,209 @@ fn parse_selbtn_choices(
         arg_no += 1;
     }
     (template_no, out)
+}
+
+fn selbtn_text_extent(text: &str, tmpl: &crate::runtime::tables::SelBtnTemplate) -> (i64, i64) {
+    let font_px = tmpl.moji_size.max(1);
+    let units: i64 = text
+        .chars()
+        .map(|ch| if ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F) { 1 } else { 2 })
+        .sum();
+    let cells = if tmpl.moji_cnt > 0 { tmpl.moji_cnt } else { ((units + 1) / 2).max(1) };
+    let width = (font_px * cells + tmpl.moji_space.0 * (cells - 1)).max(font_px);
+    let height = font_px.max(1);
+    (width, height)
+}
+
+fn layout_selbtn_choices(
+    choices: &mut [crate::runtime::globals::BtnSelectChoiceState],
+    tmpl: &crate::runtime::tables::SelBtnTemplate,
+) {
+    let item_size = choices
+        .first()
+        .map(|choice| {
+            let (tw, th) = selbtn_text_extent(&choice.text, tmpl);
+            (tw + tmpl.moji_pos.0.max(0), th + tmpl.moji_pos.1.max(0))
+        })
+        .unwrap_or((0, 0));
+    let rep_pos = if tmpl.rep_pos == (0, 0) {
+        (0, item_size.1.max(tmpl.moji_size.max(1)).max(1))
+    } else {
+        tmpl.rep_pos
+    };
+
+    let mut offset = (0i64, 0i64);
+    let mut max_offset = (0i64, 0i64);
+    let mut org_offset_x = 0i64;
+    let mut y_cnt = 0i64;
+    for choice in choices.iter_mut() {
+        if choice.item_type != TNM_SEL_ITEM_TYPE_OFF {
+            choice.pos = offset;
+            let (tw, th) = selbtn_text_extent(&choice.text, tmpl);
+            choice.size = (item_size.0.max(tw + tmpl.moji_pos.0.max(0)), item_size.1.max(th + tmpl.moji_pos.1.max(0)));
+            offset.0 = offset.0.saturating_add(rep_pos.0);
+            offset.1 = offset.1.saturating_add(rep_pos.1);
+            max_offset.0 = max_offset.0.max(offset.0);
+            max_offset.1 = max_offset.1.max(offset.1);
+            y_cnt += 1;
+            if tmpl.max_y_cnt > 0 && y_cnt >= tmpl.max_y_cnt {
+                offset.0 = org_offset_x.saturating_add(tmpl.line_width);
+                offset.1 = 0;
+                org_offset_x = offset.0;
+                y_cnt = 0;
+            }
+        }
+    }
+
+    let total_x = max_offset.0.saturating_sub(rep_pos.0).saturating_add(item_size.0);
+    let total_y = max_offset.1.saturating_sub(rep_pos.1).saturating_add(item_size.1);
+    let align_x = match tmpl.x_align {
+        1 => -total_x / 2,
+        2 => -total_x,
+        _ => 0,
+    };
+    let align_y = match tmpl.y_align {
+        1 => -total_y / 2,
+        2 => -total_y,
+        _ => 0,
+    };
+    for choice in choices.iter_mut() {
+        if choice.item_type != TNM_SEL_ITEM_TYPE_OFF {
+            choice.pos.0 = choice.pos.0.saturating_add(align_x).saturating_add(tmpl.base_pos.0);
+            choice.pos.1 = choice.pos.1.saturating_add(align_y).saturating_add(tmpl.base_pos.1);
+        }
+    }
+}
+
+fn selbtn_table_color(
+    tables: &crate::runtime::tables::AssetTables,
+    color_no: i64,
+    fallback: (u8, u8, u8),
+) -> (u8, u8, u8) {
+    if color_no < 0 {
+        return fallback;
+    }
+    tables
+        .color_table
+        .get(color_no as usize)
+        .copied()
+        .unwrap_or(fallback)
+}
+
+fn make_selbtn_text_object(
+    ctx: &mut CommandContext,
+    choice: &crate::runtime::globals::BtnSelectChoiceState,
+    tmpl: &crate::runtime::tables::SelBtnTemplate,
+    color_no: i64,
+) -> Option<crate::runtime::globals::ObjectState> {
+    if choice.item_type == TNM_SEL_ITEM_TYPE_OFF || choice.text.is_empty() {
+        return None;
+    }
+    if !ctx.font_cache.is_loaded() {
+        let _ = ctx.font_cache.load_for_project(&ctx.project_dir);
+    }
+    let (tw, th) = selbtn_text_extent(&choice.text, tmpl);
+    let width = tw.max(1) as u32;
+    let height = th.max(tmpl.moji_size.max(1)) as u32;
+    let color = selbtn_table_color(&ctx.tables, color_no, (255, 255, 255));
+    let style = crate::text_render::TextStyle {
+        color,
+        shadow_color: (0, 0, 0),
+        fuchi_color: (0, 0, 0),
+        shadow: false,
+        fuchi: false,
+        bold: false,
+    };
+    let img_id = ctx.font_cache.render_mwnd_text_styled(
+        &mut ctx.images,
+        &choice.text,
+        tmpl.moji_size.max(1) as f32,
+        width,
+        height,
+        Some(tmpl.moji_space),
+        style,
+    );
+    let layer_id = ctx.layers.create_layer();
+    let sprite_id = ctx.layers.layer_mut(layer_id).map(|layer| layer.create_sprite())?;
+    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+        if let Some(sprite) = layer.sprite_mut(sprite_id) {
+            sprite.fit = crate::layer::SpriteFit::PixelRect;
+            sprite.size_mode = if img_id.is_some() {
+                crate::layer::SpriteSizeMode::Intrinsic
+            } else {
+                crate::layer::SpriteSizeMode::Explicit { width, height }
+            };
+            sprite.visible = true;
+            sprite.x = tmpl.moji_pos.0 as i32;
+            sprite.y = tmpl.moji_pos.1 as i32;
+            sprite.image_id = img_id;
+            sprite.tr = 255;
+        }
+    }
+    let mut obj = crate::runtime::globals::ObjectState::default();
+    obj.used = true;
+    obj.backend = crate::runtime::globals::ObjectBackend::String {
+        layer_id,
+        sprite_id,
+        width,
+        height,
+    };
+    obj.object_type = 3;
+    obj.string_value = Some(choice.text.clone());
+    obj.string_param.moji_size = tmpl.moji_size;
+    obj.string_param.moji_space_x = tmpl.moji_space.0;
+    obj.string_param.moji_space_y = tmpl.moji_space.1;
+    obj.string_param.moji_cnt = tmpl.moji_cnt;
+    obj.string_param.moji_color = color_no;
+    obj.base.disp = 1;
+    obj.base.x = tmpl.moji_pos.0;
+    obj.base.y = tmpl.moji_pos.1;
+    obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
+    obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, tmpl.moji_pos.0);
+    obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, tmpl.moji_pos.1);
+    Some(obj)
+}
+
+fn prepare_stage_btnselitems(ctx: &mut CommandContext) {
+    let template_no = ctx.globals.selbtn.template_no.max(0) as usize;
+    let tmpl = ctx
+        .tables
+        .sel_btn_templates
+        .get(template_no)
+        .cloned()
+        .unwrap_or_default();
+    layout_selbtn_choices(&mut ctx.globals.selbtn.choices, &tmpl);
+    let choices_snapshot = ctx.globals.selbtn.choices.clone();
+    let cursor = ctx.globals.selbtn.cursor;
+    let mut prepared = Vec::with_capacity(choices_snapshot.len());
+    for (idx, choice) in choices_snapshot.iter().enumerate() {
+        let mut item = crate::runtime::globals::BtnSelItemState::default();
+        item.text = choice.text.clone();
+        item.item_type = choice.item_type;
+        item.color = if choice.color >= 0 { choice.color } else { tmpl.moji_color };
+        item.pos = choice.pos;
+        item.size = choice.size;
+        item.visible = choice.item_type != TNM_SEL_ITEM_TYPE_OFF;
+        item.selected = idx == cursor;
+        if let Some(obj) = make_selbtn_text_object(ctx, choice, &tmpl, item.color) {
+            item.generated_objects.push(obj);
+        }
+        prepared.push(item);
+    }
+    let st = ctx
+        .globals
+        .stage_forms
+        .entry(ctx.ids.form_global_stage)
+        .or_default();
+    st.btnselitem_lists
+        .insert(TNM_STAGE_FRONT_SELBTN, prepared);
+}
+
+fn first_selectable_selbtn_choice(choices: &[crate::runtime::globals::BtnSelectChoiceState]) -> usize {
+    choices
+        .iter()
+        .position(|choice| choice.item_type == TNM_SEL_ITEM_TYPE_ON)
+        .unwrap_or(0)
 }
 
 fn dispatch_selbtn_command(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
@@ -207,7 +416,7 @@ fn dispatch_selbtn_command(ctx: &mut CommandContext, form_id: u32, args: &[Value
         let sel_start_call_z_no = named_i64(args, 3).unwrap_or(0);
         ctx.globals.selbtn.template_no = template_no;
         ctx.globals.selbtn.choices = choices;
-        ctx.globals.selbtn.cursor = 0;
+        ctx.globals.selbtn.cursor = first_selectable_selbtn_choice(&ctx.globals.selbtn.choices);
         ctx.globals.selbtn.cancel_enable = op == constants::elm_value::GLOBAL_SELBTN_CANCEL
             || op == constants::elm_value::GLOBAL_SELBTN_CANCEL_READY;
         ctx.globals.selbtn.capture_flag = if ready { false } else { capture_flag };
@@ -218,16 +427,16 @@ fn dispatch_selbtn_command(ctx: &mut CommandContext, form_id: u32, args: &[Value
         };
         ctx.globals.selbtn.sel_start_call_z_no = if ready { 0 } else { sel_start_call_z_no };
         ctx.globals.selbtn.result = 0;
+        prepare_stage_btnselitems(ctx);
     }
 
     if start_now {
         ctx.globals.selbtn.started = true;
         ctx.globals.selbtn.sync_type = named_i64(args, 4).unwrap_or(0);
         ctx.globals.selbtn.read_flag_scene_no = ctx.current_scene_no.unwrap_or(-1);
-        ctx.globals.selbtn.read_flag_flag_no = 0;
+        ctx.globals.selbtn.read_flag_flag_no = -1;
+        ctx.request_read_flag_no_for_selbtn();
         ctx.wait.wait_key();
-    } else {
-        ctx.push(Value::Int(0));
     }
     Ok(true)
 }
@@ -922,16 +1131,19 @@ fn dispatch_global_message_command(
     match form_id as i32 {
         constants::elm_value::GLOBAL_MESSAGE_BOX => {
             let text = global_message_arg_str(args).unwrap_or("").to_string();
-            ctx.request_system_messagebox(
-                constants::elm_value::SYSTEM_MESSAGEBOX_OK,
+            ctx.request_system_messagebox_no_return(
+                17,
                 false,
                 text,
                 vec![crate::runtime::globals::SystemMessageBoxButton {
                     label: "OK".to_string(),
                     value: 0,
                 }],
-                false,
             );
+            Ok(true)
+        }
+        constants::elm_value::GLOBAL_GET_LAST_SEL_MSG => {
+            ctx.push(Value::Str(ctx.globals.syscom.system_extra_str_value.clone()));
             Ok(true)
         }
         constants::elm_value::GLOBAL_OPEN
@@ -981,6 +1193,7 @@ fn dispatch_global_message_command(
             ctx.request_read_flag_no();
             if let Some(s) = global_message_arg_str(args) {
                 if !s.is_empty() {
+                    syscom::append_current_save_message(ctx, s);
                     ctx.ui.show_message_bg(true);
                     ctx.ui.append_message(s);
                 }
@@ -1123,6 +1336,8 @@ pub fn dispatch_global_form(
         } else if let Some((stage, no)) = next {
             ctx.globals.current_mwnd_stage_idx = stage;
             ctx.globals.current_mwnd_no = Some(no);
+            ctx.globals.last_mwnd_stage_idx = stage;
+            ctx.globals.last_mwnd_no = Some(no);
         }
         return Ok(true);
     }

@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use egui::{ColorImage, TextureHandle, TextureOptions};
 use egui_wgpu::{Renderer as EguiRenderer, ScreenDescriptor};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use clap::Parser;
 use image::ColorType;
 use winit::application::ApplicationHandler;
@@ -19,9 +19,10 @@ use winit::window::{Window, WindowAttributes, WindowId};
 use siglus_assets::gameexe::{decode_gameexe_dat_bytes, GameexeConfig, GameexeDecodeOptions};
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
-use siglus_scene_vm::desktop_messagebox::{DesktopMessageBoxBridge, DesktopMessageBoxWindow};
 use siglus_scene_vm::image_manager::ImageId;
 use siglus_scene_vm::render::{Renderer, RendererDebugTexture};
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+use siglus_scene_vm::desktop_messagebox::{DesktopMessageBoxBridge, DesktopMessageBoxWindow};
 use siglus_scene_vm::runtime::globals::{
     SyscomPendingProc, SyscomPendingProcKind, SystemMessageBoxButton, SystemMessageBoxModalState,
     WipeState,
@@ -32,6 +33,7 @@ use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::{SceneVm, VmConfig};
 
 const FRAME_INTERVAL: Duration = Duration::from_millis(16);
+
 
 #[derive(Debug, Parser)]
 struct Args {
@@ -90,6 +92,7 @@ enum ProcType {
     ReturnToMenu,
     GameEndWipe,
     Disp,
+    EndGame,
     GameTimerStart,
     TimeWait,
 }
@@ -198,13 +201,14 @@ struct App {
     captured: bool,
     pending_exit: bool,
 
-    messagebox_bridge: DesktopMessageBoxBridge,
-    messagebox_window: Option<DesktopMessageBoxWindow>,
-
     hud_show_active_textures: bool,
     hud_scroll: usize,
     hud_total_lines: usize,
     hud_gui: Option<HudGui>,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    desktop_messagebox_bridge: DesktopMessageBoxBridge,
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    desktop_messagebox_window: Option<DesktopMessageBoxWindow>,
 }
 
 fn map_mouse_button(b: MouseButton) -> Option<VmMouseButton> {
@@ -323,12 +327,14 @@ impl App {
             syscom_suspended_waits: Vec::new(),
             captured: false,
             pending_exit: false,
-            messagebox_bridge: DesktopMessageBoxBridge::new(),
-            messagebox_window: None,
             hud_show_active_textures: false,
             hud_scroll: 0,
             hud_total_lines: 0,
             hud_gui: None,
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            desktop_messagebox_bridge: DesktopMessageBoxBridge::new(),
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            desktop_messagebox_window: None,
         }
     }
 
@@ -1340,6 +1346,9 @@ impl App {
         ctx.screen_w = self.initial_size.0;
         ctx.screen_h = self.initial_size.1;
         let mut vm = SceneVm::with_config(VmConfig::from_env(), stream, ctx);
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        vm.ctx
+            .set_native_ui_backend(Some(self.desktop_messagebox_bridge.backend()));
         if self.args.scene_id.is_none() {
             let scene_name = if let Some(name) = self.args.scene_name.as_ref() {
                 name.clone()
@@ -1426,19 +1435,19 @@ impl App {
         }
 
         match proc.kind {
-            SyscomPendingProcKind::ReturnToMenu => {
-                if proc.warning {
-                    self.begin_syscom_warning(proc);
-                } else {
-                    self.queue_return_to_menu_proc(proc);
-                }
-                Ok(true)
-            }
             SyscomPendingProcKind::EndGame => {
                 if proc.warning {
                     self.begin_syscom_warning(proc);
                 } else {
                     self.queue_end_game_proc(proc);
+                }
+                Ok(true)
+            }
+            SyscomPendingProcKind::ReturnToMenu => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    self.queue_return_to_menu_proc(proc);
                 }
                 Ok(true)
             }
@@ -1597,21 +1606,22 @@ impl App {
             },
         ];
         let text = Self::syscom_warning_text(vm, kind);
-        let native_pending = vm.ctx.native_ui_backend.is_some();
-        vm.ctx.globals.system.messagebox_modal = Some(SystemMessageBoxModalState {
-            request_id,
-            kind: 19,
-            text: text.clone(),
-            debug_only: false,
-            buttons: buttons.clone(),
-            cursor: 1,
-            native_pending,
-        });
+        let title = vm.ctx.game_title();
         if let Some(backend) = vm.ctx.native_ui_backend.as_ref() {
+            vm.ctx.globals.system.messagebox_modal = Some(SystemMessageBoxModalState {
+                request_id,
+                kind: 19,
+                text: text.clone(),
+                debug_only: false,
+                buttons: buttons.clone(),
+                cursor: 1,
+                native_pending: true,
+                complete_wait_with_value: false,
+            });
             backend.show_system_messagebox(native_ui::NativeMessageBoxRequest {
                 request_id,
                 kind: native_ui::NativeMessageBoxKind::YesNo,
-                title: vm.ctx.game_title(),
+                title,
                 message: text,
                 buttons: buttons
                     .into_iter()
@@ -1622,31 +1632,59 @@ impl App {
                     .collect(),
                 debug_only: false,
             });
+        } else {
+            vm.ctx.globals.system.messagebox_modal = Some(SystemMessageBoxModalState {
+                request_id,
+                kind: 19,
+                text,
+                debug_only: false,
+                buttons,
+                cursor: 1,
+                native_pending: false,
+                complete_wait_with_value: false,
+            });
         }
         self.flow.push(ProcType::SyscomWarning, 0);
     }
 
     fn syscom_warning_text(vm: &SceneVm<'static>, kind: SyscomPendingProcKind) -> String {
-        match kind {
-            SyscomPendingProcKind::EndGame => vm
-                .ctx
-                .tables
-                .gameexe
-                .as_ref()
-                .and_then(|cfg| cfg.get_unquoted("WARNINGINFO.GAMEEND_WARNING_STR"))
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .unwrap_or_else(|| "終了してもよろしいですか？".to_string()),
-            _ => vm
-                .ctx
-                .tables
-                .gameexe
-                .as_ref()
-                .and_then(|cfg| cfg.get_unquoted("WARNINGINFO.RETURNMENU_WARNING_STR"))
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .unwrap_or_else(|| "Return to title menu?".to_string()),
-        }
+        let keys: &[&str] = match kind {
+            SyscomPendingProcKind::EndGame => &[
+                "#WARNINGINFO.GAMEEND_WARNING_STR",
+                "WARNINGINFO.GAMEEND_WARNING_STR",
+            ],
+            SyscomPendingProcKind::ReturnToSel => &[
+                "#WARNINGINFO.RETURNSEL_WARNING_STR",
+                "WARNINGINFO.RETURNSEL_WARNING_STR",
+                "#WARNINGINFO.RETURNMENU_WARNING_STR",
+                "WARNINGINFO.RETURNMENU_WARNING_STR",
+            ],
+            _ => &[
+                "#WARNINGINFO.RETURNMENU_WARNING_STR",
+                "WARNINGINFO.RETURNMENU_WARNING_STR",
+            ],
+        };
+        let default = match kind {
+            SyscomPendingProcKind::EndGame => "終了してもよろしいですか？",
+            SyscomPendingProcKind::ReturnToSel => "前の選択肢に戻ってもよろしいですか？",
+            _ => "タイトルに戻ってもよろしいですか？",
+        };
+        let cfg = vm.ctx.tables.gameexe.as_ref();
+        keys.iter()
+            .find_map(|key| cfg.and_then(|c| c.get_unquoted(key)))
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| default.to_string())
+    }
+
+    fn return_to_menu_warning_text(vm: &SceneVm<'static>) -> String {
+        let cfg = vm.ctx.tables.gameexe.as_ref();
+        ["#WARNINGINFO.RETURNMENU_WARNING_STR", "WARNINGINFO.RETURNMENU_WARNING_STR"]
+            .iter()
+            .find_map(|key| cfg.and_then(|c| c.get_unquoted(key)))
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| "タイトルに戻ってもよろしいですか？".to_string())
     }
 
     fn load_wipe_params(vm: &SceneVm<'static>) -> (i32, i32) {
@@ -1671,6 +1709,17 @@ impl App {
         (0, 1000)
     }
 
+    fn queue_end_game_proc(&mut self, proc: SyscomPendingProc) {
+        self.flow.pending_syscom_proc = None;
+        self.flow.push(ProcType::EndGame, 0);
+        if proc.fade_out {
+            self.flow.push(ProcType::GameEndWipe, 0);
+            self.flow.push(ProcType::Disp, 0);
+        } else {
+            self.flow.push(ProcType::Disp, 0);
+        }
+    }
+
     fn queue_return_to_menu_proc(&mut self, proc: SyscomPendingProc) {
         let option = if proc.leave_msgbk { 1 } else { 0 };
         self.flow.pending_syscom_proc = Some(proc.clone());
@@ -1678,19 +1727,6 @@ impl App {
         if proc.fade_out {
             self.flow.push(ProcType::GameEndWipe, 0);
             self.flow.push(ProcType::Disp, 0);
-        }
-    }
-
-    fn queue_end_game_proc(&mut self, proc: SyscomPendingProc) {
-        self.flow.pending_syscom_proc = Some(proc.clone());
-        if proc.fade_out {
-            self.flow.push(ProcType::GameEndWipe, 0);
-            self.flow.push(ProcType::Disp, 0);
-        } else {
-            if let Some(vm) = self.vm.as_mut() {
-                vm.ctx.globals.system.active_flag = false;
-            }
-            self.pending_exit = true;
         }
     }
 
@@ -2020,11 +2056,11 @@ impl App {
                     if result == 0 {
                         if let Some(proc) = pending {
                             match proc.kind {
-                                SyscomPendingProcKind::ReturnToMenu => {
-                                    self.queue_return_to_menu_proc(proc);
-                                }
                                 SyscomPendingProcKind::EndGame => {
                                     self.queue_end_game_proc(proc);
+                                }
+                                SyscomPendingProcKind::ReturnToMenu => {
+                                    self.queue_return_to_menu_proc(proc);
                                 }
                                 _ => {}
                             }
@@ -2067,21 +2103,7 @@ impl App {
                         .map(|vm| vm.ctx.globals.wipe_done())
                         .unwrap_or(true);
                     if wipe_done {
-                        let pending_is_end_game = self
-                            .flow
-                            .pending_syscom_proc
-                            .as_ref()
-                            .map(|proc| proc.kind == SyscomPendingProcKind::EndGame)
-                            .unwrap_or(false);
                         self.flow.pop();
-                        if pending_is_end_game {
-                            if let Some(vm) = self.vm.as_mut() {
-                                vm.ctx.globals.system.active_flag = false;
-                            }
-                            self.pending_exit = true;
-                            self.flow.pending_syscom_proc = None;
-                            break;
-                        }
                         continue;
                     }
                     break;
@@ -2089,6 +2111,14 @@ impl App {
                 ProcType::ReturnToMenu => {
                     let leave_msgbk = proc.option != 0;
                     self.perform_return_to_menu(leave_msgbk)?;
+                    continue;
+                }
+                ProcType::EndGame => {
+                    self.flow.pop();
+                    if let Some(vm) = self.vm.as_mut() {
+                        vm.ctx.globals.system.active_flag = false;
+                    }
+                    self.pending_exit = true;
                     continue;
                 }
                 ProcType::GameTimerStart => {
@@ -2271,17 +2301,45 @@ impl App {
             .unwrap_or(default)
     }
 
+    fn parse_first_i64(raw: &str) -> Option<i64> {
+        raw.split(|c: char| c == ',' || c.is_whitespace())
+            .find_map(|part| {
+                let t = part.trim();
+                if t.is_empty() { None } else { t.parse::<i64>().ok() }
+            })
+    }
+
+    fn gameexe_i64(ctx: &CommandContext, key: &str, default: i64) -> i64 {
+        ctx.tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| cfg.get_value(key))
+            .and_then(Self::parse_first_i64)
+            .unwrap_or(default)
+    }
+
     fn apply_syscom_window_config(&mut self) {
         const GET_WINDOW_MODE: i32 = 172;
         const GET_WINDOW_MODE_SIZE: i32 = 175;
-        const GET_MOUSE_CURSOR_HIDE_ONOFF: i32 = 260;
-        const GET_MOUSE_CURSOR_HIDE_TIME: i32 = 263;
+        const GET_MOUSE_CURSOR_HIDE_ONOFF: i32 =
+            siglus_scene_vm::runtime::forms::codes::syscom_op::GET_MOUSE_CURSOR_HIDE_ONOFF;
+        const GET_MOUSE_CURSOR_HIDE_TIME: i32 =
+            siglus_scene_vm::runtime::forms::codes::syscom_op::GET_MOUSE_CURSOR_HIDE_TIME;
 
-        let (Some(w), Some(vm)) = (self.window.as_ref(), self.vm.as_ref()) else {
+        let Some(w) = self.window.as_ref() else {
             return;
         };
 
-        let mode = Self::syscom_int(&vm.ctx, GET_WINDOW_MODE, 0);
+        let (mode, size_mode) = {
+            let Some(vm) = self.vm.as_ref() else {
+                return;
+            };
+            (
+                Self::syscom_int(&vm.ctx, GET_WINDOW_MODE, 0),
+                Self::syscom_int(&vm.ctx, GET_WINDOW_MODE_SIZE, 0),
+            )
+        };
+
         if self.last_window_mode != Some(mode) {
             if mode == 0 {
                 w.set_fullscreen(None);
@@ -2291,7 +2349,6 @@ impl App {
             self.last_window_mode = Some(mode);
         }
 
-        let size_mode = Self::syscom_int(&vm.ctx, GET_WINDOW_MODE_SIZE, 0);
         if self.last_window_size != Some(size_mode) && mode == 0 {
             let (w0, h0) = self.initial_size;
             let (nw, nh) = match size_mode {
@@ -2309,95 +2366,42 @@ impl App {
             self.last_window_size = Some(size_mode);
         }
 
-        let hide_on = Self::syscom_int(&vm.ctx, GET_MOUSE_CURSOR_HIDE_ONOFF, 0);
-        let hide_time = Self::syscom_int(&vm.ctx, GET_MOUSE_CURSOR_HIDE_TIME, 0);
-        if vm.ctx.globals.script.cursor_disp_off {
-            w.set_cursor_visible(false);
-            self.cursor_hidden = true;
-            self.last_cursor_hide_on = Some(hide_on);
-            self.last_cursor_hide_time = Some(hide_time);
-            return;
-        }
-        if self.last_cursor_hide_on != Some(hide_on)
-            || self.last_cursor_hide_time != Some(hide_time)
-        {
-            if hide_on == 0 {
-                w.set_cursor_visible(true);
-                self.cursor_hidden = false;
-            }
-            self.last_cursor_hide_on = Some(hide_on);
-            self.last_cursor_hide_time = Some(hide_time);
-        }
-        if hide_on == 0 && self.cursor_hidden {
-            w.set_cursor_visible(true);
-            self.cursor_hidden = false;
-        }
-
-        if hide_on != 0 && hide_time > 0 {
-            let elapsed_ms = self.last_mouse_move.elapsed().as_millis() as i64;
-            if elapsed_ms >= hide_time && !self.cursor_hidden {
-                w.set_cursor_visible(false);
-                self.cursor_hidden = true;
-            }
-        }
-    }
-    fn request_main_close(&mut self) {
-        if self.pending_exit || self.messagebox_window.is_some() {
-            return;
-        }
         let Some(vm) = self.vm.as_mut() else {
-            self.pending_exit = true;
             return;
         };
-        if vm.ctx.globals.system.messagebox_modal.is_some() {
-            return;
-        }
-        if vm.ctx.globals.syscom.pending_proc.is_none() {
-            vm.ctx.globals.syscom.pending_proc = Some(SyscomPendingProc {
-                kind: SyscomPendingProcKind::EndGame,
-                warning: true,
-                se_play: false,
-                fade_out: false,
-                leave_msgbk: false,
-                save_id: 0,
-            });
-        }
-        self.script_needs_pump = true;
-        self.frame_dirty = true;
-        self.next_frame_at = Instant::now();
-        if let Some(w) = self.window.as_ref() {
-            w.request_redraw();
-        }
-    }
-
-    fn sync_desktop_messagebox(&mut self, elwt: &ActiveEventLoop) {
-        if self.messagebox_window.is_some() {
-            return;
-        }
-        let Some(request) = self.messagebox_bridge.pop_request() else {
-            return;
+        let default_hide_on = Self::gameexe_i64(&vm.ctx, "CONFIG.MOUSE_CURSOR_HIDE_ONOFF", 0).clamp(0, 1);
+        let default_hide_time = Self::gameexe_i64(&vm.ctx, "CONFIG.MOUSE_CURSOR_HIDE_TIME", 5000).max(0);
+        let cfg_hide_on = Self::syscom_int(&vm.ctx, GET_MOUSE_CURSOR_HIDE_ONOFF, default_hide_on);
+        let cfg_hide_time = Self::syscom_int(&vm.ctx, GET_MOUSE_CURSOR_HIDE_TIME, default_hide_time);
+        let script = &vm.ctx.globals.script;
+        let hide_on = match script.mouse_cursor_hide_onoff {
+            0 => 0,
+            1 => 1,
+            _ => cfg_hide_on,
         };
-        let dialog = DesktopMessageBoxWindow::new(elwt, request)
-            .expect("create desktop winit messagebox");
-        self.messagebox_window = Some(dialog);
-    }
+        let hide_time = if script.mouse_cursor_hide_time >= 0 {
+            script.mouse_cursor_hide_time
+        } else {
+            cfg_hide_time
+        };
 
-    fn finish_desktop_messagebox(&mut self, request_id: u64, value: i64) {
-        if let Some(dialog) = self.messagebox_window.as_ref() {
-            dialog.hide();
+        let mut runtime_visible = !script.cursor_disp_off;
+        if runtime_visible && hide_on != 0 && hide_time > 0 {
+            let elapsed_ms = self.last_mouse_move.elapsed().as_millis() as i64;
+            if elapsed_ms >= hide_time {
+                runtime_visible = false;
+            }
         }
-        self.messagebox_window = None;
-        if let Some(vm) = self.vm.as_mut() {
-            vm.ctx.submit_native_messagebox_result(request_id, value);
-        }
-        self.script_needs_pump = true;
-        self.frame_dirty = true;
-        self.next_frame_at = Instant::now();
-        if let Some(w) = self.window.as_ref() {
-            w.request_redraw();
-        }
-    }
 
+        vm.ctx.globals.script.cursor_runtime_visible = runtime_visible;
+        let custom_cursor = vm.ctx.has_active_custom_mouse_cursor();
+        let custom_cursor_can_draw = custom_cursor && vm.ctx.input.has_mouse_position();
+        let native_visible = runtime_visible && !custom_cursor_can_draw;
+        w.set_cursor_visible(native_visible);
+        self.cursor_hidden = !native_visible;
+        self.last_cursor_hide_on = Some(hide_on);
+        self.last_cursor_hide_time = Some(hide_time);
+    }
     fn wake_for_input(&mut self) {
         if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
@@ -2432,6 +2436,81 @@ impl App {
             .as_ref()
             .map(|vm| vm.ctx.needs_continuous_frame())
             .unwrap_or(false)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    fn pump_desktop_messagebox_requests(&mut self, elwt: &ActiveEventLoop) {
+        if self.desktop_messagebox_window.is_some() {
+            return;
+        }
+        let Some(request) = self.desktop_messagebox_bridge.pop_request() else {
+            return;
+        };
+        let request_id = request.request_id;
+        let cancel_value = request.buttons.last().map(|button| button.value).unwrap_or(0);
+        match DesktopMessageBoxWindow::new(elwt, request) {
+            Ok(window) => {
+                self.desktop_messagebox_window = Some(window);
+            }
+            Err(err) => {
+                log::error!("desktop messagebox creation failed: {err:#}");
+                if let Some(vm) = self.vm.as_mut() {
+                    vm.ctx.submit_native_messagebox_result(request_id, cancel_value);
+                }
+                self.wake_for_input();
+            }
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    fn handle_desktop_messagebox_window_event(&mut self, event: WindowEvent) {
+        let Some(window) = self.desktop_messagebox_window.as_mut() else {
+            return;
+        };
+        let request_id = window.request_id();
+        let result = window.handle_window_event(event);
+        if let Some(value) = result {
+            if let Some(window) = self.desktop_messagebox_window.take() {
+                window.hide();
+            }
+            if let Some(vm) = self.vm.as_mut() {
+                vm.ctx.submit_native_messagebox_result(request_id, value);
+            }
+            self.wake_for_input();
+        }
+    }
+
+    fn request_main_window_close(&mut self, elwt: &ActiveEventLoop) {
+        let Some(vm) = self.vm.as_ref() else {
+            elwt.exit();
+            return;
+        };
+        if vm.is_halted() {
+            elwt.exit();
+            return;
+        }
+        if self
+            .flow
+            .stack
+            .iter()
+            .any(|p| matches!(p.ty, ProcType::SyscomWarning | ProcType::EndGame))
+        {
+            self.wake_for_input();
+            return;
+        }
+        if vm.ctx.globals.system.messagebox_modal.is_some() {
+            self.wake_for_input();
+            return;
+        }
+        self.begin_syscom_warning(SyscomPendingProc {
+            kind: SyscomPendingProcKind::EndGame,
+            warning: true,
+            se_play: false,
+            fade_out: false,
+            leave_msgbk: false,
+            save_id: 0,
+        });
+        self.wake_for_input();
     }
 }
 
@@ -2470,9 +2549,7 @@ impl ApplicationHandler for App {
             texture_cache: HashMap::new(),
             gpu_texture_cache: HashMap::new(),
         };
-        let mut vm = self.init_vm().expect("vm init");
-        vm.ctx
-            .set_native_ui_backend(Some(self.messagebox_bridge.backend()));
+        let vm = self.init_vm().expect("vm init");
 
         self.window_id = Some(window.id());
         self.window = Some(window);
@@ -2499,24 +2576,17 @@ impl ApplicationHandler for App {
         id: winit::window::WindowId,
         event: WindowEvent,
     ) {
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
         if self
-            .messagebox_window
+            .desktop_messagebox_window
             .as_ref()
-            .map(|dialog| dialog.window_id() == id)
-            .unwrap_or(false)
+            .map(|window| window.window_id())
+            == Some(id)
         {
-            let result = self
-                .messagebox_window
-                .as_mut()
-                .and_then(|dialog| dialog.handle_window_event(event));
-            if let Some(value) = result {
-                if let Some(dialog) = self.messagebox_window.as_ref() {
-                    let request_id = dialog.request_id();
-                    self.finish_desktop_messagebox(request_id, value);
-                }
-            }
+            self.handle_desktop_messagebox_window_event(event);
             return;
         }
+
         let is_main = self.window_id == Some(id);
         let is_hud = self.hud_window_id == Some(id);
         if !is_main && !is_hud {
@@ -2535,7 +2605,7 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                self.request_main_close();
+                self.request_main_window_close(elwt);
             }
             WindowEvent::Resized(size) => {
                 if is_hud {
@@ -2727,17 +2797,7 @@ impl ApplicationHandler for App {
                 }
                 self.last_mouse_move = Instant::now();
                 self.wake_for_input();
-                let force_cursor_hidden = self
-                    .vm
-                    .as_ref()
-                    .map(|vm| vm.ctx.globals.script.cursor_disp_off)
-                    .unwrap_or(false);
-                if self.cursor_hidden && !force_cursor_hidden {
-                    if let Some(w) = self.window.as_ref() {
-                        w.set_cursor_visible(true);
-                    }
-                    self.cursor_hidden = false;
-                }
+                self.apply_syscom_window_config();
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let dy = match delta {
@@ -2808,7 +2868,9 @@ impl ApplicationHandler for App {
             elwt.exit();
             return;
         }
-        self.sync_desktop_messagebox(elwt);
+
+        #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+        self.pump_desktop_messagebox_requests(elwt);
 
         let capture_pending = self.args.capture_png.is_some() && !self.captured;
         let continuous_before = self.needs_continuous_frame();
@@ -2870,11 +2932,12 @@ impl ApplicationHandler for App {
                     scene_name, scene_no, line_no
                 );
             }
-            self.sync_desktop_messagebox(elwt);
             if let Err(e) = self.maybe_capture_current_frame() {
                 eprintln!("capture error: {e:?}");
             }
             self.apply_syscom_window_config();
+            #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+            self.pump_desktop_messagebox_requests(elwt);
             self.frame_dirty = true;
         }
 
@@ -2903,9 +2966,6 @@ impl ApplicationHandler for App {
                 if let Some(w) = self.hud_window.as_ref() {
                     w.request_redraw();
                 }
-            }
-            if let Some(dialog) = self.messagebox_window.as_ref() {
-                dialog.request_redraw();
             }
             self.frame_dirty = false;
             if capture_pending {

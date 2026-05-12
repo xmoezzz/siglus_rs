@@ -239,6 +239,40 @@ fn sg_mwnd_state_trace_runtime(
     );
 }
 
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeSaveKind {
+    Normal,
+    Quick,
+    End,
+    Inner,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeSaveRequest {
+    pub kind: RuntimeSaveKind,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeLoadRequest {
+    pub kind: RuntimeSaveKind,
+    pub index: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MouseCursorFrameRuntime {
+    image_id: ImageId,
+    hot_x: i32,
+    hot_y: i32,
+}
+
+#[derive(Debug, Clone)]
+struct MouseCursorRuntime {
+    frames: Vec<MouseCursorFrameRuntime>,
+    anime_speed_ms: i64,
+}
+
 pub struct CommandContext {
     pub project_dir: PathBuf,
 
@@ -309,6 +343,8 @@ pub struct CommandContext {
     /// Legacy runtime slot for overlay intermediate images. GPU overlay composition now bypasses it.
     pub overlay_rt_image: Option<ImageId>,
 
+    mouse_cursor_cache: HashMap<(i64, String), MouseCursorRuntime>,
+
     /// Optional project-provided form handler (game-specific).
     pub external_forms: Option<Arc<dyn ExternalFormHandler>>,
 
@@ -330,6 +366,14 @@ pub struct CommandContext {
     /// Set by concrete message/voice command handlers when original C++ consumes
     /// the following read-flag integer through Gp_lexer->pop_ret<int>().
     pending_read_flag_no: bool,
+    pending_selbtn_read_flag_no: bool,
+
+    /// Deferred VM-owned save request. The form handler can only see CommandContext;
+    /// the VM consumes this after the command returns so the saved stream includes
+    /// the current lexer pc and stacks.
+    pending_runtime_save: Option<RuntimeSaveRequest>,
+    /// Deferred VM-owned load request, consumed by SceneVm after the command returns.
+    pending_runtime_load: Option<RuntimeLoadRequest>,
 
     frame_clock_last: Option<std::time::Instant>,
     last_button_hover_sound_pos: Option<(i32, i32)>,
@@ -349,8 +393,39 @@ impl CommandContext {
         self.pending_read_flag_no = true;
     }
 
+    pub fn request_read_flag_no_for_selbtn(&mut self) {
+        self.pending_read_flag_no = true;
+        self.pending_selbtn_read_flag_no = true;
+    }
+
     pub fn take_read_flag_no_request(&mut self) -> bool {
-        std::mem::take(&mut self.pending_read_flag_no)
+        let requested = std::mem::take(&mut self.pending_read_flag_no);
+        if !requested {
+            self.pending_selbtn_read_flag_no = false;
+        }
+        requested
+    }
+
+    pub fn submit_read_flag_no(&mut self, value: i32) {
+        if std::mem::take(&mut self.pending_selbtn_read_flag_no) {
+            self.globals.selbtn.read_flag_flag_no = value as i64;
+        }
+    }
+
+    pub fn request_runtime_save(&mut self, kind: RuntimeSaveKind, index: usize) {
+        self.pending_runtime_save = Some(RuntimeSaveRequest { kind, index });
+    }
+
+    pub fn request_runtime_load(&mut self, kind: RuntimeSaveKind, index: usize) {
+        self.pending_runtime_load = Some(RuntimeLoadRequest { kind, index });
+    }
+
+    pub fn take_runtime_save_request(&mut self) -> Option<RuntimeSaveRequest> {
+        self.pending_runtime_save.take()
+    }
+
+    pub fn take_runtime_load_request(&mut self) -> Option<RuntimeLoadRequest> {
+        self.pending_runtime_load.take()
     }
 
     pub fn needs_continuous_frame(&self) -> bool {
@@ -394,6 +469,9 @@ impl CommandContext {
             return true;
         }
         if self.globals.mov.playing || self.globals.wipe.is_some() {
+            return true;
+        }
+        if self.custom_mouse_cursor_needs_tick() {
             return true;
         }
         if self.globals.pending_frame_action_finishes.is_empty() == false
@@ -727,6 +805,7 @@ impl CommandContext {
             wipe_front_rt_image: None,
             wipe_next_rt_image: None,
             overlay_rt_image: None,
+            mouse_cursor_cache: HashMap::new(),
             external_forms: None,
             native_ui_backend: None,
             native_ui: native_ui::NativeUiRuntime::default(),
@@ -735,6 +814,9 @@ impl CommandContext {
             current_line_no: -1,
             vm_call: None,
             pending_read_flag_no: false,
+            pending_selbtn_read_flag_no: false,
+            pending_runtime_save: None,
+            pending_runtime_load: None,
             frame_clock_last: None,
             last_button_hover_sound_pos: None,
             suppress_next_right_syscom_open: false,
@@ -744,6 +826,7 @@ impl CommandContext {
     }
 
     fn apply_gameexe_runtime_defaults(&mut self) {
+        self.globals.script.cursor_no = self.mouse_cursor_default_no();
         self.globals.script.font_bold = self.tables.font_defaults.futoku;
         self.globals.script.font_shadow = self.tables.font_defaults.shadow;
         let text = self.gameexe_color(self.tables.mwnd_render.moji_color);
@@ -841,6 +924,191 @@ impl CommandContext {
             .unwrap_or(default)
     }
 
+    fn mouse_cursor_count(&self) -> usize {
+        self.gameexe_value("#MOUSE_CURSOR.CNT")
+            .or_else(|| self.gameexe_value("MOUSE_CURSOR.CNT"))
+            .and_then(Self::parse_first_i64)
+            .filter(|v| *v >= 0)
+            .map(|v| v as usize)
+            .unwrap_or(16)
+            .min(256)
+    }
+
+    fn mouse_cursor_default_no(&self) -> i64 {
+        let cnt = self.mouse_cursor_count() as i64;
+        let no = self
+            .gameexe_value("#MOUSE_CURSOR.DEFAULT")
+            .or_else(|| self.gameexe_value("MOUSE_CURSOR.DEFAULT"))
+            .and_then(Self::parse_first_i64)
+            .unwrap_or(-1);
+        if no >= 0 && no < cnt { no } else { -1 }
+    }
+
+    fn mouse_cursor_file_name(&self, cursor_no: i64) -> Option<String> {
+        if cursor_no < 0 || cursor_no as usize >= self.mouse_cursor_count() {
+            return None;
+        }
+        self.tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| cfg.get_indexed_field_unquoted("MOUSE_CURSOR", cursor_no as usize, "FILE"))
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    }
+
+    fn mouse_cursor_anime_speed(&self, cursor_no: i64) -> i64 {
+        if cursor_no < 0 || cursor_no as usize >= self.mouse_cursor_count() {
+            return 100;
+        }
+        self.tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| cfg.get_indexed_field("MOUSE_CURSOR", cursor_no as usize, "SPEED"))
+            .and_then(Self::parse_first_i64)
+            .unwrap_or(100)
+    }
+
+    fn load_mouse_cursor_runtime(&mut self, cursor_no: i64) -> Option<&MouseCursorRuntime> {
+        let append_dir = self.images.current_append_dir().to_string();
+        let key = (cursor_no, append_dir);
+        if !self.mouse_cursor_cache.contains_key(&key) {
+            if let Some(loaded) = self.load_mouse_cursor_runtime_uncached(cursor_no) {
+                self.mouse_cursor_cache.insert(key.clone(), loaded);
+            }
+        }
+        self.mouse_cursor_cache.get(&key)
+    }
+
+    fn load_mouse_cursor_runtime_uncached(&mut self, cursor_no: i64) -> Option<MouseCursorRuntime> {
+        let file_name = self.mouse_cursor_file_name(cursor_no)?;
+        let (path, pct) = match crate::resource::find_g00_image_with_append_dir(
+            &self.project_dir,
+            self.images.current_append_dir(),
+            &file_name,
+        ) {
+            Ok(v) => v,
+            Err(err) => {
+                self.unknown.record_note(&format!(
+                    "mouse_cursor.not_found:no={cursor_no}:file={file_name}:{err}"
+                ));
+                return None;
+            }
+        };
+        if pct != crate::resource::PctType::G00 {
+            self.unknown.record_note(&format!(
+                "mouse_cursor.unsupported_type:no={cursor_no}:file={file_name}:path={}",
+                path.display()
+            ));
+            return None;
+        }
+        let bytes = match fs::read(&path) {
+            Ok(v) => v,
+            Err(err) => {
+                self.unknown.record_note(&format!(
+                    "mouse_cursor.read_failed:no={cursor_no}:path={}:{}",
+                    path.display(),
+                    err
+                ));
+                return None;
+            }
+        };
+        let decoded = match crate::assets::g00::decode_g00(&bytes) {
+            Ok(v) => v,
+            Err(err) => {
+                self.unknown.record_note(&format!(
+                    "mouse_cursor.decode_failed:no={cursor_no}:path={}:{}",
+                    path.display(),
+                    err
+                ));
+                return None;
+            }
+        };
+        if decoded.frames.is_empty() {
+            return None;
+        }
+        let mut frames = Vec::with_capacity(decoded.frames.len());
+        for (idx, img) in decoded.frames.iter().enumerate() {
+            if img.width != 32 || img.height != 32 {
+                self.unknown.record_note(&format!(
+                    "mouse_cursor.invalid_size:no={cursor_no}:file={file_name}:patno={idx}:{}x{}",
+                    img.width, img.height
+                ));
+                return None;
+            }
+            let image_id = match self.images.load_file(&path, idx) {
+                Ok(id) => id,
+                Err(err) => {
+                    self.unknown.record_note(&format!(
+                        "mouse_cursor.frame_load_failed:no={cursor_no}:file={file_name}:patno={idx}:{err}"
+                    ));
+                    return None;
+                }
+            };
+            frames.push(MouseCursorFrameRuntime {
+                image_id,
+                hot_x: img.center_x,
+                hot_y: img.center_y,
+            });
+        }
+        Some(MouseCursorRuntime {
+            frames,
+            anime_speed_ms: self.mouse_cursor_anime_speed(cursor_no),
+        })
+    }
+
+    pub fn has_active_custom_mouse_cursor(&mut self) -> bool {
+        let cursor_no = self.globals.script.cursor_no;
+        self.load_mouse_cursor_runtime(cursor_no).is_some()
+    }
+
+    fn custom_mouse_cursor_needs_tick(&self) -> bool {
+        let cursor_no = self.globals.script.cursor_no;
+        if cursor_no < 0 || cursor_no as usize >= self.mouse_cursor_count() {
+            return false;
+        }
+        self.mouse_cursor_anime_speed(cursor_no) > 0 && self.mouse_cursor_file_name(cursor_no).is_some()
+    }
+
+    fn append_mouse_cursor_sprite(&mut self, list: &mut Vec<RenderSprite>) {
+        if !self.globals.script.cursor_runtime_visible || self.globals.script.cursor_disp_off {
+            return;
+        }
+        if !self.input.has_mouse_position() {
+            return;
+        }
+        let cursor_no = self.globals.script.cursor_no;
+        let cur_time = self.globals.local_real_time.max(0) as u64;
+        let frame = {
+            let Some(cursor) = self.load_mouse_cursor_runtime(cursor_no) else {
+                return;
+            };
+            if cursor.frames.is_empty() {
+                return;
+            }
+            let pat_no = if cursor.anime_speed_ms <= 0 {
+                0usize
+            } else {
+                ((cur_time / cursor.anime_speed_ms as u64) as usize) % cursor.frames.len()
+            };
+            cursor.frames[pat_no]
+        };
+
+        let mut sprite = Sprite::default();
+        sprite.image_id = Some(frame.image_id);
+        sprite.visible = true;
+        sprite.fit = SpriteFit::PixelRect;
+        sprite.size_mode = SpriteSizeMode::Intrinsic;
+        sprite.x = self.input.mouse_x.saturating_sub(frame.hot_x);
+        sprite.y = self.input.mouse_y.saturating_sub(frame.hot_y);
+        sprite.alpha = 255;
+        sprite.tr = 255;
+        sprite.alpha_blend = true;
+        sprite.alpha_test = false;
+        sprite.object_anchor = false;
+        sprite.order = i32::MAX;
+        list.push(RenderSprite::with_sorter(None, None, i32::MAX, i32::MAX, sprite));
+    }
+
     fn gameexe_pair_default(&self, key: &str, default: (i64, i64)) -> (i64, i64) {
         let vals = Self::parse_i64_list(self.gameexe_value(key));
         if vals.len() >= 2 {
@@ -893,6 +1161,7 @@ impl CommandContext {
         self.se = SeEngine::new(self.project_dir.clone());
         self.movie = MovieManager::new(self.project_dir.clone());
         self.images = ImageManager::new(self.project_dir.clone());
+        self.mouse_cursor_cache.clear();
         self.solid_white = self.images.solid_rgba((255, 255, 255, 255));
         self.layers.clear_all();
         self.gfx = graphics::GfxRuntime::default();
@@ -910,6 +1179,7 @@ impl CommandContext {
         self.input.clear_all();
         self.vm_call = None;
         self.pending_read_flag_no = false;
+        self.pending_selbtn_read_flag_no = false;
         self.frame_clock_last = None;
         self.last_button_hover_sound_pos = None;
         self.apply_gameexe_runtime_defaults();
@@ -2068,6 +2338,10 @@ impl CommandContext {
 
     pub fn on_mouse_move(&mut self, x: i32, y: i32) {
         self.input.on_mouse_move(x, y);
+        if let Some(idx) = self.selbtn_hit_index(x, y) {
+            self.globals.selbtn.cursor = idx;
+            return;
+        }
         if self.handle_msg_back_mouse_move() {
             return;
         }
@@ -2348,7 +2622,27 @@ impl CommandContext {
         debug_only: bool,
         text: String,
         buttons: Vec<globals::SystemMessageBoxButton>,
-        returns_value: bool,
+    ) {
+        self.request_system_messagebox_internal(kind, debug_only, text, buttons, true);
+    }
+
+    pub fn request_system_messagebox_no_return(
+        &mut self,
+        kind: i32,
+        debug_only: bool,
+        text: String,
+        buttons: Vec<globals::SystemMessageBoxButton>,
+    ) {
+        self.request_system_messagebox_internal(kind, debug_only, text, buttons, false);
+    }
+
+    fn request_system_messagebox_internal(
+        &mut self,
+        kind: i32,
+        debug_only: bool,
+        text: String,
+        buttons: Vec<globals::SystemMessageBoxButton>,
+        complete_wait_with_value: bool,
     ) {
         let request_id = self.native_ui.next_messagebox_request_id();
         let native_pending = self.native_ui_backend.is_some();
@@ -2361,8 +2655,9 @@ impl CommandContext {
             buttons,
             cursor: 0,
             native_pending,
+            complete_wait_with_value,
         });
-        self.wait.wait_system_modal(returns_value);
+        self.wait.wait_system_modal();
 
         if let Some(backend) = self.native_ui_backend.as_ref() {
             backend.show_system_messagebox(native_ui::NativeMessageBoxRequest {
@@ -3018,24 +3313,31 @@ impl CommandContext {
     }
 
     fn finish_system_messagebox(&mut self, value: i64) {
+        let complete_wait_with_value = self
+            .globals
+            .system
+            .messagebox_modal
+            .as_ref()
+            .map(|modal| modal.complete_wait_with_value)
+            .unwrap_or(false);
         self.globals.system.messagebox_modal = None;
         self.globals.system.messagebox_modal_result = Some(value);
-        self.wait.finish_system_modal(Value::Int(value));
+        if complete_wait_with_value {
+            self.wait.finish_system_modal(Value::Int(value));
+        } else {
+            self.wait.finish_system_modal_void();
+        }
         self.ui.set_sys_overlay(false, String::new());
     }
 
     fn sync_system_messagebox_ui(&mut self) -> bool {
-        let Some(modal) = self.globals.system.messagebox_modal.as_ref() else {
-            return false;
-        };
-        self.ui.set_sys_overlay(false, String::new());
-        if modal.native_pending {
+        if self.globals.system.messagebox_modal.is_some() {
+            // Desktop ports provide a separate winit dialog through NativeUiBackend;
+            // mobile ports provide their native callback. Do not synthesize a
+            // screen-internal overlay for message boxes.
             return true;
         }
-        let cancel_value = modal.cancel_value();
-        log::error!("SYSTEM messagebox native UI is not implemented; fake Rust overlay is disabled");
-        self.finish_system_messagebox(cancel_value);
-        true
+        false
     }
 
     fn msg_back_state(&self) -> Option<&globals::MsgBackState> {
@@ -4016,32 +4318,62 @@ impl CommandContext {
         }
     }
 
+    fn selbtn_choice_selectable(choice: &globals::BtnSelectChoiceState) -> bool {
+        choice.item_type == 1
+    }
+
+    fn next_selbtn_cursor(&self, dir: i32) -> usize {
+        let choices = &self.globals.selbtn.choices;
+        if choices.is_empty() {
+            return 0;
+        }
+        let len = choices.len() as i32;
+        let mut idx = self.globals.selbtn.cursor.min(choices.len() - 1) as i32;
+        for _ in 0..choices.len() {
+            idx = (idx + dir).rem_euclid(len);
+            if Self::selbtn_choice_selectable(&choices[idx as usize]) {
+                return idx as usize;
+            }
+        }
+        self.globals.selbtn.cursor.min(choices.len() - 1)
+    }
+
+    fn sync_selbtn_item_selection(&mut self) {
+        if let Some(st) = self.globals.stage_forms.get_mut(&self.ids.form_global_stage) {
+            if let Some(items) = st.btnselitem_lists.get_mut(&TNM_STAGE_FRONT_I64) {
+                for (idx, item) in items.iter_mut().enumerate() {
+                    item.selected = idx == self.globals.selbtn.cursor;
+                }
+            }
+        }
+    }
+
     fn handle_selbtn_key(&mut self, k: input::VmKey) -> bool {
         if !self.globals.selbtn.started {
             return false;
         }
         match k {
             input::VmKey::ArrowUp => {
-                if !self.globals.selbtn.choices.is_empty() {
-                    let c = self.globals.selbtn.cursor;
-                    self.globals.selbtn.cursor = if c == 0 {
-                        self.globals.selbtn.choices.len() - 1
-                    } else {
-                        c - 1
-                    };
-                }
+                self.globals.selbtn.cursor = self.next_selbtn_cursor(-1);
+                self.sync_selbtn_item_selection();
                 true
             }
             input::VmKey::ArrowDown => {
-                if !self.globals.selbtn.choices.is_empty() {
-                    self.globals.selbtn.cursor =
-                        (self.globals.selbtn.cursor + 1) % self.globals.selbtn.choices.len();
-                }
+                self.globals.selbtn.cursor = self.next_selbtn_cursor(1);
+                self.sync_selbtn_item_selection();
                 true
             }
             input::VmKey::Enter => {
-                let result = (self.globals.selbtn.cursor as i64) + 1;
-                self.finish_selbtn(result);
+                let idx = self.globals.selbtn.cursor;
+                if self
+                    .globals
+                    .selbtn
+                    .choices
+                    .get(idx)
+                    .is_some_and(Self::selbtn_choice_selectable)
+                {
+                    self.finish_selbtn(idx as i64);
+                }
                 true
             }
             input::VmKey::Escape if self.globals.selbtn.cancel_enable => {
@@ -4058,8 +4390,11 @@ impl CommandContext {
         }
         match b {
             input::VmMouseButton::Left => {
-                let result = (self.globals.selbtn.cursor as i64) + 1;
-                self.finish_selbtn(result);
+                if let Some(idx) = self.selbtn_hit_index(self.input.mouse_x, self.input.mouse_y) {
+                    self.globals.selbtn.cursor = idx;
+                    self.sync_selbtn_item_selection();
+                    self.finish_selbtn(idx as i64);
+                }
                 true
             }
             input::VmMouseButton::Right if self.globals.selbtn.cancel_enable => {
@@ -4073,13 +4408,39 @@ impl CommandContext {
     fn finish_selbtn(&mut self, result: i64) {
         self.globals.selbtn.result = result;
         self.globals.selbtn.started = false;
-        if result > 0 {
-            if let Some(choice) = self.globals.selbtn.choices.get((result - 1) as usize) {
+        if result >= 0 {
+            if let Some(choice) = self.globals.selbtn.choices.get(result as usize) {
                 self.globals.syscom.system_extra_str_value = choice.text.clone();
             }
+        } else {
+            self.globals.syscom.system_extra_str_value = "（キャンセル）".to_string();
+        }
+        if let Some(st) = self.globals.stage_forms.get_mut(&self.ids.form_global_stage) {
+            st.btnselitem_lists.remove(&TNM_STAGE_FRONT_I64);
         }
         self.stack.push(Value::Int(result));
         self.notify_wait_key();
+    }
+
+    fn selbtn_hit_index(&self, mx: i32, my: i32) -> Option<usize> {
+        if !self.globals.selbtn.started || self.globals.selbtn.choices.is_empty() {
+            return None;
+        }
+        for (idx, choice) in self.globals.selbtn.choices.iter().enumerate().rev() {
+            if !Self::selbtn_choice_selectable(choice) {
+                continue;
+            }
+            let (x, y) = choice.pos;
+            let (w, h) = choice.size;
+            let x0 = x as i32;
+            let y0 = y as i32;
+            let x1 = x.saturating_add(w.max(1)) as i32;
+            let y1 = y.saturating_add(h.max(1)) as i32;
+            if mx >= x0 && mx < x1 && my >= y0 && my < y1 {
+                return Some(idx);
+            }
+        }
+        None
     }
 
     fn handle_mwnd_selection_key(&mut self, k: input::VmKey) -> bool {
@@ -4382,6 +4743,9 @@ impl CommandContext {
     }
 
     fn sync_mwnd_selection_ui(&mut self) {
+        if self.globals.system.messagebox_modal.is_some() {
+            return;
+        }
         self.ui.set_sys_overlay(false, String::new());
     }
 
@@ -4802,11 +5166,14 @@ impl CommandContext {
         apply_button_visuals(self, &mut list);
         self.apply_gan_effects(&mut list);
         apply_screen_effects(&self.globals, &self.ids, &mut list);
-        apply_syscom_filter(self, &mut list);
         (list, debug_lines)
     }
 
     pub fn render_list_with_effects(&mut self) -> Vec<RenderSprite> {
+        self.render_list_with_effects_inner(true)
+    }
+
+    fn render_list_with_effects_inner(&mut self, include_mouse_cursor: bool) -> Vec<RenderSprite> {
         let (pre_wipe_list, debug_lines) = self.build_render_list_pre_wipe();
         let mut list = if self.globals.wipe.is_some() {
             let base = self.layers.render_list();
@@ -4866,6 +5233,9 @@ impl CommandContext {
             trace_final_render_order(self, &list);
         }
         overlay_precompose_if_needed(self, &mut list);
+        if include_mouse_cursor {
+            self.append_mouse_cursor_sprite(&mut list);
+        }
         if self.globals.wipe.is_none() {
             self.last_presented_render_list = pre_wipe_list.clone();
         }
@@ -4998,7 +5368,7 @@ impl CommandContext {
 
     /// Capture the current frame (UI + scene) into a CPU RGBA buffer.
     pub fn capture_frame_rgba(&mut self) -> RgbaImage {
-        let sprites = self.render_list_with_effects();
+        let sprites = self.render_list_with_effects_inner(false);
         soft_render::render_to_image(&self.images, &sprites, self.screen_w, self.screen_h)
     }
 
@@ -5010,7 +5380,7 @@ impl CommandContext {
             .saturating_mul(1024)
             .saturating_add(layer)
             .clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-        let mut sprites = self.render_list_with_effects();
+        let mut sprites = self.render_list_with_effects_inner(false);
         sprites.retain(|rs| rs.sprite.order <= limit);
         soft_render::render_to_image(&self.images, &sprites, self.screen_w, self.screen_h)
     }
@@ -7927,6 +8297,9 @@ fn install_object_movie_preview_if_missing(
             if let Some(layer) = layers.layer_mut(*layer_id) {
                 if let Some(sprite) = layer.sprite_mut(*sprite_id) {
                     sprite.image_id = Some(img_id);
+                    sprite.object_anchor = true;
+                    sprite.texture_center_x = 0.0;
+                    sprite.texture_center_y = 0.0;
                 }
             }
             if trace || sg_debug_enabled() {
@@ -7986,6 +8359,9 @@ fn install_object_movie_stream_frame(
     if let Some(layer) = layers.layer_mut(*layer_id) {
         if let Some(sprite) = layer.sprite_mut(*sprite_id) {
             sprite.image_id = Some(img_id);
+            sprite.object_anchor = true;
+            sprite.texture_center_x = 0.0;
+            sprite.texture_center_y = 0.0;
         }
     }
     if trace || sg_debug_enabled() {
@@ -8071,6 +8447,9 @@ fn sync_movie_object_recursive(
                         sprite.alpha = 255;
                         sprite.fit = SpriteFit::PixelRect;
                         sprite.size_mode = SpriteSizeMode::Intrinsic;
+                        sprite.object_anchor = true;
+                        sprite.texture_center_x = 0.0;
+                        sprite.texture_center_y = 0.0;
                         sprite.x = 0;
                         sprite.y = 0;
                         sprite.order = 0;
@@ -8104,6 +8483,12 @@ fn sync_movie_object_recursive(
                         sprite.blend = crate::layer::SpriteBlend::from_i64(
                             obj.lookup_int_prop(ids, ids.obj_blend).unwrap_or(0),
                         );
+                        // C++ OBJECT movie uses movie_frame() and trp_to_rp(), so OBJECT.CENTER
+                        // must shift the OMV quad just like a texture object. The dynamic OMV
+                        // texture itself keeps the C_d3d_texture default center of (0, 0).
+                        sprite.object_anchor = true;
+                        sprite.texture_center_x = 0.0;
+                        sprite.texture_center_y = 0.0;
                     }
                 }
 
@@ -8152,6 +8537,9 @@ fn sync_movie_object_recursive(
                                     if let Some(layer) = layers.layer_mut(*layer_id) {
                                         if let Some(sprite) = layer.sprite_mut(*sprite_id) {
                                             sprite.image_id = Some(img_id);
+                                            sprite.object_anchor = true;
+                                            sprite.texture_center_x = 0.0;
+                                            sprite.texture_center_y = 0.0;
                                         }
                                     }
                                     if trace {
@@ -10213,6 +10601,104 @@ fn mwnd_face_parent_render_state(
     parent
 }
 
+fn btnselitem_parent_render_state(item: &globals::BtnSelItemState) -> ParentRenderState {
+    ParentRenderState {
+        world_no: -1,
+        pos_x: item.pos.0 as f32,
+        pos_y: item.pos.1 as f32,
+        pos_z: 0.0,
+        center_rep_x: 0.0,
+        center_rep_y: 0.0,
+        center_rep_z: 0.0,
+        scale_x: 1.0,
+        scale_y: 1.0,
+        scale_z: 1.0,
+        rotate_x: 0.0,
+        rotate_y: 0.0,
+        rotate_z: 0.0,
+        tr: if item.visible { 255 } else { 0 },
+        mono: 0,
+        reverse: 0,
+        bright: 0,
+        dark: 0,
+        color_rate: 0,
+        color_r: 0,
+        color_g: 0,
+        color_b: 0,
+        color_add_r: 0,
+        color_add_g: 0,
+        color_add_b: 0,
+        blend: crate::layer::SpriteBlend::Normal,
+        dst_clip: None,
+        mask_image_id: None,
+        mask_offset_x: 0,
+        mask_offset_y: 0,
+        tonecurve_image_id: None,
+        tonecurve_row: 0.0,
+        tonecurve_sat: 0.0,
+    }
+}
+
+fn append_btnselitem_sprites(
+    ctx: &CommandContext,
+    worlds: Option<&Vec<globals::WorldState>>,
+    stage_idx: i64,
+    items: &[globals::BtnSelItemState],
+    out: &mut Vec<RenderSprite>,
+    object_keys: &mut HashSet<(LayerId, SpriteId)>,
+    debug: &mut Vec<String>,
+) {
+    for (item_idx, item) in items.iter().enumerate() {
+        if !item.visible {
+            continue;
+        }
+        let parent = btnselitem_parent_render_state(item);
+        for (obj_idx, obj) in item.generated_objects.iter().enumerate() {
+            append_object_tree_sprites(
+                ctx,
+                worlds,
+                stage_idx,
+                obj_idx,
+                obj,
+                true,
+                0,
+                0,
+                Some(parent),
+                out,
+                object_keys,
+                debug,
+            );
+        }
+        for (obj_idx, obj) in item.object_list.iter().enumerate() {
+            append_object_tree_sprites(
+                ctx,
+                worlds,
+                stage_idx,
+                obj_idx,
+                obj,
+                true,
+                0,
+                0,
+                Some(parent),
+                out,
+                object_keys,
+                debug,
+            );
+        }
+        if sg_render_tree_debug_enabled() && (item.generated_objects.len() + item.object_list.len()) == 0 {
+            debug.push(format!(
+                "[SG_DEBUG]     btnselitem[{item_idx}] text_len={} visible={} pos=({}, {}) size=({}, {}) no_objects",
+                item.text.chars().count(),
+                item.visible,
+                item.pos.0,
+                item.pos.1,
+                item.size.0,
+                item.size.1,
+            ));
+        }
+    }
+}
+
 fn append_mwnd_embedded_sprites(
     ctx: &CommandContext,
     worlds: Option<&Vec<globals::WorldState>>,
@@ -10495,6 +10981,9 @@ fn mark_all_stage_owned_sprite_keys(
             }
             if let Some(items) = st.btnselitem_lists.get(&stage_idx) {
                 for item in items {
+                    for (obj_idx, obj) in item.generated_objects.iter().enumerate() {
+                        mark_object_tree_sprite_keys(ctx, stage_idx, obj_idx, obj, object_keys);
+                    }
                     for (obj_idx, obj) in item.object_list.iter().enumerate() {
                         mark_object_tree_sprite_keys(ctx, stage_idx, obj_idx, obj, object_keys);
                     }
@@ -10771,6 +11260,17 @@ fn build_siglus_object_render_list(
                         &mut debug,
                     );
                 }
+            }
+            if let Some(items) = st.btnselitem_lists.get(&stage_idx) {
+                append_btnselitem_sprites(
+                    ctx,
+                    worlds,
+                    stage_idx,
+                    items,
+                    &mut object_list,
+                    &mut object_keys,
+                    &mut debug,
+                );
             }
         }
     }
@@ -12418,50 +12918,6 @@ fn sprite_bounds(sprite: &Sprite, ctx: &CommandContext) -> Option<(i32, i32, i32
             Some((left, top, left + w, top + h))
         }
     }
-}
-
-fn apply_syscom_filter(ctx: &CommandContext, sprites: &mut Vec<RenderSprite>) {
-    const GET_FILTER_COLOR_R: i32 = 84;
-    const GET_FILTER_COLOR_G: i32 = 91;
-    const GET_FILTER_COLOR_B: i32 = 92;
-    const GET_FILTER_COLOR_A: i32 = 93;
-    let cfg = &ctx.globals.syscom.config_int;
-    let a = cfg
-        .get(&GET_FILTER_COLOR_A)
-        .copied()
-        .unwrap_or(0)
-        .clamp(0, 255) as u8;
-    if a == 0 {
-        return;
-    }
-    let r = cfg
-        .get(&GET_FILTER_COLOR_R)
-        .copied()
-        .unwrap_or(0)
-        .clamp(0, 255) as u8;
-    let g = cfg
-        .get(&GET_FILTER_COLOR_G)
-        .copied()
-        .unwrap_or(0)
-        .clamp(0, 255) as u8;
-    let b = cfg
-        .get(&GET_FILTER_COLOR_B)
-        .copied()
-        .unwrap_or(0)
-        .clamp(0, 255) as u8;
-
-    let mut s = crate::layer::Sprite::default();
-    s.visible = true;
-    s.image_id = Some(ctx.solid_white);
-    s.fit = crate::layer::SpriteFit::FullScreen;
-    s.size_mode = crate::layer::SpriteSizeMode::Intrinsic;
-    s.alpha = a;
-    s.color_rate = 255;
-    s.color_r = r;
-    s.color_g = g;
-    s.color_b = b;
-    s.order = i32::MAX;
-    sprites.push(RenderSprite::new(None, None, s));
 }
 
 fn resolve_mask_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {

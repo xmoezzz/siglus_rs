@@ -9,7 +9,7 @@ use kira::tween::Tween;
 use kira::Volume;
 use siglus_assets::gameexe::{decode_gameexe_dat_bytes, GameexeConfig, GameexeDecodeOptions};
 
-use super::bgm::decode_bgm_to_wav_bytes;
+use super::bgm::{decode_bgm_to_playback_bytes, BgmPlaybackFormat};
 use super::{AudioHub, TrackKind};
 
 const TNM_BGM_START_POS_INI: i64 = -1;
@@ -219,7 +219,8 @@ struct BgmScriptEntry {
 #[derive(Debug, Default)]
 struct BgmPlayerSlot {
     handle: Option<StaticSoundHandle>,
-    source_wav: Option<Vec<u8>>,
+    source_bytes: Option<Vec<u8>>,
+    source_format: Option<BgmPlaybackFormat>,
     sample_rate_hz: u32,
     total_samples: u64,
     start_sample: u64,
@@ -243,7 +244,8 @@ impl BgmPlayerSlot {
         if let Some(mut h) = self.handle.take() {
             let _ = h.stop(Tween::default());
         }
-        self.source_wav = None;
+        self.source_bytes = None;
+        self.source_format = None;
         self.sample_rate_hz = 0;
         self.total_samples = 0;
         self.start_sample = 0;
@@ -558,12 +560,10 @@ impl BgmEngine {
         ready_only: bool,
     ) -> Result<()> {
         let (script_entry, path) = self.resolve_bgm_script(regist_name)?;
-        let decoded = decode_bgm_to_wav_bytes(&path, None)
-            .with_context(|| format!("decode BGM: {}", path.display()))?;
+        let decoded = decode_bgm_to_playback_bytes(&path, None)
+            .with_context(|| format!("prepare BGM playback: {}", path.display()))?;
 
-        let region = wav_pcm_region(&decoded.wav_bytes)
-            .ok_or_else(|| anyhow!("decoded BGM is not PCM WAV: {}", path.display()))?;
-        let total_samples = region.sample_count();
+        let total_samples = decoded.total_samples;
 
         let script_start = script_entry.start_sample;
         let script_end = script_entry.end_sample;
@@ -578,13 +578,13 @@ impl BgmEngine {
 
         if std::env::var_os("SG_AUDIO_TRACE").is_some() {
             eprintln!(
-                "[SG_AUDIO_TRACE] bgm.prepare name={} file={} wav_format={} channels={} sample_rate={} bits={} total_frames={} start={} end={} repeat={}",
+                "[SG_AUDIO_TRACE] bgm.prepare name={} file={} source_format={:?} container={:?} channels={} sample_rate={} total_frames={} start={} end={} repeat={}",
                 regist_name,
                 path.display(),
-                region.audio_format,
-                region.channels,
-                region.sample_rate,
-                region.bits_per_sample,
+                decoded.format,
+                decoded.container,
+                decoded.channels,
+                decoded.sample_rate,
                 total_samples,
                 start_sample,
                 end_sample,
@@ -594,8 +594,9 @@ impl BgmEngine {
 
         let slot = &mut self.players[slot_id];
         slot.reset_all();
-        slot.source_wav = Some(decoded.wav_bytes);
-        slot.sample_rate_hz = region.sample_rate;
+        slot.source_bytes = Some(decoded.bytes);
+        slot.source_format = Some(decoded.format);
+        slot.sample_rate_hz = decoded.sample_rate;
         slot.total_samples = total_samples;
         slot.start_sample = start_sample;
         slot.end_sample = end_sample;
@@ -618,7 +619,7 @@ impl BgmEngine {
     ) -> Result<()> {
         let amp = self.total_gain_amplitude();
         let slot = &mut self.players[slot_id];
-        let Some(source) = slot.source_wav.as_ref() else {
+        let Some(source) = slot.source_bytes.as_ref() else {
             return Err(anyhow!("BGM slot not prepared"));
         };
 
@@ -648,16 +649,13 @@ impl BgmEngine {
             return Ok(());
         }
 
-        let Some(playback_wav) = wav_slice_samples(source, 0, Some(slot.end_sample)) else {
-            return Err(anyhow!("failed to build BGM playback WAV"));
-        };
         let start_sec = if slot.sample_rate_hz == 0 {
             0.0
         } else {
             effective_start as f64 / slot.sample_rate_hz as f64
         };
-        let mut data = StaticSoundData::from_cursor(Cursor::new(playback_wav))
-            .context("kira: decode WAV bytes")?;
+        let mut data = StaticSoundData::from_cursor(Cursor::new(source.clone()))
+            .context("kira: decode BGM playback bytes")?;
         data = data.start_position(start_sec);
         if slot.has_loop_region() {
             let loop_region = Region {

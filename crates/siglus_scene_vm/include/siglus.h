@@ -69,6 +69,11 @@ void siglus_android_destroy(void *handle);
 #if defined(__APPLE__) && TARGET_OS_MAC && !TARGET_OS_IPHONE
 typedef struct SiglusPumpHandle SiglusPumpHandle;
 SiglusPumpHandle *siglus_pump_create(const char *game_root_utf8, const char *nls_utf8);
+void siglus_pump_set_native_messagebox_callback(
+    SiglusPumpHandle *handle,
+    siglus_native_messagebox_callback_t callback,
+    void *user_data);
+void siglus_pump_submit_messagebox_result(SiglusPumpHandle *handle, uint64_t request_id, int64_t value);
 int32_t siglus_pump_step(SiglusPumpHandle *handle, uint32_t timeout_ms);
 void siglus_pump_destroy(SiglusPumpHandle *handle);
 int32_t siglus_run_entry(const char *game_root_utf8, const char *nls_utf8);

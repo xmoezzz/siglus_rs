@@ -8,7 +8,7 @@ use crate::elm_code;
 use crate::runtime::globals::{
     ObjectFrameActionState, PendingButtonAction, PendingButtonActionKind, PendingFrameActionFinish,
 };
-use crate::runtime::{self, constants, CommandContext, Value};
+use crate::runtime::{self, constants, CommandContext, RuntimeLoadRequest, RuntimeSaveKind, RuntimeSaveRequest, Value};
 use crate::scene_stream::SceneStream;
 use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
@@ -200,6 +200,28 @@ struct InterpreterExecState<'a> {
 }
 
 #[derive(Debug, Clone)]
+struct RuntimeDiskSnapshot {
+    scene_name: String,
+    scene_no: i32,
+    line_no: i32,
+    pc: i32,
+    int_stack: Vec<i32>,
+    str_stack: Vec<String>,
+    element_points: Vec<usize>,
+    call_stack: Vec<CallFrame>,
+}
+
+fn resize_i64_vec(mut v: Vec<i64>, n: usize) -> Vec<i64> {
+    v.resize(n, 0);
+    v
+}
+
+fn resize_string_vec(mut v: Vec<String>, n: usize) -> Vec<String> {
+    v.resize_with(n, String::new);
+    v
+}
+
+#[derive(Clone)]
 struct VmResumePoint<'a> {
     stream: SceneStream<'a>,
     user_cmd_names: std::collections::HashMap<u32, String>,
@@ -3688,8 +3710,10 @@ impl<'a> SceneVm<'a> {
                 let block_generation = self.ctx.wait.block_generation();
                 let proc_generation = self.ctx.proc_generation();
                 self.exec_command(elm, arg_list_id, ret_form, &mut args)?;
+                self.drain_runtime_save_load_requests()?;
                 if self.ctx.take_read_flag_no_request() {
-                    let _read_flag_no = self.stream.pop_i32()?;
+                    let read_flag_no = self.stream.pop_i32()?;
+                    self.ctx.submit_read_flag_no(read_flag_no);
                 }
                 if self.ctx.proc_generation() != proc_generation {
                     return Ok(true);
@@ -6885,6 +6909,2013 @@ impl<'a> SceneVm<'a> {
         }
 
         self.take_ctx_return(ret_form)?;
+        Ok(())
+    }
+
+
+    fn save_kind_to_original(kind: RuntimeSaveKind) -> Option<crate::original_save::SaveKind> {
+        match kind {
+            RuntimeSaveKind::Normal => Some(crate::original_save::SaveKind::Normal),
+            RuntimeSaveKind::Quick => Some(crate::original_save::SaveKind::Quick),
+            RuntimeSaveKind::End => Some(crate::original_save::SaveKind::End),
+            RuntimeSaveKind::Inner => None,
+        }
+    }
+
+    fn configured_runtime_save_count(&self, quick: bool) -> usize {
+        let keys: [&str; 2] = if quick {
+            ["#QUICK_SAVE.CNT", "QUICK_SAVE.CNT"]
+        } else {
+            ["#SAVE.CNT", "SAVE.CNT"]
+        };
+        let default_count = if quick { 3 } else { 10 };
+        self.ctx
+            .tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| keys.iter().find_map(|key| cfg.get_usize(*key)))
+            .unwrap_or(default_count)
+            .min(10000)
+    }
+
+    fn runtime_save_file_path(&self, kind: RuntimeSaveKind, index: usize) -> Option<std::path::PathBuf> {
+        let save_kind = Self::save_kind_to_original(kind)?;
+        let save_cnt = self.configured_runtime_save_count(false);
+        let quick_cnt = self.configured_runtime_save_count(true);
+        Some(crate::original_save::save_file_path_with_counts(
+            &self.ctx.project_dir,
+            save_cnt,
+            quick_cnt,
+            save_kind,
+            index,
+        ))
+    }
+
+    fn ensure_runtime_slot_for_save(&mut self, req: RuntimeSaveRequest) -> crate::runtime::globals::SaveSlotState {
+        fn stamp(slot: &mut crate::runtime::globals::SaveSlotState) {
+            use chrono::{Datelike, Timelike};
+            let now = chrono::Local::now();
+            slot.exist = true;
+            slot.year = now.year() as i64;
+            slot.month = now.month() as i64;
+            slot.day = now.day() as i64;
+            // SYSTEMTIME.wDayOfWeek uses 0..6 with Sunday = 0.
+            slot.weekday = now.weekday().num_days_from_sunday() as i64;
+            slot.hour = now.hour() as i64;
+            slot.minute = now.minute() as i64;
+            slot.second = now.second() as i64;
+            slot.millisecond = now.timestamp_subsec_millis() as i64;
+        }
+        let current_full_message = {
+            let full = self.ctx.globals.syscom.current_save_full_message.clone();
+            if full.is_empty() {
+                self.ctx.globals.syscom.current_save_message.clone()
+            } else {
+                full
+            }
+        };
+        match req.kind {
+            RuntimeSaveKind::Normal => {
+                if self.ctx.globals.syscom.save_slots.len() <= req.index {
+                    self.ctx.globals.syscom.save_slots.resize_with(req.index + 1, Default::default);
+                }
+                let slot = &mut self.ctx.globals.syscom.save_slots[req.index];
+                stamp(slot);
+                slot.title = self.ctx.globals.syscom.current_save_scene_title.clone();
+                slot.message = self.ctx.globals.syscom.current_save_message.clone();
+                slot.full_message = current_full_message.clone();
+                slot.append_dir = self.ctx.globals.append_dir.clone();
+                slot.append_name = self.ctx.globals.append_name.clone();
+                slot.comment.clear();
+                slot.values.clear();
+                slot.clone()
+            }
+            RuntimeSaveKind::Quick => {
+                if self.ctx.globals.syscom.quick_save_slots.len() <= req.index {
+                    self.ctx.globals.syscom.quick_save_slots.resize_with(req.index + 1, Default::default);
+                }
+                let slot = &mut self.ctx.globals.syscom.quick_save_slots[req.index];
+                stamp(slot);
+                slot.title = self.ctx.globals.syscom.current_save_scene_title.clone();
+                slot.message = self.ctx.globals.syscom.current_save_message.clone();
+                slot.full_message = current_full_message.clone();
+                slot.append_dir = self.ctx.globals.append_dir.clone();
+                slot.append_name = self.ctx.globals.append_name.clone();
+                slot.comment.clear();
+                slot.values.clear();
+                slot.clone()
+            }
+            RuntimeSaveKind::End | RuntimeSaveKind::Inner => {
+                let mut slot = crate::runtime::globals::SaveSlotState::default();
+                stamp(&mut slot);
+                slot.title = self.ctx.globals.syscom.current_save_scene_title.clone();
+                slot.message = self.ctx.globals.syscom.current_save_message.clone();
+                slot.full_message = current_full_message.clone();
+                slot.append_dir = self.ctx.globals.append_dir.clone();
+                slot.append_name = self.ctx.globals.append_name.clone();
+                slot
+            }
+        }
+    }
+
+    fn local_flag_count(&self) -> usize {
+        self.ctx
+            .tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| cfg.get_usize("#FLAG.CNT").or_else(|| cfg.get_usize("FLAG.CNT")))
+            .unwrap_or(1000)
+            .min(10000)
+    }
+
+    fn mwnd_waku_btn_count(&self) -> usize {
+        self.ctx
+            .tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| cfg.get_usize("#WAKU.BTN.CNT").or_else(|| cfg.get_usize("WAKU.BTN.CNT")))
+            .unwrap_or(8)
+            .min(256)
+    }
+
+    fn int_list_by_element(&self, elm: i32) -> &[i64] {
+        self.ctx
+            .globals
+            .int_lists
+            .get(&(elm as u32))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn str_list_by_element(&self, elm: i32) -> &[String] {
+        self.ctx
+            .globals
+            .str_lists
+            .get(&(elm as u32))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    fn build_cpp_local_data_pod(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(356);
+        let script = &self.ctx.globals.script;
+        let syscom = &self.ctx.globals.syscom;
+        let push_i32 = |out: &mut Vec<u8>, v: i64| out.extend_from_slice(&(v as i32).to_le_bytes());
+        let push_bool = |out: &mut Vec<u8>, v: bool| out.push(if v { 1 } else { 0 });
+
+        push_i32(&mut out, 0);
+        push_i32(&mut out, 0);
+        push_i32(&mut out, 0);
+        push_i32(&mut out, 0);
+        push_i32(&mut out, script.cursor_no);
+
+        push_bool(&mut out, syscom.syscom_menu_disable);
+        push_bool(&mut out, script.hide_mwnd_disable);
+        push_bool(&mut out, script.msg_back_disable);
+        push_bool(&mut out, script.shortcut_disable);
+
+        push_bool(&mut out, script.skip_disable);
+        push_bool(&mut out, script.ctrl_disable);
+        push_bool(&mut out, script.not_stop_skip_by_click);
+        push_bool(&mut out, script.not_skip_msg_by_click);
+        push_bool(&mut out, script.skip_unread_message);
+        push_bool(&mut out, script.auto_mode_flag);
+        while out.len() % 4 != 0 { out.push(0); }
+        push_i32(&mut out, script.auto_mode_moji_wait);
+        push_i32(&mut out, script.auto_mode_min_wait);
+        push_i32(&mut out, script.auto_mode_moji_cnt);
+        push_i32(&mut out, script.mouse_cursor_hide_onoff);
+        push_i32(&mut out, script.mouse_cursor_hide_time);
+        push_i32(&mut out, 0);
+
+        push_i32(&mut out, script.msg_speed);
+        push_bool(&mut out, script.msg_nowait);
+        push_bool(&mut out, script.async_msg_mode);
+        push_bool(&mut out, script.async_msg_mode_once);
+        push_bool(&mut out, false);
+        push_bool(&mut out, script.skip_trigger);
+        push_bool(&mut out, script.koe_dont_stop_on_flag);
+        push_bool(&mut out, script.koe_dont_stop_off_flag);
+
+        push_bool(&mut out, syscom.mwnd_btn_disable_all);
+        push_bool(&mut out, syscom.mwnd_btn_touch_disable);
+        push_bool(&mut out, script.mwnd_anime_on_flag);
+        push_bool(&mut out, script.mwnd_anime_off_flag);
+        push_bool(&mut out, script.mwnd_disp_off_flag);
+
+        push_bool(&mut out, script.msg_back_off);
+        push_bool(&mut out, script.msg_back_disp_off);
+        while out.len() % 4 != 0 { out.push(0); }
+        push_i32(&mut out, script.font_bold);
+        push_i32(&mut out, script.font_shadow);
+
+        push_bool(&mut out, script.cursor_disp_off);
+        push_bool(&mut out, script.cursor_move_by_key_disable);
+        for key in 0u16..=255u16 {
+            push_bool(&mut out, script.key_disable.contains(&(key as u8)));
+        }
+
+        push_bool(&mut out, script.quake_stop_flag);
+        push_bool(&mut out, script.emote_mouth_stop_flag);
+        push_bool(&mut out, self.ctx.globals.cg_table_off);
+        push_bool(&mut out, script.bgmfade_flag);
+        push_bool(&mut out, script.dont_set_save_point);
+        push_bool(&mut out, script.ignore_r_flag);
+        push_bool(&mut out, script.wait_display_vsync_off_flag);
+
+        push_bool(&mut out, script.time_stop_flag);
+        push_bool(&mut out, script.counter_time_stop_flag);
+        push_bool(&mut out, script.frame_action_time_stop_flag);
+        push_bool(&mut out, script.stage_time_stop_flag);
+        while out.len() % 4 != 0 { out.push(0); }
+        debug_assert_eq!(out.len(), 356);
+        out
+    }
+
+    fn write_cpp_syscom_menu(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        let base = w.position();
+        let s = &self.ctx.globals.syscom;
+        let push_ex = |w: &mut crate::original_save::OriginalStreamWriter, exist: bool, enable: bool| {
+            w.push_bool(exist);
+            w.push_bool(enable);
+        };
+        push_ex(w, s.read_skip.exist, s.read_skip.enable);
+        push_ex(w, false, false);
+        push_ex(w, s.auto_skip.exist, s.auto_skip.enable);
+        push_ex(w, s.auto_mode.exist, s.auto_mode.enable);
+        push_ex(w, s.hide_mwnd.exist, s.hide_mwnd.enable);
+        push_ex(w, s.msg_back.exist, s.msg_back.enable);
+        push_ex(w, s.save_feature.exist, s.save_feature.enable);
+        push_ex(w, s.load_feature.exist, s.load_feature.enable);
+        push_ex(w, s.return_to_sel.exist, s.return_to_sel.enable);
+        push_ex(w, true, true);
+        push_ex(w, false, false);
+        push_ex(w, false, false);
+        push_ex(w, s.return_to_menu.exist, s.return_to_menu.enable);
+        push_ex(w, s.end_game.exist, s.end_game.enable);
+        push_ex(w, true, true);
+        for i in 0..4 {
+            let sw = s.local_extra_switches.get(i).copied().unwrap_or(if i == 0 { s.local_extra_switch } else { runtime::globals::ToggleFeatureState::default() });
+            w.push_bool(sw.exist);
+            w.push_bool(sw.enable);
+            w.push_bool(sw.onoff);
+        }
+        while (w.position() - base) % 4 != 0 { w.push_bool(false); }
+        for i in 0..4 {
+            let mode = s.local_extra_modes.get(i).copied().unwrap_or(if i == 0 { s.local_extra_mode } else { runtime::globals::ValueFeatureState::default() });
+            w.push_bool(mode.exist);
+            w.push_bool(mode.enable);
+            w.push_padding(2);
+            w.push_i32(mode.value as i32);
+        }
+    }
+
+    fn write_empty_counter_param(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(0);
+    }
+
+    fn write_empty_frame_action(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_i32(0);
+        w.push_str("");
+        w.push_str("");
+        w.push_i32(0);
+        self.write_empty_counter_param(w);
+    }
+
+    fn write_empty_btn_select(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_i32(0);
+        w.push_padding(112);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_str("");
+        w.push_i32(0);
+        w.push_i32(0);
+    }
+
+    fn write_empty_stage(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_empty_fixed_array();
+        w.push_empty_fixed_array();
+        w.push_empty_fixed_array();
+        self.write_empty_btn_select(w);
+        w.push_empty_fixed_array();
+        w.push_empty_fixed_array();
+        w.push_empty_fixed_array();
+    }
+
+    fn write_empty_screen(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_empty_fixed_array();
+        w.push_padding(16);
+        w.push_empty_fixed_array();
+    }
+
+    fn write_empty_sound(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_str("");
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_empty_fixed_array();
+        w.push_i32(0);
+        w.push_str("");
+    }
+
+    fn write_empty_msg_back(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_bool(false);
+    }
+
+    fn write_cpp_prop(&self, w: &mut crate::original_save::OriginalStreamWriter, prop_id: i32, cell: &UserPropCell) {
+        w.push_i32(prop_id);
+        w.push_i32(cell.form);
+        w.push_i32(cell.int_value);
+        w.push_str(&cell.str_value);
+        w.push_element(&cell.element);
+        w.push_extend_items(&cell.list_items, |w, item| self.write_cpp_prop(w, 0, item));
+        w.push_i32(cell.list_items.len() as i32);
+        if cell.form == self.cfg.fm_intlist {
+            let vals: Vec<i64> = cell.int_list.iter().map(|v| *v as i64).collect();
+            w.push_extend_i32_list(&vals);
+        } else if cell.form == self.cfg.fm_strlist {
+            w.push_extend_str_list(&cell.str_list);
+        }
+    }
+
+    fn read_cpp_prop(&self, rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<(i32, UserPropCell)> {
+        let prop_id = rd.i32()?;
+        let form = rd.i32()?;
+        let int_value = rd.i32()?;
+        let str_value = rd.string()?;
+        let element = rd.element()?;
+        let list_items = rd.extend_items(|rd| {
+            let (_id, cell) = self.read_cpp_prop(rd)?;
+            Ok(cell)
+        })?;
+        let _exp_cnt = rd.i32()?;
+        let mut cell = UserPropCell::new(form, element);
+        cell.int_value = int_value;
+        cell.str_value = str_value;
+        cell.list_items = list_items;
+        if form == self.cfg.fm_intlist {
+            cell.int_list = rd.extend_i32_list()?.into_iter().map(|v| v as i32).collect();
+        } else if form == self.cfg.fm_strlist {
+            cell.str_list = rd.extend_items(|rd| rd.string())?;
+        }
+        Ok((prop_id, cell))
+    }
+
+    fn write_cpp_inc_prop_list(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        let shared = self.shared_user_prop_count();
+        let props: Vec<(i32, UserPropCell)> = (0..shared)
+            .map(|idx| {
+                let prop_id = idx as u16;
+                let cell = self.user_props.get(&prop_id).cloned().unwrap_or_else(|| self.default_user_prop_cell(prop_id));
+                (idx as i32, cell)
+            })
+            .collect();
+        w.push_fixed_items(&props, |w, (id, cell)| self.write_cpp_prop(w, *id, cell));
+    }
+
+    fn read_cpp_inc_prop_list(&mut self, rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<()> {
+        let props = rd.fixed_items(|rd| self.read_cpp_prop(rd))?;
+        for (idx, (_stored_id, cell)) in props.into_iter().enumerate() {
+            self.user_props.insert(idx as u16, cell);
+        }
+        Ok(())
+    }
+
+    fn write_cpp_current_scene_prop_lists(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        let shared = self.shared_user_prop_count();
+        let mut props: Vec<(i32, UserPropCell)> = Vec::new();
+        let scene_prop_cnt = self.stream.header.scn_prop_cnt.max(0) as usize;
+        for idx in 0..scene_prop_cnt {
+            let prop_id = (shared + idx) as u16;
+            if let Some(cell) = self.user_props.get(&prop_id).cloned() {
+                props.push((idx as i32, cell));
+            } else if let Some((_, _)) = self.user_prop_decl(prop_id) {
+                props.push((idx as i32, self.default_user_prop_cell(prop_id)));
+            }
+        }
+        if props.is_empty() {
+            w.push_i32(0);
+            return;
+        }
+        w.push_i32(1);
+        w.push_str(self.current_scene_name.as_deref().unwrap_or(""));
+        w.push_fixed_items(&props, |w, (id, cell)| self.write_cpp_prop(w, *id, cell));
+    }
+
+    fn read_cpp_scene_prop_lists(&mut self, rd: &mut crate::original_save::OriginalStreamReader<'_>, current_scene_name: &str) -> Result<()> {
+        let shared = self.shared_user_prop_count();
+        let scene_prop_cnt = rd.i32()?.max(0) as usize;
+        for _ in 0..scene_prop_cnt {
+            let scene_name = rd.string()?;
+            let props = rd.fixed_items(|rd| self.read_cpp_prop(rd))?;
+            if scene_name == current_scene_name {
+                for (idx, (_stored_id, cell)) in props.into_iter().enumerate() {
+                    self.user_props.insert((shared + idx) as u16, cell);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn write_cpp_call_prop(&self, w: &mut crate::original_save::OriginalStreamWriter, prop: &CallProp) {
+        w.push_i32(self.current_scene_no.unwrap_or(0) as i32);
+        w.push_i32(prop.prop_id);
+        let mut cell = UserPropCell::new(prop.form, prop.element.clone());
+        match &prop.value {
+            CallPropValue::Int(v) => cell.int_value = *v,
+            CallPropValue::Str(v) => cell.str_value = v.clone(),
+            CallPropValue::Element(v) => cell.element = v.clone(),
+            CallPropValue::IntList(v) => cell.int_list = v.clone(),
+            CallPropValue::StrList(v) => cell.str_list = v.clone(),
+        }
+        self.write_cpp_prop(w, prop.prop_id, &cell);
+    }
+
+    fn read_cpp_call_prop(&self, rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<CallProp> {
+        let _scn_no = rd.i32()?;
+        let declared_prop_id = rd.i32()?;
+        let (_stored_id, cell) = self.read_cpp_prop(rd)?;
+        let value = if cell.form == self.cfg.fm_int {
+            CallPropValue::Int(cell.int_value)
+        } else if cell.form == self.cfg.fm_str {
+            CallPropValue::Str(cell.str_value.clone())
+        } else if cell.form == self.cfg.fm_intlist {
+            CallPropValue::IntList(cell.int_list.clone())
+        } else if cell.form == self.cfg.fm_strlist {
+            CallPropValue::StrList(cell.str_list.clone())
+        } else {
+            CallPropValue::Element(cell.element.clone())
+        };
+        Ok(CallProp {
+            prop_id: declared_prop_id,
+            form: cell.form,
+            decl_size: cell.int_list.len().max(cell.str_list.len()).max(cell.list_items.len()),
+            element: cell.element,
+            value,
+        })
+    }
+
+    fn write_cpp_call_frame(&self, w: &mut crate::original_save::OriginalStreamWriter, frame: &CallFrame) {
+        let l: Vec<i64> = frame.int_args.iter().map(|v| *v as i64).collect();
+        w.push_extend_i32_list(&l);
+        w.push_extend_str_list(&frame.str_args);
+        w.push_extend_items(&frame.user_props, |w, prop| self.write_cpp_call_prop(w, prop));
+        let call_type = if frame.frame_action_proc { 3 } else if frame.return_pc != 0 { 1 } else { 0 };
+        w.push_i32(call_type);
+        w.push_i32(frame.ret_form);
+        w.push_str(self.current_scene_name.as_deref().unwrap_or(""));
+        w.push_i32(self.current_line_no);
+        w.push_i32(frame.return_pc as i32);
+    }
+
+    fn read_cpp_call_frame(&self, rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<CallFrame> {
+        let int_args: Vec<i32> = rd.extend_i32_list()?.into_iter().map(|v| v as i32).collect();
+        let str_args: Vec<String> = rd.extend_items(|rd| rd.string())?;
+        let user_props = rd.extend_items(|rd| self.read_cpp_call_prop(rd))?;
+        let call_type = rd.i32()?;
+        let ret_form = rd.i32()?;
+        let _scn_name = rd.string()?;
+        let _line_no = rd.i32()?;
+        let return_pc = rd.i32()?.max(0) as usize;
+        Ok(CallFrame {
+            return_pc,
+            ret_form,
+            return_override: None,
+            excall_proc: false,
+            frame_action_proc: call_type == 3,
+            arg_cnt: 0,
+            delayed_ret_form: None,
+            user_props,
+            int_args,
+            str_args,
+        })
+    }
+
+
+    fn save_i32(v: i64) -> i32 {
+        v.clamp(i32::MIN as i64, i32::MAX as i64) as i32
+    }
+
+    fn write_cpp_counter_param(&self, w: &mut crate::original_save::OriginalStreamWriter, c: &runtime::globals::Counter) {
+        let (is_running, real_flag, frame_mode, frame_loop_flag, frame_start_value, frame_end_value, frame_time, cur_time) = c.save_parts();
+        w.push_bool(is_running);
+        w.push_bool(real_flag);
+        w.push_bool(frame_mode);
+        w.push_bool(frame_loop_flag);
+        w.push_i32(Self::save_i32(frame_start_value));
+        w.push_i32(Self::save_i32(frame_end_value));
+        w.push_i32(Self::save_i32(frame_time));
+        w.push_i32(Self::save_i32(cur_time));
+    }
+
+    fn read_cpp_counter_param(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::Counter> {
+        let is_running = rd.bool()?;
+        let real_flag = rd.bool()?;
+        let frame_mode = rd.bool()?;
+        let frame_loop_flag = rd.bool()?;
+        let frame_start_value = rd.i32()? as i64;
+        let frame_end_value = rd.i32()? as i64;
+        let frame_time = rd.i32()? as i64;
+        let cur_time = rd.i32()? as i64;
+        Ok(runtime::globals::Counter::from_save_parts(
+            is_running,
+            real_flag,
+            frame_mode,
+            frame_loop_flag,
+            frame_start_value,
+            frame_end_value,
+            frame_time,
+            cur_time,
+        ))
+    }
+
+    fn write_cpp_value_prop(w: &mut crate::original_save::OriginalStreamWriter, value: &Value) {
+        use crate::runtime::forms::codes;
+        w.push_i32(0);
+        match value {
+            Value::Str(s) => {
+                w.push_i32(codes::FM_STR);
+                w.push_i32(0);
+                w.push_str(s);
+            }
+            Value::Int(v) => {
+                w.push_i32(codes::FM_INT);
+                w.push_i32(Self::save_i32(*v));
+                w.push_str("");
+            }
+            _ => {
+                w.push_i32(codes::FM_INT);
+                w.push_i32(0);
+                w.push_str("");
+            }
+        }
+        w.push_empty_element();
+        w.push_i32(0);
+        w.push_i32(0);
+    }
+
+    fn read_cpp_value_prop(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<Value> {
+        use crate::runtime::forms::codes;
+        let _id = rd.i32()?;
+        let form = rd.i32()?;
+        let int_value = rd.i32()?;
+        let str_value = rd.string()?;
+        let _element = rd.element()?;
+        let _exp_list: Vec<Value> = rd.extend_items(|rd| Self::read_cpp_value_prop(rd))?;
+        let _exp_cnt = rd.i32()?;
+        if form == codes::FM_INTLIST {
+            let _ = rd.extend_i32_list()?;
+        } else if form == codes::FM_STRLIST {
+            let _ = rd.extend_items(|rd| rd.string())?;
+        }
+        if form == codes::FM_STR {
+            Ok(Value::Str(str_value))
+        } else {
+            Ok(Value::Int(int_value as i64))
+        }
+    }
+
+    fn write_cpp_frame_action(&self, w: &mut crate::original_save::OriginalStreamWriter, fa: &runtime::globals::ObjectFrameActionState) {
+        w.push_i32(Self::save_i32(fa.end_time));
+        w.push_str(&fa.scn_name);
+        w.push_str(&fa.cmd_name);
+        w.push_extend_items(&fa.args, |w, arg| Self::write_cpp_value_prop(w, arg));
+        self.write_cpp_counter_param(w, &fa.counter);
+    }
+
+    fn read_cpp_frame_action(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::ObjectFrameActionState> {
+        let end_time = rd.i32()? as i64;
+        let scn_name = rd.string()?;
+        let cmd_name = rd.string()?;
+        let args = rd.extend_items(|rd| Self::read_cpp_value_prop(rd))?;
+        let counter = Self::read_cpp_counter_param(rd)?;
+        Ok(runtime::globals::ObjectFrameActionState {
+            scn_name,
+            cmd_name,
+            counter,
+            end_time,
+            real_time_flag: false,
+            end_flag: false,
+            args,
+        })
+    }
+
+    fn write_cpp_int_event_raw(w: &mut crate::original_save::OriginalStreamWriter, e: &runtime::int_event::IntEvent) {
+        w.push_i32(e.def_value);
+        w.push_i32(e.value);
+        w.push_i32(e.cur_time);
+        w.push_i32(e.end_time);
+        w.push_i32(e.delay_time);
+        w.push_i32(e.start_value);
+        w.push_i32(e.cur_value);
+        w.push_i32(e.end_value);
+        w.push_i32(e.loop_type);
+        w.push_i32(e.speed_type);
+        w.push_i32(e.real_flag);
+    }
+
+    fn read_cpp_int_event_raw(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::int_event::IntEvent> {
+        let def_value = rd.i32()?;
+        Ok(runtime::int_event::IntEvent {
+            def_value,
+            value: rd.i32()?,
+            cur_time: rd.i32()?,
+            end_time: rd.i32()?,
+            delay_time: rd.i32()?,
+            start_value: rd.i32()?,
+            cur_value: rd.i32()?,
+            end_value: rd.i32()?,
+            loop_type: rd.i32()?,
+            speed_type: rd.i32()?,
+            real_flag: rd.i32()?,
+        })
+    }
+
+    fn write_cpp_save_event(w: &mut crate::original_save::OriginalStreamWriter, e: &runtime::int_event::IntEvent) {
+        w.push_i32(e.loop_type);
+        if e.loop_type != -1 {
+            Self::write_cpp_int_event_raw(w, e);
+        } else {
+            w.push_i32(e.value);
+        }
+    }
+
+    fn read_cpp_save_event(rd: &mut crate::original_save::OriginalStreamReader<'_>, def_value: i32) -> Result<runtime::int_event::IntEvent> {
+        let loop_type = rd.i32()?;
+        if loop_type != -1 {
+            let mut e = Self::read_cpp_int_event_raw(rd)?;
+            e.loop_type = loop_type;
+            Ok(e)
+        } else {
+            let mut e = runtime::int_event::IntEvent::new(def_value);
+            e.loop_type = -1;
+            e.value = rd.i32()?;
+            e.cur_value = e.value;
+            Ok(e)
+        }
+    }
+
+    fn write_cpp_int_event_extend_list(&self, w: &mut crate::original_save::OriginalStreamWriter, values: &[runtime::int_event::IntEvent]) {
+        w.push_extend_items(values, |w, e| Self::write_cpp_int_event_raw(w, e));
+    }
+
+    fn read_cpp_int_event_extend_list(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<Vec<runtime::int_event::IntEvent>> {
+        rd.extend_items(|rd| Self::read_cpp_int_event_raw(rd))
+    }
+
+    fn write_cpp_group(&self, w: &mut crate::original_save::OriginalStreamWriter, g: &runtime::globals::GroupState) {
+        w.push_i32(Self::save_i32(g.order));
+        w.push_i32(Self::save_i32(g.layer));
+        w.push_i32(Self::save_i32(g.cancel_priority));
+        w.push_i32(Self::save_i32(g.cancel_se_no));
+        w.push_i32(Self::save_i32(g.decided_button_no));
+        w.push_i32(Self::save_i32(g.result));
+        w.push_i32(Self::save_i32(g.result_button_no));
+        w.push_bool(g.started);
+        w.push_bool(false);
+        w.push_bool(g.wait_flag);
+        w.push_bool(g.cancel_flag);
+        w.push_empty_element();
+    }
+
+    fn read_cpp_group(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::GroupState> {
+        let mut g = runtime::globals::GroupState::default();
+        g.order = rd.i32()? as i64;
+        g.layer = rd.i32()? as i64;
+        g.cancel_priority = rd.i32()? as i64;
+        g.cancel_se_no = rd.i32()? as i64;
+        g.decided_button_no = rd.i32()? as i64;
+        g.result = rd.i32()? as i64;
+        g.result_button_no = rd.i32()? as i64;
+        g.started = rd.bool()?;
+        let _pause_flag = rd.bool()?;
+        g.wait_flag = rd.bool()?;
+        g.cancel_flag = rd.bool()?;
+        let _target_object = rd.element()?;
+        Ok(g)
+    }
+
+    fn write_cpp_object(&self, w: &mut crate::original_save::OriginalStreamWriter, obj: &runtime::globals::ObjectState) {
+        let b = &obj.base;
+        let ev = &obj.runtime.prop_events;
+        w.push_i32(Self::save_i32(obj.object_type));
+        w.push_i32(Self::save_i32(b.wipe_copy));
+        w.push_i32(Self::save_i32(b.wipe_erase));
+        w.push_i32(Self::save_i32(b.click_disable));
+        // C_elm_object_param_filter: C_rect + C_argb.
+        w.push_i32(0); w.push_i32(0); w.push_i32(0); w.push_i32(0); w.push_i32(0);
+        // C_elm_object_param_string.
+        w.push_i32(Self::save_i32(obj.string_param.moji_size));
+        w.push_i32(Self::save_i32(obj.string_param.moji_space_x));
+        w.push_i32(Self::save_i32(obj.string_param.moji_space_y));
+        w.push_i32(Self::save_i32(obj.string_param.moji_cnt));
+        w.push_i32(Self::save_i32(obj.string_param.moji_color));
+        w.push_i32(Self::save_i32(obj.string_param.shadow_color));
+        w.push_i32(Self::save_i32(obj.string_param.fuchi_color));
+        w.push_i32(Self::save_i32(obj.string_param.shadow_mode));
+        // C_elm_object_param_number.
+        w.push_i32(Self::save_i32(obj.number_value));
+        w.push_i32(Self::save_i32(obj.number_param.keta_max));
+        w.push_i32(Self::save_i32(obj.number_param.disp_zero));
+        w.push_i32(Self::save_i32(obj.number_param.disp_sign));
+        w.push_i32(Self::save_i32(obj.number_param.tumeru_sign));
+        w.push_i32(Self::save_i32(obj.number_param.space_mod));
+        w.push_i32(Self::save_i32(obj.number_param.space));
+        if obj.object_type == 4 {
+            let wp = &obj.weather_param;
+            for v in [wp.weather_type, wp.cnt, wp.pat_mode, wp.pat_no_00, wp.pat_no_01, wp.pat_time, wp.move_time_x, wp.move_time_y, wp.sin_time_x, wp.sin_time_y, wp.sin_power_x, wp.sin_power_y, wp.center_x, wp.center_y, wp.center_rotate, wp.appear_range, wp.zoom_min, wp.zoom_max] {
+                w.push_i32(Self::save_i32(v));
+            }
+            Self::write_cpp_int_event_raw(w, &ev.color_add_r);
+            Self::write_cpp_int_event_raw(w, &ev.color_add_g);
+            Self::write_cpp_int_event_raw(w, &ev.color_add_b);
+            for v in [b.mask_no, b.tonecurve_no, b.light_no, b.fog_use, b.culling, b.alpha_test, b.alpha_blend, b.blend, 0] {
+                w.push_i32(Self::save_i32(v));
+            }
+        }
+        w.push_i32(Self::save_i32(obj.thumb_save_no));
+        w.push_bool(obj.movie.loop_flag);
+        w.push_bool(obj.movie.auto_free_flag);
+        w.push_bool(obj.movie.real_time_flag);
+        w.push_bool(obj.movie.pause_flag);
+        if obj.object_type == 10 {
+            w.push_i32(Self::save_i32(obj.emote.width));
+            w.push_i32(Self::save_i32(obj.emote.height));
+            for _ in 0..8 { w.push_i32(0); }
+            w.push_i32(0);
+            w.push_i32(0);
+            w.push_i32(Self::save_i32(obj.emote.rep_x));
+            w.push_i32(Self::save_i32(obj.emote.rep_y));
+        }
+        if obj.button.enabled {
+            w.push_i32(1);
+            w.push_i32(Self::save_i32(obj.button.sys_type));
+            w.push_i32(Self::save_i32(obj.button.sys_type_opt));
+            w.push_i32(Self::save_i32(obj.button.action_no));
+            w.push_i32(Self::save_i32(obj.button.se_no));
+            w.push_i32(Self::save_i32(obj.button.button_no));
+            w.push_empty_element();
+            w.push_i32(if obj.button.push_keep { 1 } else { 0 });
+            w.push_i32(Self::save_i32(obj.button.state));
+            w.push_i32(Self::save_i32(obj.button.mode));
+            w.push_i32(Self::save_i32(obj.button.cut_no));
+            w.push_i32(-1);
+            w.push_i32(-1);
+            w.push_i32(Self::save_i32(obj.button.decided_action_z_no));
+            w.push_i32(0);
+            w.push_i32(if obj.button.alpha_test { 1 } else { 0 });
+        } else {
+            w.push_i32(0);
+        }
+        w.push_i32(Self::save_i32(b.disp));
+        w.push_i32(Self::save_i32(b.patno));
+        w.push_i32(Self::save_i32(b.order));
+        w.push_i32(Self::save_i32(b.layer));
+        w.push_i32(Self::save_i32(b.world));
+        w.push_i32(Self::save_i32(b.child_sort_type));
+        for e in [&ev.x, &ev.y, &ev.z, &ev.center_x, &ev.center_y, &ev.center_z, &ev.center_rep_x, &ev.center_rep_y, &ev.center_rep_z, &ev.scale_x, &ev.scale_y, &ev.scale_z, &ev.rotate_x, &ev.rotate_y, &ev.rotate_z] {
+            Self::write_cpp_save_event(w, e);
+        }
+        w.push_i32(Self::save_i32(b.clip_use));
+        for e in [&ev.clip_left, &ev.clip_top, &ev.clip_right, &ev.clip_bottom] { Self::write_cpp_save_event(w, e); }
+        w.push_i32(Self::save_i32(b.src_clip_use));
+        for e in [&ev.src_clip_left, &ev.src_clip_top, &ev.src_clip_right, &ev.src_clip_bottom, &ev.tr, &ev.mono, &ev.reverse, &ev.bright, &ev.dark, &ev.color_r, &ev.color_g, &ev.color_b, &ev.color_rate, &ev.color_add_r, &ev.color_add_g, &ev.color_add_b] {
+            Self::write_cpp_save_event(w, e);
+        }
+        for v in [b.mask_no, b.tonecurve_no, b.light_no, b.fog_use, b.culling, b.alpha_test, b.alpha_blend, b.blend, 0] {
+            w.push_i32(Self::save_i32(v));
+        }
+        self.write_cpp_int_event_extend_list(w, &obj.runtime.prop_event_lists.x_rep);
+        self.write_cpp_int_event_extend_list(w, &obj.runtime.prop_event_lists.y_rep);
+        self.write_cpp_int_event_extend_list(w, &obj.runtime.prop_event_lists.z_rep);
+        self.write_cpp_int_event_extend_list(w, &obj.runtime.prop_event_lists.tr_rep);
+        w.push_extend_i32_list(&obj.runtime.prop_lists.f);
+        w.push_str(obj.file_name.as_deref().unwrap_or(""));
+        w.push_str(obj.string_value.as_deref().unwrap_or(""));
+        w.push_str(&obj.button.decided_action_scn_name);
+        w.push_str(&obj.button.decided_action_cmd_name);
+        if obj.object_type == 10 { for _ in 0..8 { w.push_str(""); } }
+        self.write_cpp_frame_action(w, &obj.frame_action);
+        w.push_extend_items(&obj.frame_action_ch, |w, fa| self.write_cpp_frame_action(w, fa));
+        w.push_str(obj.gan_file.as_deref().unwrap_or(""));
+        w.push_extend_items(&obj.runtime.child_objects, |w, child| self.write_cpp_object(w, child));
+    }
+
+    fn read_cpp_object(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::ObjectState> {
+        let mut obj = runtime::globals::ObjectState::default();
+        obj.object_type = rd.i32()? as i64;
+        obj.base.wipe_copy = rd.i32()? as i64;
+        obj.base.wipe_erase = rd.i32()? as i64;
+        obj.base.click_disable = rd.i32()? as i64;
+        rd.skip(20)?;
+        obj.string_param.moji_size = rd.i32()? as i64;
+        obj.string_param.moji_space_x = rd.i32()? as i64;
+        obj.string_param.moji_space_y = rd.i32()? as i64;
+        obj.string_param.moji_cnt = rd.i32()? as i64;
+        obj.string_param.moji_color = rd.i32()? as i64;
+        obj.string_param.shadow_color = rd.i32()? as i64;
+        obj.string_param.fuchi_color = rd.i32()? as i64;
+        obj.string_param.shadow_mode = rd.i32()? as i64;
+        obj.number_value = rd.i32()? as i64;
+        obj.number_param.keta_max = rd.i32()? as i64;
+        obj.number_param.disp_zero = rd.i32()? as i64;
+        obj.number_param.disp_sign = rd.i32()? as i64;
+        obj.number_param.tumeru_sign = rd.i32()? as i64;
+        obj.number_param.space_mod = rd.i32()? as i64;
+        obj.number_param.space = rd.i32()? as i64;
+        if obj.object_type == 4 {
+            obj.weather_param.weather_type = rd.i32()? as i64;
+            obj.weather_param.cnt = rd.i32()? as i64;
+            obj.weather_param.pat_mode = rd.i32()? as i64;
+            obj.weather_param.pat_no_00 = rd.i32()? as i64;
+            obj.weather_param.pat_no_01 = rd.i32()? as i64;
+            obj.weather_param.pat_time = rd.i32()? as i64;
+            obj.weather_param.move_time_x = rd.i32()? as i64;
+            obj.weather_param.move_time_y = rd.i32()? as i64;
+            obj.weather_param.sin_time_x = rd.i32()? as i64;
+            obj.weather_param.sin_time_y = rd.i32()? as i64;
+            obj.weather_param.sin_power_x = rd.i32()? as i64;
+            obj.weather_param.sin_power_y = rd.i32()? as i64;
+            obj.weather_param.center_x = rd.i32()? as i64;
+            obj.weather_param.center_y = rd.i32()? as i64;
+            obj.weather_param.center_rotate = rd.i32()? as i64;
+            obj.weather_param.appear_range = rd.i32()? as i64;
+            obj.weather_param.zoom_min = rd.i32()? as i64;
+            obj.weather_param.zoom_max = rd.i32()? as i64;
+            obj.runtime.prop_events.color_add_r = Self::read_cpp_int_event_raw(rd)?;
+            obj.runtime.prop_events.color_add_g = Self::read_cpp_int_event_raw(rd)?;
+            obj.runtime.prop_events.color_add_b = Self::read_cpp_int_event_raw(rd)?;
+            obj.base.mask_no = rd.i32()? as i64;
+            obj.base.tonecurve_no = rd.i32()? as i64;
+            obj.base.light_no = rd.i32()? as i64;
+            obj.base.fog_use = rd.i32()? as i64;
+            obj.base.culling = rd.i32()? as i64;
+            obj.base.alpha_test = rd.i32()? as i64;
+            obj.base.alpha_blend = rd.i32()? as i64;
+            obj.base.blend = rd.i32()? as i64;
+            let _ = rd.i32()?;
+        }
+        obj.thumb_save_no = rd.i32()? as i64;
+        obj.movie.loop_flag = rd.bool()?;
+        obj.movie.auto_free_flag = rd.bool()?;
+        obj.movie.real_time_flag = rd.bool()?;
+        obj.movie.pause_flag = rd.bool()?;
+        if obj.object_type == 10 {
+            obj.emote.width = rd.i32()? as i64;
+            obj.emote.height = rd.i32()? as i64;
+            rd.skip(8 * 4)?;
+            let _ = rd.i32()?;
+            let _ = rd.i32()?;
+            obj.emote.rep_x = rd.i32()? as i64;
+            obj.emote.rep_y = rd.i32()? as i64;
+        }
+        let button_exist = rd.i32()? != 0;
+        if button_exist {
+            obj.button.enabled = true;
+            obj.button.sys_type = rd.i32()? as i64;
+            obj.button.sys_type_opt = rd.i32()? as i64;
+            obj.button.action_no = rd.i32()? as i64;
+            obj.button.se_no = rd.i32()? as i64;
+            obj.button.button_no = rd.i32()? as i64;
+            rd.skip_element()?;
+            obj.button.push_keep = rd.i32()? != 0;
+            obj.button.state = rd.i32()? as i64;
+            obj.button.mode = rd.i32()? as i64;
+            obj.button.cut_no = rd.i32()? as i64;
+            let _ = rd.i32()?;
+            let _ = rd.i32()?;
+            obj.button.decided_action_z_no = rd.i32()? as i64;
+            let _ = rd.i32()?;
+            obj.button.alpha_test = rd.i32()? != 0;
+        }
+        obj.base.disp = rd.i32()? as i64;
+        obj.base.patno = rd.i32()? as i64;
+        obj.base.order = rd.i32()? as i64;
+        obj.base.layer = rd.i32()? as i64;
+        obj.base.world = rd.i32()? as i64;
+        obj.base.child_sort_type = rd.i32()? as i64;
+        obj.runtime.prop_events.x = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.y = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.z = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.center_x = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.center_y = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.center_z = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.center_rep_x = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.center_rep_y = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.center_rep_z = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.scale_x = Self::read_cpp_save_event(rd, 1000)?;
+        obj.runtime.prop_events.scale_y = Self::read_cpp_save_event(rd, 1000)?;
+        obj.runtime.prop_events.scale_z = Self::read_cpp_save_event(rd, 1000)?;
+        obj.runtime.prop_events.rotate_x = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.rotate_y = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.rotate_z = Self::read_cpp_save_event(rd, 0)?;
+        obj.base.clip_use = rd.i32()? as i64;
+        obj.runtime.prop_events.clip_left = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.clip_top = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.clip_right = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.clip_bottom = Self::read_cpp_save_event(rd, 0)?;
+        obj.base.src_clip_use = rd.i32()? as i64;
+        obj.runtime.prop_events.src_clip_left = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.src_clip_top = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.src_clip_right = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.src_clip_bottom = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.tr = Self::read_cpp_save_event(rd, 255)?;
+        obj.runtime.prop_events.mono = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.reverse = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.bright = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.dark = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.color_r = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.color_g = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.color_b = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.color_rate = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.color_add_r = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.color_add_g = Self::read_cpp_save_event(rd, 0)?;
+        obj.runtime.prop_events.color_add_b = Self::read_cpp_save_event(rd, 0)?;
+        obj.base.mask_no = rd.i32()? as i64;
+        obj.base.tonecurve_no = rd.i32()? as i64;
+        obj.base.light_no = rd.i32()? as i64;
+        obj.base.fog_use = rd.i32()? as i64;
+        obj.base.culling = rd.i32()? as i64;
+        obj.base.alpha_test = rd.i32()? as i64;
+        obj.base.alpha_blend = rd.i32()? as i64;
+        obj.base.blend = rd.i32()? as i64;
+        let _flags = rd.i32()?;
+        obj.runtime.prop_event_lists.x_rep = Self::read_cpp_int_event_extend_list(rd)?;
+        obj.runtime.prop_event_lists.y_rep = Self::read_cpp_int_event_extend_list(rd)?;
+        obj.runtime.prop_event_lists.z_rep = Self::read_cpp_int_event_extend_list(rd)?;
+        obj.runtime.prop_event_lists.tr_rep = Self::read_cpp_int_event_extend_list(rd)?;
+        obj.runtime.prop_lists.f = rd.extend_i32_list()?;
+        let file_name = rd.string()?;
+        obj.file_name = if file_name.is_empty() { None } else { Some(file_name) };
+        let string_value = rd.string()?;
+        obj.string_value = if string_value.is_empty() { None } else { Some(string_value) };
+        obj.button.decided_action_scn_name = rd.string()?;
+        obj.button.decided_action_cmd_name = rd.string()?;
+        if obj.object_type == 10 { for _ in 0..8 { let _ = rd.string()?; } }
+        obj.frame_action = Self::read_cpp_frame_action(rd)?;
+        obj.frame_action_ch = rd.extend_items(|rd| Self::read_cpp_frame_action(rd))?;
+        let gan_file = rd.string()?;
+        obj.gan_file = if gan_file.is_empty() { None } else { Some(gan_file) };
+        obj.runtime.child_objects = rd.extend_items(|rd| Self::read_cpp_object(rd))?;
+        obj.used = obj.object_type != 0 || obj.file_name.is_some() || obj.string_value.is_some();
+        Ok(obj)
+    }
+
+    fn write_cpp_mwnd(&self, w: &mut crate::original_save::OriginalStreamWriter, m: &runtime::globals::MwndState) {
+        w.push_i32(Self::save_i32(m.world));
+        w.push_i32(Self::save_i32(m.layer));
+        w.push_i32(if m.open { 1 } else { 0 });
+        w.push_i32(Self::save_i32(m.window_pos.map(|p| p.0).unwrap_or(0)));
+        w.push_i32(Self::save_i32(m.window_pos.map(|p| p.1).unwrap_or(0)));
+        w.push_i32(Self::save_i32(m.window_size.map(|p| p.0).unwrap_or(0)));
+        w.push_i32(Self::save_i32(m.window_size.map(|p| p.1).unwrap_or(0)));
+        w.push_i32(Self::save_i32(m.open_anime_type));
+        w.push_i32(Self::save_i32(m.open_anime_time));
+        w.push_i32(Self::save_i32(m.close_anime_type));
+        w.push_i32(Self::save_i32(m.close_anime_time));
+        w.push_i64(0);
+        w.push_bool(m.msg_block_started);
+        w.push_bool(false);
+        w.push_bool(m.open);
+        w.push_bool(!m.name_text.is_empty());
+        w.push_bool(m.clear_ready);
+        w.push_padding(3);
+        w.push_i32(0); w.push_i32(0); w.push_i32(0);
+        w.push_bool(m.slide_msg);
+        w.push_padding(3);
+        w.push_i32(Self::save_i32(m.slide_time));
+        w.push_i32(m.koe.map(|p| Self::save_i32(p.0)).unwrap_or(0));
+        w.push_bool(m.koe.is_some());
+        w.push_padding(3);
+        w.push_i32(Self::save_i32(m.open_anime_type));
+        w.push_i32(Self::save_i32(m.open_anime_time));
+        w.push_i32(0);
+        w.push_i32(Self::save_i32(m.close_anime_type));
+        w.push_i32(Self::save_i32(m.close_anime_time));
+        w.push_i32(0);
+        w.push_i32(1);
+        w.push_bool(false);
+        w.push_padding(3);
+        w.push_str(&m.msg_text);
+        w.push_str(&m.waku_file);
+        w.push_str(&m.name_text);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_extend_items(&m.object_list, |w, obj| self.write_cpp_object(w, obj));
+        w.push_extend_items(&m.button_list, |w, obj| self.write_cpp_object(w, obj));
+        w.push_extend_items(&m.face_list, |w, obj| self.write_cpp_object(w, obj));
+    }
+
+    fn read_cpp_mwnd(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::MwndState> {
+        let mut m = runtime::globals::MwndState::default();
+        m.world = rd.i32()? as i64;
+        m.layer = rd.i32()? as i64;
+        m.open = rd.i32()? != 0;
+        let wx = rd.i32()? as i64;
+        let wy = rd.i32()? as i64;
+        m.window_pos = Some((wx, wy));
+        let ww = rd.i32()? as i64;
+        let wh = rd.i32()? as i64;
+        m.window_size = Some((ww, wh));
+        m.open_anime_type = rd.i32()? as i64;
+        m.open_anime_time = rd.i32()? as i64;
+        m.close_anime_type = rd.i32()? as i64;
+        m.close_anime_time = rd.i32()? as i64;
+        let _ = rd.i64()?;
+        m.msg_block_started = rd.bool()?;
+        let _ = rd.bool()?;
+        m.open = rd.bool()?;
+        let _ = rd.bool()?;
+        m.clear_ready = rd.bool()?;
+        rd.skip(3)?;
+        let _ = rd.i32()?; let _ = rd.i32()?; let _ = rd.i32()?;
+        m.slide_msg = rd.bool()?;
+        rd.skip(3)?;
+        m.slide_time = rd.i32()? as i64;
+        let koe_no = rd.i32()? as i64;
+        let koe_play = rd.bool()?;
+        rd.skip(3)?;
+        if koe_play { m.koe = Some((koe_no, 0)); }
+        m.open_anime_type = rd.i32()? as i64;
+        m.open_anime_time = rd.i32()? as i64;
+        let _ = rd.i32()?;
+        m.close_anime_type = rd.i32()? as i64;
+        m.close_anime_time = rd.i32()? as i64;
+        let _ = rd.i32()?;
+        let _ = rd.i32()?;
+        let _ = rd.bool()?;
+        rd.skip(3)?;
+        m.msg_text = rd.string()?;
+        m.waku_file = rd.string()?;
+        m.name_text = rd.string()?;
+        let _ = rd.i32()?; let _ = rd.i32()?; let _ = rd.i32()?;
+        m.object_list = rd.extend_items(|rd| Self::read_cpp_object(rd))?;
+        m.button_list = rd.extend_items(|rd| Self::read_cpp_object(rd))?;
+        m.face_list = rd.extend_items(|rd| Self::read_cpp_object(rd))?;
+        Ok(m)
+    }
+
+    fn write_cpp_world(&self, w: &mut crate::original_save::OriginalStreamWriter, world: &runtime::globals::WorldState) {
+        w.push_i32(world.mode);
+        for e in [&world.camera_eye_x, &world.camera_eye_y, &world.camera_eye_z, &world.camera_pint_x, &world.camera_pint_y, &world.camera_pint_z, &world.camera_up_x, &world.camera_up_y, &world.camera_up_z] {
+            Self::write_cpp_int_event_raw(w, e);
+        }
+        for v in [world.camera_view_angle, world.mono, world.order, world.layer, world.wipe_copy, world.wipe_erase] { w.push_i32(v); }
+    }
+
+    fn read_cpp_world(rd: &mut crate::original_save::OriginalStreamReader<'_>, world_no: i32) -> Result<runtime::globals::WorldState> {
+        let mut world = runtime::globals::WorldState::new(world_no);
+        world.mode = rd.i32()?;
+        world.camera_eye_x = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_eye_y = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_eye_z = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_pint_x = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_pint_y = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_pint_z = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_up_x = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_up_y = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_up_z = Self::read_cpp_int_event_raw(rd)?;
+        world.camera_view_angle = rd.i32()?;
+        world.mono = rd.i32()?;
+        world.order = rd.i32()?;
+        world.layer = rd.i32()?;
+        world.wipe_copy = rd.i32()?;
+        world.wipe_erase = rd.i32()?;
+        Ok(world)
+    }
+
+    fn write_cpp_effect(&self, w: &mut crate::original_save::OriginalStreamWriter, e: &runtime::globals::ScreenEffectState) {
+        for ev in [&e.x, &e.y, &e.z, &e.mono, &e.reverse, &e.bright, &e.dark, &e.color_r, &e.color_g, &e.color_b, &e.color_rate, &e.color_add_r, &e.color_add_g, &e.color_add_b] {
+            Self::write_cpp_int_event_raw(w, ev);
+        }
+        for v in [e.begin_order, e.end_order, e.begin_layer, e.end_layer, e.wipe_copy, e.wipe_erase] { w.push_i32(v); }
+    }
+
+    fn read_cpp_effect(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::ScreenEffectState> {
+        let mut e = runtime::globals::ScreenEffectState::default();
+        e.x = Self::read_cpp_int_event_raw(rd)?;
+        e.y = Self::read_cpp_int_event_raw(rd)?;
+        e.z = Self::read_cpp_int_event_raw(rd)?;
+        e.mono = Self::read_cpp_int_event_raw(rd)?;
+        e.reverse = Self::read_cpp_int_event_raw(rd)?;
+        e.bright = Self::read_cpp_int_event_raw(rd)?;
+        e.dark = Self::read_cpp_int_event_raw(rd)?;
+        e.color_r = Self::read_cpp_int_event_raw(rd)?;
+        e.color_g = Self::read_cpp_int_event_raw(rd)?;
+        e.color_b = Self::read_cpp_int_event_raw(rd)?;
+        e.color_rate = Self::read_cpp_int_event_raw(rd)?;
+        e.color_add_r = Self::read_cpp_int_event_raw(rd)?;
+        e.color_add_g = Self::read_cpp_int_event_raw(rd)?;
+        e.color_add_b = Self::read_cpp_int_event_raw(rd)?;
+        e.begin_order = rd.i32()?;
+        e.end_order = rd.i32()?;
+        e.begin_layer = rd.i32()?;
+        e.end_layer = rd.i32()?;
+        e.wipe_copy = rd.i32()?;
+        e.wipe_erase = rd.i32()?;
+        Ok(e)
+    }
+
+    fn write_cpp_quake(&self, w: &mut crate::original_save::OriginalStreamWriter, q: &runtime::globals::ScreenQuakeState) {
+        w.push_i32(q.quake_type);
+        w.push_i32(q.vec);
+        w.push_i32(q.power);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(if q.ending { 1 } else { 0 });
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_i32(q.center_x);
+        w.push_i32(q.center_y);
+        w.push_i32(q.begin_order);
+        w.push_i32(q.end_order);
+    }
+
+    fn read_cpp_quake(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::ScreenQuakeState> {
+        let mut q = runtime::globals::ScreenQuakeState::default();
+        q.quake_type = rd.i32()?;
+        q.vec = rd.i32()?;
+        q.power = rd.i32()?;
+        let _cur_time = rd.i32()?;
+        let _total_time = rd.i32()?;
+        q.ending = rd.i32()? != 0;
+        let _end_cur_time = rd.i32()?;
+        let _end_total_time = rd.i32()?;
+        let _cnt = rd.i32()?;
+        let _end_cnt = rd.i32()?;
+        q.center_x = rd.i32()?;
+        q.center_y = rd.i32()?;
+        q.begin_order = rd.i32()?;
+        q.end_order = rd.i32()?;
+        Ok(q)
+    }
+
+    fn write_cpp_btn_select(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_i32(0);
+        w.push_padding(112);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_str("");
+        w.push_i32(0);
+        w.push_i32(0);
+    }
+
+    fn read_cpp_btn_select(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<()> {
+        let _ = rd.i32()?;
+        rd.skip(112)?;
+        for _ in 0..6 { let _ = rd.bool()?; }
+        let _ = rd.string()?;
+        let _ = rd.i32()?;
+        let _ = rd.i32()?;
+        Ok(())
+    }
+
+    fn write_cpp_stage(&self, w: &mut crate::original_save::OriginalStreamWriter, stage_idx: i64) {
+        let form_id = self.ctx.ids.form_global_stage;
+        let st = self.ctx.globals.stage_forms.get(&form_id);
+        let empty_groups: Vec<runtime::globals::GroupState> = Vec::new();
+        let empty_objects: Vec<runtime::globals::ObjectState> = Vec::new();
+        let empty_mwnds: Vec<runtime::globals::MwndState> = Vec::new();
+        let empty_worlds: Vec<runtime::globals::WorldState> = Vec::new();
+        let empty_effects: Vec<runtime::globals::ScreenEffectState> = Vec::new();
+        let empty_quakes: Vec<runtime::globals::ScreenQuakeState> = Vec::new();
+        let groups = st.and_then(|s| s.group_lists.get(&stage_idx)).unwrap_or(&empty_groups);
+        let objects = st.and_then(|s| s.object_lists.get(&stage_idx)).unwrap_or(&empty_objects);
+        let mwnds = st.and_then(|s| s.mwnd_lists.get(&stage_idx)).unwrap_or(&empty_mwnds);
+        let worlds = st.and_then(|s| s.world_lists.get(&stage_idx)).unwrap_or(&empty_worlds);
+        let effects = st.and_then(|s| s.effect_lists.get(&stage_idx)).unwrap_or(&empty_effects);
+        let quakes = st.and_then(|s| s.quake_lists.get(&stage_idx)).unwrap_or(&empty_quakes);
+        w.push_fixed_items(groups, |w, g| self.write_cpp_group(w, g));
+        w.push_fixed_items(objects, |w, obj| self.write_cpp_object(w, obj));
+        w.push_fixed_items(mwnds, |w, m| self.write_cpp_mwnd(w, m));
+        self.write_cpp_btn_select(w);
+        w.push_fixed_items(worlds, |w, world| self.write_cpp_world(w, world));
+        w.push_fixed_items(effects, |w, e| self.write_cpp_effect(w, e));
+        w.push_fixed_items(quakes, |w, q| self.write_cpp_quake(w, q));
+    }
+
+    fn read_cpp_stage(rd: &mut crate::original_save::OriginalStreamReader<'_>, stage_idx: i64) -> Result<runtime::globals::StageFormState> {
+        let mut st = runtime::globals::StageFormState::default();
+        st.initialized_from_gameexe = true;
+        st.group_lists.insert(stage_idx, rd.fixed_items(|rd| Self::read_cpp_group(rd))?);
+        st.object_lists.insert(stage_idx, rd.fixed_items(|rd| Self::read_cpp_object(rd))?);
+        st.mwnd_lists.insert(stage_idx, rd.fixed_items(|rd| Self::read_cpp_mwnd(rd))?);
+        Self::read_cpp_btn_select(rd)?;
+        let mut world_no = 0i32;
+        let worlds = rd.fixed_items(|rd| { let w = Self::read_cpp_world(rd, world_no); world_no += 1; w })?;
+        st.world_lists.insert(stage_idx, worlds);
+        st.effect_lists.insert(stage_idx, rd.fixed_items(|rd| Self::read_cpp_effect(rd))?);
+        st.quake_lists.insert(stage_idx, rd.fixed_items(|rd| Self::read_cpp_quake(rd))?);
+        Ok(st)
+    }
+
+    fn write_cpp_screen(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        let form_id = self.ctx.ids.form_global_screen;
+        let screen = self.ctx.globals.screen_forms.get(&form_id).cloned().unwrap_or_default();
+        w.push_fixed_items(&screen.effect_list, |w, e| self.write_cpp_effect(w, e));
+        w.push_i32(Self::save_i32(screen.shake.last_value));
+        w.push_i64(0);
+        w.push_i32(0);
+        w.push_fixed_items(&screen.quake_list, |w, q| self.write_cpp_quake(w, q));
+    }
+
+    fn read_cpp_screen(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::ScreenFormState> {
+        let effect_list = rd.fixed_items(|rd| Self::read_cpp_effect(rd))?;
+        let mut shake = runtime::globals::ScreenShakeState::default();
+        shake.last_value = rd.i32()? as i64;
+        let _ = rd.i64()?;
+        let _ = rd.i32()?;
+        let quake_list = rd.fixed_items(|rd| Self::read_cpp_quake(rd))?;
+        Ok(runtime::globals::ScreenFormState { effect_list, quake_list, shake })
+    }
+
+    const ORIGINAL_PCMCH_DEFAULT_CNT: usize = 16;
+    const ORIGINAL_PCMCH_MAX_CNT: usize = 256;
+
+    fn original_pcmch_count(&self) -> usize {
+        self.ctx
+            .tables
+            .gameexe
+            .as_ref()
+            .and_then(|cfg| cfg.get_usize("#PCMCH.CNT").or_else(|| cfg.get_usize("PCMCH.CNT")))
+            .unwrap_or(Self::ORIGINAL_PCMCH_DEFAULT_CNT)
+            .min(Self::ORIGINAL_PCMCH_MAX_CNT)
+    }
+
+    fn write_cpp_pcmch_default(w: &mut crate::original_save::OriginalStreamWriter) {
+        w.push_str("");
+        w.push_str("");
+        w.push_i32(-1);
+        w.push_i32(-1);
+        w.push_i32(0);
+        w.push_i32(-1);
+        w.push_i32(255);
+        w.push_i32(0);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+    }
+
+    fn read_cpp_pcmch(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<()> {
+        let _pcm_name = rd.string()?;
+        let _bgm_name = rd.string()?;
+        let _koe_no = rd.i32()?;
+        let _se_no = rd.i32()?;
+        let _volume_type = rd.i32()?;
+        let _chara_no = rd.i32()?;
+        let _volume = rd.i32()?;
+        let _delay_time = rd.i32()?;
+        let _loop_flag = rd.bool()?;
+        let _bgm_fade_target_flag = rd.bool()?;
+        let _bgm_fade2_target_flag = rd.bool()?;
+        let _bgm_fade_source_flag = rd.bool()?;
+        let _ready_flag = rd.bool()?;
+        Ok(())
+    }
+
+    fn write_cpp_sound(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        // C_elm_sound::save order: BGM, KOE, PCM, PCMCHLIST, SE, MOV.
+        // The runtime currently does not retain all original sound parameters, so this writes
+        // a structurally exact silent/default sound state instead of a truncated one.
+        w.push_str("");
+        w.push_i32(255);
+        w.push_i32(0);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_i32(255);
+        w.push_i32(255);
+        let pcmch_defaults = vec![(); self.original_pcmch_count()];
+        w.push_fixed_items(&pcmch_defaults, |w, _| Self::write_cpp_pcmch_default(w));
+        w.push_i32(255);
+        w.push_str("");
+    }
+
+    fn read_cpp_sound(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<()> {
+        let _bgm_regist_name = rd.string()?;
+        let _bgm_volume = rd.i32()?;
+        let _bgm_delay_time = rd.i32()?;
+        let _bgm_loop_flag = rd.bool()?;
+        let _bgm_pause_flag = rd.bool()?;
+        let _koe_volume = rd.i32()?;
+        let _pcm_volume = rd.i32()?;
+        rd.fixed_items(|rd| Self::read_cpp_pcmch(rd))?;
+        let _se_volume = rd.i32()?;
+        let _mov_file_name = rd.string()?;
+        Ok(())
+    }
+
+    fn write_cpp_pcm_event(&self, w: &mut crate::original_save::OriginalStreamWriter, ev: &runtime::globals::PcmEventState) {
+        let ty = if ev.random { 2 } else if ev.looped { 1 } else if ev.active { 0 } else { -1 };
+        w.push_i32(ty);
+        if ty == 1 || ty == 2 {
+            w.push_i32(0);
+            w.push_i32(ev.volume_type);
+            w.push_i32(ev.chara_no);
+            w.push_bool(ev.bgm_fade_target_flag);
+            w.push_bool(ev.bgm_fade2_target_flag);
+            w.push_bool(ev.bgm_fade2_source_flag);
+            w.push_bool(ev.real_flag);
+            w.push_bool(ev.time_type);
+            w.push_extend_items(&ev.lines, |w, line| {
+                w.push_str(&line.file_name);
+                w.push_i32(line.min_time);
+                w.push_i32(line.max_time);
+                w.push_i32(line.probability);
+            });
+        }
+    }
+
+    fn read_cpp_pcm_event(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::PcmEventState> {
+        let ty = rd.i32()?;
+        let mut ev = runtime::globals::PcmEventState::default();
+        ev.active = ty >= 0;
+        ev.looped = ty == 1;
+        ev.random = ty == 2;
+        if ty == 1 || ty == 2 {
+            let _ = rd.i32()?;
+            ev.volume_type = rd.i32()?;
+            ev.chara_no = rd.i32()?;
+            ev.bgm_fade_target_flag = rd.bool()?;
+            ev.bgm_fade2_target_flag = rd.bool()?;
+            ev.bgm_fade2_source_flag = rd.bool()?;
+            ev.real_flag = rd.bool()?;
+            ev.time_type = rd.bool()?;
+            ev.lines = rd.extend_items(|rd| Ok(runtime::globals::PcmEventLine { file_name: rd.string()?, min_time: rd.i32()?, max_time: rd.i32()?, probability: rd.i32()? }))?;
+        }
+        Ok(ev)
+    }
+
+    fn write_cpp_editbox(&self, w: &mut crate::original_save::OriginalStreamWriter, e: &runtime::globals::EditBoxState) {
+        w.push_bool(e.created);
+        w.push_i32(e.rect_x);
+        w.push_i32(e.rect_y);
+        w.push_i32(e.rect_w);
+        w.push_i32(e.rect_h);
+        w.push_i32(e.moji_size);
+    }
+
+    fn read_cpp_editbox(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::EditBoxState> {
+        let mut e = runtime::globals::EditBoxState::default();
+        e.created = rd.bool()?;
+        e.rect_x = rd.i32()?;
+        e.rect_y = rd.i32()?;
+        e.rect_w = rd.i32()?;
+        e.rect_h = rd.i32()?;
+        e.moji_size = rd.i32()?;
+        e.text.clear();
+        Ok(e)
+    }
+
+    fn write_cpp_msg_back(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        let msgbk = self.ctx.globals.msgbk_forms.values().next().cloned().unwrap_or_default();
+        w.push_i32(msgbk.history_cnt as i32);
+        let count = msgbk.history_cnt.min(msgbk.history.len());
+        for entry in msgbk.history.iter().take(count) {
+            w.push_bool(entry.pct_flag);
+            w.push_str(&entry.msg_str);
+            w.push_str(&entry.original_name);
+            w.push_str(&entry.disp_name);
+            w.push_i32(entry.pct_pos_x);
+            w.push_i32(entry.pct_pos_y);
+            w.push_extend_i32_list(&entry.koe_no_list);
+            w.push_extend_i32_list(&entry.chr_no_list);
+            w.push_i32(Self::save_i32(entry.koe_play_no));
+            w.push_str(&entry.debug_msg);
+            w.push_i32(Self::save_i32(entry.scn_no));
+            w.push_i32(Self::save_i32(entry.line_no));
+            w.push_tid_zero();
+            w.push_bool(entry.save_id_check_flag);
+        }
+        w.push_i32(msgbk.history_start_pos as i32);
+        w.push_i32(msgbk.history_last_pos as i32);
+        w.push_i32(msgbk.history_insert_pos as i32);
+        w.push_i32(if msgbk.new_msg_flag { 1 } else { 0 });
+    }
+
+    fn read_cpp_msg_back(rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<runtime::globals::MsgBackState> {
+        let cnt = rd.i32()?.max(0) as usize;
+        let mut st = runtime::globals::MsgBackState::default();
+        st.history.clear();
+        for _ in 0..cnt {
+            let mut entry = runtime::globals::MsgBackEntry::default();
+            entry.pct_flag = rd.bool()?;
+            entry.msg_str = rd.string()?;
+            entry.original_name = rd.string()?;
+            entry.disp_name = rd.string()?;
+            entry.pct_pos_x = rd.i32()?;
+            entry.pct_pos_y = rd.i32()?;
+            entry.koe_no_list = rd.extend_i32_list()?;
+            entry.chr_no_list = rd.extend_i32_list()?;
+            entry.koe_play_no = rd.i32()? as i64;
+            entry.debug_msg = rd.string()?;
+            entry.scn_no = rd.i32()? as i64;
+            entry.line_no = rd.i32()? as i64;
+            rd.skip(14)?;
+            entry.save_id_check_flag = rd.bool()?;
+            st.history.push(entry);
+        }
+        st.history_cnt = cnt;
+        st.history_cnt_max = cnt.max(256);
+        st.history_start_pos = rd.i32()?.max(0) as usize;
+        st.history_last_pos = rd.i32()?.max(0) as usize;
+        st.history_insert_pos = rd.i32()?.max(0) as usize;
+        st.new_msg_flag = rd.i32()? != 0;
+        if st.history.len() < st.history_cnt_max { st.history.resize_with(st.history_cnt_max, runtime::globals::MsgBackEntry::default); }
+        Ok(st)
+    }
+
+
+    fn parse_cpp_tail_state(&mut self, rd: &mut crate::original_save::OriginalStreamReader<'_>, current_scene_name: &str) -> Result<Vec<CallFrame>> {
+        self.read_cpp_inc_prop_list(rd)?;
+        self.read_cpp_scene_prop_lists(rd, current_scene_name)?;
+
+        let counter_list = rd.fixed_items(|rd| Self::read_cpp_counter_param(rd))?;
+        if !counter_list.is_empty() {
+            self.ctx.globals.counter_lists.insert(crate::runtime::forms::codes::FORM_GLOBAL_COUNTER, counter_list);
+        }
+
+        let frame_action = Self::read_cpp_frame_action(rd)?;
+        self.ctx.globals.frame_actions.insert(self.ctx.ids.form_global_frame_action, frame_action);
+
+        let frame_action_ch = rd.fixed_items(|rd| Self::read_cpp_frame_action(rd))?;
+        if !frame_action_ch.is_empty() {
+            self.ctx.globals.frame_action_lists.insert(self.ctx.ids.form_global_frame_action_ch, frame_action_ch);
+        }
+
+        let g00buf_files = rd.fixed_items(|rd| rd.string())?;
+        self.ctx.globals.g00buf.clear();
+        self.ctx.globals.g00buf_names.clear();
+        self.ctx.globals.g00buf.resize(g00buf_files.len(), None);
+        self.ctx.globals.g00buf_names.resize(g00buf_files.len(), None);
+        for (idx, name) in g00buf_files.into_iter().enumerate() {
+            if !name.is_empty() {
+                self.ctx.globals.g00buf_names[idx] = Some(name.clone());
+                if let Ok(img_id) = self.ctx.images.load_g00(&name, 0) {
+                    self.ctx.globals.g00buf[idx] = Some(img_id);
+                }
+            }
+        }
+
+        let masks = rd.fixed_items(|rd| {
+            let x_event = Self::read_cpp_int_event_raw(rd)?;
+            let y_event = Self::read_cpp_int_event_raw(rd)?;
+            let name = rd.string()?;
+            Ok(runtime::globals::MaskState {
+                name: if name.is_empty() { None } else { Some(name) },
+                x_event,
+                y_event,
+                extra_int: std::collections::HashMap::new(),
+                script_events: std::collections::HashMap::new(),
+            })
+        })?;
+        if !masks.is_empty() {
+            self.ctx.globals.mask_lists.insert(self.ctx.ids.form_global_mask, runtime::globals::MaskListState { masks });
+        }
+
+        let mut st = runtime::globals::StageFormState::default();
+        let back = Self::read_cpp_stage(rd, 0)?;
+        let front = Self::read_cpp_stage(rd, 1)?;
+        st.initialized_from_gameexe = true;
+        st.group_lists.extend(back.group_lists);
+        st.object_lists.extend(back.object_lists);
+        st.mwnd_lists.extend(back.mwnd_lists);
+        st.world_lists.extend(back.world_lists);
+        st.effect_lists.extend(back.effect_lists);
+        st.quake_lists.extend(back.quake_lists);
+        st.group_lists.extend(front.group_lists);
+        st.object_lists.extend(front.object_lists);
+        st.mwnd_lists.extend(front.mwnd_lists);
+        st.world_lists.extend(front.world_lists);
+        st.effect_lists.extend(front.effect_lists);
+        st.quake_lists.extend(front.quake_lists);
+        self.ctx.globals.stage_forms.insert(self.ctx.ids.form_global_stage, st);
+
+        let screen = Self::read_cpp_screen(rd)?;
+        self.ctx.globals.screen_forms.insert(self.ctx.ids.form_global_screen, screen);
+
+        Self::read_cpp_sound(rd)?;
+
+        let pcm_events = rd.fixed_items(|rd| Self::read_cpp_pcm_event(rd))?;
+        if !pcm_events.is_empty() {
+            self.ctx.globals.pcm_event_lists.insert(self.ctx.ids.form_global_pcm_event, pcm_events);
+        }
+
+        let editboxes = rd.fixed_items(|rd| Self::read_cpp_editbox(rd))?;
+        if !editboxes.is_empty() {
+            self.ctx.globals.editbox_lists.insert(self.ctx.ids.form_global_editbox, runtime::globals::EditBoxListState { boxes: editboxes });
+        }
+
+        let call_cnt = rd.i32()?.max(0) as usize;
+        let mut call_stack = Vec::with_capacity(call_cnt.max(1));
+        for _ in 0..call_cnt {
+            call_stack.push(self.read_cpp_call_frame(rd)?);
+        }
+        if call_stack.is_empty() {
+            call_stack.push(self.scene_base_call());
+        }
+
+        let msg_back = Self::read_cpp_msg_back(rd)?;
+        self.ctx.globals.msgbk_forms.insert(self.ctx.ids.form_global_msgbk, msg_back);
+
+        self.ctx.globals.syscom.sel_save_stock_stream = rd.len_bytes()?;
+        let inner_cnt = rd.i32()?.max(0) as usize;
+        self.ctx.globals.syscom.inner_save_streams.clear();
+        for _ in 0..inner_cnt {
+            self.ctx.globals.syscom.inner_save_streams.push(rd.len_bytes()?);
+        }
+        self.ctx.globals.syscom.inner_save_exists = self.ctx.globals.syscom.inner_save_streams.iter().any(|s| !s.is_empty());
+        let sel_save_cnt = rd.i32()?.max(0) as usize;
+        self.ctx.globals.syscom.sel_save_ids.clear();
+        for _ in 0..sel_save_cnt {
+            self.ctx.globals.syscom.sel_save_ids.push(rd.tid()?);
+        }
+        Ok(call_stack)
+    }
+
+
+
+    fn write_cpp_proc_record(
+        w: &mut crate::original_save::OriginalStreamWriter,
+        proc_type: i32,
+        element: &[i32],
+        option: i32,
+    ) {
+        w.push_i32(proc_type);
+        w.push_element(element);
+        w.push_i32(0);
+        w.push_i32(0);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_bool(false);
+        w.push_i32(option);
+    }
+
+    fn write_cpp_runtime_proc_stack(&self, w: &mut crate::original_save::OriginalStreamWriter) {
+        // Do not fabricate C_tnm_proc states.  Until the real C++ proc element,
+        // arg_list, return_value_flag and option are mirrored from runtime state,
+        // only the script proc can be represented safely; other transient waits are
+        // saved as NONE rather than writing a guessed proc_type.
+        let proc_type = if matches!(self.ctx.last_proc_kind(), runtime::ProcKind::Script) { 1 } else { 0 };
+        Self::write_cpp_proc_record(w, proc_type, &[], 0);
+        w.push_i32(0);
+    }
+
+    fn read_cpp_proc_record(&self, rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<()> {
+        let _proc_type = rd.i32()?;
+        let _element = rd.element()?;
+        let _arg_list_id = rd.i32()?;
+        let _arg_list: Vec<()> = rd.extend_items(|rd| {
+            let _ = self.read_cpp_prop(rd)?;
+            Ok(())
+        })?;
+        let _key_skip_enable_flag = rd.bool()?;
+        let _skip_disable_flag = rd.bool()?;
+        let _return_value_flag = rd.bool()?;
+        let _option = rd.i32()?;
+        Ok(())
+    }
+
+    fn cpp_mwnd_element(stage_idx: i64, mwnd_no: Option<usize>) -> Vec<i32> {
+        let Some(no) = mwnd_no else {
+            return Vec::new();
+        };
+        let stage_head = match stage_idx {
+            0 => crate::runtime::forms::codes::ELM_GLOBAL_BACK,
+            2 => crate::runtime::forms::codes::ELM_GLOBAL_NEXT,
+            _ => crate::runtime::forms::codes::ELM_GLOBAL_FRONT,
+        };
+        vec![
+            stage_head,
+            crate::runtime::forms::codes::ELM_STAGE_MWND,
+            crate::runtime::forms::codes::ELM_ARRAY,
+            no as i32,
+        ]
+    }
+
+    fn decode_cpp_mwnd_element(elm: &[i32]) -> Option<(i64, usize)> {
+        if elm.len() < 4 {
+            return None;
+        }
+        let stage_idx = if elm[0] == crate::runtime::forms::codes::ELM_GLOBAL_BACK {
+            0
+        } else if elm[0] == crate::runtime::forms::codes::ELM_GLOBAL_FRONT {
+            1
+        } else if elm[0] == crate::runtime::forms::codes::ELM_GLOBAL_NEXT {
+            2
+        } else {
+            return None;
+        };
+        if elm[1] != crate::runtime::forms::codes::ELM_STAGE_MWND {
+            return None;
+        }
+        if elm[2] != crate::runtime::forms::codes::ELM_ARRAY {
+            return None;
+        }
+        if elm[3] < 0 {
+            return None;
+        }
+        Some((stage_idx, elm[3] as usize))
+    }
+
+    fn apply_saved_current_mwnd_elements(
+        &mut self,
+        cur_mwnd: &[i32],
+        cur_sel_mwnd: &[i32],
+        last_mwnd: &[i32],
+    ) {
+        self.ctx.globals.current_mwnd_no = None;
+        self.ctx.globals.current_sel_mwnd_no = None;
+        self.ctx.globals.last_mwnd_no = None;
+
+        if let Some((stage, no)) = Self::decode_cpp_mwnd_element(cur_mwnd) {
+            self.ctx.globals.current_mwnd_stage_idx = stage;
+            self.ctx.globals.current_mwnd_no = Some(no);
+        }
+        if let Some((stage, no)) = Self::decode_cpp_mwnd_element(cur_sel_mwnd) {
+            self.ctx.globals.current_sel_mwnd_stage_idx = stage;
+            self.ctx.globals.current_sel_mwnd_no = Some(no);
+        }
+        if let Some((stage, no)) = Self::decode_cpp_mwnd_element(last_mwnd) {
+            self.ctx.globals.last_mwnd_stage_idx = stage;
+            self.ctx.globals.last_mwnd_no = Some(no);
+        }
+    }
+
+    fn build_original_local_stream(&self) -> Vec<u8> {
+        let mut w = crate::original_save::OriginalStreamWriter::new();
+        let scene_name = self.current_scene_name.as_deref().unwrap_or("");
+        let flag_cnt = self.local_flag_count();
+        use crate::runtime::forms::codes;
+
+        w.push_str(scene_name);
+        w.push_i32(self.current_line_no);
+        w.push_i32(self.stream.get_prg_cntr() as i32);
+
+        self.write_cpp_runtime_proc_stack(&mut w);
+        let cur_mwnd = Self::cpp_mwnd_element(
+            self.ctx.globals.current_mwnd_stage_idx,
+            self.ctx.globals.current_mwnd_no,
+        );
+        let cur_sel_mwnd = Self::cpp_mwnd_element(
+            self.ctx.globals.current_sel_mwnd_stage_idx,
+            self.ctx.globals.current_sel_mwnd_no,
+        );
+        let last_mwnd = Self::cpp_mwnd_element(
+            self.ctx.globals.last_mwnd_stage_idx,
+            self.ctx.globals.last_mwnd_no,
+        );
+        w.push_element(&cur_mwnd);
+        w.push_element(&cur_sel_mwnd);
+        w.push_element(&last_mwnd);
+        w.push_str(&self.ctx.globals.syscom.current_save_scene_title);
+        let current_full_message = if self.ctx.globals.syscom.current_save_full_message.is_empty() {
+            self.ctx.globals.syscom.current_save_message.as_str()
+        } else {
+            self.ctx.globals.syscom.current_save_full_message.as_str()
+        };
+        w.push_str(current_full_message);
+
+        let btn_cnt = self.mwnd_waku_btn_count();
+        for idx in 0..btn_cnt {
+            w.push_bool(self.ctx.globals.syscom.mwnd_btn_disable.get(&(idx as i64)).copied().unwrap_or(false));
+        }
+        w.push_str(&self.ctx.globals.script.font_name);
+        w.push_raw(&self.build_cpp_local_data_pod());
+
+        w.push_i32(self.int_stack.len() as i32);
+        for v in &self.int_stack { w.push_i32(*v); }
+        w.push_i32(self.str_stack.len() as i32);
+        for s in &self.str_stack { w.push_str(s); }
+        w.push_i32(self.element_points.len() as i32);
+        for p in &self.element_points { w.push_i32(*p as i32); }
+
+        w.push_i32(self.ctx.globals.local_real_time.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        w.push_i32(self.ctx.globals.local_game_time.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        w.push_i32(self.ctx.globals.local_wipe_time.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
+        self.write_cpp_syscom_menu(&mut w);
+
+        let fog = &self.ctx.globals.fog_global;
+        w.push_str(&fog.name);
+        Self::write_cpp_int_event_raw(&mut w, &fog.x_event);
+        w.push_i32(fog.near as i32);
+        w.push_i32(fog.far as i32);
+
+        w.push_fixed_i32_list(self.int_list_by_element(codes::ELM_GLOBAL_A), flag_cnt);
+        w.push_fixed_i32_list(self.int_list_by_element(codes::ELM_GLOBAL_B), flag_cnt);
+        w.push_fixed_i32_list(self.int_list_by_element(codes::ELM_GLOBAL_C), flag_cnt);
+        w.push_fixed_i32_list(self.int_list_by_element(codes::ELM_GLOBAL_D), flag_cnt);
+        w.push_fixed_i32_list(self.int_list_by_element(codes::ELM_GLOBAL_E), flag_cnt);
+        w.push_fixed_i32_list(self.int_list_by_element(codes::ELM_GLOBAL_F), flag_cnt);
+        w.push_fixed_i32_list(self.int_list_by_element(codes::ELM_GLOBAL_X), flag_cnt);
+        w.push_fixed_str_list(self.str_list_by_element(codes::ELM_GLOBAL_S), flag_cnt);
+        w.push_extend_i32_list(&self.ctx.globals.local_flag_h);
+        w.push_extend_i32_list(&self.ctx.globals.local_flag_i);
+        w.push_extend_i32_list(&self.ctx.globals.local_flag_j);
+        w.push_fixed_str_list(self.str_list_by_element(codes::ELM_GLOBAL_NAMAE_LOCAL), 26 + 26 * 26);
+
+        self.write_cpp_inc_prop_list(&mut w);
+        self.write_cpp_current_scene_prop_lists(&mut w);
+
+        let counter_list = self.ctx.globals.counter_lists.values().next().cloned().unwrap_or_default();
+        w.push_fixed_items(&counter_list, |w, c| self.write_cpp_counter_param(w, c));
+
+        let frame_action = self.ctx.globals.frame_actions.values().next().cloned().unwrap_or_default();
+        self.write_cpp_frame_action(&mut w, &frame_action);
+
+        let frame_action_ch = self.ctx.globals.frame_action_lists.values().next().cloned().unwrap_or_default();
+        w.push_fixed_items(&frame_action_ch, |w, fa| self.write_cpp_frame_action(w, fa));
+
+        // Original C_elm_g00_buf::save writes the file name for each slot.
+        w.push_fixed_items(&self.ctx.globals.g00buf_names, |w, name| w.push_str(name.as_deref().unwrap_or("")));
+
+        let mask_list = self.ctx.globals.mask_lists.values().next().map(|m| m.masks.clone()).unwrap_or_default();
+        w.push_fixed_items(&mask_list, |w, m| {
+            Self::write_cpp_int_event_raw(w, &m.x_event);
+            Self::write_cpp_int_event_raw(w, &m.y_event);
+            w.push_str(m.name.as_deref().unwrap_or(""));
+        });
+
+        self.write_cpp_stage(&mut w, 0);
+        self.write_cpp_stage(&mut w, 1);
+        self.write_cpp_screen(&mut w);
+        self.write_cpp_sound(&mut w);
+
+        let pcm_events = self.ctx.globals.pcm_event_lists.values().next().cloned().unwrap_or_default();
+        w.push_fixed_items(&pcm_events, |w, ev| self.write_cpp_pcm_event(w, ev));
+
+        let editboxes = self.ctx.globals.editbox_lists.values().next().map(|e| e.boxes.clone()).unwrap_or_default();
+        w.push_fixed_items(&editboxes, |w, e| self.write_cpp_editbox(w, e));
+
+        w.push_i32(self.call_stack.len() as i32);
+        for frame in &self.call_stack {
+            self.write_cpp_call_frame(&mut w, frame);
+        }
+        self.write_cpp_msg_back(&mut w);
+
+        w.push_len_bytes(&self.ctx.globals.syscom.sel_save_stock_stream);
+        w.push_i32(self.ctx.globals.syscom.inner_save_streams.len() as i32);
+        for stream in &self.ctx.globals.syscom.inner_save_streams {
+            w.push_len_bytes(stream);
+        }
+        w.push_i32(self.ctx.globals.syscom.sel_save_ids.len() as i32);
+        for tid in &self.ctx.globals.syscom.sel_save_ids {
+            w.push_tid(tid);
+        }
+        w.into_inner()
+    }
+
+    fn build_original_local_ex_stream(&self) -> Vec<u8> {
+        let mut w = crate::original_save::OriginalStreamWriter::new();
+        let s = &self.ctx.globals.syscom;
+        for i in 0..4 {
+            let sw = s.local_extra_switches.get(i).copied().unwrap_or(if i == 0 { s.local_extra_switch } else { runtime::globals::ToggleFeatureState::default() });
+            w.push_bool(sw.exist);
+            w.push_bool(sw.enable);
+            w.push_bool(sw.onoff);
+        }
+        for i in 0..4 {
+            let mode = s.local_extra_modes.get(i).copied().unwrap_or(if i == 0 { s.local_extra_mode } else { runtime::globals::ValueFeatureState::default() });
+            w.push_bool(mode.exist);
+            w.push_bool(mode.enable);
+            w.push_padding(2);
+            w.push_i32(mode.value as i32);
+        }
+        let out = w.into_inner();
+        debug_assert_eq!(out.len(), 44);
+        out
+    }
+
+    fn parse_original_local_ex_stream(&mut self, local_ex_stream: &[u8]) -> Result<()> {
+        if local_ex_stream.len() < 44 { return Ok(()); }
+        let mut rd = crate::original_save::OriginalStreamReader::new(local_ex_stream);
+        for i in 0..4 {
+            self.ctx.globals.syscom.local_extra_switches[i].exist = rd.bool()?;
+            self.ctx.globals.syscom.local_extra_switches[i].enable = rd.bool()?;
+            self.ctx.globals.syscom.local_extra_switches[i].onoff = rd.bool()?;
+        }
+        for i in 0..4 {
+            self.ctx.globals.syscom.local_extra_modes[i].exist = rd.bool()?;
+            self.ctx.globals.syscom.local_extra_modes[i].enable = rd.bool()?;
+            rd.skip(2)?;
+            self.ctx.globals.syscom.local_extra_modes[i].value = rd.i32()? as i64;
+        }
+        self.ctx.globals.syscom.local_extra_switch = self.ctx.globals.syscom.local_extra_switches[0];
+        self.ctx.globals.syscom.local_extra_mode = self.ctx.globals.syscom.local_extra_modes[0];
+        Ok(())
+    }
+
+    fn parse_original_local_stream(&mut self, local_stream: &[u8]) -> Result<RuntimeDiskSnapshot> {
+        let mut rd = crate::original_save::OriginalStreamReader::new(local_stream);
+        let flag_cnt = self.local_flag_count();
+        use crate::runtime::forms::codes;
+
+        let scene_name = rd.string()?;
+        let line_no = rd.i32()?;
+        let pc = rd.i32()?;
+
+        self.read_cpp_proc_record(&mut rd)?;
+        let proc_stack_cnt = rd.i32()?.max(0) as usize;
+        for _ in 0..proc_stack_cnt { self.read_cpp_proc_record(&mut rd)?; }
+        let cur_mwnd = rd.element()?;
+        let cur_sel_mwnd = rd.element()?;
+        let last_mwnd = rd.element()?;
+        self.apply_saved_current_mwnd_elements(&cur_mwnd, &cur_sel_mwnd, &last_mwnd);
+        self.ctx.globals.syscom.current_save_scene_title = rd.string()?;
+        self.ctx.globals.syscom.current_save_full_message = rd.string()?;
+        self.ctx.globals.syscom.current_save_message.clear();
+
+        let btn_cnt = self.mwnd_waku_btn_count();
+        self.ctx.globals.syscom.mwnd_btn_disable.clear();
+        for idx in 0..btn_cnt {
+            if rd.bool()? {
+                self.ctx.globals.syscom.mwnd_btn_disable.insert(idx as i64, true);
+            }
+        }
+        self.ctx.globals.script.font_name = rd.string()?;
+        rd.skip(356)?;
+
+        let int_cnt = rd.i32()?.max(0) as usize;
+        let mut int_stack = Vec::with_capacity(int_cnt);
+        for _ in 0..int_cnt { int_stack.push(rd.i32()?); }
+        let str_cnt = rd.i32()?.max(0) as usize;
+        let mut str_stack = Vec::with_capacity(str_cnt);
+        for _ in 0..str_cnt { str_stack.push(rd.string()?); }
+        let ep_cnt = rd.i32()?.max(0) as usize;
+        let mut element_points = Vec::with_capacity(ep_cnt);
+        for _ in 0..ep_cnt { element_points.push(rd.i32()?.max(0) as usize); }
+
+        self.ctx.globals.local_real_time = rd.i32()? as i64;
+        self.ctx.globals.local_game_time = rd.i32()? as i64;
+        self.ctx.globals.local_wipe_time = rd.i32()? as i64;
+        rd.skip(76)?;
+
+        let fog_name = rd.string()?;
+        let fog_x = Self::read_cpp_int_event_raw(&mut rd)?;
+        let fog_near = rd.i32()?;
+        let fog_far = rd.i32()?;
+        self.ctx.globals.fog_global.name = fog_name;
+        self.ctx.globals.fog_global.enabled = !self.ctx.globals.fog_global.name.is_empty();
+        self.ctx.globals.fog_global.texture_image_id = None;
+        if self.ctx.globals.fog_global.enabled {
+            match self.ctx.images.load_g00(&self.ctx.globals.fog_global.name, 0) {
+                Ok(id) => self.ctx.globals.fog_global.texture_image_id = Some(id),
+                Err(e) => log::error!(
+                    "load_local fog texture '{}' failed: {e}",
+                    self.ctx.globals.fog_global.name
+                ),
+            }
+        }
+        self.ctx.globals.fog_global.x_event = fog_x;
+        self.ctx.globals.fog_global.scroll_x = self.ctx.globals.fog_global.x_event.get_total_value() as f32;
+        self.ctx.globals.fog_global.near = fog_near as f32;
+        self.ctx.globals.fog_global.far = fog_far as f32;
+
+        let a = rd.fixed_i32_list()?;
+        let b = rd.fixed_i32_list()?;
+        let c = rd.fixed_i32_list()?;
+        let d = rd.fixed_i32_list()?;
+        let e = rd.fixed_i32_list()?;
+        let f = rd.fixed_i32_list()?;
+        let x = rd.fixed_i32_list()?;
+        let s = rd.fixed_str_list()?;
+        let h = rd.extend_i32_list()?;
+        let i = rd.extend_i32_list()?;
+        let j = rd.extend_i32_list()?;
+        let namae_local = rd.fixed_str_list()?;
+        self.ctx.globals.int_lists.insert(codes::ELM_GLOBAL_A as u32, resize_i64_vec(a, flag_cnt));
+        self.ctx.globals.int_lists.insert(codes::ELM_GLOBAL_B as u32, resize_i64_vec(b, flag_cnt));
+        self.ctx.globals.int_lists.insert(codes::ELM_GLOBAL_C as u32, resize_i64_vec(c, flag_cnt));
+        self.ctx.globals.int_lists.insert(codes::ELM_GLOBAL_D as u32, resize_i64_vec(d, flag_cnt));
+        self.ctx.globals.int_lists.insert(codes::ELM_GLOBAL_E as u32, resize_i64_vec(e, flag_cnt));
+        self.ctx.globals.int_lists.insert(codes::ELM_GLOBAL_F as u32, resize_i64_vec(f, flag_cnt));
+        self.ctx.globals.int_lists.insert(codes::ELM_GLOBAL_X as u32, resize_i64_vec(x, flag_cnt));
+        self.ctx.globals.str_lists.insert(codes::ELM_GLOBAL_S as u32, resize_string_vec(s, flag_cnt));
+        self.ctx.globals.local_flag_h = h;
+        self.ctx.globals.local_flag_i = i;
+        self.ctx.globals.local_flag_j = j;
+        self.ctx.globals.str_lists.insert(codes::ELM_GLOBAL_NAMAE_LOCAL as u32, resize_string_vec(namae_local, 26 + 26 * 26));
+
+        let call_stack = self.parse_cpp_tail_state(&mut rd, &scene_name)?;
+
+        Ok(RuntimeDiskSnapshot {
+            scene_name,
+            scene_no: -1,
+            line_no,
+            pc,
+            int_stack,
+            str_stack,
+            element_points,
+            call_stack,
+        })
+    }
+
+    fn perform_runtime_save_request(&mut self, req: RuntimeSaveRequest) -> Result<()> {
+        let slot = self.ensure_runtime_slot_for_save(req);
+        if req.kind == RuntimeSaveKind::Inner {
+            let stream = self.build_original_local_stream();
+            if self.ctx.globals.syscom.inner_save_streams.len() <= req.index {
+                self.ctx.globals.syscom.inner_save_streams.resize_with(req.index + 1, Vec::new);
+            }
+            self.ctx.globals.syscom.inner_save_streams[req.index] = stream;
+            self.ctx.globals.syscom.inner_save_exists = true;
+            return Ok(());
+        }
+        let Some(path) = self.runtime_save_file_path(req.kind, req.index) else { return Ok(()); };
+        let env = crate::original_save::OriginalLocalSaveEnvelope::from_slot_with_streams(
+            &slot,
+            self.build_original_local_stream(),
+            self.build_original_local_ex_stream(),
+        );
+        crate::original_save::write_local_save_file(&path, &slot, &env)?;
+        if let Some(save_kind) = Self::save_kind_to_original(req.kind) {
+            let save_no = crate::original_save::original_save_no(
+                self.configured_runtime_save_count(false),
+                self.configured_runtime_save_count(true),
+                save_kind,
+                req.index,
+            );
+            crate::runtime::forms::syscom::write_runtime_slot_thumb(&mut self.ctx, save_no);
+        }
+        Ok(())
+    }
+
+    fn perform_runtime_load_request(&mut self, req: RuntimeLoadRequest) -> Result<()> {
+        let (local_stream, local_ex_stream, loaded_append) = if req.kind == RuntimeSaveKind::Inner {
+            let Some(stream) = self.ctx.globals.syscom.inner_save_streams.get(req.index).cloned() else { return Ok(()); };
+            (stream, Vec::new(), None)
+        } else {
+            let Some(path) = self.runtime_save_file_path(req.kind, req.index) else { return Ok(()); };
+            let (_header, env) = crate::original_save::read_local_save_file(&path)?;
+            let append = (env.append_dir.clone(), env.append_name.clone());
+            (env.local_stream, env.local_ex_stream, Some(append))
+        };
+        if let Some((append_dir, append_name)) = loaded_append {
+            self.ctx.globals.append_dir = append_dir.clone();
+            self.ctx.globals.append_name = append_name;
+            self.ctx.images.set_current_append_dir(append_dir.clone());
+            self.ctx.movie.set_current_append_dir(append_dir.clone());
+            self.ctx.bgm.set_current_append_dir(append_dir);
+        }
+        let snapshot = self.parse_original_local_stream(&local_stream)?;
+        self.parse_original_local_ex_stream(&local_ex_stream)?;
+        if snapshot.scene_name.is_empty() { return Ok(()); }
+        let (mut stream, scene_no) = self.load_scene_stream(&snapshot.scene_name, 0)?;
+        stream.set_prg_cntr(snapshot.pc.max(0) as usize)?;
+        self.stream = stream;
+        self.int_stack = snapshot.int_stack;
+        self.str_stack = snapshot.str_stack;
+        self.element_points = snapshot.element_points;
+        self.call_stack = snapshot.call_stack;
+        if self.call_stack.is_empty() {
+            self.call_stack.push(self.scene_base_call());
+        }
+        self.gosub_return_stack.clear();
+        self.current_scene_no = if snapshot.scene_no >= 0 { Some(snapshot.scene_no as usize) } else { Some(scene_no) };
+        self.current_scene_name = Some(snapshot.scene_name);
+        self.current_line_no = snapshot.line_no;
+        self.ctx.current_scene_no = self.current_scene_no.map(|v| v as i64);
+        self.ctx.current_scene_name = self.current_scene_name.clone();
+        self.ctx.current_line_no = self.current_line_no as i64;
+        self.ctx.wait = runtime::wait::VmWait::default();
+        self.halted = false;
+        self.delayed_ret_form = None;
+        Ok(())
+    }
+
+    fn drain_runtime_save_load_requests(&mut self) -> Result<()> {
+        if let Some(req) = self.ctx.take_runtime_save_request() {
+            self.perform_runtime_save_request(req)?;
+        }
+        if let Some(req) = self.ctx.take_runtime_load_request() {
+            self.perform_runtime_load_request(req)?;
+        }
         Ok(())
     }
 

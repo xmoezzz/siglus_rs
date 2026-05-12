@@ -41,6 +41,223 @@ impl BgmContainer {
     }
 }
 
+
+/// Encoded audio payload format used directly for BGM playback.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BgmPlaybackFormat {
+    Ogg,
+    Wav,
+}
+
+/// BGM payload prepared for playback without unnecessary quality-reducing conversion.
+#[derive(Debug, Clone)]
+pub struct BgmPlaybackData {
+    pub container: BgmContainer,
+    pub format: BgmPlaybackFormat,
+    pub bytes: Vec<u8>,
+    pub channels: u16,
+    pub sample_rate: u32,
+    pub total_samples: u64,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct BasicAudioInfo {
+    channels: u16,
+    sample_rate: u32,
+    total_samples: u64,
+}
+
+fn inspect_pcm_wav_bytes(wav: &[u8]) -> Result<BasicAudioInfo> {
+    if wav.len() < 44 || &wav[0..4] != b"RIFF" || &wav[8..12] != b"WAVE" {
+        bail!("not a RIFF/WAVE file");
+    }
+
+    let mut pos = 12usize;
+    let mut channels: Option<u16> = None;
+    let mut sample_rate: Option<u32> = None;
+    let mut block_align: Option<usize> = None;
+    let mut data_len: Option<usize> = None;
+
+    while pos + 8 <= wav.len() {
+        let id = &wav[pos..pos + 4];
+        let sz = u32::from_le_bytes([wav[pos + 4], wav[pos + 5], wav[pos + 6], wav[pos + 7]]) as usize;
+        pos += 8;
+        if pos + sz > wav.len() {
+            bail!("truncated WAV chunk");
+        }
+        if id == b"fmt " {
+            if sz < 16 {
+                bail!("truncated WAV fmt chunk");
+            }
+            channels = Some(u16::from_le_bytes([wav[pos + 2], wav[pos + 3]]).max(1));
+            sample_rate = Some(u32::from_le_bytes([
+                wav[pos + 4],
+                wav[pos + 5],
+                wav[pos + 6],
+                wav[pos + 7],
+            ]).max(1));
+            block_align = Some(u16::from_le_bytes([wav[pos + 12], wav[pos + 13]]) as usize);
+        } else if id == b"data" {
+            data_len = Some(sz);
+        }
+        pos += sz;
+        if (sz & 1) != 0 {
+            pos += 1;
+        }
+    }
+
+    let channels = channels.context("WAV fmt chunk missing channels")?;
+    let sample_rate = sample_rate.context("WAV fmt chunk missing sample rate")?;
+    let block_align = block_align.context("WAV fmt chunk missing block align")?.max(1);
+    let data_len = data_len.context("WAV data chunk missing")?;
+    Ok(BasicAudioInfo {
+        channels,
+        sample_rate,
+        total_samples: (data_len / block_align) as u64,
+    })
+}
+
+fn inspect_ogg_vorbis_bytes(ogg: &[u8]) -> Result<BasicAudioInfo> {
+    let mut pos = 0usize;
+    let mut channels: Option<u16> = None;
+    let mut sample_rate: Option<u32> = None;
+    let mut max_granule: i64 = -1;
+
+    while pos + 27 <= ogg.len() {
+        if &ogg[pos..pos + 4] != b"OggS" {
+            bail!("invalid Ogg capture pattern at byte {}", pos);
+        }
+        let granule = i64::from_le_bytes([
+            ogg[pos + 6],
+            ogg[pos + 7],
+            ogg[pos + 8],
+            ogg[pos + 9],
+            ogg[pos + 10],
+            ogg[pos + 11],
+            ogg[pos + 12],
+            ogg[pos + 13],
+        ]);
+        if granule >= 0 {
+            max_granule = max_granule.max(granule);
+        }
+        let seg_count = ogg[pos + 26] as usize;
+        let seg_table = pos + 27;
+        let data_start = seg_table + seg_count;
+        if data_start > ogg.len() {
+            bail!("truncated Ogg segment table");
+        }
+        let page_data_len = ogg[seg_table..data_start]
+            .iter()
+            .fold(0usize, |acc, b| acc.saturating_add(*b as usize));
+        let data_end = data_start.saturating_add(page_data_len);
+        if data_end > ogg.len() {
+            bail!("truncated Ogg page data");
+        }
+
+        let mut packet_off = data_start;
+        let mut packet_len = 0usize;
+        for lace in &ogg[seg_table..data_start] {
+            packet_len = packet_len.saturating_add(*lace as usize);
+            if *lace < 255 {
+                if packet_off + packet_len <= data_end {
+                    let packet = &ogg[packet_off..packet_off + packet_len];
+                    if packet.len() >= 16 && packet[0] == 1 && &packet[1..7] == b"vorbis" {
+                        channels = Some((packet[11] as u16).max(1));
+                        sample_rate = Some(u32::from_le_bytes([
+                            packet[12],
+                            packet[13],
+                            packet[14],
+                            packet[15],
+                        ]).max(1));
+                    }
+                }
+                packet_off = packet_off.saturating_add(packet_len);
+                packet_len = 0;
+            }
+        }
+
+        pos = data_end;
+    }
+
+    let channels = channels.context("Vorbis identification header missing")?;
+    let sample_rate = sample_rate.context("Vorbis identification sample rate missing")?;
+    if max_granule < 0 {
+        bail!("Ogg Vorbis final granule position missing");
+    }
+    Ok(BasicAudioInfo {
+        channels,
+        sample_rate,
+        total_samples: max_granule as u64,
+    })
+}
+
+/// Prepare BGM bytes for direct playback.
+///
+/// Vorbis-based containers are kept as encoded Ogg/Vorbis bytes so Kira/Symphonia
+/// decodes the original stream directly. Only NWA is converted to PCM WAV because
+/// it is a Siglus PCM compression format rather than a Vorbis stream.
+pub fn decode_bgm_to_playback_bytes(
+    input: impl AsRef<Path>,
+    entry_idx: Option<usize>,
+) -> Result<BgmPlaybackData> {
+    let input = input.as_ref();
+    let kind = BgmContainer::from_path(input);
+
+    match kind {
+        BgmContainer::Ovk | BgmContainer::Owp | BgmContainer::Ogg => {
+            let (ogg, description) = extract_ogg_bytes(input, entry_idx)?;
+            let info = inspect_ogg_vorbis_bytes(&ogg)
+                .with_context(|| format!("inspect Ogg/Vorbis BGM: {}", input.display()))?;
+            Ok(BgmPlaybackData {
+                container: kind,
+                format: BgmPlaybackFormat::Ogg,
+                bytes: ogg,
+                channels: info.channels,
+                sample_rate: info.sample_rate,
+                total_samples: info.total_samples,
+                description,
+            })
+        }
+        BgmContainer::Wav => {
+            let wav = fs::read(input).with_context(|| format!("read WAV: {}", input.display()))?;
+            let info = inspect_pcm_wav_bytes(&wav)
+                .with_context(|| format!("inspect WAV BGM: {}", input.display()))?;
+            Ok(BgmPlaybackData {
+                container: kind,
+                format: BgmPlaybackFormat::Wav,
+                bytes: wav,
+                channels: info.channels,
+                sample_rate: info.sample_rate,
+                total_samples: info.total_samples,
+                description: format!("WAV:{}", input.display()),
+            })
+        }
+        BgmContainer::Nwa => {
+            let mut reader = nwa::NwaReader::open(input)
+                .with_context(|| format!("open NWA: {}", input.display()))?;
+            let wav = reader.to_wav_bytes().context("decode NWA -> WAV")?;
+            let info = inspect_pcm_wav_bytes(&wav)
+                .with_context(|| format!("inspect NWA-decoded WAV: {}", input.display()))?;
+            Ok(BgmPlaybackData {
+                container: kind,
+                format: BgmPlaybackFormat::Wav,
+                bytes: wav,
+                channels: info.channels,
+                sample_rate: info.sample_rate,
+                total_samples: info.total_samples,
+                description: format!("NWA:{}", input.display()),
+            })
+        }
+        BgmContainer::Unknown => {
+            bail!(
+                "unsupported BGM container (by extension): {}",
+                input.display()
+            );
+        }
+    }
+}
+
 /// Decoded audio payload ready for export or playback.
 #[derive(Debug, Clone)]
 pub struct BgmDecoded {

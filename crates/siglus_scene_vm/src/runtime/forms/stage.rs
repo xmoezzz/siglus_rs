@@ -10477,6 +10477,8 @@ fn wait_after_mwnd_print_if_needed(ctx: &mut CommandContext, m: &mut MwndState) 
 
 pub fn cd_text_current_mwnd(ctx: &mut CommandContext, text: &str, _rf_flag_no: i64) -> bool {
     let (form_id, stage_idx, mwnd_idx) = current_mwnd_target(ctx);
+    ctx.globals.last_mwnd_stage_idx = stage_idx;
+    ctx.globals.last_mwnd_no = Some(mwnd_idx);
     with_stage_state(ctx, form_id, |ctx, st| {
         ensure_mwnd(ctx, st, stage_idx, mwnd_idx);
         let Some(list) = st.mwnd_lists.get_mut(&stage_idx) else {
@@ -10501,6 +10503,8 @@ pub fn cd_text_current_mwnd(ctx: &mut CommandContext, text: &str, _rf_flag_no: i
 
 pub fn cd_name_current_mwnd(ctx: &mut CommandContext, name: &str) -> bool {
     let (form_id, stage_idx, mwnd_idx) = current_mwnd_target(ctx);
+    ctx.globals.last_mwnd_stage_idx = stage_idx;
+    ctx.globals.last_mwnd_no = Some(mwnd_idx);
     with_stage_state(ctx, form_id, |ctx, st| {
         ensure_mwnd(ctx, st, stage_idx, mwnd_idx);
         let Some(list) = st.mwnd_lists.get_mut(&stage_idx) else {
@@ -10847,6 +10851,7 @@ fn dispatch_mwnd_item_op(
                 .or_else(|| script_args.iter().find_map(|v| v.as_str()))
                 .unwrap_or("");
             if !msg.is_empty() {
+                syscom::append_current_save_message(ctx, msg);
                 m.msg_text.push_str(msg);
                 start_mwnd_auto_message(ctx, m);
                 ctx.ui.append_message(msg);
@@ -10863,6 +10868,7 @@ fn dispatch_mwnd_item_op(
                 .or_else(|| script_args.iter().find_map(|v| v.as_str()))
                 .unwrap_or("");
             if !msg.is_empty() {
+                syscom::append_current_save_message(ctx, msg);
                 m.msg_text.push_str(msg);
                 start_mwnd_auto_message(ctx, m);
                 ctx.ui.append_message(msg);

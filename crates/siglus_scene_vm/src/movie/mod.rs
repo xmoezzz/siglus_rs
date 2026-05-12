@@ -19,12 +19,16 @@ use crate::audio::{AudioHub, TrackKind};
 const MPEG2_HEADER_PROBE_BYTES: usize = 256 * 1024;
 const MPEG2_STREAM_CHUNK_BYTES: usize = 256 * 1024;
 const MPEG2_STREAM_CHANNEL_CAPACITY: usize = 4;
+const MPEG2_AUDIO_STREAM_CHANNEL_CAPACITY: usize = 64;
 const MPEG2_STREAM_MAX_DRAIN_EVENTS: usize = 8;
 const MPEG2_STREAM_FRAME_KEEP: usize = 6;
 const MPEG2_STREAM_DECODE_LEAD_FRAMES: usize = 3;
-const MOVIE_AUDIO_SEGMENT_MS: u64 = 4000;
-const MOVIE_AUDIO_DECODE_LEAD_MS: usize = 8000;
-const MOVIE_AUDIO_MAX_DRAIN_EVENTS: usize = 4;
+const MOVIE_AUDIO_SEGMENT_MS: u64 = 2_000;
+const MOVIE_AUDIO_DECODE_LEAD_MS: usize = 45_000;
+const MOVIE_AUDIO_START_READY_MS: u64 = 30_000;
+const MOVIE_AUDIO_KEEP_BEHIND_MS: u64 = 8_000;
+const MOVIE_AUDIO_MAX_DRAIN_EVENTS: usize = 128;
+const MOVIE_AUDIO_MERGE_LOOKAHEAD_MS: u64 = 90_000;
 const OMV_STREAM_CHANNEL_CAPACITY: usize = 12;
 const OMV_STREAM_MAX_DRAIN_EVENTS: usize = 16;
 const OMV_STREAM_FRAME_KEEP: usize = 16;
@@ -519,7 +523,7 @@ impl MovieManager {
             (None, None) => None,
         };
 
-        let audio = select_audio_segment(&state.audio_segments, timer_ms);
+        let audio = select_audio_segment(&state.audio_segments, timer_ms, state.audio_done);
         let audio_ready = state.audio_done && audio.is_none();
         state.decoded_any_this_poll = false;
 
@@ -793,7 +797,7 @@ fn spawn_mpeg2_stream_state(path: PathBuf) -> Result<Mpeg2StreamState> {
         }
     });
 
-    let (audio_tx, audio_rx) = mpsc::sync_channel(MPEG2_STREAM_CHANNEL_CAPACITY);
+    let (audio_tx, audio_rx) = mpsc::sync_channel(MPEG2_AUDIO_STREAM_CHANNEL_CAPACITY);
     let request_audio_until_ms = Arc::new(AtomicUsize::new(MOVIE_AUDIO_DECODE_LEAD_MS));
     let audio_request = request_audio_until_ms.clone();
     let audio_path = path;
@@ -835,6 +839,23 @@ fn wait_for_audio_request(request_audio_until_ms: &Arc<AtomicUsize>, segment_sta
         let limit = request_audio_until_ms.load(Ordering::Acquire);
         if limit == usize::MAX || (segment_start_ms as usize) <= limit {
             return;
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn wait_for_audio_decode_window(
+    request_audio_until_ms: &Arc<AtomicUsize>,
+    decoded_until_ms: u64,
+) -> bool {
+    loop {
+        let limit = request_audio_until_ms.load(Ordering::Acquire);
+        if limit == usize::MAX {
+            return false;
+        }
+        let allowed_until = (limit as u64).saturating_add(MOVIE_AUDIO_SEGMENT_MS);
+        if decoded_until_ms <= allowed_until {
+            return true;
         }
         thread::sleep(Duration::from_millis(1));
     }
@@ -958,6 +979,14 @@ fn stream_mpeg2_audio_worker(
             / 1000) as usize
     }
 
+    fn pending_duration_ms(pending_samples: &[i16], channels: u16, sample_rate: u32) -> u64 {
+        if channels == 0 || sample_rate == 0 {
+            return 0;
+        }
+        let frames = (pending_samples.len() as u64) / (channels as u64);
+        ((frames as f64) * 1000.0 / sample_rate as f64).round() as u64
+    }
+
     fn emit_ready_segments(
         tx: &mpsc::SyncSender<Result<MovieAudioStreamEvent, String>>,
         request_audio_until_ms: &Arc<AtomicUsize>,
@@ -1035,6 +1064,13 @@ fn stream_mpeg2_audio_worker(
     let mut keep_running = true;
 
     while keep_running {
+        if let (Some(ch), Some(sr)) = (audio_channels, audio_sample_rate) {
+            let decoded_until_ms = segment_start_ms
+                .saturating_add(pending_duration_ms(&pending_samples, ch, sr));
+            if !wait_for_audio_decode_window(&request_audio_until_ms, decoded_until_ms) {
+                return Ok(());
+            }
+        }
         let n = file
             .read(&mut buf)
             .with_context(|| format!("read movie audio stream: {}", path.display()))?;
@@ -1066,6 +1102,9 @@ fn stream_mpeg2_audio_worker(
                 }
             })
             .context("mpeg2 audio decode")?;
+        if !keep_running || request_audio_until_ms.load(Ordering::Acquire) == usize::MAX {
+            return Ok(());
+        }
     }
 
     pipeline.flush_with(|ev| {
@@ -1197,7 +1236,7 @@ fn drain_mpeg2_stream_state(
     }
 
 
-    let keep_audio_from = target_timer_ms.saturating_sub(MOVIE_AUDIO_SEGMENT_MS.saturating_mul(2));
+    let keep_audio_from = target_timer_ms.saturating_sub(MOVIE_AUDIO_KEEP_BEHIND_MS);
     while state
         .audio_segments
         .front()
@@ -1210,12 +1249,64 @@ fn drain_mpeg2_stream_state(
     Ok(())
 }
 
-fn select_audio_segment(segments: &VecDeque<MovieAudio>, timer_ms: u64) -> Option<MovieAudio> {
-    segments
+fn select_audio_segment(
+    segments: &VecDeque<MovieAudio>,
+    timer_ms: u64,
+    audio_done: bool,
+) -> Option<MovieAudio> {
+    let start_idx = segments
         .iter()
-        .find(|a| timer_ms >= a.start_ms && timer_ms < a.end_ms().saturating_add(50))
-        .cloned()
-        .or_else(|| segments.front().filter(|a| timer_ms < a.end_ms()).cloned())
+        .position(|a| timer_ms >= a.start_ms && timer_ms < a.end_ms().saturating_add(50))
+        .or_else(|| segments.iter().position(|a| timer_ms < a.end_ms()))?;
+
+    let first = segments.get(start_idx)?.clone();
+    let first_end = first.end_ms();
+    let merge_until_ms = timer_ms.saturating_add(MOVIE_AUDIO_MERGE_LOOKAHEAD_MS);
+    let start_ready_until_ms = timer_ms.saturating_add(MOVIE_AUDIO_START_READY_MS);
+    let mut next_expected_ms = first_end;
+    let mut end_ms = first_end;
+    let mut merged_count = 1usize;
+
+    for next in segments.iter().skip(start_idx + 1) {
+        if next.channels != first.channels || next.sample_rate != first.sample_rate {
+            break;
+        }
+        if next.start_ms > next_expected_ms.saturating_add(2) {
+            break;
+        }
+        if next.start_ms >= merge_until_ms {
+            break;
+        }
+        next_expected_ms = next.end_ms();
+        end_ms = next_expected_ms;
+        merged_count = merged_count.saturating_add(1);
+    }
+
+    if !audio_done && end_ms < start_ready_until_ms {
+        return None;
+    }
+
+    if merged_count <= 1 {
+        return Some(first);
+    }
+
+    let total_samples = segments
+        .iter()
+        .skip(start_idx)
+        .take(merged_count)
+        .fold(0usize, |acc, a| acc.saturating_add(a.samples.len()));
+    let mut samples = Vec::with_capacity(total_samples);
+    for part in segments.iter().skip(start_idx).take(merged_count) {
+        samples.extend_from_slice(part.samples.as_slice());
+    }
+
+    Some(MovieAudio {
+        samples: Arc::new(samples),
+        channels: first.channels,
+        sample_rate: first.sample_rate,
+        start_ms: first.start_ms,
+        duration_ms: Some(end_ms.saturating_sub(first.start_ms)),
+    })
 }
 
 fn spawn_omv_stream_state(path: PathBuf) -> Result<OmvStreamState> {
