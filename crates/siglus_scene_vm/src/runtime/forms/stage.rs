@@ -3885,6 +3885,7 @@ fn duplicate_object_backend_for_copy(
         ObjectBackend::String {
             layer_id,
             sprite_id,
+            image_id,
             width,
             height,
         } => {
@@ -3893,6 +3894,7 @@ fn duplicate_object_backend_for_copy(
                 .map(|sid| ObjectBackend::String {
                     layer_id: dst_layer_id,
                     sprite_id: sid,
+                    image_id: *image_id,
                     width: *width,
                     height: *height,
                 })
@@ -4340,8 +4342,13 @@ fn update_string_backend(
     }
     let text_style = object_string_text_style(ctx, obj);
     let text_space = Some((obj.string_param.moji_space_x, obj.string_param.moji_space_y));
-    let img_id = ctx.font_cache.render_mwnd_text_styled(
+    let old_image_id = match obj.backend {
+        ObjectBackend::String { image_id, .. } => image_id,
+        _ => None,
+    };
+    let img_id = ctx.font_cache.render_mwnd_text_styled_into(
         &mut ctx.images,
+        old_image_id,
         &text,
         font_px as f32,
         max_w,
@@ -4371,6 +4378,7 @@ fn update_string_backend(
     obj.backend = ObjectBackend::String {
         layer_id,
         sprite_id,
+        image_id: img_id,
         width: max_w,
         height: max_h,
     };

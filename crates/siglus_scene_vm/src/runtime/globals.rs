@@ -1804,6 +1804,7 @@ pub enum ObjectBackend {
     String {
         layer_id: LayerId,
         sprite_id: SpriteId,
+        image_id: Option<ImageId>,
         width: u32,
         height: u32,
     },

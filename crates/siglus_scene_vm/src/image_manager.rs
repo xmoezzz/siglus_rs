@@ -41,6 +41,7 @@ pub struct ImageManager {
     project_dir: PathBuf,
     current_append_dir: String,
     key_to_id: HashMap<ImageKey, ImageId>,
+    solid_to_id: HashMap<(u8, u8, u8, u8), ImageId>,
     images: Vec<ImageEntry>,
 }
 
@@ -66,6 +67,7 @@ impl ImageManager {
             project_dir,
             current_append_dir: String::new(),
             key_to_id: HashMap::new(),
+            solid_to_id: HashMap::new(),
             images: Vec::new(),
         }
     }
@@ -95,7 +97,9 @@ impl ImageManager {
     /// This is used for UI placeholders (e.g. message window background) until
     /// full UI skinning is implemented.
     pub fn solid_rgba(&mut self, rgba: (u8, u8, u8, u8)) -> ImageId {
-        // We keep it simple: do not cache by color for now.
+        if let Some(id) = self.solid_to_id.get(&rgba) {
+            return *id;
+        }
         let img = RgbaImage {
             width: 1,
             height: 1,
@@ -108,6 +112,7 @@ impl ImageManager {
             img: Arc::new(img),
             version: 0,
         });
+        self.solid_to_id.insert(rgba, id);
         id
     }
 

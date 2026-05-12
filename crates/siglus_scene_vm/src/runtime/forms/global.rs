@@ -151,6 +151,7 @@ fn mwnd_no_from_value(v: &Value) -> Option<usize> {
 const TNM_STAGE_FRONT_SELBTN: i64 = 1;
 const TNM_SEL_ITEM_TYPE_OFF: i64 = 0;
 const TNM_SEL_ITEM_TYPE_ON: i64 = 1;
+const TNM_SEL_ITEM_TYPE_READ: i64 = 2;
 
 fn parse_selbtn_choices(
     args: &[Value],
@@ -192,27 +193,62 @@ fn parse_selbtn_choices(
 
 fn selbtn_text_extent(text: &str, tmpl: &crate::runtime::tables::SelBtnTemplate) -> (i64, i64) {
     let font_px = tmpl.moji_size.max(1);
-    let units: i64 = text
-        .chars()
-        .map(|ch| if ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F) { 1 } else { 2 })
-        .sum();
-    let cells = if tmpl.moji_cnt > 0 { tmpl.moji_cnt } else { ((units + 1) / 2).max(1) };
-    let width = (font_px * cells + tmpl.moji_space.0 * (cells - 1)).max(font_px);
-    let height = font_px.max(1);
-    (width, height)
+    let mut width = 0i64;
+    for ch in text.chars() {
+        let advance = if ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F) {
+            (font_px + tmpl.moji_space.0) / 2
+        } else {
+            font_px + tmpl.moji_space.0
+        };
+        width = width.saturating_add(advance.max(1));
+    }
+    if !text.is_empty() {
+        width = width.saturating_sub(tmpl.moji_space.0);
+    }
+    (width.max(font_px), font_px)
+}
+
+fn load_selbtn_image_id(
+    ctx: &mut CommandContext,
+    file_name: &str,
+    patno: u32,
+) -> Option<crate::image_manager::ImageId> {
+    if file_name.is_empty() {
+        return None;
+    }
+    match ctx.images.load_g00(file_name, patno) {
+        Ok(id) => Some(id),
+        Err(_) => ctx.images.load_bg_frame(file_name, patno as usize).ok(),
+    }
+}
+
+fn selbtn_template_item_size(
+    ctx: &mut CommandContext,
+    choices: &[crate::runtime::globals::BtnSelectChoiceState],
+    tmpl: &crate::runtime::tables::SelBtnTemplate,
+) -> (i64, i64) {
+    if let Some(img_id) = load_selbtn_image_id(ctx, &tmpl.base_file, 0) {
+        if let Some(img) = ctx.images.get(img_id) {
+            return (img.width as i64, img.height as i64);
+        }
+    }
+    choices
+        .first()
+        .map(|choice| {
+            let (tw, th) = selbtn_text_extent(&choice.text, tmpl);
+            (
+                tw.saturating_add(tmpl.moji_pos.0.max(0)).max(1),
+                th.saturating_add(tmpl.moji_pos.1.max(0)).max(1),
+            )
+        })
+        .unwrap_or((tmpl.moji_size.max(1), tmpl.moji_size.max(1)))
 }
 
 fn layout_selbtn_choices(
     choices: &mut [crate::runtime::globals::BtnSelectChoiceState],
     tmpl: &crate::runtime::tables::SelBtnTemplate,
+    item_size: (i64, i64),
 ) {
-    let item_size = choices
-        .first()
-        .map(|choice| {
-            let (tw, th) = selbtn_text_extent(&choice.text, tmpl);
-            (tw + tmpl.moji_pos.0.max(0), th + tmpl.moji_pos.1.max(0))
-        })
-        .unwrap_or((0, 0));
     let rep_pos = if tmpl.rep_pos == (0, 0) {
         (0, item_size.1.max(tmpl.moji_size.max(1)).max(1))
     } else {
@@ -226,8 +262,7 @@ fn layout_selbtn_choices(
     for choice in choices.iter_mut() {
         if choice.item_type != TNM_SEL_ITEM_TYPE_OFF {
             choice.pos = offset;
-            let (tw, th) = selbtn_text_extent(&choice.text, tmpl);
-            choice.size = (item_size.0.max(tw + tmpl.moji_pos.0.max(0)), item_size.1.max(th + tmpl.moji_pos.1.max(0)));
+            choice.size = item_size;
             offset.0 = offset.0.saturating_add(rep_pos.0);
             offset.1 = offset.1.saturating_add(rep_pos.1);
             max_offset.0 = max_offset.0.max(offset.0);
@@ -277,13 +312,143 @@ fn selbtn_table_color(
         .unwrap_or(fallback)
 }
 
+fn hide_selbtn_object_backing(ctx: &mut CommandContext, obj: &crate::runtime::globals::ObjectState) {
+    match obj.backend {
+        crate::runtime::globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
+        | crate::runtime::globals::ObjectBackend::String { layer_id, sprite_id, .. }
+        | crate::runtime::globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+            if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                    sprite.visible = false;
+                    sprite.image_id = None;
+                }
+            }
+        }
+        crate::runtime::globals::ObjectBackend::Number { layer_id, ref sprite_ids }
+        | crate::runtime::globals::ObjectBackend::Weather { layer_id, ref sprite_ids } => {
+            if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+                for &sprite_id in sprite_ids {
+                    if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                        sprite.visible = false;
+                        sprite.image_id = None;
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+    for child in &obj.runtime.child_objects {
+        hide_selbtn_object_backing(ctx, child);
+    }
+}
+
+fn clear_existing_stage_btnselitems(ctx: &mut CommandContext) {
+    let old_items = {
+        let Some(st) = ctx.globals.stage_forms.get(&ctx.ids.form_global_stage) else {
+            return;
+        };
+        st.btnselitem_lists
+            .get(&TNM_STAGE_FRONT_SELBTN)
+            .cloned()
+            .unwrap_or_default()
+    };
+    for item in &old_items {
+        for obj in item.generated_objects.iter().chain(item.object_list.iter()) {
+            hide_selbtn_object_backing(ctx, obj);
+        }
+    }
+}
+
+fn make_selbtn_image_object(
+    ctx: &mut CommandContext,
+    file_name: &str,
+    patno: u32,
+    width: i64,
+    height: i64,
+    layer_rep: i64,
+    button_action_no: Option<i64>,
+    item_type: i64,
+    selected: bool,
+) -> Option<crate::runtime::globals::ObjectState> {
+    let img_id = load_selbtn_image_id(ctx, file_name, patno)?;
+    let (img_w, img_h) = ctx
+        .images
+        .get(img_id)
+        .map(|img| (img.width.max(1), img.height.max(1)))
+        .unwrap_or((width.max(1) as u32, height.max(1) as u32));
+    let layer_id = ctx.layers.create_layer();
+    let sprite_id = ctx.layers.layer_mut(layer_id).map(|layer| layer.create_sprite())?;
+    if let Some(layer) = ctx.layers.layer_mut(layer_id) {
+        if let Some(sprite) = layer.sprite_mut(sprite_id) {
+            sprite.fit = crate::layer::SpriteFit::PixelRect;
+            sprite.size_mode = crate::layer::SpriteSizeMode::Intrinsic;
+            sprite.visible = item_type == TNM_SEL_ITEM_TYPE_ON || item_type == TNM_SEL_ITEM_TYPE_READ;
+            sprite.x = 0;
+            sprite.y = 0;
+            sprite.image_id = Some(img_id);
+            sprite.tr = 255;
+        }
+    }
+
+    let mut obj = crate::runtime::globals::ObjectState::default();
+    obj.used = true;
+    obj.backend = crate::runtime::globals::ObjectBackend::Rect {
+        layer_id,
+        sprite_id,
+        width: img_w,
+        height: img_h,
+    };
+    obj.object_type = 2;
+    obj.file_name = Some(file_name.to_string());
+    obj.base.disp = if item_type == TNM_SEL_ITEM_TYPE_ON || item_type == TNM_SEL_ITEM_TYPE_READ { 1 } else { 0 };
+    obj.base.x = 0;
+    obj.base.y = 0;
+    obj.base.patno = patno as i64;
+    obj.base.layer = layer_rep;
+    if ctx.ids.obj_disp != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, obj.base.disp);
+    }
+    if ctx.ids.obj_x != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, 0);
+    }
+    if ctx.ids.obj_y != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, 0);
+    }
+    if ctx.ids.obj_patno != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_patno, patno as i64);
+    }
+    if ctx.ids.obj_layer != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_layer, layer_rep);
+    }
+
+    if let Some(action_no) = button_action_no {
+        obj.button.enabled = item_type == TNM_SEL_ITEM_TYPE_ON;
+        obj.button.action_no = action_no;
+        obj.button.cut_no = 0;
+        obj.button.button_no = -1;
+        obj.button.group_no = -1;
+        obj.button.state = if item_type == TNM_SEL_ITEM_TYPE_READ {
+            4
+        } else if selected {
+            1
+        } else {
+            0
+        };
+        obj.button.hit = selected && item_type == TNM_SEL_ITEM_TYPE_ON;
+        obj.button.pushed = false;
+    }
+
+    Some(obj)
+}
+
 fn make_selbtn_text_object(
     ctx: &mut CommandContext,
     choice: &crate::runtime::globals::BtnSelectChoiceState,
     tmpl: &crate::runtime::tables::SelBtnTemplate,
     color_no: i64,
+    selected: bool,
 ) -> Option<crate::runtime::globals::ObjectState> {
-    if choice.item_type == TNM_SEL_ITEM_TYPE_OFF || choice.text.is_empty() {
+    if !(choice.item_type == TNM_SEL_ITEM_TYPE_ON || choice.item_type == TNM_SEL_ITEM_TYPE_READ) || choice.text.is_empty() {
         return None;
     }
     if !ctx.font_cache.is_loaded() {
@@ -292,14 +457,21 @@ fn make_selbtn_text_object(
     let (tw, th) = selbtn_text_extent(&choice.text, tmpl);
     let width = tw.max(1) as u32;
     let height = th.max(tmpl.moji_size.max(1)) as u32;
-    let color = selbtn_table_color(&ctx.tables, color_no, (255, 255, 255));
+    let effective_color_no = if selected && choice.item_type == TNM_SEL_ITEM_TYPE_ON && tmpl.moji_hit_color >= 0 {
+        tmpl.moji_hit_color
+    } else {
+        color_no
+    };
+    let color = selbtn_table_color(&ctx.tables, effective_color_no, (255, 255, 255));
+    let shadow_color = selbtn_table_color(&ctx.tables, ctx.tables.mwnd_render.shadow_color, (0, 0, 0));
+    let fuchi_color = selbtn_table_color(&ctx.tables, ctx.tables.mwnd_render.fuchi_color, (0, 0, 0));
     let style = crate::text_render::TextStyle {
         color,
-        shadow_color: (0, 0, 0),
-        fuchi_color: (0, 0, 0),
-        shadow: false,
-        fuchi: false,
-        bold: false,
+        shadow_color,
+        fuchi_color,
+        shadow: ctx.tables.font_defaults.shadow == 1 || ctx.tables.font_defaults.shadow == 3,
+        fuchi: ctx.tables.font_defaults.shadow == 2 || ctx.tables.font_defaults.shadow == 3,
+        bold: ctx.tables.font_defaults.futoku != 0,
     };
     let img_id = ctx.font_cache.render_mwnd_text_styled(
         &mut ctx.images,
@@ -332,6 +504,7 @@ fn make_selbtn_text_object(
     obj.backend = crate::runtime::globals::ObjectBackend::String {
         layer_id,
         sprite_id,
+        image_id: img_id,
         width,
         height,
     };
@@ -341,17 +514,30 @@ fn make_selbtn_text_object(
     obj.string_param.moji_space_x = tmpl.moji_space.0;
     obj.string_param.moji_space_y = tmpl.moji_space.1;
     obj.string_param.moji_cnt = tmpl.moji_cnt;
-    obj.string_param.moji_color = color_no;
+    obj.string_param.moji_color = effective_color_no;
+    obj.string_param.shadow_color = ctx.tables.mwnd_render.shadow_color;
+    obj.string_param.fuchi_color = ctx.tables.mwnd_render.fuchi_color;
     obj.base.disp = 1;
     obj.base.x = tmpl.moji_pos.0;
     obj.base.y = tmpl.moji_pos.1;
-    obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
-    obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, tmpl.moji_pos.0);
-    obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, tmpl.moji_pos.1);
+    obj.base.layer = ctx.tables.mwnd_render.moji_layer_rep;
+    if ctx.ids.obj_disp != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
+    }
+    if ctx.ids.obj_x != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, tmpl.moji_pos.0);
+    }
+    if ctx.ids.obj_y != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, tmpl.moji_pos.1);
+    }
+    if ctx.ids.obj_layer != 0 {
+        obj.set_int_prop(&ctx.ids, ctx.ids.obj_layer, ctx.tables.mwnd_render.moji_layer_rep);
+    }
     Some(obj)
 }
 
 fn prepare_stage_btnselitems(ctx: &mut CommandContext) {
+    clear_existing_stage_btnselitems(ctx);
     let template_no = ctx.globals.selbtn.template_no.max(0) as usize;
     let tmpl = ctx
         .tables
@@ -359,9 +545,13 @@ fn prepare_stage_btnselitems(ctx: &mut CommandContext) {
         .get(template_no)
         .cloned()
         .unwrap_or_default();
-    layout_selbtn_choices(&mut ctx.globals.selbtn.choices, &tmpl);
+    let choices_for_size = ctx.globals.selbtn.choices.clone();
+    let item_size = selbtn_template_item_size(ctx, &choices_for_size, &tmpl);
+    layout_selbtn_choices(&mut ctx.globals.selbtn.choices, &tmpl, item_size);
     let choices_snapshot = ctx.globals.selbtn.choices.clone();
     let cursor = ctx.globals.selbtn.cursor;
+    let waku_layer_rep = ctx.tables.mwnd_render.waku_layer_rep;
+    let filter_layer_rep = ctx.tables.mwnd_render.filter_layer_rep;
     let mut prepared = Vec::with_capacity(choices_snapshot.len());
     for (idx, choice) in choices_snapshot.iter().enumerate() {
         let mut item = crate::runtime::globals::BtnSelItemState::default();
@@ -370,9 +560,36 @@ fn prepare_stage_btnselitems(ctx: &mut CommandContext) {
         item.color = if choice.color >= 0 { choice.color } else { tmpl.moji_color };
         item.pos = choice.pos;
         item.size = choice.size;
-        item.visible = choice.item_type != TNM_SEL_ITEM_TYPE_OFF;
+        item.visible = choice.item_type == TNM_SEL_ITEM_TYPE_ON || choice.item_type == TNM_SEL_ITEM_TYPE_READ;
         item.selected = idx == cursor;
-        if let Some(obj) = make_selbtn_text_object(ctx, choice, &tmpl, item.color) {
+
+        if let Some(obj) = make_selbtn_image_object(
+            ctx,
+            &tmpl.base_file,
+            0,
+            item.size.0,
+            item.size.1,
+            waku_layer_rep,
+            Some(tmpl.btn_action_no),
+            choice.item_type,
+            item.selected,
+        ) {
+            item.generated_objects.push(obj);
+        }
+        if let Some(obj) = make_selbtn_image_object(
+            ctx,
+            &tmpl.filter_file,
+            0,
+            item.size.0,
+            item.size.1,
+            filter_layer_rep,
+            None,
+            choice.item_type,
+            item.selected,
+        ) {
+            item.generated_objects.push(obj);
+        }
+        if let Some(obj) = make_selbtn_text_object(ctx, choice, &tmpl, item.color, item.selected) {
             item.generated_objects.push(obj);
         }
         prepared.push(item);

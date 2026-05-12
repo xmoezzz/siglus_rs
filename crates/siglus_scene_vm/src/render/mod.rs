@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use wgpu::util::DeviceExt;
 use winit::window::Window;
@@ -2749,23 +2749,30 @@ impl Renderer {
             .write_buffer(&self.vertex_buf, 0, bytemuck::cast_slice(&self.verts));
 
         let draws_snapshot = self.draws.clone();
+        let mut live_image_ids = HashSet::new();
         for cmd in &draws_snapshot {
             if let Some(id) = cmd.image_id {
+                live_image_ids.insert(id);
                 self.ensure_texture_uploaded(images, id)?;
             }
             if let Some(id) = cmd.mask_image_id {
+                live_image_ids.insert(id);
                 self.ensure_texture_uploaded(images, id)?;
             }
             if let Some(id) = cmd.tonecurve_image_id {
+                live_image_ids.insert(id);
                 self.ensure_texture_uploaded(images, id)?;
             }
             if let Some(id) = cmd.fog_image_id {
+                live_image_ids.insert(id);
                 self.ensure_texture_uploaded(images, id)?;
             }
             if let Some(id) = cmd.wipe_src_image_id {
+                live_image_ids.insert(id);
                 self.ensure_texture_uploaded(images, id)?;
             }
         }
+        self.textures.retain(|id, _| live_image_ids.contains(id));
 
         let has_overlay = draws_snapshot.iter().any(|cmd| {
             matches!(

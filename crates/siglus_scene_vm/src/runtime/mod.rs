@@ -2339,7 +2339,10 @@ impl CommandContext {
     pub fn on_mouse_move(&mut self, x: i32, y: i32) {
         self.input.on_mouse_move(x, y);
         if let Some(idx) = self.selbtn_hit_index(x, y) {
-            self.globals.selbtn.cursor = idx;
+            if self.globals.selbtn.cursor != idx {
+                self.globals.selbtn.cursor = idx;
+                self.sync_selbtn_item_selection();
+            }
             return;
         }
         if self.handle_msg_back_mouse_move() {
@@ -4319,7 +4322,7 @@ impl CommandContext {
     }
 
     fn selbtn_choice_selectable(choice: &globals::BtnSelectChoiceState) -> bool {
-        choice.item_type == 1
+        choice.item_type == TNM_SEL_ITEM_TYPE_ON_I64
     }
 
     fn next_selbtn_cursor(&self, dir: i32) -> usize {
@@ -4343,8 +4346,80 @@ impl CommandContext {
             if let Some(items) = st.btnselitem_lists.get_mut(&TNM_STAGE_FRONT_I64) {
                 for (idx, item) in items.iter_mut().enumerate() {
                     item.selected = idx == self.globals.selbtn.cursor;
+                    let selectable = item.item_type == TNM_SEL_ITEM_TYPE_ON_I64;
+                    for obj in &mut item.generated_objects {
+                        if obj.button.enabled || obj.button.state == TNM_BTN_STATE_DISABLE {
+                            obj.button.hit = item.selected && selectable;
+                            obj.button.pushed = false;
+                            obj.button.state = if item.item_type == TNM_SEL_ITEM_TYPE_READ_I64 {
+                                TNM_BTN_STATE_DISABLE
+                            } else if item.selected && selectable {
+                                TNM_BTN_STATE_HIT
+                            } else {
+                                TNM_BTN_STATE_NORMAL
+                            };
+                        }
+                    }
                 }
             }
+        }
+    }
+
+    fn hide_selbtn_object_backing(&mut self, obj: &globals::ObjectState) {
+        match obj.backend {
+            globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
+            | globals::ObjectBackend::String { layer_id, sprite_id, .. }
+            | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+                if let Some(layer) = self.layers.layer_mut(layer_id) {
+                    if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                        sprite.visible = false;
+                        sprite.image_id = None;
+                    }
+                }
+            }
+            globals::ObjectBackend::Number { layer_id, ref sprite_ids }
+            | globals::ObjectBackend::Weather { layer_id, ref sprite_ids } => {
+                if let Some(layer) = self.layers.layer_mut(layer_id) {
+                    for &sprite_id in sprite_ids {
+                        if let Some(sprite) = layer.sprite_mut(sprite_id) {
+                            sprite.visible = false;
+                            sprite.image_id = None;
+                        }
+                    }
+                }
+            }
+            globals::ObjectBackend::Gfx => {
+                if let Some(slot) = obj.nested_runtime_slot {
+                    let _ = self.gfx.object_clear(
+                        &mut self.images,
+                        &mut self.layers,
+                        TNM_STAGE_FRONT_I64,
+                        slot as i64,
+                    );
+                }
+            }
+            globals::ObjectBackend::None => {}
+        }
+        for child in &obj.runtime.child_objects {
+            self.hide_selbtn_object_backing(child);
+        }
+    }
+
+    fn clear_selbtn_items_from_front_stage(&mut self) {
+        let old_items = self
+            .globals
+            .stage_forms
+            .get(&self.ids.form_global_stage)
+            .and_then(|st| st.btnselitem_lists.get(&TNM_STAGE_FRONT_I64))
+            .cloned()
+            .unwrap_or_default();
+        for item in &old_items {
+            for obj in item.generated_objects.iter().chain(item.object_list.iter()) {
+                self.hide_selbtn_object_backing(obj);
+            }
+        }
+        if let Some(st) = self.globals.stage_forms.get_mut(&self.ids.form_global_stage) {
+            st.btnselitem_lists.remove(&TNM_STAGE_FRONT_I64);
         }
     }
 
@@ -4415,9 +4490,7 @@ impl CommandContext {
         } else {
             self.globals.syscom.system_extra_str_value = "（キャンセル）".to_string();
         }
-        if let Some(st) = self.globals.stage_forms.get_mut(&self.ids.form_global_stage) {
-            st.btnselitem_lists.remove(&TNM_STAGE_FRONT_I64);
-        }
+        self.clear_selbtn_items_from_front_stage();
         self.stack.push(Value::Int(result));
         self.notify_wait_key();
     }
@@ -5641,6 +5714,7 @@ fn render_sprite_source_name(ctx: &CommandContext, rs: &RenderSprite) -> String 
             .object_lists
             .keys()
             .chain(st.mwnd_lists.keys())
+            .chain(st.btnselitem_lists.keys())
             .copied()
             .collect();
         stage_ids.sort_unstable();
@@ -8771,7 +8845,13 @@ fn apply_object_masks_recursive(
                         }
                     }
                     let masked = apply_mask_image(base_img, mask_img, *mask_x, *mask_y);
-                    let masked_id = images.insert_image(masked);
+                    let masked_id = if let Some(cache) = obj.mask_cache.get(&key) {
+                        let id = cache.masked_image_id;
+                        let _ = images.replace_image(id, masked);
+                        id
+                    } else {
+                        images.insert_image(masked)
+                    };
                     obj.mask_cache.insert(
                         key,
                         globals::MaskedSpriteCache {
@@ -10653,6 +10733,7 @@ fn append_btnselitem_sprites(
             continue;
         }
         let parent = btnselitem_parent_render_state(item);
+        let parent_order = ctx.tables.mwnd_render.order;
         for (obj_idx, obj) in item.generated_objects.iter().enumerate() {
             append_object_tree_sprites(
                 ctx,
@@ -10661,7 +10742,7 @@ fn append_btnselitem_sprites(
                 obj_idx,
                 obj,
                 true,
-                0,
+                parent_order,
                 0,
                 Some(parent),
                 out,
@@ -10677,7 +10758,7 @@ fn append_btnselitem_sprites(
                 obj_idx,
                 obj,
                 true,
-                0,
+                parent_order,
                 0,
                 Some(parent),
                 out,
@@ -10945,6 +11026,8 @@ fn normalize_mwnd_ui_sprite_sorter(ctx: &CommandContext, order: i32) -> (i32, i3
 }
 
 const TNM_STAGE_FRONT_I64: i64 = 1;
+const TNM_SEL_ITEM_TYPE_ON_I64: i64 = 1;
+const TNM_SEL_ITEM_TYPE_READ_I64: i64 = 2;
 const TNM_STAGE_NEXT_I64: i64 = 2;
 
 fn mark_all_stage_owned_sprite_keys(
@@ -11409,6 +11492,7 @@ fn apply_button_visuals(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) 
             .object_lists
             .keys()
             .chain(st.mwnd_lists.keys())
+            .chain(st.btnselitem_lists.keys())
             .copied()
             .collect();
         stage_ids.sort_unstable();
@@ -11441,6 +11525,20 @@ fn apply_button_visuals(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) 
                         );
                     }
                     for (obj_idx, obj) in m.object_list.iter().enumerate() {
+                        collect_button_visuals_recursive(
+                            ctx, st, stage_idx, obj_idx, obj, &mut map, None, None,
+                        );
+                    }
+                }
+            }
+            if let Some(items) = st.btnselitem_lists.get(&stage_idx) {
+                for item in items {
+                    for (obj_idx, obj) in item.generated_objects.iter().enumerate() {
+                        collect_button_visuals_recursive(
+                            ctx, st, stage_idx, obj_idx, obj, &mut map, None, None,
+                        );
+                    }
+                    for (obj_idx, obj) in item.object_list.iter().enumerate() {
                         collect_button_visuals_recursive(
                             ctx, st, stage_idx, obj_idx, obj, &mut map, None, None,
                         );
@@ -11622,7 +11720,11 @@ fn apply_button_state_visual(
             .saturating_add(visual.cut_no)
             .saturating_add(pat.rep_pat_no)
             .max(0) as u32;
-        if let Ok(image_id) = images.load_g00(file_name, patno) {
+        let image_id = match images.load_g00(file_name, patno) {
+            Ok(id) => Some(id),
+            Err(_) => images.load_bg_frame(file_name, patno as usize).ok(),
+        };
+        if let Some(image_id) = image_id {
             sprite.image_id = Some(image_id);
             if let Some(img) = images.get(image_id) {
                 sprite.object_anchor = true;

@@ -2257,8 +2257,9 @@ impl UiRuntime {
             let (x, y, mw, mh) = self.msg_rect(w, h);
             let _ = (x, y);
             let font_size = self.message_font_px() as f32;
-            self.mwnd.msg.text_image = self.font_cache.render_mwnd_text_styled(
+            self.mwnd.msg.text_image = self.font_cache.render_mwnd_text_styled_into(
                 images,
+                self.mwnd.msg.text_image,
                 &self.visible_message_text(),
                 font_size,
                 mw,
@@ -2273,8 +2274,9 @@ impl UiRuntime {
             let (x, y, mw, mh) = self.name_rect(w, h);
             let _ = (x, y);
             let font_size = self.name_font_px() as f32;
-            self.mwnd.name.text_image = self.font_cache.render_mwnd_text_styled(
+            self.mwnd.name.text_image = self.font_cache.render_mwnd_text_styled_into(
                 images,
+                self.mwnd.name.text_image,
                 self.mwnd.name.text.as_deref().unwrap_or(""),
                 font_size,
                 mw,
@@ -2328,8 +2330,9 @@ impl UiRuntime {
                     || entry.last_font_px != font_px
                     || entry.last_focused != focused
                 {
-                    entry.text_image = self.font_cache.render_text(
+                    entry.text_image = self.font_cache.render_text_into(
                         images,
+                        entry.text_image,
                         &display_text,
                         font_px as f32,
                         w.saturating_sub(8).max(1),
@@ -3089,8 +3092,9 @@ impl UiRuntime {
         }
 
         if self.sys.text_dirty {
-            self.sys.text_image = self.font_cache.render_text(
+            self.sys.text_image = self.font_cache.render_text_into(
                 images,
+                self.sys.text_image,
                 &self.sys.text,
                 24.0,
                 w.saturating_sub(80),
