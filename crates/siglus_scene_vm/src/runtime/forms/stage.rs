@@ -3317,10 +3317,17 @@ fn bind_capture_backend(
     };
     let sprite_id = layer.create_sprite();
     if let Some(spr) = layer.sprite_mut(sprite_id) {
-        spr.visible = true;
+        // The backing LayerManager sprite is storage only.  Original Siglus
+        // renders the C_elm_object tree, so visibility/position must come from
+        // ObjectState during render list construction.  Keep this hidden to
+        // prevent the storage sprite from leaking at its local (0,0) position.
+        spr.visible = false;
         spr.image_id = Some(img_id);
         spr.fit = SpriteFit::PixelRect;
         spr.size_mode = SpriteSizeMode::Intrinsic;
+        spr.object_anchor = false;
+        spr.texture_center_x = 0.0;
+        spr.texture_center_y = 0.0;
         if ctx.ids.obj_x != 0 {
             spr.x = obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_x).unwrap_or(0) as i32;
         }
@@ -3415,6 +3422,27 @@ fn overload_at_least(
 
 fn positional_ref_i64(pos: &[&Value], index: usize, default: i64) -> i64 {
     pos.get(index).and_then(|v| v.as_i64()).unwrap_or(default)
+}
+
+fn parse_thumb_object_create_params(
+    al_id: Option<i64>,
+    pos: &[&Value],
+) -> (i64, Option<(i64, i64)>) {
+    let argc = pos.len();
+    let disp = if overload_at_least(al_id, argc, 1, 2) {
+        positional_ref_i64(pos, 1, 0)
+    } else {
+        0
+    };
+    let pos_xy = if overload_at_least(al_id, argc, 2, 4) {
+        Some((
+            positional_ref_i64(pos, 2, 0),
+            positional_ref_i64(pos, 3, 0),
+        ))
+    } else {
+        None
+    };
+    (disp, pos_xy)
 }
 
 fn script_i64(args: &[Value], index: usize, default: i64) -> i64 {
@@ -5899,6 +5927,7 @@ fn dispatch_object_op(
                             spr.visible = b;
                         }
                     }
+                    obj.set_int_prop(&ctx.ids, op, if b { 1 } else { 0 });
                 }
                 ObjectBackend::Gfx => {
                     {
@@ -5940,16 +5969,7 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect {
-                    layer_id,
-                    sprite_id,
-                    ..
-                } => ctx
-                    .layers
-                    .layer(layer_id)
-                    .and_then(|layer| layer.sprite(sprite_id))
-                    .map(|spr| if spr.visible { 1 } else { 0 })
-                    .unwrap_or(0),
+                ObjectBackend::Rect { .. } => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::Gfx => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::Number { .. } => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::String {
@@ -5989,6 +6009,7 @@ fn dispatch_object_op(
                             spr.x = v as i32;
                         }
                     }
+                    obj.set_int_prop(&ctx.ids, op, v);
                 }
                 ObjectBackend::Gfx => {
                     let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
@@ -6006,16 +6027,7 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect {
-                    layer_id,
-                    sprite_id,
-                    ..
-                } => ctx
-                    .layers
-                    .layer(layer_id)
-                    .and_then(|layer| layer.sprite(sprite_id))
-                    .map(|spr| spr.x as i64)
-                    .unwrap_or(0),
+                ObjectBackend::Rect { .. } => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::Gfx => obj.get_int_prop(&ctx.ids, op),
                 _ => obj.get_int_prop(&ctx.ids, op),
             };
@@ -6044,6 +6056,7 @@ fn dispatch_object_op(
                             spr.y = v as i32;
                         }
                     }
+                    obj.set_int_prop(&ctx.ids, op, v);
                 }
                 ObjectBackend::Gfx => {
                     let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
@@ -6061,16 +6074,7 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect {
-                    layer_id,
-                    sprite_id,
-                    ..
-                } => ctx
-                    .layers
-                    .layer(layer_id)
-                    .and_then(|layer| layer.sprite(sprite_id))
-                    .map(|spr| spr.y as i64)
-                    .unwrap_or(0),
+                ObjectBackend::Rect { .. } => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::Gfx => obj.get_int_prop(&ctx.ids, op),
                 _ => obj.get_int_prop(&ctx.ids, op),
             };
@@ -6229,6 +6233,7 @@ fn dispatch_object_op(
                             spr.alpha = a;
                         }
                     }
+                    obj.set_int_prop(&ctx.ids, op, i64::from(a));
                 }
                 ObjectBackend::Gfx => {
                     let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
@@ -6248,16 +6253,7 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect {
-                    layer_id,
-                    sprite_id,
-                    ..
-                } => ctx
-                    .layers
-                    .layer(layer_id)
-                    .and_then(|layer| layer.sprite(sprite_id))
-                    .map(|spr| spr.alpha as i64)
-                    .unwrap_or(0),
+                ObjectBackend::Rect { .. } => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::Gfx => ctx
                     .gfx
                     .object_peek_alpha(stage_idx, obj_runtime_slot as i64)
@@ -6289,6 +6285,7 @@ fn dispatch_object_op(
                             spr.order = v as i32;
                         }
                     }
+                    obj.set_int_prop(&ctx.ids, op, v);
                 }
                 ObjectBackend::Gfx => {
                     let (gfx, images, layers) = (&mut ctx.gfx, &mut ctx.images, &mut ctx.layers);
@@ -6303,16 +6300,7 @@ fn dispatch_object_op(
             ctx.stack.push(Value::Int(0));
         } else {
             let v = match obj.backend {
-                ObjectBackend::Rect {
-                    layer_id,
-                    sprite_id,
-                    ..
-                } => ctx
-                    .layers
-                    .layer(layer_id)
-                    .and_then(|layer| layer.sprite(sprite_id))
-                    .map(|spr| spr.order as i64)
-                    .unwrap_or(0),
+                ObjectBackend::Rect { .. } => obj.get_int_prop(&ctx.ids, op),
                 ObjectBackend::Gfx => ctx
                     .gfx
                     .object_peek_order(stage_idx, obj_runtime_slot as i64)
@@ -6784,38 +6772,24 @@ fn dispatch_object_op(
         obj.thumb_save_no = save_no;
         obj.movie.reset();
         obj.init_param_like();
-        // Optional (disp, x, y) via al_id.
-        let argc = pos.len();
-        let disp_i = if overload_at_least(al_id, argc, 1, 2) {
-            positional_ref_i64(&pos, 1, 0)
-        } else {
-            0
-        };
+        // Original overloads are (save_no), (save_no, disp), and
+        // (save_no, disp, x, y).
+        let (disp_i, thumb_pos) = parse_thumb_object_create_params(al_id, &pos);
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        if overload_at_least(al_id, argc, 2, 4) {
+        if let Some((x, y)) = thumb_pos {
             if ctx.ids.obj_x != 0 {
-                obj.set_int_prop(
-                    &ctx.ids,
-                    ctx.ids.obj_x,
-                    pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
-                );
+                obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
             }
             if ctx.ids.obj_y != 0 {
-                obj.set_int_prop(
-                    &ctx.ids,
-                    ctx.ids.obj_y,
-                    pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0),
-                );
+                obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
             }
         }
-        let img_id = if let Some(img_id) = load_thumb_image_id(ctx, save_no) {
-            img_id
+        if let Some(img_id) = load_thumb_image_id(ctx, save_no) {
+            bind_capture_backend(ctx, obj, stage_idx, img_id);
         } else {
             ctx.unknown
                 .record_note(&format!("save_thumb.image.missing:{save_no}"));
-            insert_capture_image_id(ctx, true)
-        };
-        bind_capture_backend(ctx, obj, stage_idx, img_id);
+        }
         push_ok(ctx, ret_form);
         return true;
     }
@@ -6829,28 +6803,16 @@ fn dispatch_object_op(
         obj.thumb_save_no = thumb_no;
         obj.movie.reset();
         obj.init_param_like();
-        // Optional (disp, x, y) via al_id.
-        let argc = pos.len();
-        let disp_i = if overload_at_least(al_id, argc, 1, 2) {
-            positional_ref_i64(&pos, 1, 0)
-        } else {
-            0
-        };
+        // Original overloads are (save_no), (save_no, disp), and
+        // (save_no, disp, x, y).
+        let (disp_i, thumb_pos) = parse_thumb_object_create_params(al_id, &pos);
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, if disp_i != 0 { 1 } else { 0 });
-        if overload_at_least(al_id, argc, 2, 4) {
+        if let Some((x, y)) = thumb_pos {
             if ctx.ids.obj_x != 0 {
-                obj.set_int_prop(
-                    &ctx.ids,
-                    ctx.ids.obj_x,
-                    pos.get(2).and_then(|v| v.as_i64()).unwrap_or(0),
-                );
+                obj.set_int_prop(&ctx.ids, ctx.ids.obj_x, x);
             }
             if ctx.ids.obj_y != 0 {
-                obj.set_int_prop(
-                    &ctx.ids,
-                    ctx.ids.obj_y,
-                    pos.get(3).and_then(|v| v.as_i64()).unwrap_or(0),
-                );
+                obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
             }
         }
         let img_id = if let Some(img_id) = load_thumb_image_id(ctx, thumb_no) {
@@ -10465,6 +10427,15 @@ fn start_mwnd_msg_block_if_needed(ctx: &mut CommandContext, m: &mut MwndState) {
     }
     m.clear_ready = false;
     m.msg_block_started = true;
+
+    // Mirror C++ `tnm_msg_proc_start_msg_block` (eng_message.cpp): clear the
+    // m_local_save buffer and (unless dont_set_save_point is on) take a fresh
+    // savepoint. Without this hook, SAVEPOINT only fires on the explicit
+    // GLOBAL_SAVEPOINT script command - games that rely on the engine's
+    // automatic per-message-block savepoint (Rewrite included) would otherwise
+    // never accumulate a snapshot, and every SAVE would silently no-op.
+    ctx.local_save_snapshot = None;
+    ctx.request_auto_savepoint();
 }
 
 fn mark_mwnd_clear_ready(ctx: &mut CommandContext, m: &mut MwndState) {

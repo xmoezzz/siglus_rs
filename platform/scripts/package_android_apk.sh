@@ -100,6 +100,10 @@ done
 [[ "${missing}" -eq 0 ]] || exit 1
 
 pushd "${ANDROID_DIR}" >/dev/null
+if [[ -f "./gradlew" ]]; then
+  chmod +x ./gradlew
+fi
+SIGLUS_ABIS_PROP="$(printf "%s" "${ABIS}" | tr " " ",")"
 if [[ -x "./gradlew" ]]; then
   GRADLE_CMD="./gradlew"
 elif command -v gradle >/dev/null 2>&1; then
@@ -114,8 +118,8 @@ if [[ "${VARIANT}" == "release" ]]; then
   GRADLE_TASK=":app:assembleRelease"
 fi
 
-echo "[android] Running Gradle: ${GRADLE_CMD} ${GRADLE_TASK}"
-${GRADLE_CMD} ${GRADLE_TASK}
+echo "[android] Running Gradle: ${GRADLE_CMD} -PsiglusAbis=${SIGLUS_ABIS_PROP} ${GRADLE_TASK}"
+${GRADLE_CMD} -PsiglusAbis="${SIGLUS_ABIS_PROP}" ${GRADLE_TASK}
 
 APK_PATH="$(ls -1 "${APP_DIR}/build/outputs/apk/${VARIANT}/"*.apk 2>/dev/null | head -n 1 || true)"
 if [[ -n "${APK_PATH}" ]]; then

@@ -163,6 +163,32 @@ pub unsafe extern "C" fn siglus_android_touch(
 }
 
 #[no_mangle]
+pub unsafe extern "C" fn siglus_android_text_input(handle: *mut c_void, text_utf8: *const c_char) {
+    let Some(host) = (handle as *mut SiglusHost).as_mut() else {
+        return;
+    };
+    if let Some(text) = cstr_opt(text_utf8) {
+        host.text_input(&text);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn siglus_android_key_down(handle: *mut c_void, key_code: i32) {
+    let Some(host) = (handle as *mut SiglusHost).as_mut() else {
+        return;
+    };
+    host.key_down_code(key_code);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn siglus_android_key_up(handle: *mut c_void, key_code: i32) {
+    let Some(host) = (handle as *mut SiglusHost).as_mut() else {
+        return;
+    };
+    host.key_up_code(key_code);
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn siglus_android_destroy(handle: *mut c_void) {
     if handle.is_null() {
         return;

@@ -22,6 +22,7 @@ use crate::runtime::globals::{
 };
 use crate::runtime::input::{VmKey, VmMouseButton};
 use crate::runtime::wait::VmWait;
+use crate::runtime::forms::syscom as syscom_form;
 use crate::runtime::{native_ui, CommandContext, ProcKind};
 use crate::scene_stream::SceneStream;
 use crate::vm::{SceneVm, VmConfig};
@@ -281,9 +282,21 @@ impl SiglusHost {
         self.script_needs_pump = true;
     }
 
+    pub fn key_down_code(&mut self, code: i32) {
+        if let Some(key) = vm_key_from_platform_code(code) {
+            self.key_down(key);
+        }
+    }
+
     pub fn key_up(&mut self, key: VmKey) {
         self.vm.ctx.on_key_up(key);
         self.script_needs_pump = true;
+    }
+
+    pub fn key_up_code(&mut self, code: i32) {
+        if let Some(key) = vm_key_from_platform_code(code) {
+            self.key_up(key);
+        }
     }
 
     pub fn text_input(&mut self, text: &str) {
@@ -524,6 +537,56 @@ impl SiglusHost {
                     Ok(false)
                 }
             }
+            SyscomPendingProcKind::Save => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    crate::runtime::forms::syscom::menu_save_slot(
+                        &mut self.vm.ctx,
+                        false,
+                        proc.save_id.max(0) as usize,
+                    );
+                    crate::runtime::forms::syscom::write_global_save(&mut self.vm.ctx);
+                }
+                Ok(true)
+            }
+            SyscomPendingProcKind::Load => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    crate::runtime::forms::syscom::menu_load_slot(
+                        &mut self.vm.ctx,
+                        false,
+                        proc.save_id.max(0) as usize,
+                    );
+                }
+                Ok(true)
+            }
+            SyscomPendingProcKind::QuickSave => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    crate::runtime::forms::syscom::menu_save_slot(
+                        &mut self.vm.ctx,
+                        true,
+                        proc.save_id.max(0) as usize,
+                    );
+                    crate::runtime::forms::syscom::write_global_save(&mut self.vm.ctx);
+                }
+                Ok(true)
+            }
+            SyscomPendingProcKind::QuickLoad => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    crate::runtime::forms::syscom::menu_load_slot(
+                        &mut self.vm.ctx,
+                        true,
+                        proc.save_id.max(0) as usize,
+                    );
+                }
+                Ok(true)
+            }
             SyscomPendingProcKind::BacklogLoad => {
                 if self.vm.restore_last_sel_point() {
                     self.flow.stack.clear();
@@ -557,6 +620,7 @@ impl SiglusHost {
                 }
             }
             SyscomPendingProcKind::OpenSave => {
+                syscom_form::sync_save_slots_from_disk(&mut self.vm.ctx, false);
                 if self.vm.call_syscom_configured_scene("SAVE_SCENE")? {
                     self.ensure_requested_script_proc();
                     self.suspend_wait_for_syscom_excall("SAVE_SCENE");
@@ -567,6 +631,7 @@ impl SiglusHost {
                 }
             }
             SyscomPendingProcKind::OpenLoad => {
+                syscom_form::sync_save_slots_from_disk(&mut self.vm.ctx, false);
                 if self.vm.call_syscom_configured_scene("LOAD_SCENE")? {
                     self.ensure_requested_script_proc();
                     self.suspend_wait_for_syscom_excall("LOAD_SCENE");
@@ -677,6 +742,14 @@ impl SiglusHost {
                 "#WARNINGINFO.RETURNMENU_WARNING_STR",
                 "WARNINGINFO.RETURNMENU_WARNING_STR",
             ],
+            SyscomPendingProcKind::Save | SyscomPendingProcKind::QuickSave => &[
+                "#WARNINGINFO.SAVE_WARNING_STR",
+                "WARNINGINFO.SAVE_WARNING_STR",
+            ],
+            SyscomPendingProcKind::Load | SyscomPendingProcKind::QuickLoad => &[
+                "#WARNINGINFO.LOAD_WARNING_STR",
+                "WARNINGINFO.LOAD_WARNING_STR",
+            ],
             _ => &[
                 "#WARNINGINFO.RETURNMENU_WARNING_STR",
                 "WARNINGINFO.RETURNMENU_WARNING_STR",
@@ -685,6 +758,8 @@ impl SiglusHost {
         let default = match kind {
             SyscomPendingProcKind::EndGame => "終了してもよろしいですか？",
             SyscomPendingProcKind::ReturnToSel => "前の選択肢に戻ってもよろしいですか？",
+            SyscomPendingProcKind::Save | SyscomPendingProcKind::QuickSave => "セーブデータを上書きしてもよろしいですか？",
+            SyscomPendingProcKind::Load | SyscomPendingProcKind::QuickLoad => "セーブデータをロードしてもよろしいですか？",
             _ => "タイトルに戻ってもよろしいですか？",
         };
         let cfg = self.vm.ctx.tables.gameexe.as_ref();
@@ -766,6 +841,23 @@ impl SiglusHost {
             0,
             0,
         ));
+    }
+
+    fn finish_runtime_load(&mut self) {
+        self.renderer.clear_runtime_image_textures();
+        self.flow.stack.clear();
+        self.flow.pending_syscom_proc = None;
+        self.syscom_suspended_waits.clear();
+        self.paused = false;
+        self.script_resume_after_redraw = false;
+        self.suppress_render_once = true;
+        self.vm.ctx.globals.syscom.pending_proc = None;
+        self.vm.ctx.globals.syscom.menu_open = false;
+        self.vm.ctx.globals.syscom.menu_kind = None;
+        self.vm.ctx.globals.syscom.msg_back_open = false;
+        self.flow.push(ProcType::GameTimerStart, 0);
+        self.flow.push(ProcType::Script, 0);
+        self.script_needs_pump = true;
     }
 
     fn perform_return_to_menu(&mut self, leave_msgbk: bool) -> Result<()> {
@@ -853,6 +945,10 @@ impl SiglusHost {
                 ProcType::Script => {
                     let proc_gen_before = self.vm.proc_generation();
                     let running = self.vm.run_script_proc_continue()?;
+                    if self.vm.take_runtime_load_completed() {
+                        self.finish_runtime_load();
+                        continue;
+                    }
                     let proc_boundary = self.vm.proc_generation() != proc_gen_before;
                     let boundary_kind = self.vm.last_proc_kind();
                     let pop_script_proc = self.vm.take_script_proc_pop_request();
@@ -982,6 +1078,20 @@ impl SiglusHost {
                                 SyscomPendingProcKind::ReturnToMenu => {
                                     self.queue_return_to_menu_proc(proc);
                                 }
+                                SyscomPendingProcKind::Save => {
+                                    crate::runtime::forms::syscom::menu_save_slot(&mut self.vm.ctx, false, proc.save_id.max(0) as usize);
+                                    crate::runtime::forms::syscom::write_global_save(&mut self.vm.ctx);
+                                }
+                                SyscomPendingProcKind::Load => {
+                                    crate::runtime::forms::syscom::menu_load_slot(&mut self.vm.ctx, false, proc.save_id.max(0) as usize);
+                                }
+                                SyscomPendingProcKind::QuickSave => {
+                                    crate::runtime::forms::syscom::menu_save_slot(&mut self.vm.ctx, true, proc.save_id.max(0) as usize);
+                                    crate::runtime::forms::syscom::write_global_save(&mut self.vm.ctx);
+                                }
+                                SyscomPendingProcKind::QuickLoad => {
+                                    crate::runtime::forms::syscom::menu_load_slot(&mut self.vm.ctx, true, proc.save_id.max(0) as usize);
+                                }
                                 _ => {}
                             }
                         }
@@ -1065,6 +1175,10 @@ impl SiglusHost {
         }
         let wait_poll_needed = self.vm.ctx.wait.needs_runtime_poll();
         self.vm.tick_frame()?;
+        if self.vm.take_runtime_load_completed() {
+            self.finish_runtime_load();
+            return Ok(());
+        }
         if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
             eprintln!(
                 "[SG_PROC_FLOW] host redraw after_tick scene={:?} line={} flow={:?} pending_proc={:?}",
@@ -1104,6 +1218,27 @@ impl SiglusHost {
         }
         self.redraw_count = self.redraw_count.saturating_add(1);
         Ok(())
+    }
+}
+
+fn vm_key_from_platform_code(code: i32) -> Option<VmKey> {
+    match code {
+        0x1B => Some(VmKey::Escape),
+        0x0D => Some(VmKey::Enter),
+        0x20 => Some(VmKey::Space),
+        0x08 => Some(VmKey::Backspace),
+        0x09 => Some(VmKey::Tab),
+        0x10 => Some(VmKey::Shift),
+        0x12 => Some(VmKey::Alt),
+        0x25 => Some(VmKey::ArrowLeft),
+        0x26 => Some(VmKey::ArrowUp),
+        0x27 => Some(VmKey::ArrowRight),
+        0x28 => Some(VmKey::ArrowDown),
+        0x30..=0x39 => Some(VmKey::Digit((code - 0x30) as u8)),
+        0x41..=0x5A => Some(VmKey::Letter((code as u8 as char).to_ascii_uppercase())),
+        0x61..=0x7A => Some(VmKey::Letter((code as u8 as char).to_ascii_uppercase())),
+        0x70..=0x7B => Some(VmKey::F((code - 0x6F) as u8)),
+        _ => None,
     }
 }
 

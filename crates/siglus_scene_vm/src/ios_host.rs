@@ -10,7 +10,7 @@ use std::ptr::NonNull;
 
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, UiKitDisplayHandle, UiKitWindowHandle};
 
-use crate::host::{cstr_required, default_frame_interval_ms, parse_bool_exit, SiglusHost, SiglusHostConfig, SiglusNativeMessageBoxCallback};
+use crate::host::{cstr_opt, cstr_required, default_frame_interval_ms, parse_bool_exit, SiglusHost, SiglusHostConfig, SiglusNativeMessageBoxCallback};
 use crate::render::Renderer;
 
 unsafe fn build_host(
@@ -123,6 +123,32 @@ pub unsafe extern "C" fn siglus_ios_touch(
     // UIKit delivers points.  The VM input model is logical coordinates, so pass
     // points directly.
     host.touch(phase, x_points, y_points);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn siglus_ios_text_input(handle: *mut c_void, text_utf8: *const c_char) {
+    let Some(host) = (handle as *mut SiglusHost).as_mut() else {
+        return;
+    };
+    if let Some(text) = cstr_opt(text_utf8) {
+        host.text_input(&text);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn siglus_ios_key_down(handle: *mut c_void, key_code: i32) {
+    let Some(host) = (handle as *mut SiglusHost).as_mut() else {
+        return;
+    };
+    host.key_down_code(key_code);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn siglus_ios_key_up(handle: *mut c_void, key_code: i32) {
+    let Some(host) = (handle as *mut SiglusHost).as_mut() else {
+        return;
+    };
+    host.key_up_code(key_code);
 }
 
 #[no_mangle]

@@ -2,6 +2,13 @@ plugins {
     id("com.android.application")
 }
 
+val siglusAbiFilters = (project.findProperty("siglusAbis") as String?)
+    ?.split(',')
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() }
+    ?.takeIf { it.isNotEmpty() }
+    ?: listOf("arm64-v8a", "x86_64")
+
 android {
     namespace = "com.chino.siglus"
     compileSdk = 36
@@ -15,7 +22,7 @@ android {
         versionName = "0.1.0"
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            abiFilters += siglusAbiFilters
         }
 
         externalNativeBuild {
@@ -48,6 +55,7 @@ android {
     sourceSets {
         getByName("main") {
             jniLibs.srcDirs("src/main/jniLibs")
+            res.srcDirs("src/main/res", "../res")
         }
     }
 

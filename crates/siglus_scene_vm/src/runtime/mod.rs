@@ -260,6 +260,23 @@ pub struct RuntimeLoadRequest {
     pub index: usize,
 }
 
+/// Engine-side cache mirroring the C++ `S_tnm_local_save` (a.k.a. `Gp_eng->m_local_save`).
+/// Populated by GLOBAL_SAVEPOINT (`tnm_save_local`) and after a successful load
+/// (`tnm_load_local_on_file`). All save-to-file paths (normal / quick / end) must
+/// pull from this cache instead of re-serializing the live runtime.
+#[derive(Debug, Clone, Default)]
+pub struct LocalSaveSnapshot {
+    pub save_id: [u16; 7],
+    pub append_dir: String,
+    pub append_name: String,
+    pub save_scene_title: String,
+    pub save_msg: String,
+    pub save_full_msg: String,
+    pub local_stream: Vec<u8>,
+    pub local_ex_stream: Vec<u8>,
+    pub sel_saves: Vec<crate::original_save::OriginalLocalSaveEnvelope>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct MouseCursorFrameRuntime {
     image_id: ImageId,
@@ -374,6 +391,20 @@ pub struct CommandContext {
     pending_runtime_save: Option<RuntimeSaveRequest>,
     /// Deferred VM-owned load request, consumed by SceneVm after the command returns.
     pending_runtime_load: Option<RuntimeLoadRequest>,
+    runtime_load_completed: bool,
+
+    /// Engine-equivalent of `Gp_eng->m_local_save`. Built at GLOBAL_SAVEPOINT and
+    /// refreshed by `tnm_load_local_on_file`-equivalent load. Save-to-file dispatch
+    /// reads from here so the saved stream reflects the savepoint, not the live
+    /// menu/UI state when the user picks a slot.
+    pub local_save_snapshot: Option<LocalSaveSnapshot>,
+
+    /// Set when the engine wants the next safe boundary (post-command, pre-next-step)
+    /// to (re)build `local_save_snapshot`. Mirrors C++ `tnm_msg_proc_start_msg_block`
+    /// calling `tnm_init_local_save` + `tnm_set_save_point` at message-block start.
+    /// Form handlers can't build the snapshot themselves (they don't see SceneVm),
+    /// so they request via this flag and the VM drains it at a safe point.
+    pub pending_auto_savepoint: bool,
 
     frame_clock_last: Option<std::time::Instant>,
     last_button_hover_sound_pos: Option<(i32, i32)>,
@@ -416,6 +447,22 @@ impl CommandContext {
         self.pending_runtime_save = Some(RuntimeSaveRequest { kind, index });
     }
 
+    /// Form-handler entrypoint matching C++ `tnm_msg_proc_start_msg_block`'s
+    /// `tnm_init_local_save` + (gated) `tnm_set_save_point` calls. Honors the
+    /// `dont_set_save_point` script flag (suspends auto SAVEPOINT for special
+    /// blocks). The VM drains the request at the next safe boundary and runs
+    /// `build_local_save_snapshot`.
+    pub fn request_auto_savepoint(&mut self) {
+        if self.globals.script.dont_set_save_point {
+            return;
+        }
+        self.pending_auto_savepoint = true;
+    }
+
+    pub fn take_pending_auto_savepoint(&mut self) -> bool {
+        std::mem::take(&mut self.pending_auto_savepoint)
+    }
+
     pub fn request_runtime_load(&mut self, kind: RuntimeSaveKind, index: usize) {
         self.pending_runtime_load = Some(RuntimeLoadRequest { kind, index });
     }
@@ -426,6 +473,72 @@ impl CommandContext {
 
     pub fn take_runtime_load_request(&mut self) -> Option<RuntimeLoadRequest> {
         self.pending_runtime_load.take()
+    }
+
+    pub fn begin_runtime_load_apply(&mut self) {
+        // Mirror C++ `tnm_finish_local()` + `tnm_reinit_local(false)`. The loaded
+        // local stream re-populates per-scene state via `parse_original_local_stream`,
+        // but anything that isn't *always* present in the stream (or that lives outside
+        // it entirely - layers, UI, focus, menu, pending button actions, etc.) must be
+        // torn down here so the save/load menu we're loading away from can't leak
+        // through to the restored scene. Without this, a stage that the live save menu
+        // populated but the snapshot omits would survive across the load.
+        self.layers.clear_all();
+        self.gfx = graphics::GfxRuntime::default();
+        self.ui = ui::UiRuntime::default();
+        self.wait = wait::VmWait::default();
+        self.stack.clear();
+        self.last_presented_render_list.clear();
+        self.wipe_front_rt_image = None;
+        self.wipe_next_rt_image = None;
+        self.overlay_rt_image = None;
+        self.vm_call = None;
+        self.pending_read_flag_no = false;
+        self.pending_selbtn_read_flag_no = false;
+        self.frame_clock_last = None;
+        self.last_button_hover_sound_pos = None;
+
+        self.globals.focused_editbox = None;
+        self.globals.focused_stage_group = None;
+        self.globals.focused_stage_mwnd = None;
+        self.globals.current_stage_object = None;
+        self.globals.current_object_chain = None;
+        self.globals.pending_button_actions.clear();
+        self.globals.pending_frame_action_finishes.clear();
+        self.globals.capture_for_object_image = None;
+        self.globals.save_thumb_capture_image = None;
+        self.globals.selbtn = globals::BtnSelectRuntimeState::default();
+        self.globals.syscom.pending_proc = None;
+        self.globals.syscom.menu_open = false;
+        self.globals.syscom.menu_kind = None;
+        self.globals.syscom.menu_result = None;
+        self.globals.syscom.msg_back_open = false;
+        self.globals.syscom.msg_back_proc_initialized = false;
+        self.globals.system.messagebox_modal = None;
+        self.globals.system.messagebox_modal_result = None;
+        self.globals.finish_wipe();
+
+        // Per-scene state that lives in `globals` and is reconstructed from the
+        // loaded local stream. Wipe before parsing so that snapshot entries that
+        // are simply *absent* (the snapshot has no mask list, no editbox, etc.)
+        // truly become absent post-load instead of inheriting from the menu.
+        self.globals.stage_forms.clear();
+        self.globals.screen_forms.clear();
+        self.globals.counter_lists.clear();
+        self.globals.frame_actions.clear();
+        self.globals.frame_action_lists.clear();
+        self.globals.mask_lists.clear();
+        self.globals.pcm_event_lists.clear();
+        self.globals.editbox_lists.clear();
+        self.globals.msgbk_forms.clear();
+    }
+
+    pub fn mark_runtime_load_completed(&mut self) {
+        self.runtime_load_completed = true;
+    }
+
+    pub fn take_runtime_load_completed(&mut self) -> bool {
+        std::mem::take(&mut self.runtime_load_completed)
     }
 
     pub fn needs_continuous_frame(&self) -> bool {
@@ -817,6 +930,9 @@ impl CommandContext {
             pending_selbtn_read_flag_no: false,
             pending_runtime_save: None,
             pending_runtime_load: None,
+            runtime_load_completed: false,
+            local_save_snapshot: None,
+            pending_auto_savepoint: false,
             frame_clock_last: None,
             last_button_hover_sound_pos: None,
             suppress_next_right_syscom_open: false,
@@ -1180,6 +1296,7 @@ impl CommandContext {
         self.vm_call = None;
         self.pending_read_flag_no = false;
         self.pending_selbtn_read_flag_no = false;
+        self.runtime_load_completed = false;
         self.frame_clock_last = None;
         self.last_button_hover_sound_pos = None;
         self.apply_gameexe_runtime_defaults();
@@ -4347,19 +4464,13 @@ impl CommandContext {
                 for (idx, item) in items.iter_mut().enumerate() {
                     item.selected = idx == self.globals.selbtn.cursor;
                     let selectable = item.item_type == TNM_SEL_ITEM_TYPE_ON_I64;
-                    for obj in &mut item.generated_objects {
-                        if obj.button.enabled || obj.button.state == TNM_BTN_STATE_DISABLE {
-                            obj.button.hit = item.selected && selectable;
-                            obj.button.pushed = false;
-                            obj.button.state = if item.item_type == TNM_SEL_ITEM_TYPE_READ_I64 {
-                                TNM_BTN_STATE_DISABLE
-                            } else if item.selected && selectable {
-                                TNM_BTN_STATE_HIT
-                            } else {
-                                TNM_BTN_STATE_NORMAL
-                            };
-                        }
-                    }
+                    item.button_state = if item.item_type == TNM_SEL_ITEM_TYPE_READ_I64 {
+                        TNM_BTN_STATE_DISABLE
+                    } else if item.selected && selectable {
+                        TNM_BTN_STATE_HIT
+                    } else {
+                        TNM_BTN_STATE_NORMAL
+                    };
                 }
             }
         }
@@ -5237,6 +5348,7 @@ impl CommandContext {
             build_siglus_object_render_list(self, &base, TNM_STAGE_FRONT_I64);
         apply_quake(&self.globals, &mut list);
         apply_button_visuals(self, &mut list);
+        apply_selbtn_item_visuals(self, &mut list);
         self.apply_gan_effects(&mut list);
         apply_screen_effects(&self.globals, &self.ids, &mut list);
         (list, debug_lines)
@@ -5304,6 +5416,9 @@ impl CommandContext {
         }
         if config_button_trace_enabled() {
             trace_final_render_order(self, &list);
+        }
+        if save_load_render_trace_enabled() {
+            trace_save_load_render_sprites(self, &list);
         }
         overlay_precompose_if_needed(self, &mut list);
         if include_mouse_cursor {
@@ -5662,6 +5777,78 @@ fn trace_config_event_frame_prop_write(
         obj.used,
         obj.runtime.child_objects.len(),
     );
+}
+
+fn save_load_render_trace_enabled() -> bool {
+    std::env::var_os("SG_SAVELOAD_TRACE").is_some()
+}
+
+fn trace_save_load_render_sprites(ctx: &CommandContext, list: &[RenderSprite]) {
+    let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
+    let scene_match = scene.contains("sys10_sv") || scene.contains("save") || scene.contains("load");
+    let mut emitted = 0usize;
+    for (idx, rs) in list.iter().enumerate() {
+        let Some(image_id) = rs.sprite.image_id else {
+            continue;
+        };
+        let info = ctx.images.debug_image_info(image_id);
+        let width = info.as_ref().map(|d| d.width).unwrap_or(0);
+        let height = info.as_ref().map(|d| d.height).unwrap_or(0);
+        let source_path = info
+            .as_ref()
+            .and_then(|d| d.source_path.as_ref())
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "-".to_string());
+        let source_path_lc = source_path.to_ascii_lowercase();
+        let source = render_sprite_source_name(ctx, rs);
+        let source_lc = source.to_ascii_lowercase();
+        let near_origin = rs.sprite.x.abs() <= 4 && rs.sprite.y.abs() <= 4 && width >= 16 && height >= 16;
+        let unowned = source.starts_with("unowned:");
+        let path_match = source_path_lc.contains("savedata")
+            || source_path_lc.contains("thumb")
+            || source_path_lc.contains("capture")
+            || source_path_lc.contains("mn_sv")
+            || source_lc.contains("mn_sv")
+            || source_lc.contains("save")
+            || source_lc.contains("thumb")
+            || source_lc.contains("capture");
+        if !(scene_match || near_origin || unowned || path_match) {
+            continue;
+        }
+        if !(near_origin || unowned || path_match) {
+            continue;
+        }
+        eprintln!(
+            "[SG_SAVELOAD_TRACE][RENDER] idx={} scene={} source={} layer_id={:?} sprite_id={:?} image={:?} image_size={}x{} image_version={} image_source={} frame={:?} pos=({}, {}) visible={} alpha={} tr={} order=({}, {}) packed_order={} fit={:?} size_mode={:?} clip={:?}",
+            idx,
+            scene,
+            source,
+            rs.layer_id,
+            rs.sprite_id,
+            rs.sprite.image_id,
+            width,
+            height,
+            info.as_ref().map(|d| d.version).unwrap_or(0),
+            source_path,
+            info.as_ref().and_then(|d| d.frame_index),
+            rs.sprite.x,
+            rs.sprite.y,
+            rs.sprite.visible,
+            rs.sprite.alpha,
+            rs.sprite.tr,
+            rs.sorter_order,
+            rs.sorter_layer,
+            rs.sprite.order,
+            rs.sprite.fit,
+            rs.sprite.size_mode,
+            rs.sprite.dst_clip
+        );
+        emitted += 1;
+        if emitted >= 120 {
+            eprintln!("[SG_SAVELOAD_TRACE][RENDER] truncated after {} entries", emitted);
+            break;
+        }
+    }
 }
 
 fn trace_final_render_order(ctx: &CommandContext, list: &[RenderSprite]) {
@@ -9493,52 +9680,16 @@ fn effective_object_info(
                 }
             }
         }
-        globals::ObjectBackend::Rect {
-            layer_id,
-            sprite_id,
-            ..
-        }
-        | globals::ObjectBackend::String {
-            layer_id,
-            sprite_id,
-            ..
-        }
-        | globals::ObjectBackend::Movie {
-            layer_id,
-            sprite_id,
-            ..
-        } => {
-            if let Some(layer) = ctx.layers.layer(*layer_id) {
-                if let Some(sprite) = layer.sprite(*sprite_id) {
-                    info.disp = sprite.visible;
-                    info.x = sprite.x as i64;
-                    info.y = sprite.y as i64;
-                    info.order = sprite.order as i64;
-                    info.alpha = sprite.alpha as i64;
-                    info.tr = sprite.tr as i64;
-                }
-            }
-        }
-        globals::ObjectBackend::Number {
-            layer_id,
-            sprite_ids,
-        }
-        | globals::ObjectBackend::Weather {
-            layer_id,
-            sprite_ids,
-        } => {
-            if let Some(&sid) = sprite_ids.first() {
-                if let Some(layer) = ctx.layers.layer(*layer_id) {
-                    if let Some(sprite) = layer.sprite(sid) {
-                        info.disp = sprite.visible;
-                        info.x = sprite.x as i64;
-                        info.y = sprite.y as i64;
-                        info.order = sprite.order as i64;
-                        info.alpha = sprite.alpha as i64;
-                        info.tr = sprite.tr as i64;
-                    }
-                }
-            }
+        globals::ObjectBackend::Rect { .. }
+        | globals::ObjectBackend::String { .. }
+        | globals::ObjectBackend::Movie { .. }
+        | globals::ObjectBackend::Number { .. }
+        | globals::ObjectBackend::Weather { .. } => {
+            // The backend sprite only stores image handles and backend-only data.
+            // C++ C_elm_object::frame uses the object parameter block for DISP,
+            // X/Y, sorter, alpha and TR.  Reading those fields back from the
+            // storage sprite makes objects created at local (0,0), such as save
+            // thumbnails, ignore later SET_POS or parent object transforms.
         }
         globals::ObjectBackend::None => {
             if let Some(v) = obj.lookup_int_prop(ids, ids.obj_disp) {
@@ -10776,6 +10927,159 @@ fn append_btnselitem_sprites(
                 item.size.0,
                 item.size.1,
             ));
+        }
+    }
+}
+
+#[derive(Clone)]
+struct SelBtnSpriteVisual {
+    component: u8,
+    action_no: i64,
+    state: i64,
+    base_file: Option<String>,
+    base_patno: i64,
+}
+
+fn collect_selbtn_sprite_visuals_recursive(
+    obj: &globals::ObjectState,
+    component: u8,
+    action_no: i64,
+    state: i64,
+    map: &mut HashMap<(LayerId, SpriteId), SelBtnSpriteVisual>,
+) {
+    match obj.backend {
+        globals::ObjectBackend::Rect { layer_id, sprite_id, .. }
+        | globals::ObjectBackend::String { layer_id, sprite_id, .. }
+        | globals::ObjectBackend::Movie { layer_id, sprite_id, .. } => {
+            map.insert(
+                (layer_id, sprite_id),
+                SelBtnSpriteVisual {
+                    component,
+                    action_no,
+                    state,
+                    base_file: obj.file_name.clone(),
+                    base_patno: obj.base.patno,
+                },
+            );
+        }
+        globals::ObjectBackend::Number { layer_id, ref sprite_ids }
+        | globals::ObjectBackend::Weather { layer_id, ref sprite_ids } => {
+            for &sprite_id in sprite_ids {
+                map.insert(
+                    (layer_id, sprite_id),
+                    SelBtnSpriteVisual {
+                        component,
+                        action_no,
+                        state,
+                        base_file: obj.file_name.clone(),
+                        base_patno: obj.base.patno,
+                    },
+                );
+            }
+        }
+        globals::ObjectBackend::Gfx | globals::ObjectBackend::None => {}
+    }
+
+    for child in &obj.runtime.child_objects {
+        collect_selbtn_sprite_visuals_recursive(child, component, action_no, state, map);
+    }
+}
+
+fn apply_selbtn_item_visuals(ctx: &mut CommandContext, sprites: &mut [RenderSprite]) {
+    let mut map: HashMap<(LayerId, SpriteId), SelBtnSpriteVisual> = HashMap::new();
+    for st in ctx.globals.stage_forms.values() {
+        for items in st.btnselitem_lists.values() {
+            for item in items {
+                if !item.visible {
+                    continue;
+                }
+                for (obj_idx, obj) in item.generated_objects.iter().enumerate() {
+                    let component = match obj_idx {
+                        0 => 0,
+                        1 => 1,
+                        _ => 2,
+                    };
+                    collect_selbtn_sprite_visuals_recursive(
+                        obj,
+                        component,
+                        item.button_action_no,
+                        item.button_state,
+                        &mut map,
+                    );
+                }
+                for obj in &item.object_list {
+                    collect_selbtn_sprite_visuals_recursive(
+                        obj,
+                        3,
+                        item.button_action_no,
+                        item.button_state,
+                        &mut map,
+                    );
+                }
+            }
+        }
+    }
+
+    if map.is_empty() {
+        return;
+    }
+
+    for rs in sprites.iter_mut() {
+        let (Some(lid), Some(sid)) = (rs.layer_id, rs.sprite_id) else {
+            continue;
+        };
+        let Some(visual) = map.get(&(lid, sid)).cloned() else {
+            continue;
+        };
+        let pat = button_action_pattern(&ctx.tables, visual.action_no, visual.state);
+
+        rs.sprite.x = rs.sprite.x.saturating_add(pat.rep_pos_x as i32);
+        rs.sprite.y = rs.sprite.y.saturating_add(pat.rep_pos_y as i32);
+
+        match visual.component {
+            0 => {
+                if let Some(file_name) = visual.base_file.as_deref().filter(|s| !s.is_empty()) {
+                    let patno = visual
+                        .base_patno
+                        .saturating_add(pat.rep_pat_no)
+                        .max(0) as u32;
+                    let image_id = match ctx.images.load_g00(file_name, patno) {
+                        Ok(id) => Some(id),
+                        Err(_) => ctx.images.load_bg_frame(file_name, patno as usize).ok(),
+                    };
+                    if let Some(image_id) = image_id {
+                        rs.sprite.image_id = Some(image_id);
+                        if let Some(img) = ctx.images.get(image_id) {
+                            rs.sprite.object_anchor = true;
+                            rs.sprite.texture_center_x = img.center_x as f32;
+                            rs.sprite.texture_center_y = img.center_y as f32;
+                        }
+                    }
+                }
+                rs.sprite.tr = ((rs.sprite.tr as i64 * pat.rep_tr.clamp(0, 255)) / 255)
+                    .clamp(0, 255) as u8;
+                rs.sprite.bright = (rs.sprite.bright as i64 + pat.rep_bright).clamp(0, 255) as u8;
+                rs.sprite.dark = (rs.sprite.dark as i64 + pat.rep_dark).clamp(0, 255) as u8;
+            }
+            1 => {
+                let (cfg_r, cfg_g, cfg_b, cfg_a) = ctx.syscom_filter_config_rgba();
+                rs.sprite.alpha = 255;
+                rs.sprite.tr = ((cfg_a as i64 * pat.rep_tr.clamp(0, 255)) / 255)
+                    .clamp(0, 255) as u8;
+                rs.sprite.alpha_test = true;
+                rs.sprite.alpha_blend = true;
+                rs.sprite.color_rate = 0;
+                rs.sprite.color_add_r = cfg_r;
+                rs.sprite.color_add_g = cfg_g;
+                rs.sprite.color_add_b = cfg_b;
+                rs.sprite.color_r = 0;
+                rs.sprite.color_g = 0;
+                rs.sprite.color_b = 0;
+                rs.sprite.bright = 0;
+                rs.sprite.dark = 0;
+                rs.sprite.mask_mode = 0;
+            }
+            _ => {}
         }
     }
 }

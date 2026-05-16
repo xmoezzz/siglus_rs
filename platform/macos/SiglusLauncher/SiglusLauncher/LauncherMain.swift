@@ -22,8 +22,113 @@ private func redirectStdoutStderrToLogFile() {
     print("\n---- SiglusLauncher start: \(Date()) ----")
 }
 
-@_silgen_name("siglus_run_entry")
-private func siglus_run_entry(_ gameRootUtf8: UnsafePointer<CChar>, _ nlsUtf8: UnsafePointer<CChar>) -> Int32
+typealias SiglusMessageboxCallback = @convention(c) (
+    UnsafeMutableRawPointer?,
+    UInt64,
+    Int32,
+    UnsafePointer<CChar>?,
+    UnsafePointer<CChar>?
+) -> Void
+
+@_silgen_name("siglus_pump_create")
+private func siglus_pump_create(_ gameRootUtf8: UnsafePointer<CChar>, _ nlsUtf8: UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
+
+@_silgen_name("siglus_pump_set_native_messagebox_callback")
+private func siglus_pump_set_native_messagebox_callback(
+    _ handle: UnsafeMutableRawPointer?,
+    _ callback: SiglusMessageboxCallback?,
+    _ userData: UnsafeMutableRawPointer?
+) -> Void
+
+@_silgen_name("siglus_pump_submit_messagebox_result")
+private func siglus_pump_submit_messagebox_result(_ handle: UnsafeMutableRawPointer?, _ requestId: UInt64, _ value: Int64) -> Void
+
+@_silgen_name("siglus_pump_step")
+private func siglus_pump_step(_ handle: UnsafeMutableRawPointer?, _ timeoutMs: UInt32) -> Int32
+
+@_silgen_name("siglus_pump_destroy")
+private func siglus_pump_destroy(_ handle: UnsafeMutableRawPointer?) -> Void
+
+private final class PumpMessageboxContext {
+    var handle: UnsafeMutableRawPointer?
+    private var pendingMessageboxResults: [(UInt64, Int64)] = []
+
+    func enqueueMessageboxResult(requestId: UInt64, value: Int64) {
+        pendingMessageboxResults.append((requestId, value))
+    }
+
+    func drainMessageboxResults() -> [(UInt64, Int64)] {
+        let results = pendingMessageboxResults
+        pendingMessageboxResults.removeAll(keepingCapacity: true)
+        return results
+    }
+}
+
+private func runMessagebox(kind: Int32, title: String, message: String) -> Int64 {
+    let alert = NSAlert()
+    alert.alertStyle = .warning
+    alert.messageText = title.isEmpty ? "Siglus" : title
+    alert.informativeText = message
+
+    switch kind {
+    case 0:
+        alert.addButton(withTitle: "OK")
+    case 1:
+        alert.addButton(withTitle: "OK")
+        alert.addButton(withTitle: "Cancel")
+    case 2:
+        alert.addButton(withTitle: "Yes")
+        alert.addButton(withTitle: "No")
+    case 3:
+        alert.addButton(withTitle: "Yes")
+        alert.addButton(withTitle: "No")
+        alert.addButton(withTitle: "Cancel")
+    default:
+        alert.addButton(withTitle: "OK")
+    }
+
+    let response = alert.runModal()
+    let offset = response.rawValue - NSApplication.ModalResponse.alertFirstButtonReturn.rawValue
+    switch kind {
+    case 0:
+        return 0
+    case 1:
+        return offset == 0 ? 0 : 1
+    case 2:
+        return offset == 0 ? 0 : 1
+    case 3:
+        if offset == 0 { return 0 }
+        if offset == 1 { return 1 }
+        return 2
+    default:
+        return 0
+    }
+}
+
+@_cdecl("siglus_macos_messagebox_callback")
+func siglus_macos_messagebox_callback(
+    userData: UnsafeMutableRawPointer?,
+    requestId: UInt64,
+    kind: Int32,
+    titleUtf8: UnsafePointer<CChar>?,
+    messageUtf8: UnsafePointer<CChar>?
+) {
+    guard let userData else { return }
+    let context = Unmanaged<PumpMessageboxContext>.fromOpaque(userData).takeUnretainedValue()
+    let title = titleUtf8.map { String(cString: $0) } ?? "Siglus"
+    let message = messageUtf8.map { String(cString: $0) } ?? ""
+
+    let collect: () -> Void = {
+        let value = runMessagebox(kind: kind, title: title, message: message)
+        context.enqueueMessageboxResult(requestId: requestId, value: value)
+    }
+
+    if Thread.isMainThread {
+        collect()
+    } else {
+        DispatchQueue.main.sync(execute: collect)
+    }
+}
 
 final class LauncherWindowDelegate: NSObject, NSWindowDelegate {
     private let onClose: () -> Void
@@ -86,7 +191,7 @@ final class LauncherHost {
     /// Selection stage event-loop integration.
     ///
     /// Important: we intentionally **avoid** calling `NSApp.run()` / `NSApp.runModal()` / `NSApp.finishLaunching()` here.
-    /// Winit expects to own the AppKit lifecycle when `siglus_run_entry()` starts; pre-launching the app via AppKit
+    /// Winit expects to own the AppKit lifecycle when the pump host starts; pre-launching the app via AppKit
     /// can prevent winit from receiving its expected launch notifications.
     func runPumpSelection() -> GameEntry? {
         selected = nil
@@ -114,10 +219,34 @@ final class LauncherHost {
     }
 
     func runGame(_ game: GameEntry) -> Int32 {
-        // Avoid manual allocation/free here; the strings are only needed for the duration of the call.
+        let context = PumpMessageboxContext()
+        let contextPtr = Unmanaged.passRetained(context).toOpaque()
+        defer {
+            Unmanaged<PumpMessageboxContext>.fromOpaque(contextPtr).release()
+        }
+
         return game.rootPath.withCString { gameC in
             game.nls.withCString { nlsC in
-                siglus_run_entry(gameC, nlsC)
+                guard let handle = siglus_pump_create(gameC, nlsC) else {
+                    return 1
+                }
+                context.handle = handle
+                siglus_pump_set_native_messagebox_callback(handle, siglus_macos_messagebox_callback, contextPtr)
+                defer {
+                    siglus_pump_set_native_messagebox_callback(handle, nil, nil)
+                    siglus_pump_destroy(handle)
+                    context.handle = nil
+                }
+
+                while true {
+                    let status = siglus_pump_step(handle, 16)
+                    for (requestId, value) in context.drainMessageboxResults() {
+                        siglus_pump_submit_messagebox_result(handle, requestId, value)
+                    }
+                    if status != 0 {
+                        return 0
+                    }
+                }
             }
         }
     }
@@ -146,9 +275,9 @@ struct SiglusLauncherMain {
             return
         }
 
-        print("[launcher] -> siglus_run_entry(game_root=\(game.rootPath), nls=\(game.nls)); NSApp.isRunning=\(NSApp.isRunning)")
+        print("[launcher] -> siglus_pump_create/game loop(game_root=\(game.rootPath), nls=\(game.nls)); NSApp.isRunning=\(NSApp.isRunning)")
         let rc = host.runGame(game)
-        print("[launcher] <- siglus_run_entry returned \(rc); exiting process")
+        print("[launcher] <- siglus pump loop returned \(rc); exiting process")
 
         // IMPORTANT:
         // We do NOT return to the launcher UI after a game finishes.

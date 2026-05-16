@@ -357,6 +357,10 @@ pub enum SyscomPendingProcKind {
     EndGame,
     ReturnToSel,
     ReturnToMenu,
+    Save,
+    Load,
+    QuickSave,
+    QuickLoad,
     BacklogLoad,
     MsgBack,
     OpenSyscomMenu,
@@ -721,6 +725,8 @@ pub struct GlobalState {
     pub capture_image: Option<RgbaImage>,
     /// Capture buffer used by OBJECT.CREATE_CAPTURE and thumb fallback paths.
     pub capture_for_object_image: Option<RgbaImage>,
+    /// Save thumbnail capture prepared before entering the save UI.
+    pub save_thumb_capture_image: Option<RgbaImage>,
 
     /// Currently selected append directory used by original file resolution helpers.
     pub append_dir: String,
@@ -801,6 +807,7 @@ impl Default for GlobalState {
             mov: GlobalMovieState::default(),
             capture_image: None,
             capture_for_object_image: None,
+            save_thumb_capture_image: None,
             append_dir: String::new(),
             append_name: String::new(),
 
@@ -4447,6 +4454,8 @@ pub struct BtnSelItemState {
     pub size: (i64, i64),
     pub visible: bool,
     pub selected: bool,
+    pub button_action_no: i64,
+    pub button_state: i64,
 }
 
 #[derive(Debug, Default, Clone)]

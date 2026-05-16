@@ -366,9 +366,8 @@ fn make_selbtn_image_object(
     width: i64,
     height: i64,
     layer_rep: i64,
-    button_action_no: Option<i64>,
     item_type: i64,
-    selected: bool,
+    _selected: bool,
 ) -> Option<crate::runtime::globals::ObjectState> {
     let img_id = load_selbtn_image_id(ctx, file_name, patno)?;
     let (img_w, img_h) = ctx
@@ -421,22 +420,6 @@ fn make_selbtn_image_object(
         obj.set_int_prop(&ctx.ids, ctx.ids.obj_layer, layer_rep);
     }
 
-    if let Some(action_no) = button_action_no {
-        obj.button.enabled = item_type == TNM_SEL_ITEM_TYPE_ON;
-        obj.button.action_no = action_no;
-        obj.button.cut_no = 0;
-        obj.button.button_no = -1;
-        obj.button.group_no = -1;
-        obj.button.state = if item_type == TNM_SEL_ITEM_TYPE_READ {
-            4
-        } else if selected {
-            1
-        } else {
-            0
-        };
-        obj.button.hit = selected && item_type == TNM_SEL_ITEM_TYPE_ON;
-        obj.button.pushed = false;
-    }
 
     Some(obj)
 }
@@ -562,6 +545,14 @@ fn prepare_stage_btnselitems(ctx: &mut CommandContext) {
         item.size = choice.size;
         item.visible = choice.item_type == TNM_SEL_ITEM_TYPE_ON || choice.item_type == TNM_SEL_ITEM_TYPE_READ;
         item.selected = idx == cursor;
+        item.button_action_no = tmpl.btn_action_no;
+        item.button_state = if choice.item_type == TNM_SEL_ITEM_TYPE_READ {
+            4
+        } else if item.selected && choice.item_type == TNM_SEL_ITEM_TYPE_ON {
+            1
+        } else {
+            0
+        };
 
         if let Some(obj) = make_selbtn_image_object(
             ctx,
@@ -570,7 +561,6 @@ fn prepare_stage_btnselitems(ctx: &mut CommandContext) {
             item.size.0,
             item.size.1,
             waku_layer_rep,
-            Some(tmpl.btn_action_no),
             choice.item_type,
             item.selected,
         ) {
@@ -583,7 +573,6 @@ fn prepare_stage_btnselitems(ctx: &mut CommandContext) {
             item.size.0,
             item.size.1,
             filter_layer_rep,
-            None,
             choice.item_type,
             item.selected,
         ) {
@@ -1245,12 +1234,14 @@ fn dispatch_capture_command(
     match form_id as i32 {
         constants::elm_value::GLOBAL_CAPTURE => {
             let img = ctx.capture_frame_rgba();
-            ctx.globals.capture_image = Some(img);
+            ctx.globals.capture_image = Some(img.clone());
+            crate::runtime::forms::syscom::prepare_runtime_save_thumb_capture(ctx);
             ctx.push(Value::Int(0));
             Ok(true)
         }
         constants::elm_value::GLOBAL_CAPTURE_FREE => {
             ctx.globals.capture_image = None;
+            ctx.globals.save_thumb_capture_image = None;
             ctx.push(Value::Int(0));
             Ok(true)
         }
@@ -1279,6 +1270,7 @@ fn dispatch_capture_command(
                         path.display()
                     )
                 });
+            crate::runtime::forms::syscom::prepare_runtime_save_thumb_capture_from_image(ctx, &img);
             ctx.globals.capture_image = Some(img);
             ctx.push(Value::Int(0));
             Ok(true)
@@ -1302,8 +1294,17 @@ fn dispatch_capture_command(
             Ok(true)
         }
         constants::elm_value::GLOBAL_CAPTURE_FOR_LOCAL_SAVE => {
-            let img = ctx.capture_frame_rgba();
-            ctx.globals.capture_image = Some(img);
+            let end_order = named_i64(args, 0).unwrap_or(i32::MAX as i64 / 1024);
+            let end_layer = named_i64(args, 1).unwrap_or(1023);
+            let width = named_i64(args, 3).unwrap_or(ctx.screen_w as i64).max(1) as u32;
+            let height = named_i64(args, 4).unwrap_or(ctx.screen_h as i64).max(1) as u32;
+            let img = ctx.capture_frame_rgba_until(end_order, end_layer);
+            let resized = crate::runtime::forms::syscom::resize_capture_rgba_nearest(
+                &img,
+                width,
+                height,
+            );
+            ctx.globals.capture_for_object_image = Some(resized);
             ctx.push(Value::Int(1));
             Ok(true)
         }

@@ -534,6 +534,10 @@ impl<'a> SceneVm<'a> {
         self.current_scene_no
     }
 
+    pub fn take_runtime_load_completed(&mut self) -> bool {
+        self.ctx.take_runtime_load_completed()
+    }
+
     pub fn call_syscom_configured_scene(&mut self, key: &str) -> Result<bool> {
         // Match the original C++ Gp_ini fields: SAVE_SCENE, LOAD_SCENE and
         // CONFIG_SCENE store both scene name and z label number.  GameexeConfig
@@ -2807,6 +2811,10 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         };
 
+        if matches!(sys_type, 1 | 9) {
+            crate::runtime::forms::syscom::prepare_runtime_save_thumb_capture(&mut self.ctx);
+        }
+
         // This follows C_elm_object::check_button_action() in the original engine:
         // system buttons call the SYSCOM operation directly.  The form dispatcher
         // expects CommandContext::vm_call to carry the current element chain, so
@@ -3195,6 +3203,7 @@ impl<'a> SceneVm<'a> {
         self.user_props.clear();
         self.scene_stack.clear();
         self.save_point = None;
+        self.ctx.local_save_snapshot = None;
         self.sel_point_stack.clear();
         self.current_scene_no = Some(scene_no);
         self.current_scene_name = Some(scene_name.to_string());
@@ -6951,71 +6960,72 @@ impl<'a> SceneVm<'a> {
         ))
     }
 
+    fn stamp_slot_with_local_time(slot: &mut crate::runtime::globals::SaveSlotState) {
+        use chrono::{Datelike, Timelike};
+        let now = chrono::Local::now();
+        slot.exist = true;
+        slot.year = now.year() as i64;
+        slot.month = now.month() as i64;
+        slot.day = now.day() as i64;
+        // SYSTEMTIME.wDayOfWeek uses 0..6 with Sunday = 0.
+        slot.weekday = now.weekday().num_days_from_sunday() as i64;
+        slot.hour = now.hour() as i64;
+        slot.minute = now.minute() as i64;
+        slot.second = now.second() as i64;
+        slot.millisecond = now.timestamp_subsec_millis() as i64;
+    }
+
+    /// Build the slot record that ends up in the save file header and in the in-memory
+    /// `save_slots` / `quick_save_slots` tables. Mirrors C++ `tnm_save_local_on_file`:
+    /// timestamps come from `GetLocalTime` (i.e. "now"), while the textual fields
+    /// (title / message / full_message / append_dir / append_name) come from the
+    /// engine's m_local_save snapshot.
+    ///
+    /// Inner-save still pulls textual fields from live runtime state because the
+    /// inner-save path here is the only consumer that doesn't go through SAVEPOINT.
     fn ensure_runtime_slot_for_save(&mut self, req: RuntimeSaveRequest) -> crate::runtime::globals::SaveSlotState {
-        fn stamp(slot: &mut crate::runtime::globals::SaveSlotState) {
-            use chrono::{Datelike, Timelike};
-            let now = chrono::Local::now();
-            slot.exist = true;
-            slot.year = now.year() as i64;
-            slot.month = now.month() as i64;
-            slot.day = now.day() as i64;
-            // SYSTEMTIME.wDayOfWeek uses 0..6 with Sunday = 0.
-            slot.weekday = now.weekday().num_days_from_sunday() as i64;
-            slot.hour = now.hour() as i64;
-            slot.minute = now.minute() as i64;
-            slot.second = now.second() as i64;
-            slot.millisecond = now.timestamp_subsec_millis() as i64;
-        }
-        let current_full_message = {
-            let full = self.ctx.globals.syscom.current_save_full_message.clone();
-            if full.is_empty() {
+        let mut slot = crate::runtime::globals::SaveSlotState::default();
+        Self::stamp_slot_with_local_time(&mut slot);
+        if let Some(snapshot) = self.ctx.local_save_snapshot.as_ref() {
+            slot.title = snapshot.save_scene_title.clone();
+            slot.message = snapshot.save_msg.clone();
+            slot.full_message = if snapshot.save_full_msg.is_empty() {
+                snapshot.save_msg.clone()
+            } else {
+                snapshot.save_full_msg.clone()
+            };
+            slot.append_dir = snapshot.append_dir.clone();
+            slot.append_name = snapshot.append_name.clone();
+        } else {
+            // No snapshot exists (e.g. inner save before any SAVEPOINT). Fall back to
+            // live runtime values so inner-save still records something meaningful.
+            slot.title = self.ctx.globals.syscom.current_save_scene_title.clone();
+            slot.message = self.ctx.globals.syscom.current_save_message.clone();
+            slot.full_message = if self.ctx.globals.syscom.current_save_full_message.is_empty() {
                 self.ctx.globals.syscom.current_save_message.clone()
             } else {
-                full
-            }
-        };
+                self.ctx.globals.syscom.current_save_full_message.clone()
+            };
+            slot.append_dir = self.ctx.globals.append_dir.clone();
+            slot.append_name = self.ctx.globals.append_name.clone();
+        }
+
         match req.kind {
             RuntimeSaveKind::Normal => {
                 if self.ctx.globals.syscom.save_slots.len() <= req.index {
                     self.ctx.globals.syscom.save_slots.resize_with(req.index + 1, Default::default);
                 }
-                let slot = &mut self.ctx.globals.syscom.save_slots[req.index];
-                stamp(slot);
-                slot.title = self.ctx.globals.syscom.current_save_scene_title.clone();
-                slot.message = self.ctx.globals.syscom.current_save_message.clone();
-                slot.full_message = current_full_message.clone();
-                slot.append_dir = self.ctx.globals.append_dir.clone();
-                slot.append_name = self.ctx.globals.append_name.clone();
-                slot.comment.clear();
-                slot.values.clear();
-                slot.clone()
+                self.ctx.globals.syscom.save_slots[req.index] = slot.clone();
             }
             RuntimeSaveKind::Quick => {
                 if self.ctx.globals.syscom.quick_save_slots.len() <= req.index {
                     self.ctx.globals.syscom.quick_save_slots.resize_with(req.index + 1, Default::default);
                 }
-                let slot = &mut self.ctx.globals.syscom.quick_save_slots[req.index];
-                stamp(slot);
-                slot.title = self.ctx.globals.syscom.current_save_scene_title.clone();
-                slot.message = self.ctx.globals.syscom.current_save_message.clone();
-                slot.full_message = current_full_message.clone();
-                slot.append_dir = self.ctx.globals.append_dir.clone();
-                slot.append_name = self.ctx.globals.append_name.clone();
-                slot.comment.clear();
-                slot.values.clear();
-                slot.clone()
+                self.ctx.globals.syscom.quick_save_slots[req.index] = slot.clone();
             }
-            RuntimeSaveKind::End | RuntimeSaveKind::Inner => {
-                let mut slot = crate::runtime::globals::SaveSlotState::default();
-                stamp(&mut slot);
-                slot.title = self.ctx.globals.syscom.current_save_scene_title.clone();
-                slot.message = self.ctx.globals.syscom.current_save_message.clone();
-                slot.full_message = current_full_message.clone();
-                slot.append_dir = self.ctx.globals.append_dir.clone();
-                slot.append_name = self.ctx.globals.append_name.clone();
-                slot
-            }
+            RuntimeSaveKind::End | RuntimeSaveKind::Inner => {}
         }
+        slot
     }
 
     fn local_flag_count(&self) -> usize {
@@ -8568,6 +8578,46 @@ impl<'a> SceneVm<'a> {
         }
     }
 
+    fn current_local_save_id(&self) -> [u16; 7] {
+        use chrono::{Datelike, Timelike};
+        let now = chrono::Local::now();
+        [
+            now.year().clamp(0, u16::MAX as i32) as u16,
+            now.month() as u16,
+            now.day() as u16,
+            now.hour() as u16,
+            now.minute() as u16,
+            now.second() as u16,
+            now.timestamp_subsec_millis() as u16,
+        ]
+    }
+
+    /// Mirror of C++ `C_tnm_eng::save_local()`. Captures the engine snapshot into
+    /// `ctx.local_save_snapshot` so subsequent SAVE / QUICK_SAVE / END_SAVE invocations
+    /// write the savepoint-time state, not whatever transient menu state happens to be
+    /// live when the user picks a slot.
+    fn build_local_save_snapshot(&mut self) {
+        let local_stream = self.build_original_local_stream();
+        let local_ex_stream = self.build_original_local_ex_stream();
+        let snapshot = crate::runtime::LocalSaveSnapshot {
+            save_id: self.current_local_save_id(),
+            append_dir: self.ctx.globals.append_dir.clone(),
+            append_name: self.ctx.globals.append_name.clone(),
+            save_scene_title: self.ctx.globals.syscom.current_save_scene_title.clone(),
+            save_msg: String::new(),
+            save_full_msg: self.ctx.globals.syscom.current_save_full_message.clone(),
+            local_stream,
+            local_ex_stream,
+            sel_saves: self
+                .ctx
+                .local_save_snapshot
+                .as_ref()
+                .map(|s| s.sel_saves.clone())
+                .unwrap_or_default(),
+        };
+        self.ctx.local_save_snapshot = Some(snapshot);
+    }
+
     fn build_original_local_stream(&self) -> Vec<u8> {
         let mut w = crate::original_save::OriginalStreamWriter::new();
         let scene_name = self.current_scene_name.as_deref().unwrap_or("");
@@ -8836,24 +8886,112 @@ impl<'a> SceneVm<'a> {
         })
     }
 
+    fn save_load_trace_enabled() -> bool {
+        std::env::var_os("SG_SAVELOAD_TRACE").is_some()
+    }
+
     fn perform_runtime_save_request(&mut self, req: RuntimeSaveRequest) -> Result<()> {
-        let slot = self.ensure_runtime_slot_for_save(req);
         if req.kind == RuntimeSaveKind::Inner {
-            let stream = self.build_original_local_stream();
+            // C++ `tnm_saveload_proc_create_inner_save` copies the current
+            // `m_local_save` into the inner-save slot. It must not reserialize the
+            // live runtime (which may be the save/load menu).
+            let Some(snapshot) = self.ctx.local_save_snapshot.as_ref() else {
+                log::error!(
+                    "[SG_SAVELOAD] inner save dropped idx={}: no local_save snapshot",
+                    req.index
+                );
+                return Ok(());
+            };
+            if Self::save_load_trace_enabled() {
+                eprintln!("[SG_SAVELOAD_TRACE][VM] save inner idx={}", req.index);
+            }
             if self.ctx.globals.syscom.inner_save_streams.len() <= req.index {
                 self.ctx.globals.syscom.inner_save_streams.resize_with(req.index + 1, Vec::new);
             }
-            self.ctx.globals.syscom.inner_save_streams[req.index] = stream;
+            self.ctx.globals.syscom.inner_save_streams[req.index] = snapshot.local_stream.clone();
             self.ctx.globals.syscom.inner_save_exists = true;
             return Ok(());
         }
+
+        // Normal / quick / end save mirror C++ `tnm_save_local_on_file`: bail out when
+        // there is no snapshot (equivalent to `m_local_save.save_stream.empty()`).
+        // Without this, picking a slot in the save menu would otherwise serialize the
+        // menu itself - the bug we're fixing.
+        if self.ctx.local_save_snapshot.is_none() {
+            log::error!(
+                "[SG_SAVELOAD] save dropped (kind={:?} idx={}): no local_save snapshot. \
+                 SAVEPOINT has not fired in the current message block - either the script \
+                 set dont_set_save_point or auto-SAVEPOINT wasn't reached yet. No file written.",
+                req.kind, req.index
+            );
+            return Ok(());
+        }
+
+        // Refresh local_ex_stream from the live runtime; mirrors C++ `save_local_ex()`
+        // being called inside `tnm_save_local_on_file` right before writing.
+        let refreshed_ex = self.build_original_local_ex_stream();
+        if let Some(snapshot) = self.ctx.local_save_snapshot.as_mut() {
+            snapshot.local_ex_stream = refreshed_ex;
+        }
+
+        let slot = self.ensure_runtime_slot_for_save(req);
         let Some(path) = self.runtime_save_file_path(req.kind, req.index) else { return Ok(()); };
-        let env = crate::original_save::OriginalLocalSaveEnvelope::from_slot_with_streams(
-            &slot,
-            self.build_original_local_stream(),
-            self.build_original_local_ex_stream(),
-        );
+        if Self::save_load_trace_enabled() {
+            eprintln!(
+                "[SG_SAVELOAD_TRACE][VM] save begin kind={:?} idx={} path={} file_exists_before={}",
+                req.kind,
+                req.index,
+                path.display(),
+                path.exists()
+            );
+        }
+        let snapshot = self
+            .ctx
+            .local_save_snapshot
+            .as_ref()
+            .expect("snapshot presence checked above");
+        let env = crate::original_save::OriginalLocalSaveEnvelope {
+            save_id: snapshot.save_id,
+            append_dir: snapshot.append_dir.clone(),
+            append_name: snapshot.append_name.clone(),
+            title: snapshot.save_scene_title.clone(),
+            message: snapshot.save_msg.clone(),
+            full_message: snapshot.save_full_msg.clone(),
+            local_stream: snapshot.local_stream.clone(),
+            local_ex_stream: snapshot.local_ex_stream.clone(),
+            sel_saves: snapshot.sel_saves.clone(),
+        };
         crate::original_save::write_local_save_file(&path, &slot, &env)?;
+        crate::runtime::forms::syscom::write_global_save(&self.ctx);
+        if Self::save_load_trace_enabled() {
+            eprintln!(
+                "[SG_SAVELOAD_TRACE][VM] save written kind={:?} idx={} path={} bytes={}",
+                req.kind,
+                req.index,
+                path.display(),
+                std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0)
+            );
+        }
+        if let Some(saved_slot) = crate::original_save::read_slot_from_path(&path) {
+            match req.kind {
+                RuntimeSaveKind::Normal => {
+                    if self.ctx.globals.syscom.save_slots.len() <= req.index {
+                        self.ctx.globals.syscom.save_slots.resize_with(req.index + 1, Default::default);
+                    }
+                    self.ctx.globals.syscom.save_slots[req.index] = saved_slot;
+                }
+                RuntimeSaveKind::Quick => {
+                    if self.ctx.globals.syscom.quick_save_slots.len() <= req.index {
+                        self.ctx.globals.syscom.quick_save_slots.resize_with(req.index + 1, Default::default);
+                    }
+                    self.ctx.globals.syscom.quick_save_slots[req.index] = saved_slot;
+                }
+                RuntimeSaveKind::End => {
+                    self.ctx.globals.syscom.end_save_exists = true;
+                }
+                RuntimeSaveKind::Inner => {}
+            }
+        }
         if let Some(save_kind) = Self::save_kind_to_original(req.kind) {
             let save_no = crate::original_save::original_save_no(
                 self.configured_runtime_save_count(false),
@@ -8861,31 +8999,109 @@ impl<'a> SceneVm<'a> {
                 save_kind,
                 req.index,
             );
+            if Self::save_load_trace_enabled() {
+                eprintln!(
+                    "[SG_SAVELOAD_TRACE][VM] save thumb write kind={:?} idx={} original_save_no={}",
+                    req.kind,
+                    req.index,
+                    save_no
+                );
+            }
             crate::runtime::forms::syscom::write_runtime_slot_thumb(&mut self.ctx, save_no);
         }
         Ok(())
     }
 
     fn perform_runtime_load_request(&mut self, req: RuntimeLoadRequest) -> Result<()> {
-        let (local_stream, local_ex_stream, loaded_append) = if req.kind == RuntimeSaveKind::Inner {
+        if Self::save_load_trace_enabled() {
+            eprintln!("[SG_SAVELOAD_TRACE][VM] load begin kind={:?} idx={}", req.kind, req.index);
+        }
+        struct LoadedEnvelopeMeta {
+            save_id: [u16; 7],
+            append_dir: String,
+            append_name: String,
+            title: String,
+            message: String,
+            full_message: String,
+            sel_saves: Vec<crate::original_save::OriginalLocalSaveEnvelope>,
+        }
+        let (local_stream, local_ex_stream, loaded_meta) = if req.kind == RuntimeSaveKind::Inner {
             let Some(stream) = self.ctx.globals.syscom.inner_save_streams.get(req.index).cloned() else { return Ok(()); };
             (stream, Vec::new(), None)
         } else {
             let Some(path) = self.runtime_save_file_path(req.kind, req.index) else { return Ok(()); };
+            if Self::save_load_trace_enabled() {
+                eprintln!(
+                    "[SG_SAVELOAD_TRACE][VM] load read kind={:?} idx={} path={} file_exists={}",
+                    req.kind,
+                    req.index,
+                    path.display(),
+                    path.exists()
+                );
+            }
             let (_header, env) = crate::original_save::read_local_save_file(&path)?;
-            let append = (env.append_dir.clone(), env.append_name.clone());
-            (env.local_stream, env.local_ex_stream, Some(append))
+            let meta = LoadedEnvelopeMeta {
+                save_id: env.save_id,
+                append_dir: env.append_dir.clone(),
+                append_name: env.append_name.clone(),
+                title: env.title.clone(),
+                message: env.message.clone(),
+                full_message: env.full_message.clone(),
+                sel_saves: env.sel_saves.clone(),
+            };
+            (env.local_stream, env.local_ex_stream, Some(meta))
         };
-        if let Some((append_dir, append_name)) = loaded_append {
+        if let Some(meta) = loaded_meta.as_ref() {
+            let append_dir = meta.append_dir.clone();
+            let append_name = meta.append_name.clone();
             self.ctx.globals.append_dir = append_dir.clone();
             self.ctx.globals.append_name = append_name;
             self.ctx.images.set_current_append_dir(append_dir.clone());
             self.ctx.movie.set_current_append_dir(append_dir.clone());
             self.ctx.bgm.set_current_append_dir(append_dir);
         }
+        // VM-side equivalent of C++ `tnm_finish_local`: drop excall frames, sel
+        // points, and the stale save point. The loaded scene re-establishes its
+        // own context; without this, when the loaded scene eventually issues a
+        // RETURN we'd pop back into the orphaned save/load menu excall frame.
+        self.scene_stack.clear();
+        self.sel_point_stack.clear();
+        self.save_point = None;
+        self.ctx.local_save_snapshot = None;
+        self.ctx.begin_runtime_load_apply();
         let snapshot = self.parse_original_local_stream(&local_stream)?;
         self.parse_original_local_ex_stream(&local_ex_stream)?;
-        if snapshot.scene_name.is_empty() { return Ok(()); }
+        // Mirror C++ `tnm_load_local_on_file` + tail of `load_local`: re-populate
+        // `m_local_save` so the loaded scene can SAVE without first taking another
+        // SAVEPOINT. C++ clears save_msg and copies save_full_msg = cur_full_message
+        // after load_local; do the same here.
+        if let Some(meta) = loaded_meta {
+            self.ctx.local_save_snapshot = Some(crate::runtime::LocalSaveSnapshot {
+                save_id: meta.save_id,
+                append_dir: meta.append_dir,
+                append_name: meta.append_name,
+                save_scene_title: meta.title,
+                save_msg: String::new(),
+                save_full_msg: self.ctx.globals.syscom.current_save_full_message.clone(),
+                local_stream: local_stream.clone(),
+                local_ex_stream: local_ex_stream.clone(),
+                sel_saves: meta.sel_saves,
+            });
+            // The header text from the loaded file (which represents the last
+            // append'd-message state) takes precedence over what's left in
+            // current_save_message after parse, so subsequent saves echo what the
+            // user actually saw last.
+            let snap = self.ctx.local_save_snapshot.as_ref().unwrap();
+            self.ctx.globals.syscom.current_save_scene_title = snap.save_scene_title.clone();
+        }
+        if snapshot.scene_name.is_empty() {
+            log::error!(
+                "[SG_SAVELOAD] aborting load (kind={:?} idx={}): saved snapshot has empty scene_name. \
+                 This save file is unusable; please delete it.",
+                req.kind, req.index
+            );
+            return Ok(());
+        }
         let (mut stream, scene_no) = self.load_scene_stream(&snapshot.scene_name, 0)?;
         stream.set_prg_cntr(snapshot.pc.max(0) as usize)?;
         self.stream = stream;
@@ -8906,10 +9122,289 @@ impl<'a> SceneVm<'a> {
         self.ctx.wait = runtime::wait::VmWait::default();
         self.halted = false;
         self.delayed_ret_form = None;
+        // C++ `C_elm_stage::load` / `C_elm_mwnd::load` end by calling each
+        // object's `restruct_type()` to rebuild the visible render side
+        // (image asset + sprite binding + transform). Rust's gfx runtime is
+        // not in the save format, so do the equivalent walk here: for every
+        // Gfx-backed object whose `file_name` is set, rebuild its gfx state
+        // from the loaded globals. Without this the loaded scene renders as
+        // a blank canvas while the saved data is technically all there.
+        self.restore_runtime_bindings_after_load();
+        self.ctx.mark_runtime_load_completed();
         Ok(())
     }
 
+    /// Walk every PCT-style object the loaded snapshot put back into
+    /// `globals.stage_forms` (BG, top-level on each stage, plus mwnd-embedded
+    /// button/face/object lists) and ask the gfx runtime to re-bind a sprite
+    /// and re-load its image. Also writes `backend = Gfx` back into globals so
+    /// the render pipeline's backend-dispatch reaches the Gfx arm instead of
+    /// skipping the object (the save format never serialized the backend tag,
+    /// so every loaded object starts with `backend = None`).
+    ///
+    /// Equivalent to the `restruct_type()` tail of C++ `C_elm_object::load`,
+    /// for the PCT / SAVE_THUMB / THUMB / CAPTURE family. Specialized backends
+    /// (RECT, STRING, NUMBER, WEATHER, MESH, BILLBOARD, MOVIE, EMOTE) carry
+    /// runtime sprite IDs that aren't in the save format and would need their
+    /// own backend-specific restruct path - logged as warnings here so we know
+    /// what's still missing.
+    fn restore_runtime_bindings_after_load(&mut self) {
+        struct RebuildTask {
+            stage_idx: i64,
+            path: String,
+            runtime_slot: usize,
+            obj_snapshot: runtime::globals::ObjectState,
+        }
+
+        // PCT (2), SAVE_THUMB (8), THUMB (11), CAPTURE (10) - everything that
+        // C++ `restruct_type` routes through a single-image Gfx pipeline. EMOTE
+        // and MOVIE use specialized backends here, so they need their own
+        // type-specific restruct path and are intentionally not handled as Gfx.
+        fn needs_gfx_restore(obj: &runtime::globals::ObjectState) -> bool {
+            if !obj.used {
+                return false;
+            }
+            let has_file = obj.file_name.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+            has_file && matches!(obj.object_type, 2 | 8 | 10 | 11)
+        }
+
+        fn assign_child_slots_and_backend(
+            obj: &mut runtime::globals::ObjectState,
+            next_nested: &mut usize,
+        ) {
+            if needs_gfx_restore(obj) {
+                obj.backend = runtime::globals::ObjectBackend::Gfx;
+            }
+            for child in &mut obj.runtime.child_objects {
+                if child.nested_runtime_slot.is_none() {
+                    child.nested_runtime_slot = Some(*next_nested);
+                    *next_nested += 1;
+                }
+                assign_child_slots_and_backend(child, next_nested);
+            }
+        }
+
+        fn collect_rebuild_tasks(
+            out: &mut Vec<RebuildTask>,
+            stage_idx: i64,
+            path: String,
+            slot_hint: usize,
+            obj: &runtime::globals::ObjectState,
+        ) {
+            let runtime_slot = obj.runtime_slot_or(slot_hint);
+            if needs_gfx_restore(obj) {
+                out.push(RebuildTask {
+                    stage_idx,
+                    path: path.clone(),
+                    runtime_slot,
+                    obj_snapshot: obj.clone(),
+                });
+            }
+            for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
+                collect_rebuild_tasks(
+                    out,
+                    stage_idx,
+                    format!("{path}.child[{child_idx}]"),
+                    child_idx,
+                    child,
+                );
+            }
+        }
+
+        // C++ load reconstructs every C_elm_object recursively via load/restruct_type.
+        // Rust's save stream does not contain runtime slots, so rebuild the stable
+        // slot assignment before re-binding sprites. Top-level STAGE.OBJECT keeps
+        // its index slot; MWND internal roots use the embedded 200000+ range;
+        // OBJECT.CHILD descendants use the nested 100000+ range.
+        let stage_form_ids: Vec<u32> = self.ctx.globals.stage_forms.keys().copied().collect();
+        for form_id in &stage_form_ids {
+            let Some(stage_form) = self.ctx.globals.stage_forms.get_mut(form_id) else {
+                continue;
+            };
+            let mut stage_ids: Vec<i64> = stage_form
+                .object_lists
+                .keys()
+                .chain(stage_form.mwnd_lists.keys())
+                .copied()
+                .collect();
+            stage_ids.sort_unstable();
+            stage_ids.dedup();
+
+            for stage_idx in stage_ids {
+                let mut next_nested = stage_form
+                    .next_nested_object_slot
+                    .get(&stage_idx)
+                    .copied()
+                    .unwrap_or(100000)
+                    .max(100000);
+                let mut next_embedded = stage_form
+                    .next_embedded_object_slot
+                    .get(&stage_idx)
+                    .copied()
+                    .unwrap_or(200000)
+                    .max(200000);
+                let existing_embedded = stage_form.embedded_object_slots.clone();
+                let mut embedded_assignments: Vec<(String, usize)> = Vec::new();
+                let mut alloc_embedded = |key: String| -> usize {
+                    let full = format!("{stage_idx}:{key}");
+                    if let Some(slot) = existing_embedded.get(&full).copied() {
+                        return slot;
+                    }
+                    let slot = next_embedded;
+                    next_embedded += 1;
+                    embedded_assignments.push((full, slot));
+                    slot
+                };
+
+                if let Some(objs) = stage_form.object_lists.get_mut(&stage_idx) {
+                    for obj in objs.iter_mut() {
+                        assign_child_slots_and_backend(obj, &mut next_nested);
+                    }
+                }
+                if let Some(mwnds) = stage_form.mwnd_lists.get_mut(&stage_idx) {
+                    for (mwnd_idx, m) in mwnds.iter_mut().enumerate() {
+                        for (i, obj) in m.button_list.iter_mut().enumerate() {
+                            if obj.nested_runtime_slot.is_none() {
+                                obj.nested_runtime_slot = Some(alloc_embedded(format!(
+                                    "mwnd_button_{stage_idx}_{mwnd_idx}_{i}"
+                                )));
+                            }
+                            assign_child_slots_and_backend(obj, &mut next_nested);
+                        }
+                        for (i, obj) in m.face_list.iter_mut().enumerate() {
+                            if obj.nested_runtime_slot.is_none() {
+                                obj.nested_runtime_slot = Some(alloc_embedded(format!(
+                                    "mwnd_face_{stage_idx}_{mwnd_idx}_{i}"
+                                )));
+                            }
+                            assign_child_slots_and_backend(obj, &mut next_nested);
+                        }
+                        for (i, obj) in m.object_list.iter_mut().enumerate() {
+                            if obj.nested_runtime_slot.is_none() {
+                                obj.nested_runtime_slot = Some(alloc_embedded(format!(
+                                    "mwnd_object_{stage_idx}_{mwnd_idx}_{i}"
+                                )));
+                            }
+                            assign_child_slots_and_backend(obj, &mut next_nested);
+                        }
+                    }
+                }
+
+                for (key, slot) in embedded_assignments {
+                    stage_form.embedded_object_slots.entry(key).or_insert(slot);
+                }
+                stage_form
+                    .next_nested_object_slot
+                    .insert(stage_idx, next_nested);
+                stage_form
+                    .next_embedded_object_slot
+                    .insert(stage_idx, next_embedded);
+            }
+        }
+
+        let mut tasks: Vec<RebuildTask> = Vec::new();
+        for form_id in &stage_form_ids {
+            let Some(stage_form) = self.ctx.globals.stage_forms.get(form_id) else {
+                continue;
+            };
+            let mut stage_ids: Vec<i64> = stage_form
+                .object_lists
+                .keys()
+                .chain(stage_form.mwnd_lists.keys())
+                .copied()
+                .collect();
+            stage_ids.sort_unstable();
+            stage_ids.dedup();
+            for stage_idx in stage_ids {
+                if let Some(objs) = stage_form.object_lists.get(&stage_idx) {
+                    for (obj_idx, obj) in objs.iter().enumerate() {
+                        collect_rebuild_tasks(
+                            &mut tasks,
+                            stage_idx,
+                            format!("stage[{stage_idx}].object[{obj_idx}]"),
+                            obj_idx,
+                            obj,
+                        );
+                    }
+                }
+                if let Some(mwnds) = stage_form.mwnd_lists.get(&stage_idx) {
+                    for (mwnd_idx, m) in mwnds.iter().enumerate() {
+                        for (i, obj) in m.button_list.iter().enumerate() {
+                            collect_rebuild_tasks(
+                                &mut tasks,
+                                stage_idx,
+                                format!("stage[{stage_idx}].mwnd[{mwnd_idx}].button[{i}]"),
+                                i,
+                                obj,
+                            );
+                        }
+                        for (i, obj) in m.face_list.iter().enumerate() {
+                            collect_rebuild_tasks(
+                                &mut tasks,
+                                stage_idx,
+                                format!("stage[{stage_idx}].mwnd[{mwnd_idx}].face[{i}]"),
+                                i,
+                                obj,
+                            );
+                        }
+                        for (i, obj) in m.object_list.iter().enumerate() {
+                            collect_rebuild_tasks(
+                                &mut tasks,
+                                stage_idx,
+                                format!("stage[{stage_idx}].mwnd[{mwnd_idx}].object[{i}]"),
+                                i,
+                                obj,
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut unsupported_count = 0usize;
+        for form_id in &stage_form_ids {
+            let Some(stage_form) = self.ctx.globals.stage_forms.get(form_id) else {
+                continue;
+            };
+            for (_stage_idx, objs) in &stage_form.object_lists {
+                for obj in objs {
+                    if obj.used && obj.object_type != 0 && !needs_gfx_restore(obj) {
+                        unsupported_count += 1;
+                    }
+                }
+            }
+        }
+        if unsupported_count > 0 {
+            log::warn!(
+                "[SG_SAVELOAD] {unsupported_count} loaded top-level object(s) have type-specific backends whose runtime sprite IDs are not reconstructed by the Gfx restore path"
+            );
+        }
+
+        for task in tasks {
+            if let Err(err) = self.ctx.gfx.restore_gfx_object_from_globals(
+                &mut self.ctx.images,
+                &mut self.ctx.layers,
+                task.stage_idx,
+                task.runtime_slot as i64,
+                &task.obj_snapshot,
+            ) {
+                log::warn!(
+                    "[SG_SAVELOAD] restore_gfx_object_from_globals path={} slot={} file={:?} failed: {err:#}",
+                    task.path,
+                    task.runtime_slot,
+                    task.obj_snapshot.file_name
+                );
+            }
+        }
+    }
+
     fn drain_runtime_save_load_requests(&mut self) -> Result<()> {
+        // Auto SAVEPOINT must fire before any pending save in the same command
+        // batch, so a SAVE issued from the script's first frame after a message
+        // block start still has a snapshot to write.
+        if self.ctx.take_pending_auto_savepoint() {
+            self.build_local_save_snapshot();
+        }
         if let Some(req) = self.ctx.take_runtime_save_request() {
             self.perform_runtime_save_request(req)?;
         }
@@ -9211,7 +9706,15 @@ impl<'a> SceneVm<'a> {
     fn exec_builtin_global_control(&mut self, form_id: i32, ret_form: i32) -> Result<bool> {
         match form_id {
             constants::elm_value::GLOBAL_SAVEPOINT => {
+                // C++ `ELM_GLOBAL_SAVEPOINT` temporarily pushes 1 before
+                // `tnm_set_save_point()` and then replaces it with return 0.
+                // A later load resumes from the saved stream with that 1 still
+                // on the int stack, allowing scripts to distinguish "loaded from
+                // this SAVEPOINT" from normal forward execution.
+                self.int_stack.push(1);
                 self.save_point = Some(self.make_resume_point());
+                self.build_local_save_snapshot();
+                let _ = self.int_stack.pop();
                 if ret_form != self.cfg.fm_void {
                     self.ctx.stack.push(Value::Int(0));
                 }
@@ -9219,12 +9722,17 @@ impl<'a> SceneVm<'a> {
             }
             constants::elm_value::GLOBAL_CLEAR_SAVEPOINT => {
                 self.save_point = None;
+                self.ctx.local_save_snapshot = None;
                 Ok(true)
             }
             constants::elm_value::GLOBAL_CHECK_SAVEPOINT => {
-                self.ctx
-                    .stack
-                    .push(Value::Int(if self.save_point.is_some() { 1 } else { 0 }));
+                let has = self
+                    .ctx
+                    .local_save_snapshot
+                    .as_ref()
+                    .map(|s| !s.local_stream.is_empty())
+                    .unwrap_or(false);
+                self.ctx.stack.push(Value::Int(if has { 1 } else { 0 }));
                 Ok(true)
             }
             constants::elm_value::GLOBAL_SELPOINT => {

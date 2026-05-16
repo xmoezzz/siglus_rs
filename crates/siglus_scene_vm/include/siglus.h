@@ -38,6 +38,9 @@ void siglus_ios_submit_messagebox_result(void *handle, uint64_t request_id, int6
 int32_t siglus_ios_step(void *handle, uint32_t dt_ms);
 void siglus_ios_resize(void *handle, uint32_t surface_width, uint32_t surface_height);
 void siglus_ios_touch(void *handle, int32_t phase, double x_points, double y_points);
+void siglus_ios_text_input(void *handle, const char *text_utf8);
+void siglus_ios_key_down(void *handle, int32_t key_code);
+void siglus_ios_key_up(void *handle, int32_t key_code);
 void siglus_ios_destroy(void *handle);
 #endif
 
@@ -63,6 +66,9 @@ void siglus_android_set_surface(
     uint32_t surface_width_px,
     uint32_t surface_height_px);
 void siglus_android_touch(void *handle, int32_t phase, double x_px, double y_px);
+void siglus_android_text_input(void *handle, const char *text_utf8);
+void siglus_android_key_down(void *handle, int32_t key_code);
+void siglus_android_key_up(void *handle, int32_t key_code);
 void siglus_android_destroy(void *handle);
 #endif
 
@@ -74,6 +80,9 @@ void siglus_pump_set_native_messagebox_callback(
     siglus_native_messagebox_callback_t callback,
     void *user_data);
 void siglus_pump_submit_messagebox_result(SiglusPumpHandle *handle, uint64_t request_id, int64_t value);
+void siglus_pump_text_input(SiglusPumpHandle *handle, const char *text_utf8);
+void siglus_pump_key_down(SiglusPumpHandle *handle, int32_t key_code);
+void siglus_pump_key_up(SiglusPumpHandle *handle, int32_t key_code);
 int32_t siglus_pump_step(SiglusPumpHandle *handle, uint32_t timeout_ms);
 void siglus_pump_destroy(SiglusPumpHandle *handle);
 int32_t siglus_run_entry(const char *game_root_utf8, const char *nls_utf8);

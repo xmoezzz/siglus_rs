@@ -753,6 +753,94 @@ impl GfxRuntime {
         self.object_create_impl(images, layers, stage, obj_idx, file, disp, x, y, patno, true)
     }
 
+    /// Mirror of C++ `C_elm_object::restruct_pct` (and the `restruct_type`
+    /// dispatch around it) executed at the tail of `C_elm_object::load`. After
+    /// a save-file load, the per-object gfx runtime (sprite binding, image
+    /// asset, transform/color state) is empty - the saved stream restores
+    /// `globals::ObjectState` but the rendering side has no equivalent storage
+    /// in the save format. This rebuilds the gfx side from the loaded globals
+    /// so the next render frame sees the same picture the save captured.
+    ///
+    /// Caller filters: only invoke for Gfx-backed objects whose `file_name` is
+    /// non-empty; everything else (mesh, movie, weather, number, string) needs
+    /// its own backend-specific path and is no-op here.
+    pub fn restore_gfx_object_from_globals(
+        &mut self,
+        images: &mut ImageManager,
+        layers: &mut LayerManager,
+        stage: i64,
+        obj_idx: i64,
+        src: &crate::runtime::globals::ObjectState,
+    ) -> Result<()> {
+        let stage_i = stage as isize;
+        if !(0..3).contains(&stage_i) || obj_idx < 0 {
+            return Ok(());
+        }
+        let file = match src.file_name.as_deref() {
+            Some(f) if !f.is_empty() => f.to_string(),
+            _ => return Ok(()),
+        };
+        let stage_u = stage_i as usize;
+        let obj_u = obj_idx as usize;
+
+        let current_layer = self.current_layer;
+        self.reset_object_for_create(layers, stage_u, obj_u);
+        {
+            let pe = &src.runtime.prop_events;
+            let dst = self.ensure_object_mut(stage_u, obj_u);
+            dst.is_bg = stage_u == 0 && obj_u == 0;
+            dst.is_mesh = false;
+            dst.file = Some(file);
+            dst.patno = src.base.patno;
+            dst.disp = src.base.disp != 0;
+            dst.x = pe.x.get_total_value() as i64;
+            dst.y = pe.y.get_total_value() as i64;
+            dst.z = pe.z.get_total_value() as i64;
+            dst.layer_no = src.base.layer;
+            dst.order = src.base.order;
+            dst.center_x = pe.center_x.get_total_value() as i64;
+            dst.center_y = pe.center_y.get_total_value() as i64;
+            dst.scale_x = pe.scale_x.get_total_value() as i64;
+            dst.scale_y = pe.scale_y.get_total_value() as i64;
+            dst.rotate_z = pe.rotate_z.get_total_value() as i64;
+            dst.clip_use = src.base.clip_use;
+            dst.clip_left = pe.clip_left.get_total_value() as i64;
+            dst.clip_top = pe.clip_top.get_total_value() as i64;
+            dst.clip_right = pe.clip_right.get_total_value() as i64;
+            dst.clip_bottom = pe.clip_bottom.get_total_value() as i64;
+            dst.src_clip_use = src.base.src_clip_use;
+            dst.src_clip_left = pe.src_clip_left.get_total_value() as i64;
+            dst.src_clip_top = pe.src_clip_top.get_total_value() as i64;
+            dst.src_clip_right = pe.src_clip_right.get_total_value() as i64;
+            dst.src_clip_bottom = pe.src_clip_bottom.get_total_value() as i64;
+            let tr = pe.tr.get_total_value() as i64;
+            dst.alpha = tr;
+            dst.tr = tr;
+            dst.mono = pe.mono.get_total_value() as i64;
+            dst.reverse = pe.reverse.get_total_value() as i64;
+            dst.bright = pe.bright.get_total_value() as i64;
+            dst.dark = pe.dark.get_total_value() as i64;
+            dst.color_rate = pe.color_rate.get_total_value() as i64;
+            dst.color_add_r = pe.color_add_r.get_total_value() as i64;
+            dst.color_add_g = pe.color_add_g.get_total_value() as i64;
+            dst.color_add_b = pe.color_add_b.get_total_value() as i64;
+            dst.color_r = pe.color_r.get_total_value() as i64;
+            dst.color_g = pe.color_g.get_total_value() as i64;
+            dst.color_b = pe.color_b.get_total_value() as i64;
+            dst.blend = src.base.blend;
+            dst.light_no = src.base.light_no;
+            dst.fog_use = src.base.fog_use;
+            if dst.layer_no == 0 {
+                dst.layer_no = current_layer as i64;
+            }
+        }
+
+        if !(stage_u == 0 && obj_u == 0) {
+            let _ = self.ensure_bound_sprite(layers, stage_u, obj_u)?;
+        }
+        self.sync_object_sprite(images, layers, stage_u, obj_u)
+    }
+
     pub fn object_change_file(
         &mut self,
         images: &mut ImageManager,

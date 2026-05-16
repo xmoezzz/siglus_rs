@@ -29,6 +29,7 @@ use siglus_scene_vm::runtime::globals::{
 };
 use siglus_scene_vm::runtime::input::{VmKey, VmMouseButton};
 use siglus_scene_vm::runtime::{native_ui, CommandContext, ProcKind};
+use siglus_scene_vm::runtime::forms::syscom;
 use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::{SceneVm, VmConfig};
 
@@ -1451,6 +1452,52 @@ impl App {
                 }
                 Ok(true)
             }
+            SyscomPendingProcKind::Save => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    let Some(vm) = self.vm.as_mut() else {
+                        return Ok(false);
+                    };
+                    syscom::menu_save_slot(&mut vm.ctx, false, proc.save_id.max(0) as usize);
+                    syscom::write_global_save(&mut vm.ctx);
+                }
+                Ok(true)
+            }
+            SyscomPendingProcKind::Load => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    let Some(vm) = self.vm.as_mut() else {
+                        return Ok(false);
+                    };
+                    syscom::menu_load_slot(&mut vm.ctx, false, proc.save_id.max(0) as usize);
+                }
+                Ok(true)
+            }
+            SyscomPendingProcKind::QuickSave => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    let Some(vm) = self.vm.as_mut() else {
+                        return Ok(false);
+                    };
+                    syscom::menu_save_slot(&mut vm.ctx, true, proc.save_id.max(0) as usize);
+                    syscom::write_global_save(&mut vm.ctx);
+                }
+                Ok(true)
+            }
+            SyscomPendingProcKind::QuickLoad => {
+                if proc.warning {
+                    self.begin_syscom_warning(proc);
+                } else {
+                    let Some(vm) = self.vm.as_mut() else {
+                        return Ok(false);
+                    };
+                    syscom::menu_load_slot(&mut vm.ctx, true, proc.save_id.max(0) as usize);
+                }
+                Ok(true)
+            }
             SyscomPendingProcKind::ReturnToSel => {
                 let Some(vm) = self.vm.as_mut() else {
                     return Ok(false);
@@ -1659,6 +1706,14 @@ impl App {
                 "#WARNINGINFO.RETURNMENU_WARNING_STR",
                 "WARNINGINFO.RETURNMENU_WARNING_STR",
             ],
+            SyscomPendingProcKind::Save | SyscomPendingProcKind::QuickSave => &[
+                "#WARNINGINFO.SAVE_WARNING_STR",
+                "WARNINGINFO.SAVE_WARNING_STR",
+            ],
+            SyscomPendingProcKind::Load | SyscomPendingProcKind::QuickLoad => &[
+                "#WARNINGINFO.LOAD_WARNING_STR",
+                "WARNINGINFO.LOAD_WARNING_STR",
+            ],
             _ => &[
                 "#WARNINGINFO.RETURNMENU_WARNING_STR",
                 "WARNINGINFO.RETURNMENU_WARNING_STR",
@@ -1667,6 +1722,8 @@ impl App {
         let default = match kind {
             SyscomPendingProcKind::EndGame => "終了してもよろしいですか？",
             SyscomPendingProcKind::ReturnToSel => "前の選択肢に戻ってもよろしいですか？",
+            SyscomPendingProcKind::Save | SyscomPendingProcKind::QuickSave => "セーブデータを上書きしてもよろしいですか？",
+            SyscomPendingProcKind::Load | SyscomPendingProcKind::QuickLoad => "セーブデータをロードしてもよろしいですか？",
             _ => "タイトルに戻ってもよろしいですか？",
         };
         let cfg = vm.ctx.tables.gameexe.as_ref();
@@ -1751,6 +1808,39 @@ impl App {
             0,
             0,
         ));
+    }
+
+    /// Called when `vm.take_runtime_load_completed()` returned true: the VM just
+    /// replaced its scene/call/state with the loaded snapshot, so any proc-flow
+    /// entries the bin had pushed for the save/load menu excall, any suspended
+    /// waits, and any cached runtime image textures are now stale. Re-seed the
+    /// flow with a single Script proc on top of GameTimerStart so the loaded
+    /// scene runs immediately on the next pump.
+    fn finish_runtime_load(&mut self) {
+        if let Some(renderer) = self.renderer.as_mut() {
+            renderer.clear_runtime_image_textures();
+        }
+        if let Some(gui) = self.hud_gui.as_mut() {
+            gui.gpu_texture_cache.clear();
+            gui.texture_cache.clear();
+        }
+        self.flow.stack.clear();
+        self.flow.pending_syscom_proc = None;
+        self.syscom_suspended_waits.clear();
+        self.paused = false;
+        self.script_resume_after_redraw = false;
+        if let Some(vm) = self.vm.as_mut() {
+            vm.ctx.globals.syscom.pending_proc = None;
+            vm.ctx.globals.syscom.menu_open = false;
+            vm.ctx.globals.syscom.menu_kind = None;
+            vm.ctx.globals.syscom.menu_result = None;
+            vm.ctx.globals.syscom.msg_back_open = false;
+            vm.ctx.globals.finish_wipe();
+        }
+        self.flow.push(ProcType::GameTimerStart, 0);
+        self.flow.push(ProcType::Script, 0);
+        self.script_needs_pump = true;
+        self.frame_dirty = true;
     }
 
     fn perform_return_to_menu(&mut self, leave_msgbk: bool) -> Result<()> {
@@ -1891,10 +1981,12 @@ impl App {
                         pop_script_proc,
                         proc_boundary,
                         boundary_kind,
+                        load_completed,
                     ) = {
                         let vm = self.vm.as_mut().expect("vm checked");
                         let proc_gen_before = vm.proc_generation();
                         let running = vm.run_script_proc_continue()?;
+                        let load_completed = vm.take_runtime_load_completed();
                         let proc_boundary = vm.proc_generation() != proc_gen_before;
                         let boundary_kind = vm.last_proc_kind();
                         let pop_script_proc = vm.take_script_proc_pop_request();
@@ -1914,8 +2006,17 @@ impl App {
                             pop_script_proc,
                             proc_boundary,
                             boundary_kind,
+                            load_completed,
                         )
                     };
+                    if load_completed {
+                        // VM replaced the active scene wholesale, so the LOAD_SCENE
+                        // excall and any other syscom flow entries pushed on top
+                        // of the saved scene are orphaned. Drop them and resume
+                        // with a clean Script proc.
+                        self.finish_runtime_load();
+                        continue;
+                    }
                     if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
                         eprintln!(
                             "[SG_PROC_FLOW] script_continue result running={} halted={} cur_scene={} pending={} blocked={} pop_script_proc={} proc_boundary={} boundary={:?} flow={:?}",
@@ -2061,6 +2162,24 @@ impl App {
                                 }
                                 SyscomPendingProcKind::ReturnToMenu => {
                                     self.queue_return_to_menu_proc(proc);
+                                }
+                                SyscomPendingProcKind::Save => {
+                                    let Some(vm) = self.vm.as_mut() else { break; };
+                                    syscom::menu_save_slot(&mut vm.ctx, false, proc.save_id.max(0) as usize);
+                                    syscom::write_global_save(&mut vm.ctx);
+                                }
+                                SyscomPendingProcKind::Load => {
+                                    let Some(vm) = self.vm.as_mut() else { break; };
+                                    syscom::menu_load_slot(&mut vm.ctx, false, proc.save_id.max(0) as usize);
+                                }
+                                SyscomPendingProcKind::QuickSave => {
+                                    let Some(vm) = self.vm.as_mut() else { break; };
+                                    syscom::menu_save_slot(&mut vm.ctx, true, proc.save_id.max(0) as usize);
+                                    syscom::write_global_save(&mut vm.ctx);
+                                }
+                                SyscomPendingProcKind::QuickLoad => {
+                                    let Some(vm) = self.vm.as_mut() else { break; };
+                                    syscom::menu_load_slot(&mut vm.ctx, true, proc.save_id.max(0) as usize);
                                 }
                                 _ => {}
                             }

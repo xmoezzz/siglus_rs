@@ -12,7 +12,17 @@ use ab_glyph::{point, Font, FontArc, PxScale, ScaleFont};
 use std::path::{Path, PathBuf};
 
 mod embedded_font {
-    include!(concat!(env!("OUT_DIR"), "/siglus_embedded_font.rs"));
+    pub const EMBEDDED_DEFAULT_FONT: Option<&'static [u8]> =
+        Some(include_bytes!("../assets/fonts/default.ttf") as &'static [u8]);
+    pub const EMBEDDED_DEFAULT_FONT_SOURCE: Option<&'static str> = Some("assets/fonts/default.ttf");
+    pub const EMBEDDED_DEFAULT_FONT_ALIASES: &[&str] = &[
+        "ＭＳ Ｐゴシック",
+        "MS PGothic",
+        "MS-PGothic",
+        "MSPGothic",
+        "msgothic",
+        "default",
+    ];
 }
 
 #[derive(Debug, Clone, Copy)]

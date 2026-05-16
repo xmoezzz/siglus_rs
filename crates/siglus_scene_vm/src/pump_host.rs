@@ -16,7 +16,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::platform::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use crate::host::{cstr_required, parse_bool_exit, SiglusHost, SiglusHostConfig, SiglusNativeMessageBoxCallback};
+use crate::host::{cstr_opt, cstr_required, parse_bool_exit, SiglusHost, SiglusHostConfig, SiglusNativeMessageBoxCallback};
 use crate::render::Renderer;
 use crate::runtime::game_display_info::resolve_game_name_from_project_dir;
 use crate::runtime::input::{VmKey, VmMouseButton};
@@ -339,6 +339,41 @@ pub unsafe extern "C" fn siglus_pump_submit_messagebox_result(
     if let Some(host) = h.app.host.as_mut() {
         host.submit_native_messagebox_result(request_id, value);
     }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn siglus_pump_text_input(handle: *mut SiglusPumpHandle, text_utf8: *const c_char) {
+    let Some(handle) = handle.as_mut() else {
+        return;
+    };
+    let Some(host) = handle.app.host.as_mut() else {
+        return;
+    };
+    if let Some(text) = cstr_opt(text_utf8) {
+        host.text_input(&text);
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn siglus_pump_key_down(handle: *mut SiglusPumpHandle, key_code: i32) {
+    let Some(handle) = handle.as_mut() else {
+        return;
+    };
+    let Some(host) = handle.app.host.as_mut() else {
+        return;
+    };
+    host.key_down_code(key_code);
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn siglus_pump_key_up(handle: *mut SiglusPumpHandle, key_code: i32) {
+    let Some(handle) = handle.as_mut() else {
+        return;
+    };
+    let Some(host) = handle.app.host.as_mut() else {
+        return;
+    };
+    host.key_up_code(key_code);
 }
 
 #[no_mangle]
