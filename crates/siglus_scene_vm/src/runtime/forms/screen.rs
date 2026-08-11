@@ -7,6 +7,7 @@
 use anyhow::Result;
 
 use super::prop_access;
+use crate::env::trace_env;
 use crate::runtime::forms::codes::int_event_op;
 use crate::runtime::globals::{ScreenEffectState, ScreenFormState, ScreenQuakeState};
 use crate::runtime::{CommandContext, Value};
@@ -43,9 +44,6 @@ fn default_for_ret_form(ret_form: i64) -> Value {
     }
 }
 
-fn anim_skip_trace_enabled() -> bool {
-    std::env::var_os("SG_DEBUG").is_some()
-}
 
 fn screen_event_state(ev: &crate::runtime::int_event::IntEvent) -> String {
     format!(
@@ -141,7 +139,7 @@ fn run_int_event_command(
                 0
             };
             ev.set_event(value, total_time, delay_time, speed_type, real_flag);
-            if anim_skip_trace_enabled() {
+            if trace_env().sg_debug {
                 eprintln!(
                     "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.SET subop={} value={} total_time={} delay={} speed={} real={} state=[{}]",
                     subop, value, total_time, delay_time, speed_type, real_flag, screen_event_state(ev)
@@ -168,7 +166,7 @@ fn run_int_event_command(
                 speed_type,
                 real_flag,
             );
-            if anim_skip_trace_enabled() {
+            if trace_env().sg_debug {
                 eprintln!(
                     "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.LOOP subop={} start={} end={} loop_time={} delay={} speed={} real={} state=[{}]",
                     subop, start_value, end_value, loop_time, delay_time, speed_type, real_flag, screen_event_state(ev)
@@ -195,7 +193,7 @@ fn run_int_event_command(
                 speed_type,
                 real_flag,
             );
-            if anim_skip_trace_enabled() {
+            if trace_env().sg_debug {
                 eprintln!(
                     "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.TURN subop={} start={} end={} loop_time={} delay={} speed={} real={} state=[{}]",
                     subop, start_value, end_value, loop_time, delay_time, speed_type, real_flag, screen_event_state(ev)
@@ -204,14 +202,14 @@ fn run_int_event_command(
             ctx.stack.push(default_for_ret_form(ret_form));
         }
         int_event_op::END => {
-            if anim_skip_trace_enabled() {
+            if trace_env().sg_debug {
                 eprintln!(
                     "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.END before state=[{}]",
                     screen_event_state(ev)
                 );
             }
             ev.end_event();
-            if anim_skip_trace_enabled() {
+            if trace_env().sg_debug {
                 eprintln!(
                     "[SG_DEBUG][ANIM_SKIP_TRACE][SCREEN] INTEVENT.END after state=[{}]",
                     screen_event_state(ev)

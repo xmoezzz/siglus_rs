@@ -11,6 +11,7 @@ use std::ffi::{c_char, c_void, CStr, CString};
 use std::rc::Rc;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use crate::env::trace_env;
 use crate::platform_time::Instant;
 
 use anyhow::{Context, Result};
@@ -574,7 +575,7 @@ impl SiglusHost {
         self.vm.ctx.script_input.use_current();
         self.syscom_suspended_waits
             .push((flow_depth, saved_wait, key.to_string()));
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] host suspend_wait_for_syscom_excall key={} flow_depth={} saved_count={} scene={:?} line={}",
                 key,
@@ -607,7 +608,7 @@ impl SiglusHost {
                 crate::runtime::forms::syscom::CAPTURE_PRIOR_SAVE,
             );
         }
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] host restore_wait_after_syscom_excall popped_depth={} remaining={} scene={:?} line={}",
                 popped_depth,
@@ -629,7 +630,7 @@ impl SiglusHost {
             self.vm.ctx.globals.syscom.msg_back_open = false;
         }
 
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] host consume_syscom_pending kind={:?} before scene={:?} line={} flow={:?}",
                 proc.kind,
@@ -801,7 +802,7 @@ impl SiglusHost {
     fn ensure_requested_script_proc(&mut self) {
         let requested = self.vm.take_script_proc_request();
         if requested {
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 eprintln!(
                     "[SG_PROC_FLOW] host ensure_requested_script_proc push before scene={:?} line={} flow={:?}",
                     self.vm.current_scene_name(),
@@ -810,7 +811,7 @@ impl SiglusHost {
                 );
             }
             self.flow.push(ProcType::Script, 0);
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 eprintln!("[SG_PROC_FLOW] host ensure_requested_script_proc push after flow={:?}", self.flow.stack);
             }
         }
@@ -1045,7 +1046,7 @@ impl SiglusHost {
     }
 
     fn pump_vm(&mut self) -> Result<()> {
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] host pump_vm start paused={} script_needs_pump={} scene={:?} line={} flow={:?} pending_proc={:?}",
                 self.paused,
@@ -1063,7 +1064,7 @@ impl SiglusHost {
         }
 
         self.vm.process_pending_button_actions()?;
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] host pump_vm after_process_button_actions scene={:?} line={} flow={:?} pending_proc={:?}",
                 self.vm.current_scene_name(),
@@ -1084,7 +1085,7 @@ impl SiglusHost {
                 self.paused = true;
                 break;
             };
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 eprintln!(
                     "[SG_PROC_FLOW] host pump_vm loop top proc={:?} scene={:?} line={} flow={:?}",
                     proc,
@@ -1308,7 +1309,7 @@ impl SiglusHost {
     }
 
     fn redraw(&mut self) -> Result<()> {
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] host redraw start scene={:?} line={} flow={:?} pending_proc={:?}",
                 self.vm.current_scene_name(),
@@ -1330,7 +1331,7 @@ impl SiglusHost {
             self.finish_runtime_load();
             return Ok(());
         }
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] host redraw after_tick scene={:?} line={} flow={:?} pending_proc={:?}",
                 self.vm.current_scene_name(),
@@ -1350,7 +1351,7 @@ impl SiglusHost {
         self.ensure_requested_script_proc();
         let render_suppressed = self.suppress_render_once;
         self.suppress_render_once = false;
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] host redraw render_decision render_suppressed={} scene={:?} line={} flow={:?}",
                 render_suppressed,

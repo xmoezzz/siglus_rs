@@ -33,7 +33,6 @@ use anyhow::{anyhow, Result};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use crate::assets::RgbaImage;
@@ -48,6 +47,8 @@ use crate::text_render::{embedded_default_font_names, FontCache, TextStyle};
 use siglus_assets::scene_pck::{ScenePck, ScenePckDecodeOptions};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use crate::env::trace_env;
 
 #[derive(Debug, Clone)]
 pub enum Value {
@@ -244,7 +245,7 @@ fn sg_mwnd_state_trace_runtime(
     new_open: bool,
     m: &globals::MwndState,
 ) {
-    if std::env::var_os("SG_DEBUG").is_none() {
+    if !trace_env().sg_debug {
         return;
     }
     eprintln!(
@@ -3095,7 +3096,7 @@ impl CommandContext {
             leave_msgbk: false,
             save_id: 0,
         });
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] open_syscom_menu_from_cancel_key scene={:?} line={} pending_proc={:?}",
                 self.current_scene_name,
@@ -3675,7 +3676,7 @@ impl CommandContext {
             real_delta_ms
         };
         self.update_selbtn_animation(game_delta_ms as i64);
-        let trace = std::env::var_os("SG_CTX_TICK_TRACE").is_some();
+        let trace = trace_env().sg_ctx_tick_trace;
         if trace {
             eprintln!(
                 "[SG_CTX_TICK] start game_delta_ms={} real_delta_ms={}",
@@ -5302,7 +5303,7 @@ impl CommandContext {
         }
 
         let (slider_x, _slider_top, _slider_bottom) = self.msg_back_slider_track();
-        if std::env::var_os("SG_MSGBK_TRACE").is_some() {
+        if trace_env().sg_msgbk_trace {
             eprintln!(
                 "[SG_MSGBK_TRACE][PROJECTION] entries={} separators={} text={} koe={} load={} total_height={} scroll={} slider={} target={} mouse_target={}",
                 layout.entries.len(),
@@ -6665,7 +6666,7 @@ impl CommandContext {
     }
 
     fn sync_global_movie(&mut self) {
-        let trace = std::env::var_os("SG_MOVIE_TRACE").is_some();
+        let trace = trace_env().sg_movie_trace;
         let file_name = self.globals.mov.file_name.clone();
 
         if !self.globals.mov.playing || file_name.as_deref().unwrap_or("").is_empty() {
@@ -7436,38 +7437,23 @@ fn debug_object_backend_name(obj: &globals::ObjectState) -> &'static str {
 }
 
 fn sg_debug_enabled() -> bool {
-    matches!(
-        std::env::var("SG_DEBUG").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
+    trace_env().sg_debug_value
 }
 
 fn sg_input_trace_enabled() -> bool {
-    matches!(
-        std::env::var("SG_INPUT_TRACE").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
+    trace_env().sg_input_trace
 }
 
 fn sg_mwnd_object_trace_enabled() -> bool {
-    matches!(
-        std::env::var("SG_MWND_OBJECT_TRACE").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
+    trace_env().sg_mwnd_object_trace
 }
 
 fn sg_render_tree_debug_enabled() -> bool {
-    matches!(
-        std::env::var("SG_RENDER_TREE_DEBUG").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
+    trace_env().sg_render_tree_debug
 }
 
 fn config_button_trace_enabled() -> bool {
-    matches!(
-        std::env::var("SG_CONFIG_BUTTON_TRACE").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
+    trace_env().sg_config_button_trace
 }
 
 fn config_button_trace_object(obj: &globals::ObjectState) -> bool {
@@ -7538,7 +7524,7 @@ fn trace_config_event_frame_prop_write(
 }
 
 fn save_load_render_trace_enabled() -> bool {
-    std::env::var_os("SG_SAVELOAD_TRACE").is_some()
+    trace_env().saveload_trace
 }
 
 fn trace_save_load_render_sprites(ctx: &CommandContext, list: &[RenderSprite]) {
@@ -10493,7 +10479,7 @@ fn sync_movie_object_recursive(
     obj: &mut globals::ObjectState,
     decoded_any: &mut bool,
 ) {
-    let trace = std::env::var_os("SG_MOVIE_TRACE").is_some();
+    let trace = trace_env().sg_movie_trace;
     if obj.used && obj.object_type == 9 {
         if let Some(file_name) = obj.file_name.clone() {
             if trace {
@@ -11537,7 +11523,7 @@ fn configure_sprite_3d(
 
 
 fn object_motion_trace_enabled() -> bool {
-    std::env::var_os("SG_OBJECT_MOTION_TRACE").is_some()
+    trace_env().sg_object_motion_trace
 }
 
 fn object_motion_trace_object(obj: &globals::ObjectState) -> bool {
@@ -13764,7 +13750,7 @@ fn build_siglus_object_render_list(
 }
 
 fn trace_codes_enabled() -> bool {
-    std::env::var_os("SIGLUS_TRACE_CODES").is_some()
+    trace_env().siglus_trace_codes
 }
 
 pub fn dispatch_form_code(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {

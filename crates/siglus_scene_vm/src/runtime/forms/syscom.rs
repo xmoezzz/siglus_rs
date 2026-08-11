@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::env::trace_env;
 use crate::runtime::globals::{
     SaveSlotState, SyscomFallbackDialogKind, SyscomFallbackDialogState, SyscomPendingProc,
     SyscomPendingProcKind, SystemMessageBoxButton, ToggleFeatureState, ValueFeatureState,
@@ -39,10 +40,6 @@ fn p_i64(params: &[Value], idx: usize) -> i64 {
 }
 fn p_bool(params: &[Value], idx: usize) -> bool {
     p_i64(params, idx) != 0
-}
-
-fn sg_debug_enabled_local() -> bool {
-    std::env::var_os("SG_DEBUG").is_some()
 }
 
 fn set_syscom_pending_proc(ctx: &mut CommandContext, kind: SyscomPendingProcKind) {
@@ -585,12 +582,8 @@ pub(crate) fn append_current_save_message(ctx: &mut CommandContext, msg: &str) {
     }
 }
 
-fn save_load_trace_enabled() -> bool {
-    std::env::var_os("SG_SAVELOAD_TRACE").is_some()
-}
-
 fn trace_save_load_event(ctx: &CommandContext, label: &str, quick: bool, idx: usize, path: Option<&Path>) {
-    if !save_load_trace_enabled() {
+    if !trace_env().saveload_trace {
         return;
     }
     let kind = if quick { "quick" } else { "normal" };
@@ -959,7 +952,7 @@ fn write_slot_thumb_for_save_no(ctx: &mut CommandContext, save_no: usize) {
         return;
     };
     let path = thumb_path_for_no_with_config(&ctx.project_dir, config, save_no);
-    if save_load_trace_enabled() {
+    if trace_env().saveload_trace {
         eprintln!(
             "[SG_SAVELOAD_TRACE][SYSCOM] write_slot_thumb save_no={} path={} size={}x{} type={:?}",
             save_no,
@@ -1942,7 +1935,7 @@ fn ensure_slot_loaded_with_counts(
     idx: usize,
 ) {
     let path = slot_path_with_counts(project_dir, quick, idx, save_cnt, quick_cnt);
-    if save_load_trace_enabled() {
+    if trace_env().saveload_trace {
         let before_exist = slots.get(idx).map(|s| s.exist).unwrap_or(false);
         eprintln!(
             "[SG_SAVELOAD_TRACE][SYSCOM] ensure_slot_loaded kind={} idx={} path={} file_exists={} cached_exist={}",
@@ -1996,7 +1989,7 @@ fn sync_slots_from_disk_with_counts(
 }
 
 pub(crate) fn sync_save_slots_from_disk(ctx: &mut CommandContext, quick: bool) {
-    if save_load_trace_enabled() {
+    if trace_env().saveload_trace {
         eprintln!(
             "[SG_SAVELOAD_TRACE][SYSCOM] sync_save_slots_from_disk kind={}",
             if quick { "quick" } else { "normal" }
@@ -4019,13 +4012,13 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         SET_MWND_BTN_ENABLE => {
             if params.is_empty() {
                 ctx.globals.syscom.mwnd_btn_disable_all = false;
-                if sg_debug_enabled_local() {
+                if trace_env().sg_debug {
                     eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_ENABLE all disable_all=false");
                 }
             } else {
                 let idx = p_i64(params, 0);
                 ctx.globals.syscom.mwnd_btn_disable.insert(idx, false);
-                if sg_debug_enabled_local() {
+                if trace_env().sg_debug {
                     eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_ENABLE idx={} disabled=false", idx);
                 }
             }
@@ -4033,26 +4026,26 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         SET_MWND_BTN_DISABLE => {
             if params.is_empty() {
                 ctx.globals.syscom.mwnd_btn_disable_all = true;
-                if sg_debug_enabled_local() {
+                if trace_env().sg_debug {
                     eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_DISABLE all disable_all=true");
                 }
             } else {
                 let idx = p_i64(params, 0);
                 ctx.globals.syscom.mwnd_btn_disable.insert(idx, true);
-                if sg_debug_enabled_local() {
+                if trace_env().sg_debug {
                     eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_DISABLE idx={} disabled=true", idx);
                 }
             }
         }
         SET_MWND_BTN_TOUCH_ENABLE => {
             ctx.globals.syscom.mwnd_btn_touch_disable = false;
-            if sg_debug_enabled_local() {
+            if trace_env().sg_debug {
                 eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_TOUCH_ENABLE touch_disable=false");
             }
         }
         SET_MWND_BTN_TOUCH_DISABLE => {
             ctx.globals.syscom.mwnd_btn_touch_disable = true;
-            if sg_debug_enabled_local() {
+            if trace_env().sg_debug {
                 eprintln!("[SG_DEBUG][BUTTON_TRACE][SYSCOM] SET_MWND_BTN_TOUCH_DISABLE touch_disable=true");
             }
         }

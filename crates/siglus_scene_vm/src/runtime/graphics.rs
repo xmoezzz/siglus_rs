@@ -6,17 +6,15 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 
+use crate::env::trace_env;
 use crate::image_manager::{ImageId, ImageManager};
 use crate::layer::{
     ClipRect, LayerId, LayerManager, Sprite, SpriteBlend, SpriteFit, SpriteId, SpriteSizeMode,
 };
 
-fn sg_cgm_coord_trace_enabled() -> bool {
-    std::env::var_os("SG_DEBUG").is_some()
-}
 
 fn sg_cgm_coord_trace(msg: impl AsRef<str>) {
-    if sg_cgm_coord_trace_enabled() {
+    if trace_env().sg_debug {
         eprintln!("[SG_DEBUG][CGM_COORD_TRACE][GFX] {}", msg.as_ref());
     }
 }

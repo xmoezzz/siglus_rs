@@ -1,6 +1,7 @@
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use crate::env::trace_env;
 use crate::platform_time::{Duration, Instant};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -455,7 +456,7 @@ impl SfxEngine {
                     .wav_bytes
             }
         };
-        if std::env::var_os("SG_AUDIO_TRACE").is_some() {
+        if trace_env().sg_audio_trace {
             eprintln!(
                 "[SG_AUDIO_TRACE] koe resolved koe_no={} source={:?} wav_ms={:?}",
                 koe_no,

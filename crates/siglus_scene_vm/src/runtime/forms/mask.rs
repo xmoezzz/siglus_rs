@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use super::prop_access;
+use crate::env::trace_env;
 use crate::runtime::constants;
 use crate::runtime::globals::MaskListState;
 use crate::runtime::int_event::IntEvent;
@@ -44,9 +45,6 @@ enum MaskPostAction {
     Wait(bool),
 }
 
-fn anim_skip_trace_enabled() -> bool {
-    std::env::var_os("SG_DEBUG").is_some()
-}
 
 fn mask_event_state(ev: &IntEvent) -> String {
     format!(
@@ -209,7 +207,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             if matches!(action, MaskPostAction::Wait(_)) {
                 wait_target = Some((idx, op));
             }
-            if anim_skip_trace_enabled() {
+            if trace_env().sg_debug {
                 eprintln!(
                     "[SG_DEBUG][ANIM_SKIP_TRACE][MASK] form={} idx={} op={} subop={} params={:?} action={} state=[{}]",
                     form_id,

@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 
+use crate::env::trace_env;
 use crate::runtime::{CommandContext, ProcKind, Value};
 
 use super::codes::mov_op;
@@ -105,8 +106,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             ctx.globals
                 .mov
                 .start(name.to_string(), x, y, w, h, None, key_skip);
-            if std::env::var_os("SG_DEBUG").is_some()
-                || std::env::var_os("SG_MOVIE_TRACE").is_some()
+            if trace_env().sg_debug
+                || trace_env().sg_movie_trace
             {
                 eprintln!(
                     "[SG_DEBUG][MOV] PLAY file={} pos=({}, {}) size={}x{} wait={} key_skip={} total_ms={:?} path={}",

@@ -24,8 +24,9 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::Fullscreen;
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use siglus_assets::gameexe::{decode_gameexe_dat_bytes, GameexeConfig};
-use siglus_assets::scene_pck::{ScenePck, ScenePckDecodeOptions};
+use siglus_scene_vm::env::trace_env;
+use siglus_assets::gameexe::{decode_gameexe_dat_bytes, GameexeConfig, GameexeDecodeOptions};
+use siglus_assets::scene_pck::{find_scene_pck_in_project, ScenePck, ScenePckDecodeOptions};
 
 use siglus_scene_vm::image_manager::ImageId;
 use siglus_scene_vm::render::{Renderer, RendererDebugTexture};
@@ -1471,7 +1472,7 @@ impl App {
         vm.ctx.script_input.use_current();
         self.syscom_suspended_waits
             .push((flow_depth, saved_wait, key.to_string()));
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] suspend_wait_for_syscom_excall key={} flow_depth={} saved_count={} scene={:?} line={}",
                 key,
@@ -1507,7 +1508,7 @@ impl App {
                 syscom::CAPTURE_PRIOR_SAVE,
             );
         }
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] restore_wait_after_syscom_excall popped_depth={} remaining={} scene={:?} line={}",
                 popped_depth,
@@ -1536,7 +1537,7 @@ impl App {
             return Ok(false);
         };
 
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             eprintln!("[SG_PROC_FLOW] consume_syscom_pending kind={:?} before scene={} line={} flow={:?}", proc.kind, scene, line, self.flow.stack);
@@ -1740,16 +1741,16 @@ impl App {
             .map(|vm| vm.take_script_proc_request())
             .unwrap_or(false);
         if requested {
-            if std::env::var_os("SG_DEBUG").is_some() {
+            if trace_env().sg_debug {
                 eprintln!("[SG_DEBUG][EXCALL] push SCRIPT proc requested by button/frame action");
             }
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
                 let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
                 eprintln!("[SG_PROC_FLOW] ensure_requested_script_proc push before scene={} line={} flow={:?}", scene, line, self.flow.stack);
             }
             self.flow.push(ProcType::Script, 0);
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 eprintln!("[SG_PROC_FLOW] ensure_requested_script_proc push after flow={:?}", self.flow.stack);
             }
         }
@@ -2015,7 +2016,7 @@ impl App {
     }
 
     fn pump_vm(&mut self) -> Result<()> {
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             let pending = self.vm.as_ref().and_then(|vm| vm.ctx.globals.syscom.pending_proc.as_ref()).map(|p| format!("{:?}", p));
@@ -2038,7 +2039,7 @@ impl App {
         }
 
         if self.paused && !self.step_once {
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 eprintln!("[SG_PROC_FLOW] pump_vm paused-return flow={:?}", self.flow.stack);
             }
             return Ok(());
@@ -2047,7 +2048,7 @@ impl App {
         if let Some(vm) = self.vm.as_mut() {
             vm.process_pending_button_actions()?;
         }
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             let pending = self.vm.as_ref().and_then(|vm| vm.ctx.globals.syscom.pending_proc.as_ref()).map(|p| format!("{:?}", p));
@@ -2064,19 +2065,19 @@ impl App {
             .as_ref()
             .map(|vm| vm.ctx.globals.syscom.pending_proc.is_some())
             .unwrap_or(false);
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             let pending = self.vm.as_ref().and_then(|vm| vm.ctx.globals.syscom.pending_proc.as_ref()).map(|p| format!("{:?}", p));
             eprintln!("[SG_PROC_FLOW] pump_vm after_has_syscom_pending={} scene={} line={} flow={:?} pending_proc={}", has_syscom_pending, scene, line, self.flow.stack, pending.as_deref().unwrap_or("None"));
         }
         if has_syscom_pending {
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 eprintln!("[SG_PROC_FLOW] pump_vm consume_pending_proc before flow={:?}", self.flow.stack);
             }
             self.consume_syscom_pending_proc()?;
             self.ensure_requested_script_proc();
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
                 let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
                 eprintln!("[SG_PROC_FLOW] pump_vm consume_pending_proc after scene={} line={} flow={:?}", scene, line, self.flow.stack);
@@ -2095,7 +2096,7 @@ impl App {
                 self.paused = true;
                 break;
             };
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
                 let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
                 eprintln!("[SG_PROC_FLOW] pump_vm loop top proc={:?} scene={} line={} flow={:?}", proc, scene, line, self.flow.stack);
@@ -2148,7 +2149,7 @@ impl App {
                         self.finish_runtime_load();
                         continue;
                     }
-                    if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+                    if trace_env().proc_flow_trace {
                         eprintln!(
                             "[SG_PROC_FLOW] script_continue result running={} halted={} cur_scene={} pending={} blocked={} pop_script_proc={} proc_boundary={} boundary={:?} flow={:?}",
                             running,
@@ -2164,7 +2165,7 @@ impl App {
                     }
                     self.ensure_requested_script_proc();
                     if pop_script_proc {
-                        if std::env::var_os("SG_DEBUG").is_some() {
+                        if trace_env().sg_debug {
                             eprintln!(
                                 "[SG_DEBUG][EXCALL] pop SCRIPT proc requested by ex-call return"
                             );
@@ -2412,7 +2413,7 @@ impl App {
     }
 
     fn redraw_inner(&mut self) -> Result<()> {
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             let pending = self.vm.as_ref().and_then(|vm| vm.ctx.globals.syscom.pending_proc.as_ref()).map(|p| format!("{:?}", p));
@@ -2449,7 +2450,7 @@ impl App {
             .as_ref()
             .map(|vm| vm.ctx.globals.syscom.pending_proc.is_some())
             .unwrap_or(false);
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             let pending = self.vm.as_ref().and_then(|vm| vm.ctx.globals.syscom.pending_proc.as_ref()).map(|p| format!("{:?}", p));
@@ -2472,7 +2473,7 @@ impl App {
         self.ensure_requested_script_proc();
         let render_suppressed = self.suppress_render_once;
         self.suppress_render_once = false;
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             eprintln!(
@@ -2705,7 +2706,7 @@ impl App {
         self.last_cursor_hide_time = Some(hide_time);
     }
     fn wake_for_input(&mut self) {
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             let pending = self.vm.as_ref().and_then(|vm| vm.ctx.globals.syscom.pending_proc.as_ref()).map(|p| format!("{:?}", p));
@@ -3179,7 +3180,7 @@ impl ApplicationHandler for App {
                 if !is_main {
                     return;
                 }
-                if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+                if trace_env().proc_flow_trace {
                     let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
                     let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
                     let pos = self.vm.as_ref().map(|vm| (vm.ctx.input.mouse_x, vm.ctx.input.mouse_y));
@@ -3234,7 +3235,7 @@ impl ApplicationHandler for App {
         }
 
         let should_pump_script = self.script_needs_pump || capture_pending;
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
             let blocked = self.vm.as_ref().map(|vm| vm.ctx.wait.needs_runtime_poll()).unwrap_or(false);

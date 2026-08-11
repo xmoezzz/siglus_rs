@@ -8,6 +8,7 @@ use std::sync::{
 };
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread;
+use crate::env::trace_env;
 use crate::platform_time::Duration;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -3272,8 +3273,8 @@ fn build_mpeg2_audio_timeline(
         samples.extend_from_slice(&converted);
     }
 
-    if (std::env::var_os("SG_MOVIE_TRACE").is_some()
-        || std::env::var_os("SG_DEBUG").is_some())
+    if (trace_env().sg_movie_trace
+        || trace_env().sg_debug)
         && discontinuity_count > 0
     {
         eprintln!(

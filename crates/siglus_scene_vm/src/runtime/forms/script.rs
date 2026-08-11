@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::env::trace_env;
 use crate::runtime::{CommandContext, Value};
 
 use super::prop_access;
@@ -297,7 +298,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         }
         CHECK_SKIP => {
             let v = !st.skip_disable && (st.skip_trigger || st.auto_mode_flag || st.msg_nowait);
-            if std::env::var_os("SG_DEBUG").is_some()
+            if trace_env().sg_debug
                 && ctx.current_scene_name.as_deref() == Some("sys10_cf01")
                 && matches!(ctx.current_line_no, 700..=730 | 870..=895)
             {

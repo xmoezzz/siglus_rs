@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 
+use crate::env::trace_env;
 use crate::assets::RgbaImage;
 use crate::runtime::gan::GanState;
 use crate::runtime::int_event::IntEvent;
@@ -6894,7 +6895,7 @@ impl StageFormState {
             for (idx, m) in list.iter_mut().enumerate() {
                 let old_open = m.open;
                 m.open = false;
-                if std::env::var_os("SG_DEBUG").is_some() {
+                if trace_env().sg_debug {
                     eprintln!(
                         "[SG_DEBUG][MWND_STATE_TRACE] scene=<runtime> scene_no=- line=- reason=STAGE_CLOSE_ALL_MWND stage={} mwnd={} old_open={} new_open={} buttons={} faces={} objects={} waku={} filter={} pos={:?} size={:?} open_anim=({}, {}) close_anim=({}, {}) selection={} msg_len={} name_len={}",
                         stage_idx,

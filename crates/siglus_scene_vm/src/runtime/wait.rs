@@ -6,6 +6,7 @@
 //!
 //! Cross-platform blocking and wait model.
 
+use crate::env::trace_env;
 use crate::platform_time::{Duration, Instant};
 
 use crate::audio::{BgmEngine, KoeEngine, PcmEngine, SeEngine};
@@ -15,12 +16,9 @@ use super::globals::{GlobalState, ObjectState, StageFormState};
 use super::int_event::IntEvent;
 use super::Value;
 
-fn anim_skip_trace_enabled() -> bool {
-    std::env::var_os("SG_DEBUG").is_some()
-}
 
 fn anim_skip_trace(msg: impl AsRef<str>) {
-    if anim_skip_trace_enabled() {
+    if trace_env().sg_debug {
         eprintln!("[SG_DEBUG][ANIM_SKIP_TRACE][WAIT] {}", msg.as_ref());
     }
 }
@@ -403,7 +401,7 @@ fn object_active_by_runtime_slot_mut(
 }
 
 fn finish_wait_skipped_event(ev: &mut IntEvent) {
-    let before = if anim_skip_trace_enabled() {
+    let before = if trace_env().sg_debug {
         Some(int_event_state(ev))
     } else {
         None

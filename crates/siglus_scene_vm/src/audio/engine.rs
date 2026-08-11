@@ -1,5 +1,6 @@
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
+use crate::env::trace_env;
 use crate::platform_time::{Duration, Instant};
 
 use anyhow::{anyhow, Context, Result};
@@ -598,7 +599,7 @@ impl BgmEngine {
         let (start_sample, end_sample, restart_sample) =
             clamp_sample_range(total_samples, effective_start, script_end, script_repeat);
 
-        if std::env::var_os("SG_AUDIO_TRACE").is_some() {
+        if trace_env().sg_audio_trace {
             eprintln!(
                 "[SG_AUDIO_TRACE] bgm.prepare name={} file={} source_format={:?} container={:?} channels={} sample_rate={} total_frames={} start={} end={} repeat={}",
                 regist_name,

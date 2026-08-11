@@ -6,6 +6,7 @@ use anyhow::Result;
 
 use std::path::{Path, PathBuf};
 
+use crate::env::trace_env;
 use crate::image_manager::ImageId;
 use crate::layer::{LayerId, SpriteFit, SpriteId, SpriteSizeMode};
 use crate::mesh3d::load_mesh_asset;
@@ -27,6 +28,45 @@ use super::codes::{int_event_list_op, int_event_op, intlist_op};
 use super::int_list;
 use super::prop_access;
 use super::syscom;
+
+// Trace helpers. The macros guard the (unconditional) argument evaluation of the
+// format! calls so that nothing is formatted when the trace env flag is off.
+// The underlying functions keep their own env check as a safety net.
+macro_rules! sg_debug_stage {
+    ($msg:expr) => {{
+        if trace_env().sg_debug {
+            sg_debug_stage($msg);
+        }
+    }};
+}
+
+macro_rules! sg_mwnd_object_trace {
+    ($msg:expr) => {{
+        if trace_env().sg_mwnd_object_trace {
+            sg_mwnd_object_trace($msg);
+        }
+    }};
+}
+
+macro_rules! config_tr_write_trace {
+    ($ctx:expr, $msg:expr $(,)?) => {{
+        if trace_env().sg_debug {
+            config_tr_write_trace($ctx, $msg);
+        }
+    }};
+}
+
+macro_rules! sg_cgm_coord_trace {
+    ($ctx:expr, $msg:expr $(,)?) => {{
+        if trace_env().sg_debug {
+            sg_cgm_coord_trace($ctx, $msg);
+        }
+    }};
+}
+
+// Trace env flags are loaded once into a static cache in `crate::env` so the
+// hot paths (trace guard checks, GET_SIZE_X/Y) only pay a single atomic load
+// instead of a `std::env::var_os` syscall per call.
 
 #[derive(Debug, Clone)]
 struct ResolvedGameexeNamae {
@@ -410,38 +450,20 @@ fn named_i64(args: &[Value], id: i32) -> Option<i64> {
     })
 }
 
-fn sg_debug_enabled_local() -> bool {
-    std::env::var_os("SG_DEBUG").is_some()
-}
-
-fn config_button_trace_enabled_local() -> bool {
-    matches!(
-        std::env::var("SG_CONFIG_BUTTON_TRACE").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
-}
-
 fn sg_debug_stage(msg: impl AsRef<str>) {
-    if sg_debug_enabled_local() {
+    if trace_env().sg_debug {
         eprintln!("[SG_DEBUG][STAGE] {}", msg.as_ref());
     }
 }
 
-fn sg_mwnd_object_trace_enabled() -> bool {
-    matches!(
-        std::env::var("SG_MWND_OBJECT_TRACE").ok().as_deref(),
-        Some("1") | Some("true") | Some("TRUE") | Some("yes") | Some("YES")
-    )
-}
-
 fn sg_mwnd_object_trace(msg: impl AsRef<str>) {
-    if sg_mwnd_object_trace_enabled() {
+    if trace_env().sg_mwnd_object_trace {
         eprintln!("[SG_DEBUG][MWND_OBJECT_TRACE][STAGE] {}", msg.as_ref());
     }
 }
 
 fn sg_cgm_coord_trace(ctx: &CommandContext, msg: impl AsRef<str>) {
-    if sg_debug_enabled_local() {
+    if trace_env().sg_debug {
         let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
         let scene_no = ctx
             .current_scene_no
@@ -458,7 +480,7 @@ fn sg_cgm_coord_trace(ctx: &CommandContext, msg: impl AsRef<str>) {
 }
 
 fn sg_anim_skip_trace_stage(ctx: &CommandContext, msg: impl AsRef<str>) {
-    if sg_debug_enabled_local() {
+    if trace_env().sg_debug {
         let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
         let scene_no = ctx
             .current_scene_no
@@ -496,7 +518,7 @@ fn config_tr_file_label(obj: &ObjectState) -> &str {
 }
 
 fn config_tr_write_trace(ctx: &CommandContext, msg: impl AsRef<str>) {
-    if sg_debug_enabled_local() {
+    if trace_env().sg_debug {
         let scene = ctx.current_scene_name.as_deref().unwrap_or("<none>");
         let scene_no = ctx
             .current_scene_no
@@ -524,7 +546,7 @@ fn trace_config_visual_prop_write(
     reason: &str,
 ) {
     if config_tr_write_trace_object(obj_idx, obj) {
-        config_tr_write_trace(
+        config_tr_write_trace!(
             ctx,
             format!(
                 "kind=PROP_WRITE reason={} stage={} obj_idx={} runtime_slot={} file={} prop={} old={} new={} disp={} tr={} alpha={} backend={:?} used={} children={}",
@@ -569,7 +591,7 @@ fn trace_config_event_subop(
     } else {
         return;
     };
-    config_tr_write_trace(
+    config_tr_write_trace!(
         ctx,
         format!(
             "kind=EVENT_SUBOP reason={} stage={} obj_idx={} runtime_slot={} file={} op={} prop={} subop={} args={:?} event=[{}] base_disp={} base_tr={} base_alpha={}",
@@ -612,7 +634,7 @@ fn trace_config_event_subop_raw(
     } else {
         return;
     };
-    config_tr_write_trace(
+    config_tr_write_trace!(
         ctx,
         format!(
             "kind=EVENT_SUBOP reason={} stage={} obj_idx={} runtime_slot={} file={} op={} prop={} subop={} args={:?} event=[{}] base_disp={} base_tr={} base_alpha={}",
@@ -657,7 +679,7 @@ fn mwnd_state_trace_event(
     new_open: bool,
     m: &MwndState,
 ) {
-    if !sg_debug_enabled_local() {
+    if !trace_env().sg_debug {
         return;
     }
     eprintln!(
@@ -697,7 +719,7 @@ fn mwnd_state_trace_copy(
     dst_old_open: bool,
     src: &MwndState,
 ) {
-    if !sg_debug_enabled_local() {
+    if !trace_env().sg_debug {
         return;
     }
     eprintln!(
@@ -1210,12 +1232,12 @@ fn dispatch_int_event_arg_slot(
         // the current/base event value before set_event() uses it.
         if (subop == int_event_op::SET || subop == int_event_op::SET_REAL) && arg_slot == 0 {
             ev.set_value(v as i32);
-            sg_debug_stage(format!(
+            sg_debug_stage!(format!(
                 "INTEVENT.SET named start={} applied through arg slot tail={:?}",
                 v, tail
             ));
         } else {
-            sg_debug_stage(format!(
+            sg_debug_stage!(format!(
                 "INTEVENT arg slot assignment ignored subop={} slot={} value={} tail={:?}",
                 subop, arg_slot, v, tail
             ));
@@ -1252,7 +1274,7 @@ fn dispatch_int_event_subop(
                     0
                 };
                 ev.set_event(value, total_time, delay_time, speed_type, real_flag);
-                sg_debug_stage(format!(
+                sg_debug_stage!(format!(
                     "INTEVENT.SET subop={} value={} total_time={} delay_time={} speed_type={} real={} start={} cur={} active={}",
                     subop,
                     value,
@@ -1265,7 +1287,7 @@ fn dispatch_int_event_subop(
                     ev.check_event(),
                 ));
             } else {
-                sg_debug_stage(format!(
+                sg_debug_stage!(format!(
                     "INTEVENT.SET subop={} ignored: argc={} args={:?}",
                     subop,
                     script_args.len(),
@@ -1295,7 +1317,7 @@ fn dispatch_int_event_subop(
                     speed_type,
                     real_flag,
                 );
-                sg_debug_stage(format!(
+                sg_debug_stage!(format!(
                     "INTEVENT.LOOP subop={} start={} end={} loop_time={} delay_time={} speed_type={} real={} active={}",
                     subop,
                     start_value,
@@ -1307,7 +1329,7 @@ fn dispatch_int_event_subop(
                     ev.check_event(),
                 ));
             } else {
-                sg_debug_stage(format!(
+                sg_debug_stage!(format!(
                     "INTEVENT.LOOP subop={} ignored: argc={} args={:?}",
                     subop,
                     script_args.len(),
@@ -1337,7 +1359,7 @@ fn dispatch_int_event_subop(
                     speed_type,
                     real_flag,
                 );
-                sg_debug_stage(format!(
+                sg_debug_stage!(format!(
                     "INTEVENT.TURN subop={} start={} end={} loop_time={} delay_time={} speed_type={} real={} active={}",
                     subop,
                     start_value,
@@ -1349,7 +1371,7 @@ fn dispatch_int_event_subop(
                     ev.check_event(),
                 ));
             } else {
-                sg_debug_stage(format!(
+                sg_debug_stage!(format!(
                     "INTEVENT.TURN subop={} ignored: argc={} args={:?}",
                     subop,
                     script_args.len(),
@@ -1876,7 +1898,7 @@ fn clear_root_object_for_stage_wipe(
     }
     let used = list[idx].used;
     let backend_runtime_slot = list[idx].backend_runtime_slot;
-    if config_button_trace_enabled_local() {
+    if trace_env().sg_config_button_trace {
         let obj = &list[idx];
         eprintln!(
             "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clear_root stage={} idx={} runtime_slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} layer={} button_enabled={} button_no={} action_no={}",
@@ -1902,7 +1924,7 @@ fn copy_root_object_for_stage_wipe(
 ) {
     extend_stage_object_list_at_least(st, dst_stage, dst_idx + 1);
     let mut copy = src.clone();
-    if config_button_trace_enabled_local() {
+    if trace_env().sg_config_button_trace {
         eprintln!(
             "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] copy_root dst_stage={} dst_idx={} src_runtime_slot={} src_file={} src_used={} src_type={} src_backend={:?} src_disp={} src_pos=({}, {}) src_tr={} src_layer={} src_button_enabled={} src_button_no={} src_action_no={}",
             dst_stage, dst_idx, src.runtime_slot_or(dst_idx), src.file_name.as_deref().unwrap_or("-"),
@@ -1934,7 +1956,7 @@ fn clear_embedded_objects_for_stage_wipe(
 ) {
     for (idx, obj) in list.iter_mut().enumerate() {
         let slot = obj.runtime_slot_or(idx);
-        if config_button_trace_enabled_local() {
+        if trace_env().sg_config_button_trace {
             eprintln!(
                 "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clear_embedded stage={} idx={} slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} button_enabled={} button_no={} action_no={}",
                 stage_idx, idx, slot, obj.file_name.as_deref().unwrap_or("-"), obj.used, obj.object_type, obj.backend,
@@ -1956,7 +1978,7 @@ fn clone_embedded_objects_for_stage_wipe(
 ) -> Vec<ObjectState> {
     let mut out = Vec::with_capacity(src.len());
     for (src_idx, src_obj) in src.iter().enumerate() {
-        if config_button_trace_enabled_local() {
+        if trace_env().sg_config_button_trace {
             eprintln!(
                 "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] clone_embedded dst_stage={} src_idx={} src_runtime_slot={} file={} used={} type={} backend={:?} disp={} pos=({}, {}) tr={} button_enabled={} button_no={} action_no={} children={}",
                 dst_stage, src_idx, src_obj.runtime_slot_or(src_idx), src_obj.file_name.as_deref().unwrap_or("-"),
@@ -1995,7 +2017,7 @@ fn copy_mwnd_for_stage_wipe(
     src: &MwndState,
 ) {
     extend_stage_mwnd_list_at_least(st, dst_stage, dst_idx + 1);
-    if config_button_trace_enabled_local() {
+    if trace_env().sg_config_button_trace {
         eprintln!(
             "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] copy_mwnd dst_stage={} dst_idx={} src_open={} src_order={} src_layer={} buttons={} faces={} objects={} waku={} filter={} pos={:?} size={:?}",
             dst_stage, dst_idx, src.open, src.order, src.layer, src.button_list.len(), src.face_list.len(), src.object_list.len(),
@@ -2031,7 +2053,7 @@ fn reset_mwnd_for_stage_wipe(
     idx: usize,
 ) {
     extend_stage_mwnd_list_at_least(st, stage_idx, idx + 1);
-    if config_button_trace_enabled_local() {
+    if trace_env().sg_config_button_trace {
         if let Some(old) = st.mwnd_lists.get(&stage_idx).and_then(|list| list.get(idx)) {
             eprintln!(
                 "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] reset_mwnd stage={} idx={} old_open={} old_buttons={} old_faces={} old_objects={} old_waku={} old_filter={} old_pos={:?} old_size={:?}",
@@ -2131,7 +2153,7 @@ fn stage_wipe_object_lists(
             end_layer,
         ) || back_prepared
         {
-            if config_button_trace_enabled_local() {
+            if trace_env().sg_config_button_trace {
                 eprintln!(
                     "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] object_slot idx={} front_file={} front_order={} front_layer={} back_file={} back_prepared={} front_wipe_copy={} back_wipe_erase={} range=({},{})->({},{})",
                     idx, front.file_name.as_deref().unwrap_or("-"), front_order, front_layer,
@@ -2185,7 +2207,7 @@ fn stage_wipe_mwnd_lists(
             end_order,
             end_layer,
         ) {
-            if config_button_trace_enabled_local() {
+            if trace_env().sg_config_button_trace {
                 eprintln!(
                     "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] mwnd_slot idx={} front_open={} front_order={} front_layer={} front_buttons={} front_objects={} front_waku={} front_filter={} range=({},{})->({},{})",
                     idx, front.open, front.order, front.layer, front.button_list.len(), front.object_list.len(),
@@ -2434,7 +2456,7 @@ pub fn apply_stage_wipe(
 ) -> u32 {
     let normal_form_id = normal_stage_form_id(ctx);
     let form_id = active_wipe_stage_form_id(ctx);
-    if config_button_trace_enabled_local() {
+    if trace_env().sg_config_button_trace {
         eprintln!(
             "[SG_DEBUG][CONFIG_BUTTON_TRACE][STAGE_WIPE] apply form={} range=({},{})->({},{})",
             form_id, begin_order, begin_layer, end_order, end_layer
@@ -3162,7 +3184,7 @@ fn create_mwnd_template_button_object(
         obj.frame_action.end_flag = false;
         obj.frame_action.counter.start();
     }
-    if sg_debug_enabled_local() {
+    if trace_env().sg_debug {
         eprintln!(
             "[SG_DEBUG][BUTTON_TRACE][MWND_TEMPLATE] create stage={} mwnd={} button_idx={} runtime_slot={} file={} cut={} action_no={} se_no={} sys_type={} sys_opt={} mode={} enabled={} state={} callback={}::{}/{} frame_action={}::{}",
             stage_idx,
@@ -3334,7 +3356,7 @@ fn dispatch_object_list_op(
                 return true;
             };
             let n = if n0 < 0 { 0 } else { n0 as usize };
-            sg_debug_stage(format!("stage={} OBJECTLIST_RESIZE {}", stage_idx, n));
+            sg_debug_stage!(format!("stage={} OBJECTLIST_RESIZE {}", stage_idx, n));
 
             resize_stage_object_list_like_cpp(ctx, st, stage_idx, n);
             ctx.stack.push(Value::Int(0));
@@ -3408,7 +3430,7 @@ fn dispatch_embedded_object_item_ref(
     let runtime_slot = list[idx]
         .nested_runtime_slot
         .unwrap_or(allocated_runtime_slot);
-    sg_mwnd_object_trace(format!(
+    sg_mwnd_object_trace!(format!(
         "embedded_item_op resolved idx={} runtime_slot={} allocated_runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
         idx,
         runtime_slot,
@@ -3502,7 +3524,7 @@ fn dispatch_embedded_object_child_item_op(
     }
     ctx.globals.current_stage_object = Some((stage_idx, child_runtime_slot));
 
-    sg_mwnd_object_trace(format!(
+    sg_mwnd_object_trace!(format!(
         "embedded_child_direct enter parent_slot={} child_idx={} child_runtime_slot={} child_op={} child_tail={:?}",
         parent_runtime_slot,
         child_u,
@@ -3533,7 +3555,7 @@ fn dispatch_embedded_object_child_item_op(
     };
     child_after.nested_runtime_slot = Some(child_runtime_slot);
 
-    sg_mwnd_object_trace(format!(
+    sg_mwnd_object_trace!(format!(
         "embedded_child_direct exit parent_slot={} child_idx={} child_runtime_slot={} handled={} after_child used={} type={} backend={:?} file={} disp={} pos=({}, {}) tr={} alpha={} nested_slot={:?}",
         parent_runtime_slot,
         child_u,
@@ -3572,7 +3594,7 @@ fn dispatch_embedded_object_item_op(
     element_prefix: Option<Vec<i32>>,
 ) -> bool {
     let trace_prefix = element_prefix.clone();
-    sg_mwnd_object_trace(format!(
+    sg_mwnd_object_trace!(format!(
         "embedded_item_op enter stage={} list_len={} strict={} child_idx={} op={} tail={:?} al_id={:?} ret_form={:?} args={:?} rhs={:?} slot_key={} prefix={:?}",
         stage_idx,
         list.len(),
@@ -3610,7 +3632,7 @@ fn dispatch_embedded_object_item_op(
     let allocated_runtime_slot = original_nested_runtime_slot
         .unwrap_or_else(|| next_embedded_object_slot(st, stage_idx, &indexed_slot_key));
     let runtime_slot = allocated_runtime_slot;
-    sg_mwnd_object_trace(format!(
+    sg_mwnd_object_trace!(format!(
         "embedded_item_op resolved idx={} runtime_slot={} allocated_runtime_slot={} indexed_slot_key={} before_child used={} type={} backend={:?} file={} child_len={} nested_slot={:?}",
         idx,
         runtime_slot,
@@ -3692,7 +3714,7 @@ fn dispatch_embedded_object_item_op(
         rhs,
         al_id,
     );
-    sg_mwnd_object_trace(format!(
+    sg_mwnd_object_trace!(format!(
         "embedded_item_op dispatched idx={} runtime_slot={} scratch_slot={} handled={} op={} tail={:?} current_chain_after_dispatch={:?} current_stage_object_after_dispatch={:?}",
         idx,
         runtime_slot,
@@ -3714,7 +3736,7 @@ fn dispatch_embedded_object_item_op(
     } else if child_after.nested_runtime_slot.is_none() {
         child_after.nested_runtime_slot = Some(runtime_slot);
     }
-    sg_mwnd_object_trace(format!(
+    sg_mwnd_object_trace!(format!(
         "embedded_item_op exit idx={} runtime_slot={} handled={} after_child used={} type={} backend={:?} file={} disp={} pos=({}, {}) tr={} alpha={} child_len={} nested_slot={:?}",
         idx,
         runtime_slot,
@@ -4998,7 +5020,7 @@ fn object_reinit_finish_free_like_cpp(
     obj_idx: usize,
 ) {
     if config_tr_write_trace_object(obj_idx, obj) {
-        config_tr_write_trace(
+        config_tr_write_trace!(
             ctx,
             format!(
                 "kind=REINIT_BEFORE stage={} obj_idx={} runtime_slot={} file={} disp={} tr={} alpha={} backend={:?} used={} children={}",
@@ -6234,7 +6256,7 @@ fn dispatch_object_op(
         return true;
     }
     let obj_u = obj_idx as usize;
-    if sg_mwnd_object_trace_enabled()
+    if trace_env().sg_mwnd_object_trace
         && (op == crate::runtime::forms::codes::elm_value::OBJECT_CHILD
             || op == constants::elm_value::OBJECT_CREATE
             || op == constants::OBJECT_CREATE_RECT
@@ -6247,7 +6269,7 @@ fn dispatch_object_op(
             || op == ctx.ids.obj_frame_action
             || op == ctx.ids.obj_frame_action_ch)
     {
-        sg_mwnd_object_trace(format!(
+        sg_mwnd_object_trace!(format!(
             "object_op enter stage={} obj={} op={} tail={:?} al_id={:?} ret_form={:?} args={:?} rhs={:?} current_chain={:?} current_stage_object={:?}",
             stage_idx,
             obj_u,
@@ -6261,18 +6283,11 @@ fn dispatch_object_op(
             ctx.globals.current_stage_object
         ));
     }
-    if let Some(raw) = std::env::var_os("SG_TRACE_OBJECT_SLOT") {
-        let raw = raw.to_string_lossy();
-        let targets = raw
-            .split(',')
-            .filter_map(|s| s.trim().parse::<usize>().ok())
-            .collect::<Vec<_>>();
-        if targets.iter().any(|&n| n == obj_u) {
-            eprintln!(
-                "[SG_TRACE_OBJECT] stage={} obj={} op={} tail={:?} al_id={:?} args={:?} rhs={:?}",
-                stage_idx, obj_u, op, tail, al_id, script_args, rhs
-            );
-        }
+    if trace_env().trace_object_slots.contains(&obj_u) {
+        eprintln!(
+            "[SG_TRACE_OBJECT] stage={} obj={} op={} tail={:?} al_id={:?} args={:?} rhs={:?}",
+            stage_idx, obj_u, op, tail, al_id, script_args, rhs
+        );
     }
     if !ensure_object_for_access(st, stage_idx, obj_u) {
         // Strict out-of-range: return default based on ret_form if present.
@@ -6734,7 +6749,7 @@ fn dispatch_object_op(
                 ctx.globals.current_object_chain = Some(prefix);
             }
             ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
-            sg_mwnd_object_trace(format!(
+            sg_mwnd_object_trace!(format!(
                 "object_child dispatch enter parent_stage={} parent_obj={} child_idx={} child_runtime_slot={} child_op={} child_tail={:?} before_child used={} type={} backend={:?} file={} nested_slot={:?}",
                 stage_idx,
                 obj_u,
@@ -6760,7 +6775,7 @@ fn dispatch_object_op(
                 rhs,
                 al_id,
             );
-            sg_mwnd_object_trace(format!(
+            sg_mwnd_object_trace!(format!(
                 "object_child dispatch returned parent_stage={} parent_obj={} child_idx={} child_runtime_slot={} handled={} child_op={} child_tail={:?} current_chain={:?} current_stage_object={:?}",
                 stage_idx,
                 obj_u,
@@ -6851,7 +6866,7 @@ fn dispatch_object_op(
                 return true;
             }
             if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
-                if sg_debug_enabled_local() {
+                if trace_env().sg_debug {
                     eprintln!(
                         "[SG_DEBUG][ANIM_SKIP_TRACE][STAGE] object_event_subop stage={} slot={} file={} op={} subop={} args={:?} action={:?} state=[{}]",
                         stage_idx,
@@ -7159,7 +7174,7 @@ fn dispatch_object_op(
                     return true;
                 }
                 if let Some(action) = dispatch_int_event_subop(ev, t[0], script_args, al_id) {
-                if sg_debug_enabled_local() {
+                if trace_env().sg_debug {
                     eprintln!(
                         "[SG_DEBUG][ANIM_SKIP_TRACE][STAGE] object_event_subop stage={} slot={} file={} op={} subop={} args={:?} action={:?} state=[{}]",
                         stage_idx,
@@ -7267,7 +7282,7 @@ fn dispatch_object_op(
                         "OBJECT.EVENT_SUBOP",
                     );
                 }
-                if sg_debug_enabled_local() {
+                if trace_env().sg_debug {
                     eprintln!(
                         "[SG_DEBUG][ANIM_SKIP_TRACE][STAGE] object_event_subop stage={} slot={} file={} op={} subop={} args={:?} action={:?} state=[{}]",
                         stage_idx,
@@ -7320,7 +7335,7 @@ fn dispatch_object_op(
             let old_tr = obj.get_int_prop(&ctx.ids, ctx.ids.obj_tr);
             let old_alpha = obj.get_int_prop(&ctx.ids, ctx.ids.obj_alpha);
             if config_tr_write_trace_object(obj_u, obj) {
-                config_tr_write_trace(
+                config_tr_write_trace!(
                     ctx,
                     format!(
                         "kind=ALL_EVE_END_BEFORE stage={} obj_idx={} runtime_slot={} file={} tr={} alpha={} any_event_active={}",
@@ -7475,7 +7490,7 @@ fn dispatch_object_op(
             0
         };
 
-        sg_debug_stage(format!(
+        sg_debug_stage!(format!(
             "stage={} obj={} CREATE(file={}) al_id={:?} disp={} x={} y={} patno={}",
             stage_idx, obj_u, file, al_id, disp, x, y, patno
         ));
@@ -7502,7 +7517,7 @@ fn dispatch_object_op(
                 "OBJECT.CREATE.image.failed:stage={stage_idx}:slot={obj_u}:file={file}:patno={patno}:{err}"
             ));
         }
-        sg_mwnd_object_trace(format!(
+        sg_mwnd_object_trace!(format!(
             "object_create result stage={} obj={} runtime_slot={} file={} create_ok={} nested_slot={:?} before_hide_bind={:?}",
             stage_idx,
             obj_u,
@@ -7560,7 +7575,7 @@ fn dispatch_object_op(
                 disp_new,
                 "OBJECT.DISP",
             );
-            sg_debug_stage(format!(
+            sg_debug_stage!(format!(
                 "stage={} obj={} DISP {}",
                 stage_idx,
                 obj_u,
@@ -8647,7 +8662,7 @@ fn dispatch_object_op(
             let total_ms = movie_path
                 .as_ref()
                 .and_then(|_| movie_total_time_ms(ctx, file));
-            sg_debug_stage(format!(
+            sg_debug_stage!(format!(
                 "CREATE_MOVIE stage={} obj={} file={} resolved={:?} loop={} wait={} key_skip={} auto_free={} real_time={} ready_only={} total_ms={:?}",
                 stage_idx,
                 obj_u,
@@ -8707,7 +8722,7 @@ fn dispatch_object_op(
                     obj.set_int_prop(&ctx.ids, ctx.ids.obj_y, y);
                 }
             }
-            if std::env::var_os("SG_DEBUG").is_some() {
+            if trace_env().sg_debug {
                 eprintln!(
                     "[SG_DEBUG][MOV] object_movie.create_args stage={} obj={} file={} al_id={:?} raw_argc={} pos_argc={} disp={} x={} y={}",
                     stage_idx,
@@ -9052,7 +9067,7 @@ fn dispatch_object_op(
     // ---------------------------------------------------------------------
 
     if ctx.ids.obj_clear_button != 0 && op == ctx.ids.obj_clear_button {
-        if sg_debug_enabled_local() {
+        if trace_env().sg_debug {
             eprintln!(
                 "[SG_DEBUG][BUTTON_TRACE][STAGE] CLEAR_BUTTON stage={} obj_slot={} file={:?} button_no={} group_no={} action_no={} state={} enabled={}",
                 stage_idx,
@@ -9107,7 +9122,7 @@ fn dispatch_object_op(
         }
         obj.button.hit = false;
         obj.button.pushed = false;
-        if sg_debug_enabled_local() {
+        if trace_env().sg_debug {
             eprintln!(
                 "[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON stage={} obj_slot={} file={:?} al_id={:?} args={:?} button_no={} group_no={} group_idx={:?} action_no={} se_no={} state={} enabled={} call={}::{}/{}",
                 stage_idx,
@@ -9160,7 +9175,7 @@ fn dispatch_object_op(
         if let Some(gidx) = obj.button.group_idx() {
             ensure_group(ctx, st, stage_idx, gidx);
         }
-        if sg_debug_enabled_local() {
+        if trace_env().sg_debug {
             eprintln!(
                 "[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON_GROUP stage={} obj_slot={} file={:?} al_id={:?} args={:?} button_no={} group_no={} group_idx={:?} action_no={} state={} enabled={}",
                 stage_idx,
@@ -9204,7 +9219,7 @@ fn dispatch_object_op(
 
     if ctx.ids.obj_set_button_state_normal != 0 && op == ctx.ids.obj_set_button_state_normal {
         obj.button.state = TNM_BTN_STATE_NORMAL;
-        if sg_debug_enabled_local() {
+        if trace_env().sg_debug {
             eprintln!("[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON_STATE_NORMAL stage={} obj_slot={} file={:?} button_no={} group_no={} action_no={} enabled={}", stage_idx, obj_runtime_slot, obj.file_name, obj.button.button_no, obj.button.group_no, obj.button.action_no, obj.button.enabled);
         }
         push_ok(ctx, ret_form);
@@ -9212,7 +9227,7 @@ fn dispatch_object_op(
     }
     if ctx.ids.obj_set_button_state_select != 0 && op == ctx.ids.obj_set_button_state_select {
         obj.button.state = TNM_BTN_STATE_SELECT;
-        if sg_debug_enabled_local() {
+        if trace_env().sg_debug {
             eprintln!("[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON_STATE_SELECT stage={} obj_slot={} file={:?} button_no={} group_no={} action_no={} enabled={}", stage_idx, obj_runtime_slot, obj.file_name, obj.button.button_no, obj.button.group_no, obj.button.action_no, obj.button.enabled);
         }
         push_ok(ctx, ret_form);
@@ -9220,7 +9235,7 @@ fn dispatch_object_op(
     }
     if ctx.ids.obj_set_button_state_disable != 0 && op == ctx.ids.obj_set_button_state_disable {
         obj.button.state = TNM_BTN_STATE_DISABLE;
-        if sg_debug_enabled_local() {
+        if trace_env().sg_debug {
             eprintln!("[SG_DEBUG][BUTTON_TRACE][STAGE] SET_BUTTON_STATE_DISABLE stage={} obj_slot={} file={:?} button_no={} group_no={} action_no={} enabled={}", stage_idx, obj_runtime_slot, obj.file_name, obj.button.button_no, obj.button.group_no, obj.button.action_no, obj.button.enabled);
         }
         push_ok(ctx, ret_form);
@@ -9285,7 +9300,7 @@ fn dispatch_object_op(
         obj.button.decided_action_scn_name = ctx.current_scene_name.clone().unwrap_or_default();
         obj.button.decided_action_cmd_name = cmd.to_string();
         obj.button.decided_action_z_no = -1;
-        if sg_debug_enabled_local() {
+        if trace_env().sg_debug {
             eprintln!(
                 "[SG_DEBUG][BUTTON] SET_BUTTON_CALL scene={} cmd={} slot={} button_no={} group_no={} action_no={}",
                 obj.button.decided_action_scn_name,
@@ -9357,7 +9372,7 @@ fn dispatch_object_op(
         if obj_runtime_slot >= 30 && obj_runtime_slot <= 59
             || obj.file_name.as_deref().map(object_file_is_cgm).unwrap_or(false)
         {
-            sg_cgm_coord_trace(
+            sg_cgm_coord_trace!(
                 ctx,
                 format!(
                     "OBJECT.SET_POS compact stage={} obj={} runtime_slot={} file={:?} x={} y={} z={:?} backend={:?}",
@@ -10246,7 +10261,7 @@ fn dispatch_object_op(
 
         if compact_size_alias_x || (ctx.ids.obj_get_size_x != 0 && op == ctx.ids.obj_get_size_x) {
             ctx.stack.push(Value::Int(sx));
-            if std::env::var_os("SG_TITLE_HIT_TRACE").is_some() {
+            if trace_env().title_hit_trace {
                 if let Some(name) = obj.file_name.as_deref() {
                     eprintln!(
                         "[SG_TITLE_HIT_TRACE] GET_SIZE_X file={} al_id={:?} pat={} -> {}",
@@ -10258,7 +10273,7 @@ fn dispatch_object_op(
             || (ctx.ids.obj_get_size_y != 0 && op == ctx.ids.obj_get_size_y)
         {
             ctx.stack.push(Value::Int(sy));
-            if std::env::var_os("SG_TITLE_HIT_TRACE").is_some() {
+            if trace_env().title_hit_trace {
                 if let Some(name) = obj.file_name.as_deref() {
                     eprintln!(
                         "[SG_TITLE_HIT_TRACE] GET_SIZE_Y file={} al_id={:?} pat={} -> {}",
@@ -10693,12 +10708,12 @@ fn dispatch_object_op(
             } else {
                 0
             };
-            sg_debug_stage(format!(
+            sg_debug_stage!(format!(
                 "stage={} obj={} CREATE file={} al_id={:?} disp={} x={} y={} patno={}",
                 stage_idx, obj_u, file, al_id, disp, x, y, patno
             ));
             if object_file_is_cgm(file) || (30..=59).contains(&obj_runtime_slot) {
-                sg_cgm_coord_trace(
+                sg_cgm_coord_trace!(
                     ctx,
                     format!(
                         "OBJECT.CREATE stage={} obj={} runtime_slot={} file={} al_id={:?} disp={} x={} y={} patno={} old_backend={:?}",
@@ -10764,7 +10779,7 @@ fn dispatch_object_op(
             if obj_runtime_slot >= 30 && obj_runtime_slot <= 59
                 || obj.file_name.as_deref().map(object_file_is_cgm).unwrap_or(false)
             {
-                sg_cgm_coord_trace(
+                sg_cgm_coord_trace!(
                     ctx,
                     format!(
                         "OBJECT.SET_POS stage={} obj={} runtime_slot={} file={:?} x={} y={} z={:?} backend={:?}",
@@ -14091,8 +14106,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     };
 
     let Some(tgt) = parse_target(ctx, &chain) else {
-        if sg_debug_enabled_local() {
-            sg_debug_stage(format!("parse_target miss chain={:?}", chain));
+        if trace_env().sg_debug {
+            sg_debug_stage!(format!("parse_target miss chain={:?}", chain));
         }
         return Ok(false);
     };
@@ -14105,8 +14120,8 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
     // Command arguments are the original script arguments preceding the element chain.
     let script_args = crate::runtime::forms::prop_access::script_args(args, chain_pos);
 
-    if sg_debug_enabled_local() {
-        sg_debug_stage(format!(
+    if trace_env().sg_debug {
+        sg_debug_stage!(format!(
             "chain={:?} target={:?} al_id={:?} ret_form={:?} chain_pos={} argc={} script_args={:?} rhs={:?}",
             chain,
             tgt,
@@ -14129,13 +14144,13 @@ pub fn dispatch(ctx: &mut CommandContext, args: &[Value]) -> Result<bool> {
             with_stage_state(ctx, form_id, |ctx, st| match op as i32 {
                 0 => {
                     let n = script_args.first().and_then(as_i64).unwrap_or(0).max(0) as usize;
-                    sg_debug_stage(format!("stage={} CREATE_OBJECT resize {}", stage, n));
+                    sg_debug_stage!(format!("stage={} CREATE_OBJECT resize {}", stage, n));
                     resize_stage_object_list_like_cpp(ctx, st, stage, n);
                     ctx.stack.push(Value::Int(0));
                 }
                 1 => {
                     let n = script_args.first().and_then(as_i64).unwrap_or(0).max(0) as usize;
-                    sg_debug_stage(format!("stage={} CREATE_MWND resize {}", stage, n));
+                    sg_debug_stage!(format!("stage={} CREATE_MWND resize {}", stage, n));
                     let old_len = st.mwnd_lists.get(&stage).map(|v| v.len()).unwrap_or(0);
                     if n < old_len {
                         if let Some(list) = st.mwnd_lists.get_mut(&stage) {

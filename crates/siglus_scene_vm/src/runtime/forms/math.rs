@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::env::trace_env;
 use crate::runtime::forms::codes::elm_value;
 use crate::runtime::forms::prop_access;
 use crate::runtime::{CommandContext, Value};
@@ -371,7 +372,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
     // TIMETABLE(now_time, rep_time, start_value, [start_time,end_time,end_value,speed_type]...)
     if op == elm_value::MATH_TIMETABLE {
         let ret = timetable_value(params);
-        if std::env::var_os("SG_DEBUG").is_some()
+        if trace_env().sg_debug
             && matches!(
                 ctx.current_scene_name.as_deref(),
                 Some("sys10_sm00") | Some("sys10_cf00") | Some("sys10_cf01")

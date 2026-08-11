@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use crate::elm_code;
+use crate::env::trace_env;
 use crate::runtime::forms::codes;
 use crate::runtime::globals::{
     ObjectFrameActionState, PendingButtonAction, PendingButtonActionKind, PendingFrameActionFinish,
@@ -65,6 +66,55 @@ const OP_HAT: u8 = constants::op::HAT;
 const OP_SL: u8 = constants::op::SL;
 const OP_SR: u8 = constants::op::SR;
 const OP_SR3: u8 = constants::op::SR3;
+
+macro_rules! vm_trace {
+    ($this:expr, $pc:expr, $msg:expr) => {{
+        if $this.vm_trace_matches() {
+            $this.vm_trace($pc, $msg);
+        }
+    }};
+}
+
+macro_rules! sg_omv_trace {
+    ($this:expr, $msg:expr $(,)?) => {{
+        if trace_env().sg_debug {
+            $this.sg_omv_trace($msg);
+        }
+    }};
+}
+
+macro_rules! sg_cgm_coord_trace {
+    ($this:expr, $msg:expr $(,)?) => {{
+        if trace_env().sg_debug {
+            $this.sg_cgm_coord_trace($msg);
+        }
+    }};
+}
+
+macro_rules! sg_mwnd_object_trace {
+    ($this:expr, $msg:expr $(,)?) => {{
+        if trace_env().sg_debug {
+            $this.sg_mwnd_object_trace($msg);
+        }
+    }};
+}
+
+macro_rules! sg_cf_branch_trace {
+    ($this:expr, $pc:expr, $msg:expr $(,)?) => {{
+        if trace_env().sg_debug {
+            $this.sg_cf_branch_trace($pc, $msg);
+        }
+    }};
+}
+
+// Trace env flags are loaded once into a static cache in `crate::env` so hot
+// paths (trace guard checks, tick_frame, vm_trace_matches) pay a single atomic
+// load instead of a `std::env::var` syscall per call.
+
+/// Whether syscom proc-flow tracing is enabled (`SG_SYSCOM_PROC_TRACE` or `SG_DEBUG`).
+fn syscom_proc_trace_enabled() -> bool {
+    trace_env().syscom_proc_trace || trace_env().sg_debug
+}
 
 // C++ initializes cur_call.L / cur_call.K from Gameexe CALL_FLAG.CNT (default 50).
 
@@ -344,7 +394,7 @@ struct FrameActionWork {
 impl<'a> SceneVm<'a> {
     fn trace_unknown_form(&mut self, form_code: i32, site: &str) {
         *self.unknown_forms.entry(form_code).or_insert(0) += 1;
-        if std::env::var_os("SIGLUS_TRACE_UNKNOWN_FORMS").is_some() {
+        if trace_env().unknown_forms_trace {
             eprintln!(
                 "[vm unknown form] site={} form={} pc=0x{:x}",
                 site,
@@ -661,7 +711,7 @@ impl<'a> SceneVm<'a> {
             .as_ref()
             .and_then(|cfg| cfg.get_entry(key).or_else(|| cfg.get_entry(&format!("#{key}"))));
         let Some(entry) = entry else {
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 eprintln!(
                     "[SG_PROC_FLOW] syscom_config_scene key={} raw=<missing> scene={:?} line={} pending_proc={:?}",
                     key,
@@ -684,7 +734,7 @@ impl<'a> SceneVm<'a> {
         let raw = format!("{scene_name},{z_no}");
 
         if scene_name.is_empty() {
-            if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+            if trace_env().proc_flow_trace {
                 eprintln!(
                     "[SG_PROC_FLOW] syscom_config_scene key={} raw={:?} target=<empty> scene={:?} line={}",
                     key,
@@ -696,7 +746,7 @@ impl<'a> SceneVm<'a> {
             return Ok(false);
         }
 
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] syscom_config_scene key={} raw={:?} target={} z={} before_scene={:?} line={} scene_stack={} call_depth={}",
                 key,
@@ -710,7 +760,7 @@ impl<'a> SceneVm<'a> {
             );
         }
         self.farcall_scene_name_ex(&scene_name, z_no, self.cfg.fm_void, true, &[])?;
-        if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
+        if trace_env().proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] syscom_config_scene entered key={} now_scene={:?} line={} scene_stack={} call_depth={}",
                 key,
@@ -724,26 +774,19 @@ impl<'a> SceneVm<'a> {
     }
 
     fn vm_trace_matches(&self) -> bool {
-        if std::env::var_os("SIGLUS_TRACE_VM").is_none() {
+        let env = trace_env();
+        if !env.vm_trace {
             return false;
         }
-        if let Ok(filter) = std::env::var("SIGLUS_TRACE_VM_SCENE") {
-            if !filter.is_empty() && self.current_scene_name.as_deref() != Some(filter.as_str()) {
+        if let Some(filter) = env.vm_trace_scene.as_deref() {
+            if self.current_scene_name.as_deref() != Some(filter) {
                 return false;
             }
         }
-        if let Ok(range) = std::env::var("SIGLUS_TRACE_VM_PC") {
-            if let Some((start, end)) = range.split_once("..") {
-                let parse = |s: &str| {
-                    usize::from_str_radix(s.trim_start_matches("0x"), 16)
-                        .or_else(|_| s.parse::<usize>())
-                };
-                if let (Ok(start), Ok(end)) = (parse(start), parse(end)) {
-                    let pc = self.stream.get_prg_cntr();
-                    if pc < start || pc > end {
-                        return false;
-                    }
-                }
+        if let Some((start, end)) = env.vm_trace_pc {
+            let pc = self.stream.get_prg_cntr();
+            if pc < start || pc > end {
+                return false;
             }
         }
         true
@@ -833,22 +876,20 @@ impl<'a> SceneVm<'a> {
         if !self.vm_trace_matches() {
             return;
         }
-        self.vm_trace(
+        vm_trace!(
+            self,
             Some(pc),
             format!(
                 "{} opcode={}({:#04x})",
                 phase,
                 Self::vm_opcode_name(opcode),
                 opcode
-            ),
+            )
         );
-    }
-    fn sg_debug_enabled() -> bool {
-        std::env::var_os("SG_DEBUG").is_some()
     }
 
     fn sg_cgm_coord_trace(&self, msg: impl AsRef<str>) {
-        if !Self::sg_debug_enabled() {
+        if !trace_env().sg_debug {
             return;
         }
         let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
@@ -867,7 +908,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn trace_cgm_coord_assign(&self, elm: &[i32], rhs: &Value) {
-        if !Self::sg_debug_enabled() || elm.len() < 3 {
+        if !trace_env().sg_debug || elm.len() < 3 {
             return;
         }
         let array_op = if self.ctx.ids.elm_array != 0 {
@@ -885,12 +926,12 @@ impl<'a> SceneVm<'a> {
                 || (140..=169).contains(&idx)
                 || (180..=209).contains(&idx);
             if interesting {
-                self.sg_cgm_coord_trace(format!("global B[{}] <- {:?}", idx, rhs));
+                sg_cgm_coord_trace!(self, format!("global B[{}] <- {:?}", idx, rhs));
             }
         } else if head == crate::runtime::forms::codes::elm_value::GLOBAL_S as u32
             && (1120..=1139).contains(&idx)
         {
-            self.sg_cgm_coord_trace(format!("global S[{}] <- {:?}", idx, rhs));
+            sg_cgm_coord_trace!(self, format!("global S[{}] <- {:?}", idx, rhs));
         }
     }
 
@@ -903,7 +944,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn cf_condition_trace_interesting_line(&self) -> bool {
-        if !Self::sg_debug_enabled() {
+        if !trace_env().sg_debug {
             return false;
         }
         matches!(
@@ -975,7 +1016,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn sg_cf_condition_trace(&self, pc: usize, msg: impl AsRef<str>) {
-        if !Self::sg_debug_enabled() {
+        if !trace_env().sg_debug {
             return;
         }
         let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
@@ -1101,7 +1142,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn sg_cf_branch_trace(&self, pc: usize, msg: impl AsRef<str>) {
-        if !Self::sg_debug_enabled() {
+        if !trace_env().sg_debug {
             return;
         }
         let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
@@ -1130,7 +1171,8 @@ impl<'a> SceneVm<'a> {
         before_tail: &[i32],
     ) {
         if self.cf_branch_trace_interesting_line() {
-            self.sg_cf_branch_trace(
+            sg_cf_branch_trace!(
+                self,
                 pc,
                 format!(
                     "kind=GOTO opcode={} label={} cond={} taken={} before_int_tail={:?}",
@@ -1156,12 +1198,8 @@ impl<'a> SceneVm<'a> {
         {
             return;
         }
-        let args_dbg = scratch_source_args
-            .iter()
-            .map(|v| format!("{v:?}"))
-            .collect::<Vec<_>>()
-            .join(", ");
-        self.sg_cf_branch_trace(
+        sg_cf_branch_trace!(
+            self,
             pc,
             format!(
                 "kind=FARCALL target={} z={} ret_form={} ex_call_proc={} argc={} args=[{}]",
@@ -1170,13 +1208,17 @@ impl<'a> SceneVm<'a> {
                 ret_form,
                 ex_call_proc,
                 scratch_source_args.len(),
-                args_dbg
+                scratch_source_args
+                    .iter()
+                    .map(|v| format!("{v:?}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         );
     }
 
     fn sg_omv_trace(&self, msg: impl AsRef<str>) {
-        if !Self::sg_debug_enabled() {
+        if !trace_env().sg_debug {
             return;
         }
         let scene = self.current_scene_name.as_deref().unwrap_or("<none>");
@@ -1204,7 +1246,7 @@ impl<'a> SceneVm<'a> {
         ret_form: i32,
         args: &[Value],
     ) {
-        if !Self::sg_debug_enabled() {
+        if !trace_env().sg_debug {
             return;
         }
 
@@ -1247,7 +1289,7 @@ impl<'a> SceneVm<'a> {
             .map(|v| format!("{v:?}"))
             .collect::<Vec<_>>()
             .join(", ");
-        self.sg_omv_trace(format!(
+        sg_omv_trace!(self, format!(
             "{} {} form={} op={} al_id={} ret_form={} elm={:?} argc={} args=[{}]",
             phase,
             label,
@@ -1364,7 +1406,7 @@ impl<'a> SceneVm<'a> {
         let saved_gosub_return_stack = self.gosub_return_stack.clone();
 
         if let Some(caller) = self.call_stack.last_mut() {
-            if std::env::var_os("SIGLUS_TRACE_CALL_RETURN_PC").is_some() {
+            if trace_env().call_return_pc_trace {
                 eprintln!(
                     "[SG_CALL_PC] inline set cmd={} depth={} saved_pc=0x{:x} return_pc=0x{:x} old=0x{:x}",
                     cmd_name,
@@ -1389,7 +1431,7 @@ impl<'a> SceneVm<'a> {
         ));
         self.stream.set_prg_cntr(offset)?;
 
-        if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+        if trace_env().frame_action_call_trace {
             eprintln!(
                 "[SG_FRAME_ACTION_CALL] run cmd={} scene={:?} offset=0x{:x} return_pc=0x{:x} args={:?}",
                 cmd_name,
@@ -1400,10 +1442,7 @@ impl<'a> SceneVm<'a> {
             );
         }
 
-        let max_steps = std::env::var("SIGLUS_INLINE_USER_CMD_MAX_STEPS")
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0);
+        let max_steps = trace_env().inline_user_cmd_max_steps;
         let mut steps: u64 = 0;
         let mut run_error = None;
         loop {
@@ -1476,7 +1515,7 @@ impl<'a> SceneVm<'a> {
         if let (Some((return_pc, ret_form)), Some(caller)) =
             (saved_caller_return, self.call_stack.get_mut(base_depth.saturating_sub(1)))
         {
-            if std::env::var_os("SIGLUS_TRACE_CALL_RETURN_PC").is_some() {
+            if trace_env().call_return_pc_trace {
                 eprintln!(
                     "[SG_CALL_PC] inline restore cmd={} depth={} return_pc=0x{:x} old=0x{:x}",
                     cmd_name,
@@ -1878,7 +1917,7 @@ impl<'a> SceneVm<'a> {
             return Ok(false);
         };
         let Some(command) = self.resolve_user_command_by_name(requested_scene_no, cmd_name)? else {
-            if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+            if trace_env().frame_action_call_trace {
                 eprintln!(
                     "[SG_FRAME_ACTION_CALL] user command not found: requested_scene={} scn_name={:?} cmd={}",
                     requested_scene_no,
@@ -1929,7 +1968,7 @@ impl<'a> SceneVm<'a> {
             return Ok(false);
         };
         let Some(command) = self.resolve_user_command_by_name(requested_scene_no, cmd_name)? else {
-            if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+            if trace_env().frame_action_call_trace {
                 eprintln!(
                     "[SG_FRAME_ACTION_CALL] user command not found: requested_scene={} scn_name={:?} cmd={}",
                     requested_scene_no,
@@ -1947,7 +1986,7 @@ impl<'a> SceneVm<'a> {
             true,
         )?;
 
-        if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+        if trace_env().frame_action_call_trace {
             eprintln!(
                 "[SG_FRAME_ACTION_CALL] proc enter cmd={} scene={:?} depth={} args={:?}",
                 cmd_name,
@@ -1961,10 +2000,7 @@ impl<'a> SceneVm<'a> {
         let mut stopped_at_proc_boundary = false;
         let mut stopped_at_wait_boundary = false;
         let mut run_error = None;
-        let max_steps = std::env::var("SIGLUS_FRAME_ACTION_MAX_STEPS")
-            .ok()
-            .and_then(|s| s.parse::<u64>().ok())
-            .unwrap_or(0);
+        let max_steps = trace_env().frame_action_max_steps;
         let mut steps: u64 = 0;
         loop {
             let wait_generation_before_step = self.ctx.wait.block_generation();
@@ -2014,7 +2050,7 @@ impl<'a> SceneVm<'a> {
         // run into command padding / CD_NONE.
         let restore_callback_lexer = self.current_scene_no == saved_scene_no;
         if restore_callback_lexer {
-            if std::env::var_os("SIGLUS_TRACE_FRAME_ACTION_CALL").is_some() {
+            if trace_env().frame_action_call_trace {
                 eprintln!(
                     "[SG_FRAME_ACTION_CALL] proc exit cmd={} scene={:?} completed={} proc_boundary={} wait_boundary={} error={} restoring caller lexer state",
                     cmd_name,
@@ -2048,7 +2084,7 @@ impl<'a> SceneVm<'a> {
         let Some(caller) = self.call_stack.last_mut() else {
             return Ok(false);
         };
-        if std::env::var_os("SIGLUS_TRACE_CALL_RETURN_PC").is_some() {
+        if trace_env().call_return_pc_trace {
             eprintln!(
                 "[SG_CALL_PC] proc-call set depth={} offset=0x{:x} return_pc=0x{:x} old=0x{:x} frame_action={}",
                 depth,
@@ -2162,7 +2198,7 @@ impl<'a> SceneVm<'a> {
             return Ok(false);
         };
         let Some(command) = self.resolve_user_command_by_name(requested_scene_no, cmd_name)? else {
-            if std::env::var_os("SG_DEBUG").is_some() {
+            if trace_env().sg_debug {
                 eprintln!(
                     "[SG_DEBUG][BUTTON] user command not found for ex-call: requested_scene={} scn_name={:?} cmd={}",
                     requested_scene_no,
@@ -2173,7 +2209,7 @@ impl<'a> SceneVm<'a> {
             return Ok(false);
         };
 
-        if std::env::var_os("SG_DEBUG").is_some() {
+        if trace_env().sg_debug {
             eprintln!(
                 "[SG_DEBUG][BUTTON] enter user command requested_scene={} target_scene={} cmd={} encoded_no={} include={} offset=0x{:x}",
                 requested_scene_no,
@@ -2881,7 +2917,7 @@ impl<'a> SceneVm<'a> {
                 if scn_name.is_empty() {
                     return Ok(());
                 }
-                if std::env::var_os("SG_DEBUG").is_some() {
+                if trace_env().sg_debug {
                     eprintln!(
                         "[SG_DEBUG][BUTTON] run action scene={} cmd={} z_no={}",
                         scn_name, cmd_name, z_no
@@ -2908,11 +2944,6 @@ impl<'a> SceneVm<'a> {
             }
         }
         Ok(())
-    }
-
-    fn syscom_proc_trace_enabled() -> bool {
-        std::env::var_os("SG_SYSCOM_PROC_TRACE").is_some()
-            || std::env::var_os("SG_DEBUG").is_some()
     }
 
     fn syscom_trace_state(&self) -> String {
@@ -3016,7 +3047,7 @@ impl<'a> SceneVm<'a> {
         sys_type_opt: i64,
         mode: i64,
     ) -> Result<()> {
-        let trace = Self::syscom_proc_trace_enabled();
+        let trace = syscom_proc_trace_enabled();
         let Some((op, op_name)) = Self::syscom_button_op(sys_type) else {
             if trace {
                 eprintln!(
@@ -3130,8 +3161,8 @@ impl<'a> SceneVm<'a> {
     }
 
     pub fn tick_frame(&mut self) -> Result<()> {
-        let trace = std::env::var_os("SG_TICK_TRACE").is_some()
-            || std::env::var_os("SG_FRAME_ACTION_TRACE").is_some();
+        let env = trace_env();
+        let trace = env.tick_trace || env.frame_action_trace;
         if trace {
             eprintln!(
                 "[SG_TICK_TRACE] tick_frame start blocked={} halted={} scene={:?}",
@@ -3142,7 +3173,7 @@ impl<'a> SceneVm<'a> {
         }
         self.drain_pending_button_actions()?;
         if self.ctx.globals.syscom.pending_proc.is_some() {
-            if trace || std::env::var_os("SG_DEBUG").is_some() {
+            if trace || env.sg_debug {
                 eprintln!(
                     "[SG_DEBUG][SYSCOM_PROC] stop frame tick before frame actions pending_proc={:?}",
                     self.ctx.globals.syscom.pending_proc
@@ -3686,9 +3717,10 @@ impl<'a> SceneVm<'a> {
 
             CD_ELM_POINT => {
                 self.element_points.push(self.int_stack.len());
-                self.vm_trace(
+                vm_trace!(
+                    self,
                     None,
-                    format!("ELM_POINT push start={} ", self.int_stack.len()),
+                    format!("ELM_POINT push start={} ", self.int_stack.len())
                 );
             }
             CD_COPY_ELM => {
@@ -3697,7 +3729,7 @@ impl<'a> SceneVm<'a> {
 
             CD_PROPERTY => {
                 let elm = self.pop_element()?;
-                self.vm_trace(None, format!("CD_PROPERTY elm={:?}", elm));
+                vm_trace!(self, None, format!("CD_PROPERTY elm={:?}", elm));
                 self.exec_property(elm)?;
             }
             CD_DEC_PROP => {
@@ -3815,22 +3847,25 @@ impl<'a> SceneVm<'a> {
                         }
                     }
                 }
-                let frame_state = self.call_stack.last().map(|frame| {
-                    format!(
-                        "ret_form={} arg_cnt={} props={:?} L0_8={:?} K0_4={:?}",
-                        frame.ret_form,
-                        frame.arg_cnt,
-                        frame.user_props,
-                        &frame.int_args[..frame.int_args.len().min(8)],
-                        &frame.str_args[..frame.str_args.len().min(4)]
-                    )
+                vm_trace!(self, Some(pc_before), {
+                    if let Some(frame) = self.call_stack.last() {
+                        format!(
+                            "ARG expanded ret_form={} arg_cnt={} props={:?} L0_8={:?} K0_4={:?}",
+                            frame.ret_form,
+                            frame.arg_cnt,
+                            frame.user_props,
+                            &frame.int_args[..frame.int_args.len().min(8)],
+                            &frame.str_args[..frame.str_args.len().min(4)]
+                        )
+                    } else {
+                        "ARG expanded frame=<none>".to_string()
+                    }
                 });
-                self.vm_trace(Some(pc_before), format!("ARG expanded frame={:?}", frame_state));
             }
 
             CD_GOTO => {
                 let label_no = self.stream.pop_i32()?;
-                self.sg_omv_trace(format!("GOTO label={} taken=true", label_no));
+                sg_omv_trace!(self, format!("GOTO label={} taken=true", label_no));
                 self.stream.jump_to_label(label_no.max(0) as usize)?;
             }
             CD_GOTO_TRUE => {
@@ -3839,7 +3874,7 @@ impl<'a> SceneVm<'a> {
                 let before_tail = self.int_stack[before_tail_start..].to_vec();
                 let cond = self.pop_int()?;
                 let taken = cond != 0;
-                self.sg_omv_trace(format!("GOTO_TRUE label={} cond={} taken={}", label_no, cond, taken));
+                sg_omv_trace!(self, format!("GOTO_TRUE label={} cond={} taken={}", label_no, cond, taken));
                 self.trace_cf_branch_goto(pc_before, "GOTO_TRUE", label_no, cond, taken, &before_tail);
                 if taken {
                     self.stream.jump_to_label(label_no.max(0) as usize)?;
@@ -3851,7 +3886,7 @@ impl<'a> SceneVm<'a> {
                 let before_tail = self.int_stack[before_tail_start..].to_vec();
                 let cond = self.pop_int()?;
                 let taken = cond == 0;
-                self.sg_omv_trace(format!("GOTO_FALSE label={} cond={} taken={}", label_no, cond, taken));
+                sg_omv_trace!(self, format!("GOTO_FALSE label={} cond={} taken={}", label_no, cond, taken));
                 self.trace_cf_branch_goto(pc_before, "GOTO_FALSE", label_no, cond, taken, &before_tail);
                 if taken {
                     self.stream.jump_to_label(label_no.max(0) as usize)?;
@@ -3861,9 +3896,10 @@ impl<'a> SceneVm<'a> {
                 let label_no = self.stream.pop_i32()?;
                 let _args = self.pop_arg_list()?;
                 let return_pc = self.stream.get_prg_cntr();
-                self.vm_trace(
+                vm_trace!(
+                    self,
                     Some(pc_before),
-                    format!("GOSUB label={} return_pc=0x{return_pc:x}", label_no),
+                    format!("GOSUB label={} return_pc=0x{return_pc:x}", label_no)
                 );
 
                 // Save return info on the caller frame .
@@ -3893,9 +3929,10 @@ impl<'a> SceneVm<'a> {
                 let label_no = self.stream.pop_i32()?;
                 let _args = self.pop_arg_list()?;
                 let return_pc = self.stream.get_prg_cntr();
-                self.vm_trace(
+                vm_trace!(
+                    self,
                     Some(pc_before),
-                    format!("GOSUBSTR label={} return_pc=0x{return_pc:x}", label_no),
+                    format!("GOSUBSTR label={} return_pc=0x{return_pc:x}", label_no)
                 );
 
                 let caller = self
@@ -3931,7 +3968,8 @@ impl<'a> SceneVm<'a> {
                         &frame.str_args[..frame.str_args.len().min(4)]
                     )
                 });
-                self.vm_trace(
+                vm_trace!(
+                    self,
                     Some(pc_before),
                     format!(
                         "RETURN decoded argc={} args={:?} call_depth={} scene_stack={} frame={:?}",
@@ -3940,9 +3978,9 @@ impl<'a> SceneVm<'a> {
                         self.call_stack.len(),
                         self.scene_stack.len(),
                         frame_state
-                    ),
+                    )
                 );
-                self.sg_omv_trace(format!("RETURN argc={} args={:?} call_depth={} scene_stack={}", args.len(), args, self.call_stack.len(), self.scene_stack.len()));
+                sg_omv_trace!(self, format!("RETURN argc={} args={:?} call_depth={} scene_stack={}", args.len(), args, self.call_stack.len(), self.scene_stack.len()));
                 if self.call_stack.len() == 1 {
                     if self.return_from_scene(args.clone())? {
                         return Ok(true);
@@ -3961,12 +3999,13 @@ impl<'a> SceneVm<'a> {
                 let al_id = self.stream.pop_i32()?;
                 let rhs = self.pop_value_for_form(right_form)?;
                 let elm = self.pop_element()?;
-                self.vm_trace(
+                vm_trace!(
+                    self,
                     Some(pc_before),
                     format!(
                         "ASSIGN decoded left_form={} right_form={} al_id={} elm={:?} rhs={:?}",
                         left_form, right_form, al_id, elm, rhs
-                    ),
+                    )
                 );
                 self.exec_assign(elm, al_id, rhs)?;
                 let frame_state = self.call_stack.last().map(|frame| {
@@ -3979,9 +4018,10 @@ impl<'a> SceneVm<'a> {
                         &frame.str_args[..frame.str_args.len().min(4)]
                     )
                 });
-                self.vm_trace(
+                vm_trace!(
+                    self,
                     Some(pc_before),
-                    format!("ASSIGN applied frame={:?}", frame_state),
+                    format!("ASSIGN applied frame={:?}", frame_state)
                 );
             }
 
@@ -4127,17 +4167,17 @@ impl<'a> SceneVm<'a> {
 
     fn push_int(&mut self, v: i32) {
         self.int_stack.push(v);
-        self.vm_trace(None, format!("push_int {}", v));
+        vm_trace!(self, None, format!("push_int {}", v));
     }
 
     fn pop_int(&mut self) -> Result<i32> {
         match self.int_stack.pop() {
             Some(v) => {
-                self.vm_trace(None, format!("pop_int -> {}", v));
+                vm_trace!(self, None, format!("pop_int -> {}", v));
                 Ok(v)
             }
             None => {
-                self.vm_trace(None, "pop_int underflow");
+                vm_trace!(self, None, "pop_int underflow");
                 Err(anyhow!(
                     "int stack underflow: scene={} scene_no={} line={} pc=0x{:x}",
                     self.current_scene_name.as_deref().unwrap_or("<none>"),
@@ -4167,7 +4207,7 @@ impl<'a> SceneVm<'a> {
             s.clone()
         };
         self.str_stack.push(s);
-        self.vm_trace(None, format!("push_str {:?}", preview));
+        vm_trace!(self, None, format!("push_str {:?}", preview));
     }
 
     fn pop_str(&mut self) -> Result<String> {
@@ -4180,11 +4220,11 @@ impl<'a> SceneVm<'a> {
                 } else {
                     v.clone()
                 };
-                self.vm_trace(None, format!("pop_str -> {:?}", preview));
+                vm_trace!(self, None, format!("pop_str -> {:?}", preview));
                 Ok(v)
             }
             None => {
-                self.vm_trace(None, "pop_str underflow");
+                vm_trace!(self, None, "pop_str underflow");
                 Err(anyhow!(
                     "str stack underflow: scene={} scene_no={} line={} pc=0x{:x}",
                     self.current_scene_name.as_deref().unwrap_or("<none>"),
@@ -4208,25 +4248,25 @@ impl<'a> SceneVm<'a> {
     fn push_element(&mut self, elm: Vec<i32>) {
         self.element_points.push(self.int_stack.len());
         self.int_stack.extend_from_slice(&elm);
-        self.vm_trace(None, format!("push_element {:?}", elm));
+        vm_trace!(self, None, format!("push_element {:?}", elm));
     }
 
     fn pop_element(&mut self) -> Result<Vec<i32>> {
         let start = match self.element_points.pop() {
             Some(v) => v,
             None => {
-                self.vm_trace(None, "pop_element underflow (missing ELM_POINT)");
+                vm_trace!(self, None, "pop_element underflow (missing ELM_POINT)");
                 return Err(anyhow!("element stack underflow (missing ELM_POINT)"));
             }
         };
         if start > self.int_stack.len() {
-            self.vm_trace(
+            vm_trace!(self,
                 None,
                 format!(
                     "pop_element invalid start={} len={}",
                     start,
                     self.int_stack.len()
-                ),
+                )
             );
             bail!(
                 "invalid element point start={start} len={}",
@@ -4235,7 +4275,7 @@ impl<'a> SceneVm<'a> {
         }
         let elm = self.int_stack[start..].to_vec();
         self.int_stack.truncate(start);
-        self.vm_trace(None, format!("pop_element -> {:?}", elm));
+        vm_trace!(self, None, format!("pop_element -> {:?}", elm));
         Ok(elm)
     }
 
@@ -5522,7 +5562,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn exec_call_property(&mut self, elm: &[i32]) -> Result<bool> {
-        self.vm_trace(None, format!("exec_call_property elm={:?}", elm));
+        vm_trace!(self, None, format!("exec_call_property elm={:?}", elm));
         use crate::runtime::forms::codes::{
             ELM_CALL_K, ELM_CALL_L, ELM_GLOBAL_CUR_CALL, ELM_INTLIST_GET_SIZE,
             ELM_STRLIST_GET_SIZE, FM_CALL, FM_CALLLIST,
@@ -5658,12 +5698,13 @@ impl<'a> SceneVm<'a> {
                     if let (Ok(idx), Value::Int(n)) = (usize::try_from(sub[1]), rhs) {
                         let len = self.call_stack[current_idx].int_args.len();
                         let old = self.call_stack[current_idx].int_args.get(idx).copied();
-                        self.vm_trace(
+                        vm_trace!(
+                            self,
                             None,
                             format!(
                                 "CALL.L assign frame={} idx={} len={} old={:?} new={}",
                                 current_idx, idx, len, old, n
-                            ),
+                            )
                         );
                         if let Some(slot) = self.call_stack[current_idx].int_args.get_mut(idx) {
                             *slot = n as i32;
@@ -5678,12 +5719,13 @@ impl<'a> SceneVm<'a> {
                     if let (Ok(idx), Value::Str(s)) = (usize::try_from(sub[1]), rhs) {
                         let len = self.call_stack[current_idx].str_args.len();
                         let old = self.call_stack[current_idx].str_args.get(idx).cloned();
-                        self.vm_trace(
+                        vm_trace!(
+                            self,
                             None,
                             format!(
                                 "CALL.K assign frame={} idx={} len={} old={:?} new={:?}",
                                 current_idx, idx, len, old, s
-                            ),
+                            )
                         );
                         if let Some(slot) = self.call_stack[current_idx].str_args.get_mut(idx) {
                             *slot = s;
@@ -6022,18 +6064,20 @@ impl<'a> SceneVm<'a> {
         let start = match self.element_points.last().copied() {
             Some(v) => v,
             None => {
-                self.vm_trace(None, "COPY_ELM missing prior ELM_POINT");
+                vm_trace!(
+                    self, None, "COPY_ELM missing prior ELM_POINT");
                 return Err(anyhow!("COPY_ELM without a prior ELM_POINT"));
             }
         };
         if start > self.int_stack.len() {
-            self.vm_trace(
+            vm_trace!(
+                self,
                 None,
                 format!(
                     "COPY_ELM invalid start={} len={}",
                     start,
                     self.int_stack.len()
-                ),
+                )
             );
             bail!(
                 "invalid element point start={start} len={}",
@@ -6041,8 +6085,8 @@ impl<'a> SceneVm<'a> {
             );
         }
         let slice = self.int_stack[start..].to_vec();
-        if Self::sg_mwnd_object_trace_enabled() && Self::sg_mwnd_chain_interesting(&slice) {
-            self.sg_mwnd_object_trace(format!(
+        if trace_env().sg_debug && Self::sg_mwnd_chain_interesting(&slice) {
+            sg_mwnd_object_trace!(self, format!(
                 "COPY_ELM slice={:?} before_current_chain={:?} before_current_stage_object={:?}",
                 slice,
                 self.ctx.globals.current_object_chain,
@@ -6051,7 +6095,7 @@ impl<'a> SceneVm<'a> {
         }
         self.element_points.push(self.int_stack.len());
         self.int_stack.extend_from_slice(&slice);
-        self.vm_trace(None, format!("COPY_ELM copied {:?}", slice));
+        vm_trace!(self, None, format!("COPY_ELM copied {:?}", slice));
         Ok(())
     }
 
@@ -6253,13 +6297,8 @@ impl<'a> SceneVm<'a> {
         form_id
     }
 
-
-    fn sg_mwnd_object_trace_enabled() -> bool {
-        std::env::var_os("SG_DEBUG").is_some()
-    }
-
     fn sg_mwnd_object_trace(&self, msg: impl AsRef<str>) {
-        if Self::sg_mwnd_object_trace_enabled() {
+        if trace_env().sg_debug {
             eprintln!("[SG_DEBUG][MWND_OBJECT_TRACE][VM] {}", msg.as_ref());
         }
     }
@@ -6689,7 +6728,7 @@ impl<'a> SceneVm<'a> {
                         synthetic.extend_from_slice(&elm[2..]);
                     }
                 }
-                if Self::sg_mwnd_object_trace_enabled()
+                if trace_env().sg_debug
                     && (Self::sg_mwnd_chain_interesting(elm)
                         || Self::sg_mwnd_chain_interesting(&synthetic))
                 {
@@ -6729,7 +6768,7 @@ impl<'a> SceneVm<'a> {
             if elm.len() > 4 {
                 synthetic.extend_from_slice(&elm[4..]);
             }
-            if Self::sg_mwnd_object_trace_enabled()
+            if trace_env().sg_debug
                 && (Self::sg_mwnd_chain_interesting(elm)
                     || Self::sg_mwnd_chain_interesting(&synthetic))
             {
@@ -6781,7 +6820,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn exec_property(&mut self, mut elm: Vec<i32>) -> Result<()> {
-        if std::env::var_os("SG_TITLE_CHAIN_TRACE").is_some()
+        if trace_env().title_chain_trace
             && self.current_scene_name.as_deref() == Some("sys10_tt01")
             && matches!(elm.first().copied(), Some(83 | 84 | 24 | 25))
         {
@@ -6793,16 +6832,17 @@ impl<'a> SceneVm<'a> {
                 self.ctx.globals.current_stage_object
             );
         }
-        self.vm_trace(None, format!("exec_property enter elm={:?}", elm));
+        vm_trace!(self, None, format!("exec_property enter elm={:?}", elm));
         if elm.is_empty() {
             self.push_int(0);
             return Ok(());
         }
         // Call-local properties (declared by CD_DEC_PROP / populated by CD_ARG).
         if self.exec_call_property(&elm)? {
-            self.vm_trace(
+            vm_trace!(
+                self,
                 None,
-                format!("exec_property handled by call-property elm={:?}", elm),
+                format!("exec_property handled by call-property elm={:?}", elm)
             );
             return Ok(());
         }
@@ -6822,16 +6862,18 @@ impl<'a> SceneVm<'a> {
             let prop = self.call_stack[current_idx].user_props[prop_idx].clone();
             if let Some(composed) = self.compose_call_prop_tail(&prop, &elm[1..]) {
                 self.exec_property(composed)?;
-                self.vm_trace(
+                vm_trace!(
+                    self,
                     None,
-                    format!("exec_property direct CALL_PROP composed elm={:?}", elm),
+                    format!("exec_property direct CALL_PROP composed elm={:?}", elm)
                 );
                 return Ok(());
             }
             self.push_call_prop_result(&prop, &elm[1..], &elm)?;
-            self.vm_trace(
+            vm_trace!(
+                self,
                 None,
-                format!("exec_property direct CALL_PROP elm={:?}", elm),
+                format!("exec_property direct CALL_PROP elm={:?}", elm)
             );
             return Ok(());
         }
@@ -6852,9 +6894,10 @@ impl<'a> SceneVm<'a> {
                 &elm,
             );
             self.push_user_prop_cell_result(&cell, &elm[1..], &elm)?;
-            self.vm_trace(
+            vm_trace!(
+                self,
                 None,
-                format!("exec_property direct USER_PROP elm={:?}", elm),
+                format!("exec_property direct USER_PROP elm={:?}", elm)
             );
             return Ok(());
         }
@@ -6868,24 +6911,26 @@ impl<'a> SceneVm<'a> {
         }
 
         if self.dispatch_global_indexed_list_property_direct(&elm)? {
-            self.vm_trace(None, format!("exec_property handled by global indexed-list elm={:?}", elm));
+            vm_trace!(self, None, format!("exec_property handled by global indexed-list elm={:?}", elm));
             return Ok(());
         }
 
         if self.try_parent_slot_property(&elm) {
-            self.vm_trace(
+            vm_trace!(
+                self,
                 None,
-                format!("exec_property handled by parent-slot elm={:?}", elm),
+                format!("exec_property handled by parent-slot elm={:?}", elm)
             );
             return Ok(());
         }
         if let Some(synthetic) = self.try_compact_object_chain(&elm, false) {
-            self.vm_trace(
+            vm_trace!(
+                self,
                 None,
                 format!(
                     "exec_property compact-object elm={:?} synthetic={:?}",
                     elm, synthetic
-                ),
+                )
             );
             self.ctx.vm_call = Some(runtime::VmCallMeta {
                 element: synthetic.clone(),
@@ -6919,9 +6964,10 @@ impl<'a> SceneVm<'a> {
             ret_form: self.cfg.fm_int as i64,
         });
 
-        self.vm_trace(
+        vm_trace!(
+            self,
             None,
-            format!("exec_property dispatch form_id={} elm={:?}", form_id, elm),
+            format!("exec_property dispatch form_id={} elm={:?}", form_id, elm)
         );
         if !runtime::dispatch_form_code(&mut self.ctx, form_id, &args)? {
             self.ctx.vm_call = None;
@@ -7019,12 +7065,13 @@ impl<'a> SceneVm<'a> {
             return Ok(());
         }
         if let Some(synthetic) = self.try_compact_object_chain(&elm, true) {
-            self.vm_trace(
+            vm_trace!(
+                self,
                 None,
                 format!(
                     "exec_assign compact-object elm={:?} synthetic={:?} al_id={} rhs={:?}",
                     elm, synthetic, al_id, rhs
-                ),
+                )
             );
             let args: Vec<Value> = vec![rhs];
             self.ctx.vm_call = Some(runtime::VmCallMeta {
@@ -7049,15 +7096,16 @@ impl<'a> SceneVm<'a> {
         }
 
         let form_id = self.canonical_runtime_form_id(head as u32);
-        self.vm_trace(
+        vm_trace!(
+            self,
             None,
             format!(
                 "exec_assign dispatch form_id={} elm={:?} al_id={} rhs={:?}",
                 form_id, elm, al_id, rhs
-            ),
+            )
         );
         let args: Vec<Value> = vec![rhs];
-        if (std::env::var_os("SIGLUS_TRACE_VM_COMMANDS").is_some()) {
+        if trace_env().vm_commands_trace {
             eprintln!(
                 "[vm form assign] form={} al_id={} elm={:?} rhs={:?}",
                 form_id,
@@ -7121,7 +7169,8 @@ impl<'a> SceneVm<'a> {
             .current_scene_no
             .ok_or_else(|| anyhow!("USER_CMD executed without a current scene"))?;
         let command = self.resolve_user_command_by_id(requested_scene_no, cmd_no)?;
-        self.vm_trace(
+        vm_trace!(
+            self,
             None,
             format!(
                 "USER_CMD decoded name={} target_scene={} offset=0x{:x} include={} ret_form={} args={:?}",
@@ -7131,9 +7180,9 @@ impl<'a> SceneVm<'a> {
                 command.include_command,
                 ret_form,
                 args
-            ),
+            )
         );
-        self.sg_omv_trace(format!(
+        sg_omv_trace!(self, format!(
             "USER_CMD enter name={} raw_head={} cmd_no={} target_scene={} offset=0x{:x} include={} ret_form={} argc={} current_scene={:?} current_pc=0x{:x}",
             command.name.as_str(),
             raw_head,
@@ -7272,7 +7321,7 @@ impl<'a> SceneVm<'a> {
                     && args.is_empty()
                     && ret_form == self.cfg.fm_void
                 {
-                    self.vm_trace(None, "suppress bare residual GLOBAL.WIPE command".to_string());
+                    vm_trace!(self, None, "suppress bare residual GLOBAL.WIPE command".to_string());
                     return Ok(());
                 }
 
@@ -7280,17 +7329,18 @@ impl<'a> SceneVm<'a> {
                     return Ok(());
                 }
                 if let Some(synthetic) = self.try_compact_object_chain(&elm, true) {
-                    self.vm_trace(
+                    vm_trace!(
+                        self,
                         None,
                         format!(
                             "exec_command compact-object elm={:?} synthetic={:?} al_id={} ret_form={} args={:?}",
                             elm, synthetic, al_id, ret_form, args
-                        ),
+                        )
                     );
-                    if Self::sg_mwnd_object_trace_enabled()
+                    if trace_env().sg_debug
                         && (Self::sg_mwnd_chain_interesting(&elm) || Self::sg_mwnd_chain_interesting(&synthetic))
                     {
-                        self.sg_mwnd_object_trace(format!(
+                        sg_mwnd_object_trace!(self, format!(
                             "exec_command compact elm={:?} synthetic={:?} al_id={} ret_form={} args={:?} current_chain={:?} current_stage_object={:?}",
                             elm,
                             synthetic,
@@ -7366,7 +7416,7 @@ impl<'a> SceneVm<'a> {
                     ret_form: ret_form as i64,
                 });
 
-                if (std::env::var_os("SIGLUS_TRACE_VM_COMMANDS").is_some()) {
+                if trace_env().vm_commands_trace {
                     let elm_tail = elm
                         .iter()
                         .map(|v| v.to_string())
@@ -7407,7 +7457,7 @@ impl<'a> SceneVm<'a> {
                 self.drain_pending_frame_action_finishes()?;
             }
             o if o == elm_code::ELM_OWNER_USER_CMD || o == elm_code::ELM_OWNER_CALL_CMD => {
-                if (std::env::var_os("SIGLUS_TRACE_VM_COMMANDS").is_some()) {
+                if trace_env().vm_commands_trace {
                     let cmd_no = elm_code::code(raw_head);
                     let elm_tail = elm
                         .iter()
@@ -10596,10 +10646,6 @@ impl<'a> SceneVm<'a> {
         })
     }
 
-    fn save_load_trace_enabled() -> bool {
-        std::env::var_os("SG_SAVELOAD_TRACE").is_some()
-    }
-
     fn perform_runtime_save_request(&mut self, req: RuntimeSaveRequest) -> Result<()> {
         if req.kind == RuntimeSaveKind::Inner {
             // C++ `tnm_saveload_proc_create_inner_save` copies the current
@@ -10612,7 +10658,7 @@ impl<'a> SceneVm<'a> {
                 );
                 return Ok(());
             };
-            if Self::save_load_trace_enabled() {
+            if trace_env().saveload_trace {
                 eprintln!("[SG_SAVELOAD_TRACE][VM] save inner idx={}", req.index);
             }
             if self.ctx.globals.syscom.inner_save_streams.len() <= req.index {
@@ -10660,7 +10706,7 @@ impl<'a> SceneVm<'a> {
             }
             return Ok(());
         };
-        if Self::save_load_trace_enabled() {
+        if trace_env().saveload_trace {
             eprintln!(
                 "[SG_SAVELOAD_TRACE][VM] save begin kind={:?} idx={} path={} file_exists_before={}",
                 req.kind,
@@ -10695,7 +10741,7 @@ impl<'a> SceneVm<'a> {
             return Err(err);
         }
         crate::runtime::forms::syscom::write_global_save(&self.ctx);
-        if Self::save_load_trace_enabled() {
+        if trace_env().saveload_trace {
             eprintln!(
                 "[SG_SAVELOAD_TRACE][VM] save written kind={:?} idx={} path={} bytes={}",
                 req.kind,
@@ -10731,7 +10777,7 @@ impl<'a> SceneVm<'a> {
                 save_kind,
                 req.index,
             );
-            if Self::save_load_trace_enabled() {
+            if trace_env().saveload_trace {
                 eprintln!(
                     "[SG_SAVELOAD_TRACE][VM] save thumb write kind={:?} idx={} original_save_no={}",
                     req.kind,
@@ -10751,7 +10797,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn perform_runtime_load_request(&mut self, req: RuntimeLoadRequest) -> Result<()> {
-        if Self::save_load_trace_enabled() {
+        if trace_env().saveload_trace {
             eprintln!("[SG_SAVELOAD_TRACE][VM] load begin kind={:?} idx={}", req.kind, req.index);
         }
         struct LoadedEnvelopeMeta {
@@ -10768,7 +10814,7 @@ impl<'a> SceneVm<'a> {
             (stream, Vec::new(), None)
         } else {
             let Some(path) = self.runtime_save_file_path(req.kind, req.index) else { return Ok(()); };
-            if Self::save_load_trace_enabled() {
+            if trace_env().saveload_trace {
                 eprintln!(
                     "[SG_SAVELOAD_TRACE][VM] load read kind={:?} idx={} path={} file_exists={}",
                     req.kind,
@@ -10930,7 +10976,7 @@ impl<'a> SceneVm<'a> {
         // the caller frame here rather than any callee-local scratch state.
         let return_pc = caller.return_pc;
         let ret_form = caller.ret_form;
-        if std::env::var_os("SIGLUS_TRACE_CALL_RETURN_PC").is_some() {
+        if trace_env().call_return_pc_trace {
             eprintln!(
                 "[SG_CALL_PC] return depth={} pc=0x{:x} ret_form={} override={:?} args={:?}",
                 self.call_stack.len() + 1,
@@ -10983,7 +11029,7 @@ impl<'a> SceneVm<'a> {
             .find_scene_no(scene_name)
             .ok_or_else(|| anyhow!("scene not found: {}", scene_name))?;
         let mut stream = self.cached_scene_stream(scene_no)?;
-        self.sg_omv_trace(format!(
+        sg_omv_trace!(self, format!(
             "load_scene_stream resolved target={} scene_no={} z={} initial_pc=0x{:x} scn_len=0x{:x}",
             scene_name,
             scene_no,
@@ -11000,7 +11046,7 @@ impl<'a> SceneVm<'a> {
         self.user_cmd_names = stream.scn_cmd_name_map.clone();
         match stream.jump_to_z_label(z_no.max(0) as usize) {
             Ok(()) => {
-                self.sg_omv_trace(format!(
+                sg_omv_trace!(self, format!(
                     "load_scene_stream entered target={} scene_no={} z={} target_pc=0x{:x} user_cmd_cnt={} call_cmd_cnt={}",
                     scene_name,
                     scene_no,
@@ -11011,7 +11057,7 @@ impl<'a> SceneVm<'a> {
                 ));
             }
             Err(e) => {
-                self.sg_omv_trace(format!(
+                sg_omv_trace!(self, format!(
                     "load_scene_stream failed target={} scene_no={} z={} error={}",
                     scene_name,
                     scene_no,
@@ -11025,7 +11071,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn jump_to_scene_name(&mut self, scene_name: &str, z_no: i32) -> Result<()> {
-        self.sg_omv_trace(format!("scene_jump target={} z={}", scene_name, z_no));
+        sg_omv_trace!(self, format!("scene_jump target={} z={}", scene_name, z_no));
         let (stream, scene_no) = self.load_scene_stream(scene_name, z_no)?;
         self.stash_current_scene_user_props();
         self.stream = stream;
@@ -11036,7 +11082,7 @@ impl<'a> SceneVm<'a> {
         self.ctx.current_scene_no = Some(scene_no as i64);
         self.ctx.current_scene_name = Some(scene_name.to_string());
         self.ctx.current_line_no = -1;
-        self.sg_omv_trace(format!(
+        sg_omv_trace!(self, format!(
             "scene_jump_entered target={} scene_no={} z={} pc=0x{:x}",
             scene_name,
             scene_no,
@@ -11054,7 +11100,7 @@ impl<'a> SceneVm<'a> {
         ex_call_proc: bool,
         scratch_source_args: &[Value],
     ) -> Result<()> {
-        self.sg_omv_trace(format!(
+        sg_omv_trace!(self, format!(
             "scene_farcall target={} z={} ret_form={} ex_call_proc={} scratch_argc={}",
             scene_name,
             z_no,
@@ -11078,7 +11124,7 @@ impl<'a> SceneVm<'a> {
                 .map(|v| format!("{v:?}"))
                 .collect::<Vec<_>>()
                 .join(", ");
-            self.sg_cgm_coord_trace(format!(
+            sg_cgm_coord_trace!(self, format!(
                 "farcall target={} z={} ret_form={} ex_call_proc={} argc={} args=[{}]",
                 scene_name,
                 z_no,
@@ -11122,7 +11168,7 @@ impl<'a> SceneVm<'a> {
         self.ctx.current_scene_no = Some(scene_no as i64);
         self.ctx.current_scene_name = Some(scene_name.to_string());
         self.ctx.current_line_no = -1;
-        self.sg_omv_trace(format!(
+        sg_omv_trace!(self, format!(
             "scene_farcall_entered target={} scene_no={} z={} pc=0x{:x} call_depth={} scene_stack={}",
             scene_name,
             scene_no,
@@ -11141,7 +11187,7 @@ impl<'a> SceneVm<'a> {
         let Some(saved) = self.scene_stack.pop() else {
             return Ok(false);
         };
-        self.sg_omv_trace(format!(
+        sg_omv_trace!(self, format!(
             "scene_return restore_scene={:?} restore_line={} ret_form={} args={:?}",
             saved.current_scene_name,
             saved.current_line_no,
@@ -11186,12 +11232,13 @@ impl<'a> SceneVm<'a> {
             self.mark_excall_script_proc_pop_requested();
         }
         if self.cf_branch_trace_interesting_line() {
-            self.sg_cf_branch_trace(
+            sg_cf_branch_trace!(
+                self,
                 self.stream.get_prg_cntr(),
                 format!("kind=RETURN_RESTORED ret_form={} args={:?}", saved.ret_form, args),
             );
         }
-        self.sg_omv_trace(format!(
+        sg_omv_trace!(self, format!(
             "scene_return_restored scene={:?} scene_no={:?} line={} pc=0x{:x} call_depth={} scene_stack={}",
             self.current_scene_name,
             self.current_scene_no,
@@ -11503,8 +11550,8 @@ impl<'a> SceneVm<'a> {
         let prev_stage_object = self.ctx.globals.current_stage_object;
         self.ctx.globals.current_object_chain = Some(elm.to_vec());
         self.ctx.globals.current_stage_object = Some((stage_idx, runtime_slot));
-        if Self::sg_mwnd_object_trace_enabled() && Self::sg_mwnd_chain_interesting(elm) {
-            self.sg_mwnd_object_trace(format!(
+        if trace_env().sg_debug && Self::sg_mwnd_chain_interesting(elm) {
+            sg_mwnd_object_trace!(self, format!(
                 "update_compact_context elm={:?} resolved_stage={} fallback_idx={} runtime_slot={} prev_chain={:?} prev_stage_object={:?}",
                 elm,
                 stage_idx,
@@ -11593,8 +11640,8 @@ impl<'a> SceneVm<'a> {
         }
 
         let object_ref = elm[..pos].to_vec();
-        if Self::sg_mwnd_object_trace_enabled() && Self::sg_mwnd_chain_interesting(elm) {
-            self.sg_mwnd_object_trace(format!(
+        if trace_env().sg_debug && Self::sg_mwnd_chain_interesting(elm) {
+            sg_mwnd_object_trace!(self, format!(
                 "update_context_from_dispatch elm={:?} object_ref={:?} pos={}",
                 elm,
                 object_ref,
