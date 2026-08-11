@@ -14,9 +14,7 @@
 
 use anyhow::{bail, Result};
 use std::fs;
-use std::path::{Path, PathBuf};
-
-use std::path::Component;
+use std::path::{Component, Path, PathBuf};
 #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
 use crate::wasm_vfs::SiglusVfs;
 
@@ -71,6 +69,83 @@ pub fn read_file_to_string(path: &Path) -> Result<String> {
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 pub fn read_file_to_string(path: &Path) -> Result<String> {
     Ok(String::from_utf8(read_file_bytes(path)?)?)
+}
+
+/// Pre-load the entire project directory tree into a global in-memory index.
+///
+/// Call once at engine startup (e.g. from `SceneVm::new`).
+/// On wasm this is a no-op — the VFS is already in memory.
+pub fn preload_project_file_index(project_dir: &Path) {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    index::init(project_dir);
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+mod index {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::OnceLock;
+
+    pub(super) struct ProjectIndex {
+        pub(super) file_map: HashMap<String, PathBuf>,
+        pub(super) append_dirs: Vec<String>,
+    }
+
+    static FILE_INDEX: OnceLock<ProjectIndex> = OnceLock::new();
+
+    pub(super) fn get() -> Option<&'static ProjectIndex> {
+        FILE_INDEX.get()
+    }
+
+    const SUBDIRS: &[&str] = &["g00", "bg", "mov", "bgm", "wav", "x"];
+
+    fn scan_dir(dir: &Path, map: &mut HashMap<String, PathBuf>) {
+        for entry in walkdir::WalkDir::new(dir)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let path = entry.into_path();
+            if let Some(k) = path.as_os_str().to_str() {
+                map.insert(k.to_ascii_lowercase(), path);
+            }
+        }
+    }
+
+    pub(super) fn init(project_dir: &Path) {
+        let append_dirs = parse_select_ini_append_dirs_uncached(project_dir);
+        let mut file_map = HashMap::new();
+
+        for append in &append_dirs {
+            for subdir in SUBDIRS {
+                let root = base_in_append(project_dir, append, subdir);
+                scan_dir(&root, &mut file_map);
+            }
+        }
+
+        let _ = FILE_INDEX.set(ProjectIndex { file_map, append_dirs });
+    }
+}
+
+#[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+mod index {
+    pub(super) struct ProjectIndex;
+    #[inline(always)]
+    pub(super) fn get() -> Option<&'static ProjectIndex> { None }
+}
+
+fn index_lookup(path: &Path) -> Option<PathBuf> {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        let idx = index::get()?;
+        let key = path.as_os_str().to_str()?.to_ascii_lowercase();
+        idx.file_map.get(&key).cloned()
+    }
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    { None }
 }
 
 fn path_component_eq_windows(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
@@ -153,13 +228,20 @@ pub(crate) fn resolve_windows_case_insensitive_file(path: &Path) -> Result<Optio
     }
 
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-    if path.is_file() {
-        return Ok(Some(path.to_path_buf()));
+    {
+        // Fast path: pre-built in-memory file index.
+        if let Some(found) = index_lookup(path) {
+            return Ok(Some(found));
+        }
+        // Fallback: when the index wasn't built (tests, tools, etc.).
+        if path.is_file() {
+            return Ok(Some(path.to_path_buf()));
+        }
+        let Some(resolved) = resolve_windows_case_insensitive_path(path)? else {
+            return Ok(None);
+        };
+        Ok(resolved.is_file().then_some(resolved))
     }
-    let Some(resolved) = resolve_windows_case_insensitive_path(path)? else {
-        return Ok(None);
-    };
-    Ok(resolved.is_file().then_some(resolved))
 }
 
 /// Resolve an existing game path using the Windows case-insensitive semantics
@@ -724,6 +806,16 @@ pub(crate) fn find_emote_psb_candidates(project_dir: &Path) -> Result<Vec<PathBu
 }
 
 fn parse_select_ini_append_dirs(project_dir: &Path) -> Vec<String> {
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        if let Some(idx) = index::get() {
+            return idx.append_dirs.clone();
+        }
+    }
+    parse_select_ini_append_dirs_uncached(project_dir)
+}
+
+fn parse_select_ini_append_dirs_uncached(project_dir: &Path) -> Vec<String> {
     let mut candidates = vec![project_dir.join("Select.ini")];
     candidates.push(project_dir.join("select.ini"));
 

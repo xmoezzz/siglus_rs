@@ -1136,6 +1136,8 @@ impl CommandContext {
         }
     }
     pub fn new(project_dir: PathBuf) -> Self {
+        crate::resource::preload_project_file_index(&project_dir);
+
         let mut unknown = unknown::UnknownOpRecorder::default();
         let tables = tables::AssetTables::load(&project_dir, &mut unknown);
         let emote_key = crate::resource::load_project_emote_key(&project_dir)
