@@ -34,6 +34,7 @@ egui = "0.28.1"
 egui-wgpu = "0.28.1"
 
 
+
 [[bin]]
 name = "siglus_engine"
 path = "src/bin/siglus_engine.rs"
@@ -44,6 +45,7 @@ path = "src/bin/mesh_asset_tool.rs"
 
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 ureq = "2.10"
+walkdir = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
