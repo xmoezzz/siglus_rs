@@ -97,7 +97,10 @@ pub struct GameexeConfig {
 
 impl GameexeEntry {
     pub fn key_index(&self, prefix: &str) -> Option<usize> {
-        let parts = normalized_key_parts(prefix);
+        self.key_index_from_parts(&normalized_key_parts(prefix))
+    }
+
+    pub fn key_index_from_parts(&self, parts: &[String]) -> Option<usize> {
         if self.key_parts.len() < parts.len() + 1 {
             return None;
         }
@@ -108,7 +111,10 @@ impl GameexeEntry {
     }
 
     pub fn key_field_after_index(&self, prefix: &str) -> Option<&str> {
-        let parts = normalized_key_parts(prefix);
+        self.key_field_after_index_from_parts(&normalized_key_parts(prefix))
+    }
+
+    fn key_field_after_index_from_parts(&self, parts: &[String]) -> Option<&str> {
         if self.key_parts.len() < parts.len() + 2 {
             return None;
         }
@@ -223,20 +229,22 @@ impl GameexeConfig {
         // non-padded decimal string, otherwise table-backed subsystems silently
         // miss registered rows. Keep reverse iteration to preserve get_entry
         // "last definition wins" behavior.
+        let parts = normalized_key_parts(prefix);
         self.entries
             .iter()
             .rev()
-            .find(|e| e.key_index(prefix) == Some(index))
+            .find(|e| e.key_index_from_parts(&parts) == Some(index))
     }
 
     pub fn get_indexed_field(&self, prefix: &str, index: usize, field: &str) -> Option<&str> {
         let nf = normalize_key(field);
+        let parts = normalized_key_parts(prefix);
         self.entries
             .iter()
             .rev()
             .find(|e| {
-                e.key_index(prefix) == Some(index)
-                    && e.key_field_after_index(prefix) == Some(nf.as_str())
+                e.key_index_from_parts(&parts) == Some(index)
+                    && e.key_field_after_index_from_parts(&parts) == Some(nf.as_str())
             })
             .map(|e| e.value.as_str())
     }
@@ -248,12 +256,13 @@ impl GameexeConfig {
         field: &str,
     ) -> Option<&str> {
         let nf = normalize_key(field);
+        let parts = normalized_key_parts(prefix);
         self.entries
             .iter()
             .rev()
             .find(|e| {
-                e.key_index(prefix) == Some(index)
-                    && e.key_field_after_index(prefix) == Some(nf.as_str())
+                e.key_index_from_parts(&parts) == Some(index)
+                    && e.key_field_after_index_from_parts(&parts) == Some(nf.as_str())
             })
             .map(|e| e.scalar_unquoted())
     }
