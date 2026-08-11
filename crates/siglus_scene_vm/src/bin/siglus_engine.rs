@@ -88,6 +88,10 @@ struct Args {
     /// Pause at startup.
     #[arg(long, default_value_t = false)]
     paused: bool,
+
+    /// Print frame time to stdout each redraw.
+    #[arg(long, default_value_t = false)]
+    show_frame_time: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -211,6 +215,8 @@ struct App {
     last_mouse_move: Instant,
     redraw_count: u32,
     next_frame_at: Instant,
+    frame_times_sum: Duration,
+    frame_count: u64,
     frame_dirty: bool,
     script_needs_pump: bool,
     script_resume_after_redraw: bool,
@@ -417,6 +423,8 @@ impl App {
             last_mouse_move: Instant::now(),
             redraw_count: 0,
             next_frame_at: Instant::now(),
+            frame_times_sum: Duration::ZERO,
+            frame_count: 0,
             frame_dirty: true,
             script_needs_pump: true,
             script_resume_after_redraw: false,
@@ -2386,6 +2394,24 @@ impl App {
     }
 
     fn redraw(&mut self) -> Result<()> {
+        let frame_start = Instant::now();
+        let res = self.redraw_inner();
+        self.record_frame_time(frame_start);
+        res
+    }
+
+    fn record_frame_time(&mut self, frame_start: Instant) {
+        let dt = frame_start.elapsed();
+        self.frame_times_sum += dt;
+        self.frame_count += 1;
+        if self.args.show_frame_time {
+            let avg_ms = self.frame_times_sum.as_secs_f64() * 1000.0 / self.frame_count as f64;
+            println!("avg frame time: {:.2} ms", avg_ms);
+            println!("frame time: {:.2} ms", dt.as_secs_f64() * 1000.0);
+        }
+    }
+
+    fn redraw_inner(&mut self) -> Result<()> {
         if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
