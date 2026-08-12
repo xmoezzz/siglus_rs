@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::env::trace_env;
 use crate::assets::RgbaImage;
+use crate::env::trace_env;
+use crate::platform_time::{Duration, Instant};
 use crate::runtime::gan::GanState;
 use crate::runtime::int_event::IntEvent;
-use crate::platform_time::{Duration, Instant};
 
 use crate::image_manager::ImageId;
 use crate::layer::{LayerId, SpriteId};
@@ -111,9 +111,7 @@ impl WipeState {
         if self.done {
             return;
         }
-        self.cur_time_ms = self
-            .cur_time_ms
-            .saturating_add(past_time_ms.max(0) as i64);
+        self.cur_time_ms = self.cur_time_ms.saturating_add(past_time_ms.max(0) as i64);
 
         if self.step == 0 {
             self.step = 1;
@@ -683,7 +681,6 @@ pub struct SyscomRuntimeState {
     pub fallback_origin: Option<SyscomFallbackDialogKind>,
 }
 
-
 impl Default for SyscomRuntimeState {
     fn default() -> Self {
         Self {
@@ -696,16 +693,56 @@ impl Default for SyscomRuntimeState {
             mwnd_btn_disable_all: false,
             mwnd_btn_touch_disable: false,
             mwnd_btn_disable: HashMap::new(),
-            read_skip: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            unread_skip: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            auto_skip: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            auto_mode: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            hide_mwnd: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            local_extra_switch: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            local_extra_mode: ValueFeatureState { value: 0, enable: true, exist: true },
-            local_extra_switches: [ToggleFeatureState { onoff: false, enable: true, exist: true }; 4],
-            local_extra_modes: [ValueFeatureState { value: 0, enable: true, exist: true }; 4],
-            msg_back: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            read_skip: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            unread_skip: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            auto_skip: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            auto_mode: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            hide_mwnd: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            local_extra_switch: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            local_extra_mode: ValueFeatureState {
+                value: 0,
+                enable: true,
+                exist: true,
+            },
+            local_extra_switches: [ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            }; 4],
+            local_extra_modes: [ValueFeatureState {
+                value: 0,
+                enable: true,
+                exist: true,
+            }; 4],
+            msg_back: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
             msg_back_open: false,
             msg_back_view_pos: 0,
             msg_back_scroll_pos: 0,
@@ -720,15 +757,51 @@ impl Default for SyscomRuntimeState {
             msg_back_content_dragging: false,
             msg_back_content_drag_start_mouse: 0,
             msg_back_content_drag_start_scroll_pos: 0,
-            return_to_sel: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            config_feature: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            manual_feature: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            version_feature: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            return_to_menu: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            end_game: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            cancel_feature: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            save_feature: ToggleFeatureState { onoff: false, enable: true, exist: true },
-            load_feature: ToggleFeatureState { onoff: false, enable: true, exist: true },
+            return_to_sel: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            config_feature: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            manual_feature: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            version_feature: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            return_to_menu: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            end_game: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            cancel_feature: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            save_feature: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
+            load_feature: ToggleFeatureState {
+                onoff: false,
+                enable: true,
+                exist: true,
+            },
             replay_koe: None,
             current_save_scene_title: String::new(),
             current_save_message: String::new(),
@@ -1917,10 +1990,7 @@ impl EditBoxState {
     }
 
     pub fn commit_text(&mut self, text: &str) {
-        let filtered: String = text
-            .chars()
-            .filter(|ch| !ch.is_control())
-            .collect();
+        let filtered: String = text.chars().filter(|ch| !ch.is_control()).collect();
         if filtered.is_empty() {
             self.cancel_composition();
             return;
@@ -2407,7 +2477,10 @@ impl EditBoxState {
     fn display_width_before(&self, byte_pos: usize) -> i32 {
         let pos = Self::normalize_boundary(&self.text, byte_pos);
         self.text[..pos].chars().fold(0i32, |sum, ch| {
-            sum.saturating_add(crate::text_render::editbox_cell_width_px(ch, self.font_px()))
+            sum.saturating_add(crate::text_render::editbox_cell_width_px(
+                ch,
+                self.font_px(),
+            ))
         })
     }
 
@@ -2419,7 +2492,10 @@ impl EditBoxState {
                 .map(|(_, end)| Self::normalize_boundary(&self.composition_text, end))
                 .unwrap_or(self.composition_text.len());
             for ch in self.composition_text[..comp_cursor].chars() {
-                x = x.saturating_add(crate::text_render::editbox_cell_width_px(ch, self.font_px()));
+                x = x.saturating_add(crate::text_render::editbox_cell_width_px(
+                    ch,
+                    self.font_px(),
+                ));
             }
             x
         } else {
@@ -2433,10 +2509,16 @@ impl EditBoxState {
             let end = Self::normalize_boundary(&self.text, end);
             let mut width = self.display_width_before(start);
             for ch in self.composition_text.chars() {
-                width = width.saturating_add(crate::text_render::editbox_cell_width_px(ch, self.font_px()));
+                width = width.saturating_add(crate::text_render::editbox_cell_width_px(
+                    ch,
+                    self.font_px(),
+                ));
             }
             for ch in self.text[end..].chars() {
-                width = width.saturating_add(crate::text_render::editbox_cell_width_px(ch, self.font_px()));
+                width = width.saturating_add(crate::text_render::editbox_cell_width_px(
+                    ch,
+                    self.font_px(),
+                ));
             }
             width
         } else {
@@ -6151,10 +6233,18 @@ impl ScreenEffectState {
             s if s == ids.effect_color_r || s == ids.effect_color_r_eve => Some(&self.color_r),
             s if s == ids.effect_color_g || s == ids.effect_color_g_eve => Some(&self.color_g),
             s if s == ids.effect_color_b || s == ids.effect_color_b_eve => Some(&self.color_b),
-            s if s == ids.effect_color_rate || s == ids.effect_color_rate_eve => Some(&self.color_rate),
-            s if s == ids.effect_color_add_r || s == ids.effect_color_add_r_eve => Some(&self.color_add_r),
-            s if s == ids.effect_color_add_g || s == ids.effect_color_add_g_eve => Some(&self.color_add_g),
-            s if s == ids.effect_color_add_b || s == ids.effect_color_add_b_eve => Some(&self.color_add_b),
+            s if s == ids.effect_color_rate || s == ids.effect_color_rate_eve => {
+                Some(&self.color_rate)
+            }
+            s if s == ids.effect_color_add_r || s == ids.effect_color_add_r_eve => {
+                Some(&self.color_add_r)
+            }
+            s if s == ids.effect_color_add_g || s == ids.effect_color_add_g_eve => {
+                Some(&self.color_add_g)
+            }
+            s if s == ids.effect_color_add_b || s == ids.effect_color_add_b_eve => {
+                Some(&self.color_add_b)
+            }
             _ => None,
         }
     }
@@ -6175,10 +6265,18 @@ impl ScreenEffectState {
             s if s == ids.effect_color_r || s == ids.effect_color_r_eve => Some(&mut self.color_r),
             s if s == ids.effect_color_g || s == ids.effect_color_g_eve => Some(&mut self.color_g),
             s if s == ids.effect_color_b || s == ids.effect_color_b_eve => Some(&mut self.color_b),
-            s if s == ids.effect_color_rate || s == ids.effect_color_rate_eve => Some(&mut self.color_rate),
-            s if s == ids.effect_color_add_r || s == ids.effect_color_add_r_eve => Some(&mut self.color_add_r),
-            s if s == ids.effect_color_add_g || s == ids.effect_color_add_g_eve => Some(&mut self.color_add_g),
-            s if s == ids.effect_color_add_b || s == ids.effect_color_add_b_eve => Some(&mut self.color_add_b),
+            s if s == ids.effect_color_rate || s == ids.effect_color_rate_eve => {
+                Some(&mut self.color_rate)
+            }
+            s if s == ids.effect_color_add_r || s == ids.effect_color_add_r_eve => {
+                Some(&mut self.color_add_r)
+            }
+            s if s == ids.effect_color_add_g || s == ids.effect_color_add_g_eve => {
+                Some(&mut self.color_add_g)
+            }
+            s if s == ids.effect_color_add_b || s == ids.effect_color_add_b_eve => {
+                Some(&mut self.color_add_b)
+            }
             _ => None,
         }
     }
@@ -6265,8 +6363,7 @@ fn speed_up_limit_i32(now: i32, start: i32, start_value: i32, end: i32, end_valu
     let end = end as f64;
     let start_value = start_value as f64;
     let end_value = end_value as f64;
-    (((t - start) * (t - start) * (end_value - start_value)
-        / ((end - start) * (end - start)))
+    (((t - start) * (t - start) * (end_value - start_value) / ((end - start) * (end - start)))
         + start_value) as i32
 }
 
@@ -6281,8 +6378,7 @@ fn speed_down_limit_i32(now: i32, start: i32, start_value: i32, end: i32, end_va
     let end = end as f64;
     let start_value = start_value as f64;
     let end_value = end_value as f64;
-    (-(t - end) * (t - end) * (end_value - start_value)
-        / ((end - start) * (end - start))
+    (-(t - end) * (t - end) * (end_value - start_value) / ((end - start) * (end - start))
         + end_value) as i32
 }
 
@@ -6419,11 +6515,29 @@ impl ScreenQuakeState {
                 let value = if jump < self.total_time / 4 {
                     speed_up_limit_i32(jump, 0, 0, quarter, self.power / 2)
                 } else if jump < self.total_time / 2 {
-                    speed_down_limit_i32(jump - self.total_time / 4, 0, self.power / 2, quarter, self.power)
+                    speed_down_limit_i32(
+                        jump - self.total_time / 4,
+                        0,
+                        self.power / 2,
+                        quarter,
+                        self.power,
+                    )
                 } else if jump < self.total_time * 3 / 4 {
-                    speed_up_limit_i32(jump - self.total_time / 2, 0, self.power, quarter, self.power / 2)
+                    speed_up_limit_i32(
+                        jump - self.total_time / 2,
+                        0,
+                        self.power,
+                        quarter,
+                        self.power / 2,
+                    )
                 } else {
-                    speed_down_limit_i32(jump - self.total_time * 3 / 4, 0, self.power / 2, quarter, 0)
+                    speed_down_limit_i32(
+                        jump - self.total_time * 3 / 4,
+                        0,
+                        self.power / 2,
+                        quarter,
+                        0,
+                    )
                 };
                 x = value.saturating_mul(x_sign);
                 y = value.saturating_mul(y_sign);
@@ -6436,7 +6550,13 @@ impl ScreenQuakeState {
                 } else if jump < self.total_time * 3 / 4 {
                     speed_down_limit_i32(jump - self.total_time / 2, 0, 0, quarter, -self.power / 2)
                 } else {
-                    speed_up_limit_i32(jump - self.total_time * 3 / 4, 0, -self.power / 2, quarter, 0)
+                    speed_up_limit_i32(
+                        jump - self.total_time * 3 / 4,
+                        0,
+                        -self.power / 2,
+                        quarter,
+                        0,
+                    )
                 };
                 x = value.saturating_mul(x_sign);
                 y = value.saturating_mul(y_sign);
@@ -6448,11 +6568,29 @@ impl ScreenQuakeState {
                 scale = if jump < self.total_time / 4 {
                     speed_up_limit_i32(jump, 0, SCALE_UNIT, quarter, half_scale)
                 } else if jump < self.total_time / 2 {
-                    speed_down_limit_i32(jump - self.total_time / 4, 0, half_scale, quarter, max_scale)
+                    speed_down_limit_i32(
+                        jump - self.total_time / 4,
+                        0,
+                        half_scale,
+                        quarter,
+                        max_scale,
+                    )
                 } else if jump < self.total_time * 3 / 4 {
-                    speed_up_limit_i32(jump - self.total_time / 2, 0, max_scale, quarter, half_scale)
+                    speed_up_limit_i32(
+                        jump - self.total_time / 2,
+                        0,
+                        max_scale,
+                        quarter,
+                        half_scale,
+                    )
                 } else {
-                    speed_down_limit_i32(jump - self.total_time * 3 / 4, 0, half_scale, quarter, SCALE_UNIT)
+                    speed_down_limit_i32(
+                        jump - self.total_time * 3 / 4,
+                        0,
+                        half_scale,
+                        quarter,
+                        SCALE_UNIT,
+                    )
                 };
             }
             // TNM_QUAKE_TYPE_ROTATE exists in the C++ enum/save structure,
@@ -6590,11 +6728,7 @@ impl ScreenFormState {
         }
     }
 
-    pub fn tick(
-        &mut self,
-        delta: i32,
-        shake_templates: &[Vec<crate::runtime::tables::ShakeStep>],
-    ) {
+    pub fn tick(&mut self, delta: i32, shake_templates: &[Vec<crate::runtime::tables::ShakeStep>]) {
         for effect in &mut self.effect_list {
             effect.tick(delta);
         }
@@ -6642,7 +6776,14 @@ impl Default for MsgBackState {
     fn default() -> Self {
         let history_cnt_max = 256usize;
         Self {
-            history: vec![MsgBackEntry { scn_no: -1, line_no: -1, ..MsgBackEntry::default() }; history_cnt_max],
+            history: vec![
+                MsgBackEntry {
+                    scn_no: -1,
+                    line_no: -1,
+                    ..MsgBackEntry::default()
+                };
+                history_cnt_max
+            ],
             history_cnt_max,
             history_cnt: 0,
             history_start_pos: 0,
@@ -6667,11 +6808,12 @@ impl MsgBackState {
             self.history_cnt_max = 256;
         }
         if self.history.len() != self.history_cnt_max {
-            self.history.resize_with(self.history_cnt_max, || MsgBackEntry {
-                scn_no: -1,
-                line_no: -1,
-                ..MsgBackEntry::default()
-            });
+            self.history
+                .resize_with(self.history_cnt_max, || MsgBackEntry {
+                    scn_no: -1,
+                    line_no: -1,
+                    ..MsgBackEntry::default()
+                });
         }
         self.history_insert_pos %= self.history_cnt_max;
         self.history_start_pos %= self.history_cnt_max;
@@ -6694,14 +6836,24 @@ impl MsgBackState {
             ordered.drain(0..drop_count);
         }
         self.history_cnt_max = max_count;
-        self.history = vec![MsgBackEntry { scn_no: -1, line_no: -1, ..MsgBackEntry::default() }; max_count];
+        self.history = vec![
+            MsgBackEntry {
+                scn_no: -1,
+                line_no: -1,
+                ..MsgBackEntry::default()
+            };
+            max_count
+        ];
         self.history_cnt = ordered.len();
         self.history_start_pos = 0;
         for (i, entry) in ordered.into_iter().enumerate() {
             self.history[i] = entry;
         }
         self.history_insert_pos = self.history_cnt % self.history_cnt_max;
-        self.history_last_pos = self.history_cnt.saturating_sub(1).min(self.history_cnt_max - 1);
+        self.history_last_pos = self
+            .history_cnt
+            .saturating_sub(1)
+            .min(self.history_cnt_max - 1);
         self.new_msg_flag = true;
     }
 
@@ -6951,10 +7103,11 @@ impl StageFormState {
     }
 
     pub fn is_embedded_object_slot(&self, stage_idx: i64, slot: usize) -> bool {
-        let prefix = format!("{stage_idx}:");
         self.embedded_object_slots
             .iter()
-            .any(|(key, &mapped_slot)| mapped_slot == slot && key.starts_with(&prefix))
+            .any(|(key, &mapped_slot)| {
+                mapped_slot == slot && key.starts_with(&format!("{stage_idx}:"))
+            })
     }
 }
 
@@ -7068,9 +7221,7 @@ impl GlobalState {
             .local_game_time
             .saturating_add(past_game_time.max(0) as i64);
         let past_wipe_time = past_game_time.max(0);
-        self.local_wipe_time = self
-            .local_wipe_time
-            .saturating_add(past_wipe_time as i64);
+        self.local_wipe_time = self.local_wipe_time.saturating_add(past_wipe_time as i64);
         if let Some(wipe) = self.wipe.as_mut() {
             wipe.advance(past_wipe_time);
         }
@@ -7451,9 +7602,7 @@ mod wipe_stage_tick_tests {
         normal_stage
             .world_lists
             .insert(FRONT_STAGE, vec![normal_world]);
-        globals
-            .stage_forms
-            .insert(TEST_STAGE_FORM_ID, normal_stage);
+        globals.stage_forms.insert(TEST_STAGE_FORM_ID, normal_stage);
 
         let mut excall_stage = StageFormState::default();
         let mut excall_world = WorldState::new(0);
