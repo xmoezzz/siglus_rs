@@ -4231,10 +4231,13 @@ fn resolve_filter_path(project_dir: &Path, raw: &str) -> Option<PathBuf> {
         for ext in ["png", "bmp", "jpg", "jpeg", "g00"] {
             candidates.push(project_dir.join(format!("{}.{}", norm, ext)));
             candidates.push(project_dir.join("dat").join(format!("{}.{}", norm, ext)));
+            // Message-window filters ship as `g00/_mw_filterNN.g00`.
+            candidates.push(project_dir.join("g00").join(format!("{}.{}", norm, ext)));
         }
     }
     candidates.push(project_dir.join(&norm));
     candidates.push(project_dir.join("dat").join(&norm));
+    candidates.push(project_dir.join("g00").join(&norm));
 
     for c in candidates {
         if let Some(path) = crate::resource::resolve_game_file(&c).ok().flatten() {

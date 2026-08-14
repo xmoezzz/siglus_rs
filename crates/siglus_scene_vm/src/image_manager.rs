@@ -488,12 +488,11 @@ impl ImageManager {
     pub fn load_file(&mut self, path: &Path, frame_index: usize) -> Result<ImageId> {
         let requested = if path.is_absolute() {
             path.to_path_buf()
-        } else if crate::resource::resolve_game_file(path)?.is_some() {
-            // Resource lookup helpers can return a project-rooted relative path
-            // (for example `testcase/g00/foo.g00`). Resolve it before deciding
-            // to join project_dir again, including Windows-style case folding.
-            path.to_path_buf()
         } else {
+            // Relative paths are project-rooted (script resource names and
+            // resource helper results). Join first so the lookup goes through
+            // the pre-built absolute-path index instead of a doomed relative
+            // query that always misses and falls back to a syscall.
             self.project_dir.join(path)
         };
         let resolved = crate::resource::resolve_game_file(&requested)?

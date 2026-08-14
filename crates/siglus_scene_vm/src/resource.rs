@@ -89,6 +89,14 @@ mod index {
     pub(super) struct ProjectIndex {
         pub(super) file_map: HashMap<String, PathBuf>,
         pub(super) append_dirs: Vec<String>,
+        /// Lowercase scan roots. A lookup path under one of these is answered
+        /// authoritatively by the index: a miss means the file does not exist,
+        /// so no syscall fallback is needed.
+        scanned_roots: Vec<String>,
+        /// Lowercase runtime-written prefixes (e.g. `<project>/savedata`) that
+        /// must always use the syscall fallback: files appear there after the
+        /// index was built.
+        excluded_prefixes: Vec<String>,
     }
 
     static FILE_INDEX: OnceLock<ProjectIndex> = OnceLock::new();
@@ -96,8 +104,6 @@ mod index {
     pub(super) fn get() -> Option<&'static ProjectIndex> {
         FILE_INDEX.get()
     }
-
-    const SUBDIRS: &[&str] = &["g00", "bg", "mov", "bgm", "wav", "x"];
 
     fn scan_dir(dir: &Path, map: &mut HashMap<String, PathBuf>) {
         for entry in walkdir::WalkDir::new(dir)
@@ -118,15 +124,76 @@ mod index {
     pub(super) fn init(project_dir: &Path) {
         let append_dirs = parse_select_ini_append_dirs_uncached(project_dir);
         let mut file_map = HashMap::new();
+        let mut scanned_roots = Vec::new();
+        let mut excluded_prefixes = Vec::new();
 
         for append in &append_dirs {
-            for subdir in SUBDIRS {
-                let root = base_in_append(project_dir, append, subdir);
-                scan_dir(&root, &mut file_map);
+            // Scan each append root in full: the runtime also resolves
+            // `dat/`, `sys/`, root-level files, etc., so the index must cover
+            // the entire game tree, not a handful of asset subdirs.
+            let root = base_in_append(project_dir, append, "");
+            scan_dir(&root, &mut file_map);
+            if let Some(k) = root.as_os_str().to_str() {
+                scanned_roots.push(k.to_ascii_lowercase());
             }
         }
 
-        let _ = FILE_INDEX.set(ProjectIndex { file_map, append_dirs });
+        // Runtime-written save data lives under `<project>/savedata` and must
+        // always go through the syscall fallback.
+        let save_root = project_dir.join("savedata");
+        if let Some(k) = save_root.as_os_str().to_str() {
+            excluded_prefixes.push(k.to_ascii_lowercase());
+        }
+
+        let _ = FILE_INDEX.set(ProjectIndex {
+            file_map,
+            append_dirs,
+            scanned_roots,
+            excluded_prefixes,
+        });
+    }
+
+    /// Whether `key` (lowercase) lives at or under `root` (lowercase).
+    fn path_under(key: &str, root: &str) -> bool {
+        if !key.starts_with(root) {
+            return false;
+        }
+        key.len() == root.len()
+            || key[root.len()..].starts_with('\\')
+            || key[root.len()..].starts_with('/')
+    }
+
+    /// Runtime-written paths the static index must not answer for: capture
+    /// flags are written next to images (`foo.png.siglus_flags`) during play,
+    /// and save data lives under `savedata/`. These always use the syscall
+    /// fallback so freshly created, overwritten, or deleted files stay visible.
+    pub(super) fn is_excluded(path: &Path) -> bool {
+        let Some(key) = path.as_os_str().to_str() else {
+            return true;
+        };
+        let key = key.to_ascii_lowercase();
+        if key.ends_with(".siglus_flags") {
+            return true;
+        }
+        get().is_some_and(|idx| {
+            idx.excluded_prefixes
+                .iter()
+                .any(|prefix| path_under(&key, prefix))
+        })
+    }
+
+    /// True when the index is built and `path` is inside a scanned root. For
+    /// such paths a miss is authoritative: the file genuinely does not exist,
+    /// so the syscall fallback is skipped.
+    pub(super) fn is_authoritative(path: &Path) -> bool {
+        let Some(idx) = get() else {
+            return false;
+        };
+        let Some(key) = path.as_os_str().to_str() else {
+            return false;
+        };
+        let key = key.to_ascii_lowercase();
+        idx.scanned_roots.iter().any(|root| path_under(&key, root))
     }
 }
 
@@ -229,19 +296,44 @@ pub(crate) fn resolve_windows_case_insensitive_file(path: &Path) -> Result<Optio
 
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     {
+        // Runtime-written paths (save data, capture flags) are always queried
+        // against the real filesystem.
+        if index::is_excluded(path) {
+            return resolve_windows_case_insensitive_file_fallback(path);
+        }
+
         // Fast path: pre-built in-memory file index.
         if let Some(found) = index_lookup(path) {
             return Ok(Some(found));
         }
-        // Fallback: when the index wasn't built (tests, tools, etc.).
-        if path.is_file() {
-            return Ok(Some(path.to_path_buf()));
-        }
-        let Some(resolved) = resolve_windows_case_insensitive_path(path)? else {
+
+        // The index covers the whole game tree: for paths under it a miss is
+        // authoritative (the file does not exist), so skip the syscall
+        // fallback entirely.
+        if index::is_authoritative(path) {
             return Ok(None);
-        };
-        Ok(resolved.is_file().then_some(resolved))
+        }
+
+        // Fallback: when the index wasn't built (tests, tools, etc.) and for
+        // paths outside the game tree (system fonts, engine assets, relative
+        // paths).
+        resolve_windows_case_insensitive_file_fallback(path)
     }
+}
+
+/// Syscall-based fallback: direct `is_file` check, then the case-insensitive
+/// component walk. Used only when the index cannot answer (not built, path
+/// outside the game tree, or an excluded runtime-written path).
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+fn resolve_windows_case_insensitive_file_fallback(path: &Path) -> Result<Option<PathBuf>> {
+    println!("{}", path.to_string_lossy());
+    if path.is_file() {
+        return Ok(Some(path.to_path_buf()));
+    }
+    let Some(resolved) = resolve_windows_case_insensitive_path(path)? else {
+        return Ok(None);
+    };
+    Ok(resolved.is_file().then_some(resolved))
 }
 
 /// Resolve an existing game path using the Windows case-insensitive semantics
