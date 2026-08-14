@@ -46,6 +46,7 @@ path = "src/bin/mesh_asset_tool.rs"
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
 ureq = "2.10"
 walkdir = "2"
+fearless_simd = "0.7.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = "0.1.1"
@@ -61,3 +62,7 @@ web-time = "1.1"
 console_error_panic_hook = "0.1"
 getrandom_02 = { package = "getrandom", version = "0.2.17", features = ["js"] }
 getrandom_03 = { package = "getrandom", version = "0.3.4", features = ["wasm_js"] }
+
+[features]
+default = []
+avx512-mipmap = []

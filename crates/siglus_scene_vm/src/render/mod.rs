@@ -20,6 +20,14 @@ use crate::mesh3d::{load_mesh_asset, MeshAsset};
 use crate::render_math::sprite_quad_points;
 use crate::runtime::FrameCaptureBackend;
 
+use std::ops::RangeFull;
+
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+use fearless_simd::{
+    dispatch, Level, Simd, SimdBase, SimdNarrow, SimdSplit,
+    SimdWiden, u8x32, u16x16,
+};
+
 mod emote;
 
 #[repr(C)]
@@ -5337,6 +5345,31 @@ struct Rgba8MipLevel {
     rgba: Vec<u8>,
 }
 
+/// Build the same kind of full mip chain requested by the original
+/// D3DUSAGE_AUTOGENMIPMAP textures.  Values are averaged in the stored 8-bit
+/// color space rather than converted through sRGB, matching the D3D9 setup.
+pub fn build_rgba8_mip_chain(width: u32, height: u32, rgba: &[u8]) -> Vec<Rgba8MipLevel> {
+    #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
+    {
+        build_rgba8_mip_chain_swar(width, height, rgba)
+    }
+
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    {
+        let level = Level::new();
+        dispatch!(level, simd => {
+            // avx512容易因为降频产生性能回退，故默认禁用
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+            #[cfg(not(feature = "avx512-mipmap"))]
+            if let Level::Avx512(_) = simd.level() {
+                let avx2 = simd.level().as_avx2().expect("AVX-512 implies AVX2");
+                return build_rgba8_mip_chain_simd(avx2, width, height, rgba);
+            }
+            build_rgba8_mip_chain_simd(simd, width, height, rgba)
+        })
+    }
+}
+
 #[inline(always)]
 fn avg4_swar(p0: u32, p1: u32, p2: u32, p3: u32) -> u32 {
     const MASK: u32 = 0x00FF_00FF;
@@ -5345,10 +5378,7 @@ fn avg4_swar(p0: u32, p1: u32, p2: u32, p3: u32) -> u32 {
     (((lo + 0x0002_0002) >> 2) & MASK) | ((((hi + 0x0002_0002) >> 2) & MASK) << 8)
 }
 
-/// Build the same kind of full mip chain requested by the original
-/// D3DUSAGE_AUTOGENMIPMAP textures.  Values are averaged in the stored 8-bit
-/// color space rather than converted through sRGB, matching the D3D9 setup.
-pub fn build_rgba8_mip_chain(width: u32, height: u32, rgba: &[u8]) -> Vec<Rgba8MipLevel> {
+pub fn build_rgba8_mip_chain_swar(width: u32, height: u32, rgba: &[u8]) -> Vec<Rgba8MipLevel> {
     if width == 0 || height == 0 || rgba.len() < width as usize * height as usize * 4 {
         return Vec::new();
     }
@@ -5440,6 +5470,154 @@ pub fn build_rgba8_mip_chain(width: u32, height: u32, rgba: &[u8]) -> Vec<Rgba8M
     }
 
     levels
+}
+
+#[inline(always)]
+#[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+pub fn build_rgba8_mip_chain_simd<S: Simd>(simd: S, width: u32, height: u32, rgba: &[u8],) -> Vec<Rgba8MipLevel>
+{
+    if width == 0 || height == 0 || rgba.len() < width as usize * height as usize * 4 {
+        return Vec::new();
+    }
+
+    let mut levels = vec![Rgba8MipLevel {
+        width,
+        height,
+        rgba: rgba[..width as usize * height as usize * 4].to_vec(),
+    }];
+
+    while levels
+        .last()
+        .is_some_and(|level| level.width > 1 || level.height > 1)
+    {
+        let prev = levels.last().expect("mip chain contains level zero");
+        let next_width = (prev.width / 2).max(1);
+        let next_height = (prev.height / 2).max(1);
+        let prev_w = prev.width as usize;
+        let prev_h = prev.height as usize;
+        let next_w = next_width as usize;
+        let next_h = next_height as usize;
+        let mut next = vec![0u8; next_w * next_h * 4];
+
+        let row_bytes = prev_w * 4;
+
+        if prev_w >= 2 && prev_h >= 2 {
+            let full = next_w / 4;
+            let two = u16x16::splat(simd, 2);
+            let zero = u16x16::splat(simd, 0);
+            let perm = u8x32::from_slice(
+                simd,
+                &[
+                    0, 1, 2, 3, 8, 9, 10, 11, 16, 17, 18, 19, 24, 25, 26, 27, //
+                    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, //
+                ],
+            );
+
+            for y in 0..next_h {
+                let row0 = y * 2 * row_bytes;
+                let dst_row = y * next_w * 4;
+
+                for g in 0..full {
+                    let base = row0 + g * 32;
+                    let a = u8x32::from_slice(simd, &prev.rgba[base..base + 32]);
+                    let b = u8x32::from_slice(
+                        simd,
+                        &prev.rgba[base + row_bytes..base + row_bytes + 32],
+                    );
+
+                    let (a0, a1) = a.widen();
+                    let (b0, b1) = b.widen();
+
+                    let t0 = a0 + a0.slide::<4>(zero);
+                    let t1 = a1 + a1.slide::<4>(zero);
+                    let u0 = b0 + b0.slide::<4>(zero);
+                    let u1 = b1 + b1.slide::<4>(zero);
+
+                    let s0 = t0 + u0;
+                    let s1 = t1 + u1;
+
+                    let r0 = (s0 + two) >> 2;
+                    let r1 = (s1 + two) >> 2;
+
+                    let out: u8x32<S> = r0.narrow(r1);
+                    let packed = out.swizzle_dyn(perm);
+                    let (lo, _hi) = packed.split();
+                    let dst = dst_row + g * 16;
+                    lo.store_slice(&mut next[dst..dst + 16]);
+                }
+
+                for k in 0..next_w - full * 4 {
+                    let x = full * 4 + k;
+                    let base = row0 + x * 8;
+                    let p0 = u32::from_ne_bytes(prev.rgba[base..base + 4].try_into().unwrap());
+                    let p1 =
+                        u32::from_ne_bytes(prev.rgba[base + 4..base + 8].try_into().unwrap());
+                    let p2 = u32::from_ne_bytes(
+                        prev.rgba[base + row_bytes..base + row_bytes + 4]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    let p3 = u32::from_ne_bytes(
+                        prev.rgba[base + row_bytes + 4..base + row_bytes + 8]
+                            .try_into()
+                            .unwrap(),
+                    );
+                    let dst = dst_row + x * 4;
+                    next[dst..dst + 4].copy_from_slice(&avg4_swar(p0, p1, p2, p3).to_ne_bytes());
+                }
+            }
+        } else {
+            write_degen_level(
+                prev.rgba.as_slice(),
+                prev_w,
+                prev_h,
+                next.as_mut_ptr(),
+                next_w,
+                next_h,
+            );
+        }
+
+        levels.push(Rgba8MipLevel {
+            width: next_width,
+            height: next_height,
+            rgba: next,
+        });
+    }
+
+    levels
+}
+
+fn write_degen_level(prev: &[u8], prev_w: usize, prev_h: usize, next_ptr: *mut u8, next_w: usize, next_h: usize,)
+{
+    let row_bytes = prev_w * 4;
+    let last_src_x = (next_w * 2 - 1).min(prev_w - 1);
+    let last_src_y = (next_h * 2 - 1).min(prev_h - 1);
+    for y in 0..next_h {
+        let sy0 = y * 2;
+        let sy1 = (sy0 + 1).min(last_src_y);
+        let row_off = (sy1 - sy0) * row_bytes;
+        let row0 = sy0 * row_bytes;
+        let mut dst = (y * next_w * 4) as isize;
+        for x in 0..next_w {
+            let sx0 = x * 2;
+            let sx1 = (sx0 + 1).min(last_src_x);
+            let x_off = (sx1 - sx0) * 4;
+            let base = row0 + sx0 * 4;
+            let p0 = u32::from_ne_bytes(prev[base..base + 4].try_into().unwrap());
+            let p1 = u32::from_ne_bytes(prev[base + x_off..base + x_off + 4].try_into().unwrap());
+            let p2 =
+                u32::from_ne_bytes(prev[base + row_off..base + row_off + 4].try_into().unwrap());
+            let p3 = u32::from_ne_bytes(
+                prev[base + row_off + x_off..base + row_off + x_off + 4]
+                    .try_into()
+                    .unwrap(),
+            );
+            let out = avg4_swar(p0, p1, p2, p3);
+            // SAFETY: within `next`, each byte written exactly once.
+            unsafe { (next_ptr.offset(dst) as *mut u32).write_unaligned(out) };
+            dst += 4;
+        }
+    }
 }
 
 fn create_gpu_texture(
