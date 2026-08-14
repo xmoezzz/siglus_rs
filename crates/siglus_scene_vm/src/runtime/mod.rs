@@ -1701,6 +1701,12 @@ impl CommandContext {
     }
 
     pub fn reset_for_scene_restart(&mut self) {
+        // Fonts are global state, unrelated to the scene: keep the loaded
+        // fonts across scene restarts so the whole font lookup chain (six
+        // candidate dirs + system font stats) does not re-run every restart.
+        let saved_font_cache = std::mem::replace(&mut self.font_cache, FontCache::new());
+        let saved_ui_font_cache = std::mem::replace(&mut self.ui.font_cache, FontCache::new());
+
         self.audio = AudioHub::new();
         self.bgm = BgmEngine::new(self.project_dir.clone());
         self.koe = KoeEngine::new(self.project_dir.clone());
@@ -1729,6 +1735,11 @@ impl CommandContext {
         self.runtime_load_completed = false;
         self.frame_clock_last = None;
         self.last_button_hover_sound_pos = None;
+
+        // Restore the scene-independent font state.
+        self.font_cache = saved_font_cache;
+        self.ui.font_cache = saved_ui_font_cache;
+
         self.apply_gameexe_runtime_defaults();
     }
 

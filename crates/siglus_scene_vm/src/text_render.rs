@@ -8,7 +8,9 @@
 use crate::assets::RgbaImage;
 use crate::image_manager::{ImageId, ImageManager};
 use ab_glyph::{point, Font, FontArc, FontVec, PxScale, ScaleFont};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 mod embedded_font {
     pub const EMBEDDED_DEFAULT_FONT: Option<&'static [u8]> =
@@ -28,6 +30,32 @@ pub const TNM_FONT_SHADOW_MODE_NONE: i64 = 0;
 pub const TNM_FONT_SHADOW_MODE_SHADOW: i64 = 1;
 pub const TNM_FONT_SHADOW_MODE_FUCHI: i64 = 2;
 pub const TNM_FONT_SHADOW_MODE_FUCHI_SHADOW: i64 = 3;
+
+/// Font path probe cache: maps a candidate font file or directory to its
+/// resolution result (`None` = does not exist).  System fonts and the game's
+/// own font directories are fixed for the whole process, so probing each path
+/// once is enough; repeated font loads then skip the filesystem entirely.
+/// Only paths and existence flags are stored — never font data.
+static FONT_PATH_TABLE: OnceLock<Mutex<HashMap<PathBuf, Option<PathBuf>>>> = OnceLock::new();
+
+/// Return the cached probe result for `path`, or run `probe` on first use and
+/// remember the outcome.  `probe` returns the resolved path on success and
+/// `None` when the path does not exist.
+fn cached_or_probe_path(path: &Path, probe: impl FnOnce(&Path) -> Option<PathBuf>) -> Option<PathBuf> {
+    if let Some(cached) = FONT_PATH_TABLE
+        .get()
+        .and_then(|table| table.lock().unwrap().get(path).cloned())
+    {
+        return cached;
+    }
+    let result = probe(path);
+    FONT_PATH_TABLE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap()
+        .insert(path.to_path_buf(), result.clone());
+    result
+}
 
 pub fn normalize_font_shadow_mode(mode: i64) -> i64 {
     mode.clamp(TNM_FONT_SHADOW_MODE_NONE, TNM_FONT_SHADOW_MODE_FUCHI_SHADOW)
@@ -219,7 +247,9 @@ impl FontCache {
     }
 
     fn load_named_from_font_dir(&mut self, font_dir: &Path, normalized_name: &str) -> bool {
-        let Some(font_dir) = crate::resource::resolve_game_path(font_dir).ok().flatten() else {
+        let Some(font_dir) = cached_or_probe_path(font_dir, |dir| {
+            crate::resource::resolve_game_path(dir).ok().flatten()
+        }) else {
             return false;
         };
         let Ok(entries) = std::fs::read_dir(&font_dir) else {
@@ -258,7 +288,9 @@ impl FontCache {
         if self.font.is_some() {
             return true;
         }
-        let Some(font_dir) = crate::resource::resolve_game_path(font_dir).ok().flatten() else {
+        let Some(font_dir) = cached_or_probe_path(font_dir, |dir| {
+            crate::resource::resolve_game_path(dir).ok().flatten()
+        }) else {
             return false;
         };
         let Ok(entries) = std::fs::read_dir(&font_dir) else {
@@ -298,29 +330,37 @@ impl FontCache {
         if self.font.is_some() {
             return true;
         }
-        if !crate::resource::game_file_exists(path) || !is_supported_font_path(path) {
+        // Path table: known-missing paths are skipped without a syscall; known
+        // existing paths skip the existence re-check and read directly.
+        let Some(path) = cached_or_probe_path(path, |p| {
+            (crate::resource::game_file_exists(p) && is_supported_font_path(p))
+                .then(|| p.to_path_buf())
+        }) else {
             return false;
-        }
-        let Ok(bytes) = crate::resource::read_file_bytes(path) else {
+        };
+        let Ok(bytes) = std::fs::read(&path) else {
             return false;
         };
         let Some(face_index) = matching_font_face_index(&bytes, normalized_name) else {
             return false;
         };
-        self.install_font_face(path, bytes, face_index)
+        self.install_font_face(&path, bytes, face_index)
     }
 
     fn try_load_font_file(&mut self, path: &Path) -> bool {
         if self.font.is_some() {
             return true;
         }
-        if !crate::resource::game_file_exists(path) || !is_supported_font_path(path) {
-            return false;
-        }
-        let Ok(bytes) = crate::resource::read_file_bytes(path) else {
+        let Some(path) = cached_or_probe_path(path, |p| {
+            (crate::resource::game_file_exists(p) && is_supported_font_path(p))
+                .then(|| p.to_path_buf())
+        }) else {
             return false;
         };
-        self.install_font_face(path, bytes, 0)
+        let Ok(bytes) = std::fs::read(&path) else {
+            return false;
+        };
+        self.install_font_face(&path, bytes, 0)
     }
 
     fn try_load_embedded_default_font(&mut self) -> bool {
@@ -2104,9 +2144,9 @@ fn project_font_dirs(project_dir: &Path) -> Vec<PathBuf> {
             dirs.push(exe_dir.join("fonts"));
         }
     }
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    dirs.push(manifest_dir.join("assets").join("font"));
-    dirs.push(manifest_dir.join("assets").join("fonts"));
+    // The default font is embedded via include_bytes!, so do not append the
+    // compile-machine source path (`CARGO_MANIFEST_DIR/assets/fonts`): it does
+    // not exist on player machines and would be stat'ed on every font load.
     dirs
 }
 

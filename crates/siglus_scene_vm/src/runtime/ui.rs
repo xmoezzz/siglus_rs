@@ -505,7 +505,7 @@ pub struct UiRuntime {
     font_bold: bool,
     font_paths: Vec<PathBuf>,
     font_scanned: bool,
-    font_cache: FontCache,
+    pub(crate) font_cache: FontCache,
 }
 
 impl UiRuntime {
