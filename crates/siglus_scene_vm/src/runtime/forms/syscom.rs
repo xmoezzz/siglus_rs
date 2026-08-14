@@ -1934,6 +1934,12 @@ fn ensure_slot_loaded_with_counts(
     slots: &mut Vec<SaveSlotState>,
     idx: usize,
 ) {
+    // Slot already in memory (synced or previously loaded): use the cached
+    // state.  Save writes/deletes update the in-memory slots, so this stays
+    // fresh without re-probing the filesystem on every script query.
+    if idx < slots.len() {
+        return;
+    }
     let path = slot_path_with_counts(project_dir, quick, idx, save_cnt, quick_cnt);
     if trace_env().saveload_trace {
         let before_exist = slots.get(idx).map(|s| s.exist).unwrap_or(false);
@@ -1951,26 +1957,10 @@ fn ensure_slot_loaded_with_counts(
         *s = slot;
         return;
     }
-    if !slots.get(idx).map(|s| s.exist).unwrap_or(false) {
-        let s = ensure_slot(slots, idx);
-        *s = SaveSlotState::default();
-    }
-}
-
-
-fn reload_slot_from_disk_with_counts(
-    project_dir: &Path,
-    quick: bool,
-    save_cnt: usize,
-    quick_cnt: usize,
-    slots: &mut Vec<SaveSlotState>,
-    idx: usize,
-) {
-    let path = slot_path_with_counts(project_dir, quick, idx, save_cnt, quick_cnt);
-    let next = read_slot(&path).unwrap_or_default();
     let s = ensure_slot(slots, idx);
-    *s = next;
+    *s = SaveSlotState::default();
 }
+
 
 fn sync_slots_from_disk_with_counts(
     project_dir: &Path,
@@ -1979,12 +1969,21 @@ fn sync_slots_from_disk_with_counts(
     quick_cnt: usize,
     slots: &mut Vec<SaveSlotState>,
     count: usize,
+    existing: &std::collections::HashMap<usize, PathBuf>,
 ) {
     if slots.len() < count {
         slots.resize_with(count, SaveSlotState::default);
     }
     for idx in 0..count {
-        reload_slot_from_disk_with_counts(project_dir, quick, save_cnt, quick_cnt, slots, idx);
+        let kind = if quick { SaveKind::Quick } else { SaveKind::Normal };
+        let save_no = original_save::original_save_no(save_cnt, quick_cnt, kind, idx);
+        // Read real save files directly through their listed path: no stat,
+        // no re-resolution.  Missing slots keep the default state.
+        let next = existing
+            .get(&save_no)
+            .and_then(|path| original_save::read_slot_from_existing_path(path))
+            .unwrap_or_default();
+        slots[idx] = next;
     }
 }
 
@@ -1998,6 +1997,8 @@ pub(crate) fn sync_save_slots_from_disk(ctx: &mut CommandContext, quick: bool) {
     let project_dir = ctx.project_dir.clone();
     let save_cnt = configured_save_count(ctx, false);
     let quick_cnt = configured_save_count(ctx, true);
+    // List `savedata/` once instead of probing every slot number on disk.
+    let existing = original_save::existing_save_slot_paths(&project_dir);
     if quick {
         sync_slots_from_disk_with_counts(
             &project_dir,
@@ -2006,6 +2007,7 @@ pub(crate) fn sync_save_slots_from_disk(ctx: &mut CommandContext, quick: bool) {
             quick_cnt,
             &mut ctx.globals.syscom.quick_save_slots,
             quick_cnt,
+            &existing,
         );
     } else {
         sync_slots_from_disk_with_counts(
@@ -2015,6 +2017,7 @@ pub(crate) fn sync_save_slots_from_disk(ctx: &mut CommandContext, quick: bool) {
             quick_cnt,
             &mut ctx.globals.syscom.save_slots,
             save_cnt,
+            &existing,
         );
     }
 }

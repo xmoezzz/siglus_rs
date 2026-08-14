@@ -1,4 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -708,6 +709,40 @@ impl<'a> OriginalStreamReader<'a> {
 
 pub fn save_dir(project_dir: &Path) -> PathBuf {
     project_dir.join("savedata")
+}
+
+/// Enumerate existing save slots by listing `savedata/` once, mapping each
+/// slot number to its real on-disk path.
+///
+/// This is a real-time directory scan, never cached: save files are created
+/// and deleted while the game runs, so a cached set would go stale.  One
+/// `read_dir` replaces probing every slot number with a filesystem stat, and
+/// the returned paths can be read directly without re-resolution.
+pub fn existing_save_slot_paths(project_dir: &Path) -> HashMap<usize, PathBuf> {
+    let mut map = HashMap::new();
+    if let Ok(entries) = fs::read_dir(save_dir(project_dir)) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                continue;
+            };
+            if let Some(stem) = name.strip_suffix(".sav") {
+                if let Ok(no) = stem.parse::<usize>() {
+                    map.insert(no, entry.path());
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Read a save slot from an already-listed path (from `read_dir`), skipping
+/// the case-insensitive re-resolution: the path is the real on-disk path, so
+/// the read costs one open instead of an extra stat + resolve.
+pub fn read_slot_from_existing_path(path: &Path) -> Option<SaveSlotState> {
+    let data = std::fs::read(path).ok()?;
+    let header = OriginalSaveHeader::from_bytes(&data[..data.len().min(SAVE_HEADER_SIZE)]).ok()?;
+    Some(header.to_slot())
 }
 
 pub fn original_save_no(save_cnt: usize, quick_save_cnt: usize, kind: SaveKind, idx: usize) -> usize {

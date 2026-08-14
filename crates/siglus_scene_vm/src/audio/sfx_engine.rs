@@ -674,7 +674,10 @@ impl SfxEngine {
 
     fn resolve_path(&self, file_name: &str) -> Result<PathBuf> {
         let direct = Path::new(file_name);
-        if path_exists(direct) {
+        // Relative names are project-rooted (SE registered by script name);
+        // probing them against the process CWD is always a miss and costs a
+        // syscall on every play, so only absolute paths take this shortcut.
+        if direct.is_absolute() && path_exists(direct) {
             return Ok(direct.to_path_buf());
         }
 
