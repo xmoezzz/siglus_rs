@@ -326,7 +326,6 @@ pub(crate) fn resolve_windows_case_insensitive_file(path: &Path) -> Result<Optio
 /// outside the game tree, or an excluded runtime-written path).
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 fn resolve_windows_case_insensitive_file_fallback(path: &Path) -> Result<Option<PathBuf>> {
-    println!("{}", path.to_string_lossy());
     if path.is_file() {
         return Ok(Some(path.to_path_buf()));
     }

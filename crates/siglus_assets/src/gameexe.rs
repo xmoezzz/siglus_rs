@@ -9,9 +9,10 @@
 //! - optionally XOR with a chain of angou materials
 //! - optional Siglus LZSS unpack
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::path::Path;
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{anyhow, bail, Result};
 use encoding_rs::SHIFT_JIS;
@@ -93,6 +94,15 @@ pub struct GameexeEntry {
 pub struct GameexeConfig {
     pub entries: Vec<GameexeEntry>,
     pub map: BTreeMap<String, String>,
+    /// Normalized key -> indices of every entry with that exact key, in file
+    /// order.  `get_entry` uses the last one (last-definition-wins), while
+    /// `get_entries`/`get_all` need them all.
+    key_entries: HashMap<String, Vec<usize>>,
+    /// Normalized key prefix -> indices of every entry whose key starts with
+    /// that prefix, in file order.  Backs `get_indexed_*`/`get_prefix`/
+    /// `indexed_count` so lookups only touch the few matching entries instead
+    /// of scanning the whole table.
+    prefix_entries: HashMap<String, Vec<usize>>,
 }
 
 impl GameexeEntry {
@@ -161,12 +171,19 @@ impl GameexeConfig {
 
     pub fn get_entry(&self, key: &str) -> Option<&GameexeEntry> {
         let nk = normalize_key(key);
-        self.entries.iter().rev().find(|e| e.key == nk)
+        // Index lookup: O(1), taking the last definition of a repeated key
+        // (last-definition-wins, same as the previous reverse scan).
+        let idx = *self.key_entries.get(&nk)?.last()?;
+        self.entries.get(idx)
     }
 
     pub fn get_entries<'a>(&'a self, key: &str) -> impl Iterator<Item = &'a GameexeEntry> + 'a {
         let nk = normalize_key(key);
-        self.entries.iter().filter(move |e| e.key == nk)
+        self.key_entries
+            .get(&nk)
+            .into_iter()
+            .flatten()
+            .filter_map(move |&idx| self.entries.get(idx))
     }
 
     pub fn get_all<'a>(&'a self, key: &str) -> impl Iterator<Item = &'a str> + 'a {
@@ -227,26 +244,28 @@ impl GameexeConfig {
         // Original Gameexe keys are usually zero-padded (for example BGM.000).
         // Match by parsed key index instead of formatting the index back as a
         // non-padded decimal string, otherwise table-backed subsystems silently
-        // miss registered rows. Keep reverse iteration to preserve get_entry
-        // "last definition wins" behavior.
+        // miss registered rows. Only the entries under this prefix are scanned
+        // (reverse order preserves "last definition wins").
+        let nk = normalize_key(prefix);
+        let idxs = self.prefix_entries.get(&nk)?;
         let parts = normalized_key_parts(prefix);
-        self.entries
-            .iter()
-            .rev()
-            .find(|e| e.key_index_from_parts(&parts) == Some(index))
+        idxs.iter().rev().find_map(|&idx| {
+            let e = &self.entries[idx];
+            (e.key_index_from_parts(&parts) == Some(index)).then_some(e)
+        })
     }
 
     pub fn get_indexed_field(&self, prefix: &str, index: usize, field: &str) -> Option<&str> {
         let nf = normalize_key(field);
+        let nk = normalize_key(prefix);
+        let idxs = self.prefix_entries.get(&nk)?;
         let parts = normalized_key_parts(prefix);
-        self.entries
-            .iter()
-            .rev()
-            .find(|e| {
-                e.key_index_from_parts(&parts) == Some(index)
-                    && e.key_field_after_index_from_parts(&parts) == Some(nf.as_str())
-            })
-            .map(|e| e.value.as_str())
+        idxs.iter().rev().find_map(|&idx| {
+            let e = &self.entries[idx];
+            (e.key_index_from_parts(&parts) == Some(index)
+                && e.key_field_after_index_from_parts(&parts) == Some(nf.as_str()))
+            .then(|| e.value.as_str())
+        })
     }
 
     pub fn get_indexed_field_unquoted(
@@ -256,36 +275,39 @@ impl GameexeConfig {
         field: &str,
     ) -> Option<&str> {
         let nf = normalize_key(field);
+        let nk = normalize_key(prefix);
+        let idxs = self.prefix_entries.get(&nk)?;
         let parts = normalized_key_parts(prefix);
-        self.entries
-            .iter()
-            .rev()
-            .find(|e| {
-                e.key_index_from_parts(&parts) == Some(index)
-                    && e.key_field_after_index_from_parts(&parts) == Some(nf.as_str())
-            })
-            .map(|e| e.scalar_unquoted())
+        idxs.iter().rev().find_map(|&idx| {
+            let e = &self.entries[idx];
+            (e.key_index_from_parts(&parts) == Some(index)
+                && e.key_field_after_index_from_parts(&parts) == Some(nf.as_str()))
+            .then(|| e.scalar_unquoted())
+        })
     }
 
     pub fn get_prefix<'a>(&'a self, prefix: &str) -> impl Iterator<Item = &'a GameexeEntry> + 'a {
-        let prefix_parts = normalized_key_parts(prefix);
-        self.entries.iter().filter(move |e| {
-            e.key_parts.len() >= prefix_parts.len()
-                && e.key_parts[..prefix_parts.len()] == prefix_parts[..]
-        })
+        let nk = normalize_key(prefix);
+        self.prefix_entries
+            .get(&nk)
+            .into_iter()
+            .flatten()
+            .filter_map(move |&idx| self.entries.get(idx))
     }
 
     pub fn indexed_count(&self, prefix: &str) -> usize {
         if let Some(v) = self.get_usize(&format!("{}.CNT", normalize_key(prefix))) {
             return v;
         }
+        let nk = normalize_key(prefix);
+        let Some(idxs) = self.prefix_entries.get(&nk) else {
+            return 0;
+        };
         let prefix_parts = normalized_key_parts(prefix);
         let mut max_idx: Option<usize> = None;
-        for e in &self.entries {
+        for &entry_idx in idxs {
+            let e = &self.entries[entry_idx];
             if e.key_parts.len() < prefix_parts.len() + 1 {
-                continue;
-            }
-            if e.key_parts[..prefix_parts.len()] != prefix_parts[..] {
                 continue;
             }
             let Some(idx) = e.key_parts[prefix_parts.len()].parse::<usize>().ok() else {
@@ -328,12 +350,52 @@ impl GameexeConfig {
             out.entries.push(entry);
             out.map.insert(key, value);
         }
+        out.build_indexes();
         out
+    }
+
+    /// Build the key/prefix lookup indexes after parsing.  Must be called once
+    /// all entries are in place; kept separate so `Default` and tests stay
+    /// cheap.
+    fn build_indexes(&mut self) {
+        self.key_entries.clear();
+        self.prefix_entries.clear();
+        for (idx, e) in self.entries.iter().enumerate() {
+            self.key_entries.entry(e.key.clone()).or_default().push(idx);
+            // Every key-parts prefix (including the full key) is indexed so
+            // `get_prefix` keeps matching entries whose key equals the prefix.
+            for len in 1..=e.key_parts.len() {
+                self.prefix_entries
+                    .entry(e.key_parts[..len].join("."))
+                    .or_default()
+                    .push(idx);
+            }
+        }
     }
 }
 
+/// Cache of `normalize_key` results.  Runtime queries repeatedly normalize the
+/// same small set of config keys ("#SAVE.CNT", "DATABASE", ...), so each raw
+/// spelling is normalized once and reused.
+static NORMALIZED_KEY_CACHE: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+/// Cache of `normalized_key_parts` results, keyed by the raw query spelling.
+static KEY_PARTS_CACHE: OnceLock<Mutex<HashMap<String, Vec<String>>>> = OnceLock::new();
+
 fn normalized_key_parts(k: &str) -> Vec<String> {
-    split_key_parts(&normalize_key(k))
+    if let Some(cached) = KEY_PARTS_CACHE
+        .get()
+        .and_then(|c| c.lock().unwrap().get(k).cloned())
+    {
+        return cached;
+    }
+    let parts = split_key_parts(&normalize_key(k));
+    KEY_PARTS_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap()
+        .insert(k.to_string(), parts.clone());
+    parts
 }
 
 fn split_key_parts(k: &str) -> Vec<String> {
@@ -349,6 +411,22 @@ pub fn normalize_gameexe_key(k: &str) -> String {
 }
 
 fn normalize_key(k: &str) -> String {
+    if let Some(cached) = NORMALIZED_KEY_CACHE
+        .get()
+        .and_then(|c| c.lock().unwrap().get(k).cloned())
+    {
+        return cached;
+    }
+    let out = normalize_key_uncached(k);
+    NORMALIZED_KEY_CACHE
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap()
+        .insert(k.to_string(), out.clone());
+    out
+}
+
+fn normalize_key_uncached(k: &str) -> String {
     let mut src = k.trim();
     if let Some(rest) = src.strip_prefix('\u{feff}') {
         src = rest.trim_start();
