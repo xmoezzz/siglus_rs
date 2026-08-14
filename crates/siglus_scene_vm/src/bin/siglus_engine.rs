@@ -2413,6 +2413,10 @@ impl App {
     }
 
     fn redraw_inner(&mut self) -> Result<()> {
+        // Per-stage frame timing, gated behind --show-frame-time.  With the
+        // flag off, `then` short-circuits so no clock reads or formatting run.
+        let show_frame_time = self.args.show_frame_time;
+        let stage_t0 = show_frame_time.then(Instant::now);
         if trace_env().proc_flow_trace {
             let scene = self.vm.as_ref().and_then(|vm| vm.current_scene_name()).unwrap_or("<none>");
             let line = self.vm.as_ref().map(|vm| vm.current_line_no()).unwrap_or(-1);
@@ -2434,6 +2438,7 @@ impl App {
         if self.script_needs_pump {
             self.pump_vm()?;
         }
+        let stage_t1 = show_frame_time.then(Instant::now);
         let wait_poll_needed = self
             .vm
             .as_ref()
@@ -2445,6 +2450,7 @@ impl App {
             };
             vm.tick_frame()?;
         }
+        let stage_t2 = show_frame_time.then(Instant::now);
         let has_syscom_pending = self
             .vm
             .as_ref()
@@ -2471,6 +2477,7 @@ impl App {
             }
         }
         self.ensure_requested_script_proc();
+        let stage_t3 = show_frame_time.then(Instant::now);
         let render_suppressed = self.suppress_render_once;
         self.suppress_render_once = false;
         if trace_env().proc_flow_trace {
@@ -2496,6 +2503,23 @@ impl App {
                 };
                 renderer.borrow_mut().render_frame(&vm.ctx.images, &frame)?;
             }
+        }
+        let stage_t4 = show_frame_time.then(Instant::now);
+        if show_frame_time {
+            let t0 = stage_t0.expect("gated by show_frame_time");
+            let t1 = stage_t1.expect("gated by show_frame_time");
+            let t2 = stage_t2.expect("gated by show_frame_time");
+            let t3 = stage_t3.expect("gated by show_frame_time");
+            let t4 = stage_t4.expect("gated by show_frame_time");
+            let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.0;
+            println!(
+                "[FRAME_TIME] pump={:.2}ms tick+proc={:.2}ms effects={:.2}ms render={:.2}ms total={:.2}ms",
+                ms(t1 - t0),
+                ms(t2 - t1),
+                ms(t3 - t2),
+                ms(t4 - t3),
+                ms(t4 - t0)
+            );
         }
 
         let consumed_script_frame_boundary = self.script_resume_after_redraw;
