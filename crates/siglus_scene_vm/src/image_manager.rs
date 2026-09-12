@@ -251,6 +251,7 @@ pub struct ImageManager {
 struct ImageEntry {
     img: Arc<RgbaImage>,
     version: u64,
+    original_size: (u32, u32),
 }
 
 #[derive(Debug, Clone)]
@@ -393,6 +394,16 @@ impl ImageManager {
         let frames = id.album.frames.read().expect("image album lock poisoned");
         let entry = frames.get(id.cut)?;
         Some((entry.img.clone(), entry.version))
+    }
+
+    /// Script-visible canvas size, independent of the cropped GPU texture.
+    pub fn original_size(&self, id: &ImageHandle) -> Option<(u32, u32)> {
+        let registered = self.images.get(&id.key)?;
+        if registered.album.as_ptr() != Arc::as_ptr(&id.album) {
+            return None;
+        }
+        let frames = id.album.frames.read().expect("image album lock poisoned");
+        Some(frames.get(id.cut)?.original_size)
     }
 
     /// Upgrade a non-owning key while the resource is still alive.
@@ -586,6 +597,14 @@ impl ImageManager {
         }
 
         let album = self.insert_album(decoded.frames.into_iter().map(Arc::new).collect());
+        // load_g00_cut() stores cut_info.width/height after creating a texture
+        // sized to disp_rect. Keep both sizes so face/body animation scripts
+        // calculate matching positions even when their opaque bounds differ.
+        for (entry, size) in album.frames.write().expect("image album lock poisoned")
+            .iter_mut().zip(decoded.original_sizes)
+        {
+            entry.original_size = size;
+        }
         let count = album
             .frames
             .read()
@@ -684,7 +703,11 @@ impl ImageManager {
             frames: RwLock::new(
                 frames
                     .into_iter()
-                    .map(|img| ImageEntry { img, version: 0 })
+                    .map(|img| ImageEntry {
+                        original_size: (img.width, img.height),
+                        img,
+                        version: 0,
+                    })
                     .collect(),
             ),
         });
@@ -718,6 +741,7 @@ impl ImageManager {
         );
         let mut frames = id.album.frames.write().expect("image album lock poisoned");
         let entry = &mut frames[id.cut];
+        entry.original_size = (img.width, img.height);
         entry.img = img;
         entry.version = entry.version.wrapping_add(1);
         Ok(())
