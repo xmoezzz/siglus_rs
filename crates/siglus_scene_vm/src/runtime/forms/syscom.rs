@@ -1578,11 +1578,14 @@ fn load_config_save(ctx: &mut CommandContext) -> Result<()> {
         cfg.fullscreen_scale_sync_switch = rd.bool()?;
         cfg.fullscreen_move = (rd.i32()? as i64, rd.i32()? as i64);
         cfg.all_sound_user_volume = rd.i32()? as i64;
-        for value in &mut cfg.sound_user_volume {
+        // Version 1.0 stores BGM/voice/PCM/SE/movie only. Later versions
+        // reserve 32 audio categories; retain defaults for the missing ones.
+        let sound_count = if header.minor_version == 0 { 5 } else { 32 };
+        for value in cfg.sound_user_volume.iter_mut().take(sound_count) {
             *value = rd.i32()? as i64;
         }
         cfg.play_all_sound_check = rd.bool()?;
-        for value in &mut cfg.play_sound_check {
+        for value in cfg.play_sound_check.iter_mut().take(sound_count) {
             *value = rd.bool()?;
         }
         cfg.bgmfade_volume = rd.i32()? as i64;
@@ -1597,8 +1600,8 @@ fn load_config_save(ctx: &mut CommandContext) -> Result<()> {
         cfg.auto_mode_onoff = rd.bool()?;
         cfg.auto_mode_moji_wait = rd.i32()? as i64;
         cfg.auto_mode_min_wait = rd.i32()? as i64;
-        // Version 1.1 goes directly from auto-mode waits to jitan settings.
-        // Cursor auto-hide was added in 1.2; retain Gameexe defaults for 1.1.
+        // Versions 1.0/1.1 go directly from auto-mode waits to jitan settings.
+        // Cursor auto-hide was added in 1.2; retain defaults for older saves.
         if header.minor_version >= 2 {
             cfg.mouse_cursor_hide_onoff = rd.bool()?;
             cfg.mouse_cursor_hide_time = rd.i32()? as i64;
@@ -1663,12 +1666,20 @@ fn load_config_save(ctx: &mut CommandContext) -> Result<()> {
         cfg.wheel_next_message_flag = rd.bool()?;
         cfg.koe_dont_stop_flag = rd.bool()?;
         cfg.skip_unread_message_flag = rd.bool()?;
+        if header.minor_version == 0 {
+            // The original 1.0 loader reads an obsolete bool/i32 pair here,
+            // before the two save/load toggles (Hatsuyuki Sakura).
+            rd.bool()?;
+            rd.i32()?;
+        }
         cfg.saveload_alert_flag = rd.bool()?;
         cfg.saveload_dblclick_flag = rd.bool()?;
         cfg.ss_path = rd.string()?;
         cfg.editor_path = rd.string()?;
-        cfg.koe_path = rd.string()?;
-        cfg.koe_tool_path = rd.string()?;
+        if header.minor_version >= 1 {
+            cfg.koe_path = rd.string()?;
+            cfg.koe_tool_path = rd.string()?;
+        }
         Ok(())
     })();
     result?;
@@ -6334,7 +6345,7 @@ mod global_save_init_tests {
 
     #[test]
     fn config_save_versions_preserve_settings_after_optional_fields() {
-        for minor_version in [1, 2, 3] {
+        for minor_version in [0, 1, 2, 3] {
             let project_dir = test_project_dir();
             let mut stream = original_save::OriginalStreamWriter::new();
             stream.push_i32(0); // screen mode
@@ -6355,10 +6366,11 @@ mod global_save_init_tests {
             stream.push_i32(0);
             stream.push_i32(0);
             stream.push_i32(180); // master volume
-            for _ in 0..32 {
+            let sound_count = if minor_version == 0 { 5 } else { 32 };
+            for _ in 0..sound_count {
                 stream.push_i32(200);
             }
-            for _ in 0..33 {
+            for _ in 0..=sound_count {
                 stream.push_bool(true);
             }
             stream.push_i32(175); // BGM fade
@@ -6397,11 +6409,21 @@ mod global_save_init_tests {
             for value in [0, 1, 2, 3] {
                 stream.push_i32(value);
             }
-            for flag in [false, false, false, false, true, false, false, true, false] {
+            for flag in [false, false, false, false, true, false, false] {
                 stream.push_bool(flag);
             }
-            for path in ["screenshots", "editor", "voices", "voice-tool"] {
+            if minor_version == 0 {
+                stream.push_bool(true);
+                stream.push_i32(0x12345678);
+            }
+            stream.push_bool(true); // save/load alert
+            stream.push_bool(false); // save/load double click
+            for path in ["screenshots", "editor"] {
                 stream.push_str(path);
+            }
+            if minor_version >= 1 {
+                stream.push_str("voices");
+                stream.push_str("voice-tool");
             }
             let packed = original_save::pack_buffer(&stream.into_inner());
             let mut data = original_save::OriginalConfigSaveHeader {
@@ -6419,12 +6441,17 @@ mod global_save_init_tests {
             let cfg = &ctx.globals.syscom.original_config;
             assert_eq!(cfg.screen_size_scale, (80, 90));
             assert_eq!(cfg.all_sound_user_volume, 180);
+            assert_eq!(&cfg.sound_user_volume[..5], &[200; 5]);
+            if minor_version == 0 {
+                assert_eq!(&cfg.sound_user_volume[5..], &defaults.sound_user_volume[5..]);
+                assert_eq!(&cfg.play_sound_check[5..], &defaults.play_sound_check[5..]);
+            }
             assert_eq!(cfg.font_name, "Test Font");
             assert_eq!(cfg.auto_mode_min_wait, 300);
             assert_eq!(cfg.mouse_cursor_hide_onoff,
-                if minor_version == 1 { defaults.mouse_cursor_hide_onoff } else { true });
+                if minor_version < 2 { defaults.mouse_cursor_hide_onoff } else { true });
             assert_eq!(cfg.mouse_cursor_hide_time,
-                if minor_version == 1 { defaults.mouse_cursor_hide_time } else { 2468 });
+                if minor_version < 2 { defaults.mouse_cursor_hide_time } else { 2468 });
             assert!(cfg.jitan_normal_onoff && cfg.jitan_msgbk_onoff);
             assert!(!cfg.jitan_auto_mode_onoff);
             assert_eq!(cfg.jitan_speed, 125);
@@ -6433,8 +6460,13 @@ mod global_save_init_tests {
             assert_eq!(cfg.chrkoe[0].volume, 170);
             assert_eq!(cfg.global_extra_mode_flag, [0, 1, 2, 3]);
             assert!(cfg.saveload_alert_flag);
+            assert!(!cfg.saveload_dblclick_flag);
             assert_eq!(cfg.ss_path, "screenshots");
-            assert_eq!(cfg.koe_tool_path, "voice-tool");
+            assert_eq!(cfg.editor_path, "editor");
+            assert_eq!(cfg.koe_path,
+                if minor_version == 0 { defaults.koe_path.as_str() } else { "voices" });
+            assert_eq!(cfg.koe_tool_path,
+                if minor_version == 0 { defaults.koe_tool_path.as_str() } else { "voice-tool" });
             fs::remove_dir_all(project_dir).unwrap();
         }
     }
@@ -6566,6 +6598,12 @@ mod global_save_init_tests {
 
     #[test]
     fn original_global_save_uses_one_byte_character_voice_flags() {
+        for (major, minor) in [(1, 2), (2, 0)] {
+            check_original_global_save(major, minor);
+        }
+    }
+
+    fn check_original_global_save(major_version: i32, minor_version: i32) {
         let project_dir = test_project_dir();
         fs::create_dir_all(&project_dir).expect("test project dir");
 
@@ -6574,17 +6612,25 @@ mod global_save_init_tests {
         stream.push_fixed_i32_list(&[42], 1);
         stream.push_fixed_i32_list(&[7], 1);
         stream.push_fixed_str_list(&["global".to_string()], 1);
-        stream.push_fixed_str_list(&[], 0);
-        stream.push_i32(0);
-        stream.push_fixed_i32_list(&[], 0);
-        stream.push_fixed_i32_list(&[], 0);
+        stream.push_fixed_str_list(&["名前".to_string()], 702);
+        stream.push_i32(1359557559);
+        stream.push_fixed_i32_list(&[1, 0, 1], 1000);
+        stream.push_fixed_i32_list(&[0, 1], 52);
         stream.push_i32(2);
-        stream.push_str("first");
+        stream.push_str("桜");
         stream.push_bool(true);
         stream.push_str("second");
         stream.push_bool(false);
-        original_save::write_global_save_file(&project_dir, &stream.into_inner())
-            .expect("synthetic global save");
+        let packed = original_save::pack_buffer(&stream.into_inner());
+        let mut data = original_save::OriginalGlobalSaveHeader {
+            major_version,
+            minor_version,
+            global_data_size: packed.len() as i32,
+        }.to_bytes();
+        data.extend_from_slice(&packed);
+        let path = project_dir.join("savedata/global.sav");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, &data).expect("synthetic global save");
 
         let mut ctx = CommandContext::new(project_dir.clone());
         load_global_save(&mut ctx).expect("one-byte chrkoe flags");
@@ -6592,6 +6638,17 @@ mod global_save_init_tests {
         assert_eq!(ctx.globals.int_lists[&(codes::ELM_GLOBAL_G as u32)][0], 42);
         assert_eq!(ctx.globals.int_lists[&(codes::ELM_GLOBAL_Z as u32)][0], 7);
         assert_eq!(ctx.globals.str_lists[&(codes::ELM_GLOBAL_M as u32)][0], "global");
+        assert_eq!(ctx.globals.str_lists[&(codes::ELM_GLOBAL_NAMAE_GLOBAL as u32)][0], "名前");
+        assert_eq!(&ctx.tables.cg_flags[..3], &[1, 0, 1]);
+        assert_eq!(&ctx.globals.bgm_table_flags[..2], &[false, true]);
+        assert_eq!(ctx.globals.syscom.chrkoe_look_flags.get("桜"), Some(&true));
+        assert_eq!(ctx.globals.syscom.chrkoe_look_flags.get("second"), Some(&false));
+
+        fs::write(&path, &data[..data.len() - 1]).unwrap();
+        assert!(load_global_save(&mut ctx).unwrap_err().to_string().contains("payload truncated"));
+        data[4..8].copy_from_slice(&99i32.to_le_bytes());
+        fs::write(&path, &data).unwrap();
+        assert!(load_global_save(&mut ctx).unwrap_err().to_string().contains("unsupported global save version"));
 
         let _ = fs::remove_dir_all(project_dir);
     }

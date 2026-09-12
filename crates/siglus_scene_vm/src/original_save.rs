@@ -987,7 +987,9 @@ pub fn read_global_save_file(project_dir: &Path) -> Result<Vec<u8>> {
         bail!("global save file too short: {}", path.display());
     }
     let header = OriginalGlobalSaveHeader::from_bytes(&data[..GLOBAL_SAVE_HEADER_SIZE])?;
-    if header.major_version != 2 || header.minor_version != 0 {
+    // Hatsuyuki Sakura's 1.2 saves use the same packed global stream as 2.0:
+    // play time, fixed flag/name arrays, CG/BGM flags, and named voice flags.
+    if !matches!((header.major_version, header.minor_version), (1, 2) | (2, 0)) {
         bail!("unsupported global save version {}.{}", header.major_version, header.minor_version);
     }
     let size = header.global_data_size.max(0) as usize;
@@ -1103,7 +1105,7 @@ pub fn read_config_save_file(project_dir: &Path) -> Result<(OriginalConfigSaveHe
         bail!("config save file too short: {}", path.display());
     }
     let header = OriginalConfigSaveHeader::from_bytes(&data[..CONFIG_SAVE_HEADER_SIZE])?;
-    if header.major_version != 1 || header.minor_version < 1 {
+    if header.major_version != 1 || header.minor_version < 0 {
         bail!(
             "unsupported config save version {}.{}",
             header.major_version,
