@@ -1,6 +1,6 @@
 //! Scene VM
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::sync::Arc;
@@ -59,6 +59,79 @@ const CD_EOF: u8 = constants::cd::EOF;
 const CD_ASSIGN: u8 = constants::cd::ASSIGN;
 const CD_OPERATE_1: u8 = constants::cd::OPERATE_1;
 const CD_OPERATE_2: u8 = constants::cd::OPERATE_2;
+
+// ---------------------------------------------------------------------------
+// SG_VM_RING: bounded per-instruction ring buffer (diagnostic, SG_VM_RING=1).
+//
+// A `pop_int` underflow only reports the *current* pc, which is useless when the
+// value went missing several instructions earlier: compiled `switch` chains keep
+// a selector alive across dozens of compares, and our stream's operand order is
+// not self-describing. Keeping the last N executed instructions together with the
+// int-stack depth seen *at entry* turns "the stack is empty" into "here is the
+// exact instruction after which the value stopped existing".
+// ---------------------------------------------------------------------------
+const SG_RING_CAP: usize = 128;
+
+thread_local! {
+    // (pc, opcode, int depth at entry, element_points len, int stack top, scn len, call depth)
+    static SG_OP_RING: std::cell::RefCell<std::collections::VecDeque<(u32, u8, u32, u32, i64, u32, u32)>> =
+        std::cell::RefCell::new(std::collections::VecDeque::new());
+    static SG_OP_RING_ON: bool = std::env::var_os("SG_VM_RING").is_some();
+    // Per-call/per-return tracing needs its own opt-in: in a map frame loop it emits
+    // hundreds of thousands of lines and produced a 350 MB log in a single run.
+    static SG_RET_TRACE_ON: bool = std::env::var_os("SG_VM_RET_TRACE").is_some();
+    /// Scene-transition tracing (`[SG-DIAG-6/7/13]`). Opt-in: the map dispatcher
+    /// re-enters its scenes per object per frame, which measured 600-950 logcat
+    /// lines/s on device and rotated the crash buffer out from under us.
+    static SG_SCENE_TRACE_ON: bool = std::env::var_os("SG_SCENE_TRACE").is_some();
+}
+
+#[inline]
+fn sg_scene_trace() -> bool {
+    SG_SCENE_TRACE_ON.with(|on| *on)
+}
+
+#[inline]
+fn sg_ring_on() -> bool {
+    SG_OP_RING_ON.with(|on| *on) && SG_RET_TRACE_ON.with(|on| *on)
+}
+
+#[inline]
+fn sg_ring_push(
+    pc: usize,
+    opcode: u8,
+    depth: usize,
+    elm: usize,
+    top: Option<i32>,
+    scn_len: usize,
+    call_depth: usize,
+) {
+    SG_OP_RING_ON.with(|on| {
+        if !*on {
+            return;
+        }
+        SG_OP_RING.with(|ring| {
+            let mut ring = ring.borrow_mut();
+            // A different stream (cross-scene call / proc stream) invalidates every
+            // recorded pc, so start over rather than mixing two address spaces.
+            if ring.back().map(|e| e.5) != Some(scn_len as u32) {
+                ring.clear();
+            }
+            if ring.len() >= SG_RING_CAP {
+                ring.pop_front();
+            }
+            ring.push_back((
+                pc as u32,
+                opcode,
+                depth as u32,
+                elm as u32,
+                top.map(|v| v as i64).unwrap_or(i64::MIN),
+                scn_len as u32,
+                call_depth as u32,
+            ));
+        });
+    });
+}
 
 const CD_COMMAND: u8 = constants::cd::COMMAND;
 const CD_TEXT: u8 = constants::cd::TEXT;
@@ -413,6 +486,12 @@ pub struct SceneVm<'a> {
     current_scene_no: Option<usize>,
     current_scene_name: Option<String>,
     current_line_no: i32,
+    diag_last_scene_no: Option<usize>,
+    /// Original saves can contain only the active scene and a base call frame.
+    /// In that layout the script may finish while saved frame actions continue
+    /// to drive the scene; the Android host must not treat an empty proc flow as
+    /// an Activity exit.
+    legacy_saved_active_only: bool,
 
     pub unknown_opcodes: BTreeMap<u8, u64>,
     pub unknown_forms: BTreeMap<i32, u64>,
@@ -935,6 +1014,8 @@ impl<'a> SceneVm<'a> {
             current_scene_no: None,
             current_scene_name: None,
             current_line_no: -1,
+            diag_last_scene_no: None,
+            legacy_saved_active_only: false,
             unknown_opcodes: BTreeMap::new(),
             unknown_forms: BTreeMap::new(),
 
@@ -995,6 +1076,8 @@ impl<'a> SceneVm<'a> {
             current_scene_no: None,
             current_scene_name: None,
             current_line_no: -1,
+            diag_last_scene_no: None,
+            legacy_saved_active_only: false,
             unknown_opcodes: BTreeMap::new(),
             unknown_forms: BTreeMap::new(),
 
@@ -1019,6 +1102,10 @@ impl<'a> SceneVm<'a> {
 
     pub fn is_halted(&self) -> bool {
         self.halted
+    }
+
+    pub fn legacy_saved_active_only(&self) -> bool {
+        self.legacy_saved_active_only
     }
 
     pub fn proc_generation(&self) -> u64 {
@@ -1218,6 +1305,36 @@ impl<'a> SceneVm<'a> {
             CD_SEL_BLOCK_END => "SEL_BLOCK_END",
             _ => "UNKNOWN",
         }
+    }
+
+    /// Render the SG_VM_RING buffer oldest -> newest for the `pop_int` underflow
+    /// report. Read the `depth=` column downwards: the first entry whose depth is
+    /// lower than the entry above it is the instruction that consumed the value.
+    fn sg_ring_dump(&self) -> String {
+        SG_OP_RING.with(|ring| {
+            let ring = ring.borrow();
+            if ring.is_empty() {
+                return "\n    [no SG_VM_RING data: rerun with SG_VM_RING=1]".to_string();
+            }
+            let mut out = String::with_capacity(ring.len() * 72);
+            for (pc, opcode, depth, elm, top, _scn_len, call_depth) in ring.iter() {
+                let top = if *top == i64::MIN {
+                    "<empty>".to_string()
+                } else {
+                    top.to_string()
+                };
+                out.push_str(&format!(
+                    "\n    pc=0x{:x} {:<16} depth={} elm_pts={} call={} top={}",
+                    pc,
+                    Self::vm_opcode_name(*opcode as u8),
+                    depth,
+                    elm,
+                    call_depth,
+                    top
+                ));
+            }
+            out
+        })
     }
 
     #[inline(always)]
@@ -1775,6 +1892,7 @@ impl<'a> SceneVm<'a> {
             None,
         );
         call_frame.call_type = 3;
+        call_frame.return_override = Some((return_pc, ret_form));
         self.call_stack.push(call_frame);
         self.stream.set_prg_cntr(offset)?;
 
@@ -2332,6 +2450,13 @@ impl<'a> SceneVm<'a> {
     ) -> Result<bool> {
         let checkpoint = self.inline_exec_checkpoint();
         let saved_scene_no = checkpoint.scene_no;
+        // The callback runs on the *shared* interpreter stacks, so it can consume
+        // values the suspended caller already pushed (a frame action may be drained
+        // while the scenario sits in the middle of an expression). Lengths alone
+        // cannot bring those back, so snapshot the values too.
+        let saved_int_stack = self.int_stack.clone();
+        let saved_str_stack = self.str_stack.clone();
+        let saved_element_points = self.element_points.clone();
         let saved_scene_stack_len = checkpoint.scene_depth;
         let saved_call_depth = checkpoint.call_depth;
 
@@ -2349,10 +2474,10 @@ impl<'a> SceneVm<'a> {
             }
             return Ok(false);
         };
-        // Frame actions are an independent nested SCRIPT proc in the original
-        // engine and continue after the main scenario proc has returned.
-        // Preserve the caller's halted bit in saved_exec, but do not let it
-        // abort this callback after its first opcode.
+        // Frame actions run as an independent nested SCRIPT proc and must
+        // continue after the main scenario proc has returned. A previous proc
+        // boundary must not make the callback stop before its first opcode;
+        // the caller's halted state is restored by the checkpoint below.
         self.halted = false;
         self.enter_resolved_user_command(
             &command,
@@ -2437,6 +2562,19 @@ impl<'a> SceneVm<'a> {
                     run_error.is_some()
                 );
             }
+            if completed_by_return {
+                // The callback RETURNed normally, so execution resumes in the caller
+                // at the pc recorded when the frame action was drained. That pc can be
+                // mid-expression: the next opcode then pops an operand the callback
+                // consumed, and the VM dies with `int stack underflow` (observed at
+                // sys40_mp20 line 3178, pc=0x3b3cc, ring depth 3 -> 0 across the call).
+                // Restore the caller's operand stacks verbatim. On the boundary paths
+                // the callback is still parked in the call stack, so leave the tail
+                // alone and keep the original discard-the-tail behaviour.
+                self.int_stack = saved_int_stack;
+                self.str_stack = saved_str_stack;
+                self.element_points = saved_element_points;
+            }
             self.restore_inline_exec_checkpoint(checkpoint)?;
         }
 
@@ -2475,6 +2613,21 @@ impl<'a> SceneVm<'a> {
         caller.return_scene_name = self.current_scene_name.clone();
         caller.return_line_no = self.current_line_no;
         caller.ret_form = ret_form;
+        if sg_ring_on() {
+            eprintln!(
+                "[SG_CALL_ENTER] scene={} pc=0x{:x} offset=0x{:x} ret_form={} (void={} int={}) excall={} frame_action={} argc={} depth={}",
+                self.current_scene_name.as_deref().unwrap_or("<none>"),
+                return_pc,
+                offset,
+                ret_form,
+                self.cfg.fm_void,
+                self.cfg.fm_int,
+                excall_proc,
+                frame_action_proc,
+                call_args.len(),
+                depth
+            );
+        }
         for arg in call_args {
             self.push_call_arg_value(arg);
         }
@@ -2486,6 +2639,7 @@ impl<'a> SceneVm<'a> {
             None,
         );
         call_frame.call_type = 3;
+        call_frame.return_override = Some((return_pc, ret_form));
         self.call_stack.push(call_frame);
         self.stream.set_prg_cntr(offset)?;
         if excall_proc {
@@ -3825,6 +3979,7 @@ impl<'a> SceneVm<'a> {
         self.ctx.current_scene_no = Some(scene_no as i64);
         self.ctx.current_scene_name = Some(scene_name.to_string());
         self.ctx.current_line_no = -1;
+        self.legacy_saved_active_only = false;
         self.halted = false;
         self.delayed_ret_form = None;
         Ok(())
@@ -3981,6 +4136,21 @@ impl<'a> SceneVm<'a> {
         if self.halted {
             return Ok(false);
         }
+        if self.current_scene_no != self.diag_last_scene_no {
+            if sg_scene_trace() {
+                log::warn!(
+                    "[SG-DIAG-13] scene ctx: scene={:?} no={:?} line={} pc=0x{:x} call_depth={} scene_stack={} (prev={:?})",
+                    self.current_scene_name,
+                    self.current_scene_no,
+                    self.current_line_no,
+                    self.stream.get_prg_cntr(),
+                    self.call_stack.len(),
+                    self.scene_stack.len(),
+                    self.diag_last_scene_no
+                );
+            }
+            self.diag_last_scene_no = self.current_scene_no;
+        }
 
         // Normal scene execution is blocked by WAIT / WAIT_KEY.
         // Frame-action inline callbacks bypass this outer wait guard so the
@@ -4037,12 +4207,38 @@ impl<'a> SceneVm<'a> {
                 {
                     return Ok(true);
                 }
+                log::warn!(
+                    "[SG-DIAG-1] script stream exhausted (halt): scene={:?} scene_no={:?} line={} pc=0x{:x} at_cross_scene_boundary={}",
+                    self.current_scene_name,
+                    self.current_scene_no,
+                    self.current_line_no,
+                    pc_before,
+                    self.at_cross_scene_return_boundary()
+                );
+                eprintln!(
+                    "[SG-DIAG-1] script stream exhausted (halt): scene={:?} scene_no={:?} line={} pc=0x{:x} at_cross_scene_boundary={}",
+                    self.current_scene_name,
+                    self.current_scene_no,
+                    self.current_line_no,
+                    pc_before,
+                    self.at_cross_scene_return_boundary()
+                );
                 self.halted = true;
                 return Ok(false);
             }
         };
 
         self.vm_trace_opcode(pc_before, opcode, "before");
+
+        sg_ring_push(
+            pc_before,
+            opcode,
+            self.int_stack.len(),
+            self.element_points.len(),
+            self.int_stack.last().copied(),
+            self.stream.debug_len(),
+            self.call_stack.len(),
+        );
 
         match opcode {
             CD_NL => {
@@ -4353,6 +4549,49 @@ impl<'a> SceneVm<'a> {
             }
             CD_RETURN => {
                 let args = self.pop_arg_list()?;
+                if sg_ring_on() {
+                    // `exec_return` reads the continuation AND the result form from the
+                    // frame *under* the callee, so log that one too: if it says fm_void
+                    // while the call site expects an int, the result is silently dropped
+                    // and the caller's next pop underflows.
+                    if let Some(c) = self.call_stack.iter().rev().nth(1) {
+                        eprintln!(
+                            "[SG_RETURN_CALLER] caller_return_pc=0x{:x} caller_ret_form={} (void={} int={}) caller_call_type={} caller_scene={:?}",
+                            c.return_pc,
+                            c.ret_form,
+                            self.cfg.fm_void,
+                            self.cfg.fm_int,
+                            c.call_type,
+                            c.return_scene_name
+                        );
+                    }
+                    match self.call_stack.last() {
+                        Some(f) => eprintln!(
+                            "[SG_RETURN] scene={} line={} pc=0x{:x} -> return_pc=0x{:x} return_scene={:?} return_line={} call_type={} depth={} scene_stack={} int_depth={} callee_ret_form={} override={:?} args={:?}",
+                            self.current_scene_name.as_deref().unwrap_or("<none>"),
+                            self.current_line_no,
+                            pc_before,
+                            f.return_pc,
+                            f.return_scene_name,
+                            f.return_line_no,
+                            f.call_type,
+                            self.call_stack.len(),
+                            self.scene_stack.len(),
+                            self.int_stack.len(),
+                            f.ret_form,
+                            f.return_override,
+                            args
+                        ),
+                        None => eprintln!(
+                            "[SG_RETURN] scene={} line={} pc=0x{:x} frame=<none> depth=0 scene_stack={} int_depth={}",
+                            self.current_scene_name.as_deref().unwrap_or("<none>"),
+                            self.current_line_no,
+                            pc_before,
+                            self.scene_stack.len(),
+                            self.int_stack.len()
+                        ),
+                    }
+                }
                 if self.vm_trace_matches() {
                     if let Some(frame) = self.call_stack.last() {
                         self.vm_trace_emit(
@@ -4388,10 +4627,38 @@ impl<'a> SceneVm<'a> {
                     if self.return_from_scene(args)? {
                         return Ok(true);
                     }
+                    log::warn!(
+                        "[SG-DIAG-8] CD_RETURN boundary no-return halt: scene={:?} scene_no={:?} line={} pc=0x{:x} call_depth={} scene_stack={}",
+                        self.current_scene_name,
+                        self.current_scene_no,
+                        self.current_line_no,
+                        pc_before,
+                        self.call_stack.len(),
+                        self.scene_stack.len()
+                    );
                     self.halted = true;
                     return Ok(false);
                 }
                 if self.call_stack.len() == 1 {
+                    // Only the scene base frame is left, so this RETURN has no caller
+                    // to unwind to. The original format serializes the whole
+                    // cross-scene call list, so a well-formed save always has one;
+                    // this state means the active save carried no caller frames at
+                    // all (an active-only legacy save). The orphaned continuation
+                    // cannot be reconstructed from that save, so end the scene flow
+                    // here instead of guessing a return address. Clearing
+                    // `legacy_saved_active_only` hands the wind-down to the host,
+                    // which returns to the title rather than leaving a halted VM on
+                    // screen forever.
+                    log::warn!(
+                        "[SG_VM] cross-scene RETURN with no caller frame: scene={:?} scene_no={:?} line={} pc=0x{:x} legacy_active_only={} -> scene flow ends",
+                        self.current_scene_name,
+                        self.current_scene_no,
+                        self.current_line_no,
+                        pc_before,
+                        self.legacy_saved_active_only
+                    );
+                    self.legacy_saved_active_only = false;
                     self.halted = true;
                     return Ok(false);
                 }
@@ -4526,6 +4793,14 @@ impl<'a> SceneVm<'a> {
             }
 
             CD_EOF => {
+                log::warn!(
+                    "[SG-DIAG-4] CD_EOF at scene={:?} scene_no={:?} line={} pc=0x{:x} boundary={}",
+                    self.current_scene_name,
+                    self.current_scene_no,
+                    self.current_line_no,
+                    pc_before,
+                    self.at_cross_scene_return_boundary()
+                );
                 if self.at_cross_scene_return_boundary()
                     && self.return_from_scene(Vec::new())?
                 {
@@ -4540,13 +4815,19 @@ impl<'a> SceneVm<'a> {
                 // Stop execution and record it.
                 *self.unknown_opcodes.entry(opcode).or_insert(0) += 1;
                 let scn_cmd_context = self.vm_scn_cmd_context(pc_before);
-                eprintln!(
-                    "VM hit CD_NONE scene={} line={} pc=0x{:x} {} bytes={:02x?}; stopping",
-                    self.current_scene_name.as_deref().unwrap_or("<none>"),
+                let mut b = String::new();
+                for &byte in &self.stream.scn[pc_before.saturating_sub(8)..self.stream.scn.len().min(pc_before + 16)] {
+                    use std::fmt::Write;
+                    let _ = write!(b, "{byte:02x} ");
+                }
+                log::warn!(
+                    "[SG-DIAG-5] CD_NONE (fatal) scene={:?} scene_no={:?} line={} pc=0x{:x} ctx={} bytes={}",
+                    self.current_scene_name,
+                    self.current_scene_no,
                     self.current_line_no,
                     pc_before,
                     scn_cmd_context,
-                    &self.stream.scn[pc_before.saturating_sub(8)..self.stream.scn.len().min(pc_before + 16)]
+                    b
                 );
                 self.halted = true;
                 return Ok(false);
@@ -4554,6 +4835,13 @@ impl<'a> SceneVm<'a> {
 
             other => {
                 *self.unknown_opcodes.entry(other).or_insert(0) += 1;
+                log::warn!(
+                    "[SG-DIAG-10] unknown opcode=0x{other:02x} at pc=0x{:x}; scene={:?} scene_no={:?} line={}",
+                    pc_before,
+                    self.current_scene_name,
+                    self.current_scene_no,
+                    self.current_line_no
+                );
                 println!(
                     "VM unknown opcode=0x{other:02x} at pc=0x{:x}; stopping",
                     pc_before
@@ -4588,14 +4876,38 @@ impl<'a> SceneVm<'a> {
             }
             None => {
                 vm_trace!(self, None, "pop_int underflow");
+                // Report the site as precisely as possible. `pc` alone lands in
+                // the middle of a long compiled `if/else if` chain and cannot be
+                // mapped back to a source line, so include the element the VM was
+                // evaluating (when the pop happens inside a property/command
+                // dispatch) and the remaining stack depth.
+                let call = self
+                    .ctx
+                    .vm_call
+                    .as_ref()
+                    .map(|m| {
+                        format!(
+                            "element={:?} al_id={:?} ret_form={}",
+                            m.element, m.al_id, m.ret_form
+                        )
+                    })
+                    .unwrap_or_else(|| "element=<none>".to_string());
+                let pc = self.stream.get_prg_cntr();
+                let (win_start, win) = self.stream.debug_bytes_around(pc, 24, 24);
+                let ring = self.sg_ring_dump();
                 Err(anyhow!(
-                    "int stack underflow: scene={} scene_no={} line={} pc=0x{:x}",
+                    "int stack underflow: scene={} scene_no={} line={} pc=0x{:x} depth={} {} bytes@0x{:x}={:02x?}{}",
                     self.current_scene_name.as_deref().unwrap_or("<none>"),
                     self.current_scene_no
                         .map(|v| v.to_string())
                         .unwrap_or_else(|| "-".to_string()),
                     self.current_line_no,
-                    self.stream.get_prg_cntr()
+                    pc,
+                    self.int_stack.len(),
+                    call,
+                    win_start,
+                    win,
+                    ring
                 ))
             }
         }
@@ -8584,6 +8896,17 @@ impl<'a> SceneVm<'a> {
         let scene_name = rd.string()?;
         let line_no = rd.i32()?;
         let return_pc = rd.i32()?.max(0) as usize;
+        log::warn!(
+            "[SG_SAVELOAD_PROBE] call_frame scene={:?} line={} return_pc=0x{:x} call_type={} ret_form={} int_args={} str_args={} props={}",
+            scene_name,
+            line_no,
+            return_pc,
+            call_type,
+            ret_form,
+            int_args.len(),
+            str_args.len(),
+            user_props.len(),
+        );
         Ok(CallFrame {
             call_type,
             return_pc,
@@ -8908,19 +9231,9 @@ impl<'a> SceneVm<'a> {
             w.push_i32(0);
         }
         w.push_i32(Self::save_i32(b.disp));
-        // Original saves obp.pat_no as a whole C_elm_int_event (raw 44-byte
-        // struct), not a plain int. A plain int here shifted every following
-        // field by 40 bytes for each object, which is what crashed the
-        // original engine on our saves and corrupted our own stage restore.
-        {
-            let mut pat_ev = ev.patno.clone();
-            if pat_ev.loop_type == -1 {
-                pat_ev.def_value = b.patno as i32;
-                pat_ev.value = b.patno as i32;
-                pat_ev.cur_value = b.patno as i32;
-            }
-            Self::write_cpp_int_event_raw(w, &pat_ev);
-        }
+        // The shipped Rewrite+ C++ save layout stores obp.pat_no as a scalar;
+        // PATNO_EVE is serialized separately with the other animated fields.
+        w.push_i32(Self::save_i32(b.patno));
         w.push_i32(Self::save_i32(b.order));
         w.push_i32(Self::save_i32(b.layer));
         w.push_i32(Self::save_i32(b.world));
@@ -9048,11 +9361,13 @@ impl<'a> SceneVm<'a> {
             obj.button.alpha_test = rd.i32()? != 0;
         }
         obj.base.disp = rd.i32()? as i64;
-        // Mirror of the writer: original pat_no is a full C_elm_int_event.
-        obj.runtime.prop_events.patno = Self::read_cpp_int_event_raw(rd)?;
-        if obj.runtime.prop_events.patno.loop_type == -1 {
-            obj.base.patno = obj.runtime.prop_events.patno.value as i64;
-        }
+        // Rewrite+ original saves (including 0212.sav) serialize obp.pat_no as
+        // the legacy scalar field. New Rust saves may emit the richer event
+        // form, but load compatibility must keep accepting the shipped C++
+        // layout; the surrounding fields prove which format is in use before
+        // any caller continuation is restored.
+        obj.base.patno = rd.i32()? as i64;
+        obj.runtime.prop_events.patno = runtime::int_event::IntEvent::new(obj.base.patno as i32);
         obj.base.order = rd.i32()? as i64;
         obj.base.layer = rd.i32()? as i64;
         obj.base.world = rd.i32()? as i64;
@@ -10834,8 +11149,8 @@ impl<'a> SceneVm<'a> {
         w.push_i32(0);
     }
 
-    fn read_cpp_proc_record(&self, rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<()> {
-        let _proc_type = rd.i32()?;
+    fn read_cpp_proc_record(&self, rd: &mut crate::original_save::OriginalStreamReader<'_>) -> Result<i32> {
+        let proc_type = rd.i32()?;
         let _element = rd.element()?;
         let _arg_list_id = rd.i32()?;
         let _arg_list: Vec<()> = rd.extend_items(|rd| {
@@ -10846,7 +11161,7 @@ impl<'a> SceneVm<'a> {
         let _skip_disable_flag = rd.bool()?;
         let _return_value_flag = rd.bool()?;
         let _option = rd.i32()?;
-        Ok(())
+        Ok(proc_type)
     }
 
     fn decode_cpp_mwnd_element(elm: &[i32]) -> Option<(i64, usize)> {
@@ -11112,9 +11427,21 @@ impl<'a> SceneVm<'a> {
         let line_no = rd.i32()?;
         let pc = rd.i32()?;
 
-        self.read_cpp_proc_record(&mut rd)?;
+        let current_proc_type = self.read_cpp_proc_record(&mut rd)?;
         let proc_stack_cnt = rd.i32()?.max(0) as usize;
-        for _ in 0..proc_stack_cnt { self.read_cpp_proc_record(&mut rd)?; }
+        let mut proc_stack_types = Vec::with_capacity(proc_stack_cnt);
+        for _ in 0..proc_stack_cnt {
+            proc_stack_types.push(self.read_cpp_proc_record(&mut rd)?);
+        }
+        log::warn!(
+            "[SG_SAVELOAD_PROBE] local_stream scene={} line={} pc=0x{:x} current_proc_type={} proc_stack_cnt={} proc_stack_types={:?}",
+            scene_name,
+            line_no,
+            pc.max(0),
+            current_proc_type,
+            proc_stack_cnt,
+            proc_stack_types,
+        );
         let cur_mwnd = rd.element()?;
         let cur_sel_mwnd = rd.element()?;
         let last_mwnd = rd.element()?;
@@ -11468,6 +11795,8 @@ impl<'a> SceneVm<'a> {
         self.current_scene_no = if snapshot.scene_no >= 0 { Some(snapshot.scene_no as usize) } else { Some(scene_no) };
         self.current_scene_name = Some(snapshot.scene_name);
         self.current_line_no = snapshot.line_no;
+        self.legacy_saved_active_only = self.current_scene_no.is_some_and(|no| no > 0)
+            && self.call_stack.len() == 1;
         self.ctx.current_scene_no = self.current_scene_no.map(|v| v as i64);
         self.ctx.current_scene_name = self.current_scene_name.clone();
         self.ctx.current_line_no = self.current_line_no as i64;
@@ -11541,8 +11870,19 @@ impl<'a> SceneVm<'a> {
         // Frame-action/user-command inline calls may run nested gosubs while a
         // script gosub is waiting, so the authoritative continuation must be
         // the caller frame here rather than any callee-local scratch state.
-        let return_pc = caller.return_pc;
-        let ret_form = caller.ret_form;
+        // The continuation belongs to the *callee*: it is recorded when the call is
+        // made. The caller-frame slots are shared with every other dispatch that runs
+        // while a script-level call is suspended (pending button actions, frame-action
+        // finishes, excall procs), and those overwrite them with their own fm_void
+        // continuation. Reading the caller slots here therefore drops the script's
+        // pending call result -- observed as `caller_ret_form=0 (void)` while the call
+        // site needs FM_INT, leaving the interpreter one value short, and the next
+        // conditional pop dies with `int stack underflow`.
+        // `return_override` is the per-callee copy of that continuation.
+        let (return_pc, ret_form) = match callee.return_override {
+            Some((pc, form)) => (pc, form),
+            None => (caller.return_pc, caller.ret_form),
+        };
         if self.runtime_options.trace_call_return_pc {
             eprintln!(
                 "[SG_CALL_PC] return depth={} pc=0x{:x} ret_form={} override={:?} args={:?}",
@@ -11642,6 +11982,17 @@ impl<'a> SceneVm<'a> {
 
     fn jump_to_scene_name(&mut self, scene_name: &str, z_no: i32) -> Result<()> {
         sg_omv_trace!(self, "scene_jump target={} z={}", scene_name, z_no);
+        if sg_scene_trace() {
+            log::warn!(
+                "[SG-DIAG-6] scene_jump target={} z={} caller={:?} caller_line={} call_depth={} scene_stack={}",
+                scene_name,
+                z_no,
+                self.current_scene_name,
+                self.current_line_no,
+                self.call_stack.len(),
+                self.scene_stack.len()
+            );
+        }
         let (stream, scene_no) = self.load_scene_stream(scene_name, z_no)?;
         self.stash_current_scene_user_props();
         self.stream = stream;
@@ -11678,6 +12029,19 @@ impl<'a> SceneVm<'a> {
             ex_call_proc,
             scratch_source_args.len()
         );
+        if sg_scene_trace() {
+            log::warn!(
+                "[SG-DIAG-7] scene_farcall target={} z={} ret_form={} ex_call_proc={} caller={:?} caller_line={} call_depth={} scene_stack={}",
+                scene_name,
+                z_no,
+                ret_form,
+                ex_call_proc,
+                self.current_scene_name,
+                self.current_line_no,
+                self.call_stack.len(),
+                self.scene_stack.len()
+            );
+        }
         self.trace_cf_branch_farcall(
             self.stream.get_prg_cntr(),
             scene_name,

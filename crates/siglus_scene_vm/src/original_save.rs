@@ -1201,9 +1201,10 @@ impl<'a> Reader<'a> {
     }
 
     fn str_len(&mut self) -> Result<String> {
+        let offset = self.pos;
         let len = self.i32()?;
         if len < 0 {
-            bail!("negative string length {}", len);
+            bail!("negative string length {} at byte offset {}", len, offset);
         }
         let len = len as usize;
         let bytes = self.take(len * 2)?;

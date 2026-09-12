@@ -2354,6 +2354,18 @@ mod font_shadow_mode_tests {
     }
 
     #[test]
+    fn blend_over_opaque_destination_does_not_overflow() {
+        // Semi-transparent glyph blended over an already-opaque pixel:
+        // dst * da * inv_sa = 255 * 255 * 127 ~= 8.3M, which overflowed the
+        // u16 intermediate (`attempt to multiply with overflow` in debug).
+        let mut rgba = vec![255u8; 4]; // opaque destination
+        blend_rgba_pixel(&mut rgba, 1, 0, 0, 255, 255, 255, 128);
+        // out_a = 128 + 255 - 128*255/255 = 255; blend -> 255
+        assert_eq!(rgba[0], 255);
+        assert_eq!(rgba[3], 255);
+    }
+
+    #[test]
     fn coloured_glyph_blend_uses_wide_original_integer_arithmetic() {
         let mut rgba = [255, 220, 192, 255];
         blend_rgba_pixel(&mut rgba, 1, 0, 0, 80, 160, 240, 128);

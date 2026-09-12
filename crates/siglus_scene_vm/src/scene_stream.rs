@@ -273,6 +273,26 @@ impl<'a> SceneStream<'a> {
         self.pc
     }
 
+    /// Raw scene-stream bytes around `pc`, for diagnostics only.
+    ///
+    /// A `pc` alone cannot be mapped back to a source line when it lands inside
+    /// a long compiled `if/else if` chain, and the port's line table reports the
+    /// *chain's* line rather than the failing instruction's. Seeing the actual
+    /// opcode bytes is the only reliable way to identify the construct.
+    pub fn debug_bytes_around(&self, pc: usize, before: usize, after: usize) -> (usize, Vec<u8>) {
+        let start = pc.saturating_sub(before);
+        let end = (pc + after).min(self.scn.len());
+        if start >= end {
+            return (start, Vec::new());
+        }
+        (start, self.scn[start..end].to_vec())
+    }
+
+    /// Scene-stream length, so a diagnostic can bound its window.
+    pub fn debug_len(&self) -> usize {
+        self.scn.len()
+    }
+
     pub fn set_prg_cntr(&mut self, prg_cntr: usize) -> Result<()> {
         if prg_cntr > self.scn.len() {
             bail!("scn: prg_cntr out of bounds");

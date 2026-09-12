@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail, Context, Result};
 
 use kira::sound::static_sound::{StaticSoundData, StaticSoundHandle};
 use kira::tween::Tween;
-use kira::Volume;
+use kira::{StartTime, Volume};
 
 use crate::audio::bgm::{
     decode_bgm_to_wav_bytes, decode_ovk_entry_by_no_to_wav_bytes, resolve_koe_source, KoeSource,
@@ -535,9 +535,21 @@ fn play_decoded_wav_in_slot(
                 let _ = new_handle.set_volume(Volume::Amplitude(amplitude), Tween::default());
                 if !loop_flag {
                     if let Some(ms) = duration_ms.filter(|ms| *ms > 40) {
+                        // Anti-pop tail fade. A tween with no start time ramps
+                        // from the start amplitude to zero across the *whole*
+                        // clip, i.e. a constant decay: on a long one-shot such
+                        // as a message voice line that is plainly audible as
+                        // the voice getting quieter and quieter. Keep full
+                        // volume for the clip and ramp only the final 12 ms,
+                        // which still removes the end discontinuity.
+                        let tail_ms = (ms as i64).saturating_sub(12).max(0) as u64;
                         let _ = new_handle.set_volume(
                             Volume::Amplitude(0.0),
-                            Slot::tween_for_ms((ms as i64) - 12),
+                            Tween {
+                                start_time: StartTime::Delayed(Duration::from_millis(tail_ms)),
+                                duration: Duration::from_millis(12),
+                                ..Tween::default()
+                            },
                         );
                     }
                 }

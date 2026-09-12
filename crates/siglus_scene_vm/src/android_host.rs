@@ -17,6 +17,31 @@ use crate::render::Renderer;
 
 static ANDROID_CTX_ONCE: Once = Once::new();
 
+static ANDROID_PANIC_HOOK: Once = Once::new();
+
+fn install_android_panic_hook() {
+    ANDROID_PANIC_HOOK.call_once(|| {
+        std::panic::set_hook(Box::new(|info| {
+            let location = info
+                .location()
+                .map(|loc| format!("{}:{}", loc.file(), loc.line()))
+                .unwrap_or_else(|| "<unknown>".to_string());
+            let message = if let Some(s) = info.payload().downcast_ref::<&str>() {
+                (*s).to_string()
+            } else if let Some(s) = info.payload().downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "<non-string panic payload>".to_string()
+            };
+            log::error!("[SIGLUS_ANDROID_PANIC] panic at {location}: {message}");
+            log::error!(
+                "[SIGLUS_ANDROID_PANIC] backtrace:\n{}",
+                std::backtrace::Backtrace::force_capture()
+            );
+        }));
+    });
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn siglus_android_init_context(java_vm_ptr: *mut c_void, context_ptr: *mut c_void) {
     if java_vm_ptr.is_null() || context_ptr.is_null() {
@@ -27,12 +52,30 @@ pub unsafe extern "C" fn siglus_android_init_context(java_vm_ptr: *mut c_void, c
         unsafe {
             ndk_context::initialize_android_context(java_vm_ptr, context_ptr);
         }
+        // Default to Warn: at Debug the frame loop emits ~950 lines/s on device
+        // (91% of them Debug), and formatting + one logcat write per line dominated
+        // the frame budget -- the app sat at ~106% CPU and felt permanently laggy.
+        // Every diagnostic we actually grep for is log::warn!, so Warn keeps them.
+        // Override with SIGLUS_LOG=<level> when a Debug-level trace is really needed.
+        let level = std::env::var("SIGLUS_LOG")
+            .ok()
+            .and_then(|v| match v.trim().to_ascii_lowercase().as_str() {
+                "off" => Some(log::LevelFilter::Off),
+                "error" => Some(log::LevelFilter::Error),
+                "warn" => Some(log::LevelFilter::Warn),
+                "info" => Some(log::LevelFilter::Info),
+                "debug" => Some(log::LevelFilter::Debug),
+                "trace" => Some(log::LevelFilter::Trace),
+                _ => None,
+            })
+            .unwrap_or(log::LevelFilter::Warn);
         let _ = android_logger::init_once(
             android_logger::Config::default()
-                .with_max_level(log::LevelFilter::Debug)
+                .with_max_level(level)
                 .with_tag("siglus_rs"),
         );
         log::info!("siglus_android_init_context: ndk_context initialized");
+        install_android_panic_hook();
     });
 }
 
@@ -215,6 +258,12 @@ pub unsafe extern "C" fn siglus_android_touch(
     let (lw, lh) = host.logical_size();
     let vm_x = ((x_px - vx as f64) / vw.max(1) as f64 * lw as f64).clamp(0.0, lw as f64);
     let vm_y = ((y_px - vy as f64) / vh.max(1) as f64 * lh as f64).clamp(0.0, lh as f64);
+    if crate::host::sg_input_trace() {
+        log::warn!(
+            "[SG_INPUT_DEBUG] touch phase={} px=({:.1},{:.1}) viewport=({},{} {}x{}) logical={}x{} vm=({:.1},{:.1})",
+            phase, x_px, y_px, vx, vy, vw, vh, lw, lh, vm_x, vm_y
+        );
+    }
     host.touch(phase, vm_x, vm_y);
 }
 

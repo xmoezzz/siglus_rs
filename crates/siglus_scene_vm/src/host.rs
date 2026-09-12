@@ -31,6 +31,47 @@ use crate::vm::{SceneVm, VmConfig};
 
 const FRAME_INTERVAL_MS: u32 = 16;
 
+fn should_exit_host_frame(
+    pending_exit: bool,
+    vm_halted: bool,
+    flow_empty: bool,
+    legacy_saved_active_only: bool,
+) -> bool {
+    pending_exit
+        || (vm_halted && flow_empty && !legacy_saved_active_only)
+}
+
+/// Input tracing (`[SG_INPUT_DEBUG]`) is off by default: on device every touch
+/// emits a line, and logcat traffic lands on the frame that handles the input.
+pub(crate) fn sg_input_trace() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("SG_INPUT_DEBUG").is_some())
+}
+
+/// What the host does when the script proc flow is empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EmptyFlowAction {
+    /// Ordinary end of flow: stop pumping and keep showing the last frame.
+    Pause,
+    /// After an active-only legacy load the resumed scene runs on its own; an
+    /// empty flow must not end the frame loop that keeps its surface alive.
+    KeepAlive,
+    /// That resumed scene has now stopped. An active-only save serializes no
+    /// caller frames, so nothing can be resumed past its own end: go back to
+    /// the title instead of spinning the frame loop on a halted VM forever.
+    ReturnToTitle,
+}
+
+fn empty_flow_action(legacy_load_frame_loop: bool, vm_halted: bool) -> EmptyFlowAction {
+    if !legacy_load_frame_loop {
+        EmptyFlowAction::Pause
+    } else if vm_halted {
+        EmptyFlowAction::ReturnToTitle
+    } else {
+        EmptyFlowAction::KeepAlive
+    }
+}
+
 
 #[derive(Debug, Clone)]
 pub struct SiglusHostConfig {
@@ -183,6 +224,10 @@ pub struct SiglusHost {
     syscom_suspended_waits: Vec<(usize, VmWait, String)>,
     paused: bool,
     pending_exit: bool,
+    /// A legacy original save may resume a top-level scene with no saved proc
+    /// caller. Its frame actions still own the visible map, so an empty script
+    /// flow is an idle frame loop rather than an Activity exit.
+    legacy_load_frame_loop: bool,
     last_step: Option<Instant>,
 }
 
@@ -250,6 +295,7 @@ impl SiglusHost {
             syscom_suspended_waits: Vec::new(),
             paused: false,
             pending_exit: false,
+            legacy_load_frame_loop: false,
             last_step: None,
         })
     }
@@ -358,10 +404,54 @@ impl SiglusHost {
             return Ok(false);
         }
         if self.script_needs_pump || self.vm.ctx.wait.needs_runtime_poll() {
-            self.pump_vm()?;
+            // A script-side failure (unbalanced stack, unmodelled element, ...)
+            // must not end the Activity. `parse_bool_exit` maps `Err` onto the
+            // same `1` it maps a normal end-of-script onto, so letting the error
+            // escape `step()` used to close the Android activity on any
+            // transient VM hiccup — the user sees a crash-to-desktop with no
+            // message. Log it (rate limited so a per-frame failure cannot flood
+            // logcat) and keep the frame loop alive instead.
+            if let Err(e) = self.pump_vm() {
+                Self::report_pump_error(&e);
+            }
         }
         self.redraw()?;
-        Ok(self.pending_exit || (self.vm.is_halted() && self.flow.stack.is_empty()))
+        let exit_now = should_exit_host_frame(
+            self.pending_exit,
+            self.vm.is_halted(),
+            self.flow.stack.is_empty(),
+            self.legacy_load_frame_loop,
+        );
+        if exit_now {
+            log::warn!(
+                "[SG-DIAG-2] engine exit requested: pending_exit={} halted={} scene={:?} scene_no={:?} line={} flow={:?}",
+                self.pending_exit,
+                self.vm.is_halted(),
+                self.vm.current_scene_name(),
+                self.vm.current_scene_no(),
+                self.vm.current_line_no(),
+                self.flow.stack
+            );
+        }
+        Ok(exit_now)
+    }
+
+    /// Rate-limited reporting for a recovered `pump_vm` failure.
+    ///
+    /// A script bug that fires every frame would otherwise flood logcat; the
+    /// first few occurrences plus every 300th afterwards are enough to identify
+    /// the site without burying everything else.
+    fn report_pump_error(e: &anyhow::Error) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEEN: AtomicU64 = AtomicU64::new(0);
+        let n = SEEN.fetch_add(1, Ordering::Relaxed) + 1;
+        if n <= 3 || n % 300 == 0 {
+            log::error!(
+                "[SG_VM_SCRIPT_ERROR] recovered, host kept alive: count={} err={:#}",
+                n,
+                e
+            );
+        }
     }
 
     pub fn mouse_move(&mut self, x: f64, y: f64) {
@@ -373,12 +463,38 @@ impl SiglusHost {
     pub fn mouse_down(&mut self, button: VmMouseButton) {
         if self.native_messagebox_pending() { return; }
         self.vm.ctx.on_mouse_down(button);
+        if sg_input_trace() {
+            log::warn!(
+                "[SG_INPUT_DEBUG] down={:?} scene={:?} line={} msg_waiting={} visible={}/{} wait_key={} flow={:?}",
+                button,
+                self.vm.current_scene_name(),
+                self.vm.current_line_no(),
+                self.vm.ctx.ui.message_waiting(),
+                self.vm.ctx.ui.message_visible_chars(),
+                self.vm.ctx.ui.message_wait_message_len(),
+                self.vm.ctx.wait.waiting_for_key(),
+                self.flow.stack
+            );
+        }
         self.script_needs_pump = true;
     }
 
     pub fn mouse_up(&mut self, button: VmMouseButton) {
         if self.native_messagebox_pending() { return; }
         self.vm.ctx.on_mouse_up(button);
+        if sg_input_trace() {
+            log::warn!(
+                "[SG_INPUT_DEBUG] up={:?} scene={:?} line={} msg_waiting={} visible={}/{} wait_key={} flow={:?}",
+                button,
+                self.vm.current_scene_name(),
+                self.vm.current_line_no(),
+                self.vm.ctx.ui.message_waiting(),
+                self.vm.ctx.ui.message_visible_chars(),
+                self.vm.ctx.ui.message_wait_message_len(),
+                self.vm.ctx.wait.waiting_for_key(),
+                self.flow.stack
+            );
+        }
         self.script_needs_pump = true;
     }
 
@@ -1023,6 +1139,17 @@ impl SiglusHost {
     }
 
     fn finish_runtime_load(&mut self) {
+        // Keep the platform-owned surface and viewport across a load. Android
+        // establishes an aspect-fit viewport for the physical SurfaceView; using
+        // Gameexe/config dimensions here would replace it with a smaller
+        // top-left canvas and leave the rest of the display black.
+        self.legacy_load_frame_loop = self.vm.legacy_saved_active_only();
+        if self.legacy_load_frame_loop {
+            log::warn!(
+                "[SG_SAVELOAD] legacy active-only load keeps host frame loop scene={:?}",
+                self.vm.current_scene_name()
+            );
+        }
         self.renderer.borrow_mut().clear_runtime_image_textures();
         self.flow.stack.clear();
         self.flow.pending_syscom_proc = None;
@@ -1065,6 +1192,7 @@ impl SiglusHost {
             self.vm.ctx.globals.msgbk_forms = msgbk;
         }
         self.vm.ctx.globals.finish_wipe();
+        self.legacy_load_frame_loop = false;
         self.flow.stack.clear();
         self.flow.pending_syscom_proc = None;
         self.flow.booted_menu = true;
@@ -1110,8 +1238,22 @@ impl SiglusHost {
 
         loop {
             let Some(proc) = self.flow.top().cloned() else {
-                self.paused = true;
-                break;
+                match empty_flow_action(self.legacy_load_frame_loop, self.vm.is_halted()) {
+                    EmptyFlowAction::Pause => {
+                        self.paused = true;
+                        break;
+                    }
+                    EmptyFlowAction::KeepAlive => break,
+                    EmptyFlowAction::ReturnToTitle => {
+                        log::warn!(
+                            "[SG_SAVELOAD] legacy active-only load scene flow ended scene={:?} -> return to title",
+                            self.vm.current_scene_name()
+                        );
+                        self.legacy_load_frame_loop = false;
+                        self.flow.push(ProcType::ReturnToMenu, 0);
+                        continue;
+                    }
+                }
             };
             if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
                 eprintln!(
@@ -1457,4 +1599,43 @@ pub fn parse_bool_exit(result: Result<bool>, context: &str) -> i32 {
 
 pub fn default_frame_interval_ms(dt_ms: u32) -> u32 {
     if dt_ms == 0 { FRAME_INTERVAL_MS } else { dt_ms }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{empty_flow_action, should_exit_host_frame, EmptyFlowAction};
+
+    #[test]
+    fn active_only_legacy_load_keeps_halted_host_alive() {
+        assert!(!should_exit_host_frame(false, true, true, true));
+    }
+
+    #[test]
+    fn ordinary_halted_empty_flow_still_requests_exit() {
+        assert!(should_exit_host_frame(false, true, true, false));
+    }
+
+    #[test]
+    fn explicit_exit_always_wins_over_legacy_keepalive() {
+        assert!(should_exit_host_frame(true, true, true, true));
+    }
+
+    #[test]
+    fn empty_flow_pauses_without_a_legacy_load() {
+        assert_eq!(empty_flow_action(false, false), EmptyFlowAction::Pause);
+        assert_eq!(empty_flow_action(false, true), EmptyFlowAction::Pause);
+    }
+
+    #[test]
+    fn empty_flow_keeps_running_scene_alive_after_legacy_load() {
+        assert_eq!(empty_flow_action(true, false), EmptyFlowAction::KeepAlive);
+    }
+
+    #[test]
+    fn empty_flow_returns_to_title_once_a_legacy_load_scene_stops() {
+        assert_eq!(
+            empty_flow_action(true, true),
+            EmptyFlowAction::ReturnToTitle
+        );
+    }
 }

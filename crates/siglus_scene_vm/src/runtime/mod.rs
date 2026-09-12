@@ -721,6 +721,15 @@ impl CommandContext {
         // loaded local stream. Wipe before parsing so that snapshot entries that
         // are simply *absent* (the snapshot has no mask list, no editbox, etc.)
         // truly become absent post-load instead of inheriting from the menu.
+        if !self.globals.stage_forms.is_empty() {
+            log::warn!(
+                "[SG_STAGE_FORMS_CLEARED] by=begin_runtime_load_apply scene={:?} scene_no={:?} line={} dropping_forms={:?}",
+                self.current_scene_name,
+                self.current_scene_no,
+                self.current_line_no,
+                self.globals.stage_forms.keys().collect::<Vec<_>>()
+            );
+        }
         self.globals.stage_forms.clear();
         self.globals.screen_forms.clear();
         self.globals.counter_lists.clear();
@@ -2075,6 +2084,22 @@ impl CommandContext {
     /// scene restart and destroyed data that the original engine retains.
     pub fn reset_for_scene_restart(&mut self) {
         use crate::runtime::forms::codes;
+
+        // `reinit_local()` equivalent: this wipes every stage object. The scene
+        // that runs next is expected to rebuild its own stage tree. If a scene
+        // keeps running its per-frame loop across this call, its objects are
+        // gone and subsequent object ops fabricate empty stand-ins (black screen
+        // + unbounded nested-slot growth). Log it so the clearing path can be
+        // attributed from a single reproduction.
+        if !self.globals.stage_forms.is_empty() {
+            log::warn!(
+                "[SG_STAGE_FORMS_CLEARED] by=reset_for_scene_restart scene={:?} scene_no={:?} line={} dropping_forms={:?}",
+                self.current_scene_name,
+                self.current_scene_no,
+                self.current_line_no,
+                self.globals.stage_forms.keys().collect::<Vec<_>>()
+            );
+        }
 
         let append_dir = self.globals.append_dir.clone();
         let append_name = self.globals.append_name.clone();
@@ -7490,7 +7515,29 @@ impl CommandContext {
     }
 
     fn sync_global_movie(&mut self) {
+        // Every movie diagnostic is opt-in (`SG_MOVIE_TRACE=1`). The state probe
+        // below is periodic, and it must not add per-frame logcat traffic on a
+        // device unless someone explicitly asked for a movie trace.
         let trace = std::env::var_os("SG_MOVIE_TRACE").is_some();
+        // Periodic state probe: with no movie playing this is the cheapest per-frame hook
+        // that still reports the wait/scene state on a device where env vars cannot be set.
+        static SG_SYNC_POLLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let polls = SG_SYNC_POLLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if trace && polls % 300 == 0 {
+            log::warn!(
+                "[SG_MOV_STATE] playing={} file={:?} reveal={} key={} runtime_poll={} continuous={}",
+                self.globals.mov.playing,
+                self.globals.mov.file_name,
+                self.wait.message_reveal_waiting(),
+                self.wait.waiting_for_key(),
+                self.wait.needs_runtime_poll(),
+                self.wait.needs_continuous_frame()
+            );
+        }
+        /// Polls to wait for a first video frame before treating a clock-less movie as
+        /// unplayable. Generous on purpose: a working decoder presents its first frame long
+        /// before this, so a healthy movie is never cut short.
+        const MOVIE_NO_FRAME_WATCHDOG_POLLS: u32 = 600;
         let file_name = self.globals.mov.file_name.clone();
 
         if !self.globals.mov.playing || file_name.as_deref().unwrap_or("").is_empty() {
@@ -7570,6 +7617,38 @@ impl CommandContext {
                 // counters, frame actions, and object events while the decoder warms up.
                 if last_frame_idx.is_none() {
                     self.globals.mov.timer_ms = 0;
+                }
+                // A movie that can neither decode a frame nor run an audio clock has no
+                // media clock at all: `total_ms` is only reported once a frame has been
+                // selected, so the completion check below can never fire and the script
+                // waits forever. That is exactly the Rewrite+ OP/ED: they are WMV and the
+                // WMV3 video decoder is still WIP, while a failed WMA stream detaches the
+                // audio clock by design. Give the decoder a generous warm-up window, then
+                // finish the movie so the script continues instead of hanging on a blank
+                // movie layer.
+                self.globals.mov.polls_without_frame =
+                    self.globals.mov.polls_without_frame.saturating_add(1);
+                if trace && self.globals.mov.polls_without_frame % 300 == 1 {
+                    log::warn!(
+                        "[SG_MOV] waiting for first frame: file={} polls={} audio_id={} audio_tried={} total_ms={:?} timer_ms={}",
+                        file_name,
+                        self.globals.mov.polls_without_frame,
+                        self.globals.mov.audio_id.is_some(),
+                        self.globals.mov.audio_start_attempted,
+                        self.globals.mov.total_ms,
+                        self.globals.mov.timer_ms
+                    );
+                }
+                if last_frame_idx.is_none()
+                    && self.globals.mov.polls_without_frame >= MOVIE_NO_FRAME_WATCHDOG_POLLS
+                {
+                    log::warn!(
+                        "[SG_MOV] no decodable video frame after {} polls; finishing movie file={} \
+                         (audio-only playback would otherwise show a blank layer for the whole clip)",
+                        self.globals.mov.polls_without_frame,
+                        file_name
+                    );
+                    self.globals.mov.playing = false;
                 }
                 return;
             }

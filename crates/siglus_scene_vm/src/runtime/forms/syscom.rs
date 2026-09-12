@@ -992,7 +992,7 @@ fn write_slot_thumb_for_save_no(ctx: &mut CommandContext, save_no: usize) {
     }
     remove_game_file(&path);
     let result = match config.thumb_type {
-        SaveThumbType::Bmp => write_rgba_bmp_top_down(&path, &img),
+        SaveThumbType::Bmp => write_rgba_bmp_standard(&path, &img),
         SaveThumbType::Png => write_rgba_png_opaque(&path, &img),
     };
     if let Err(err) = result {
@@ -4031,7 +4031,15 @@ fn push_i32_le(out: &mut Vec<u8>, value: i32) {
     out.extend_from_slice(&value.to_le_bytes());
 }
 
-fn write_rgba_bmp_top_down(path: &Path, img: &RgbaImage) -> Result<()> {
+/// Write a save thumbnail in the layout the original engine itself uses:
+/// bottom-up (positive height), 24bpp BI_RGB, rows padded to a 4-byte boundary.
+///
+/// The previous implementation wrote a *top-down* (`height < 0`) 32bpp image.
+/// That is legal BMP, but SiglusEngine's own reader only accepts the classic
+/// layout: given our file it aborts with a bare `画像ファイル` error box, which
+/// makes the save list unusable and makes every slot look corrupt even though the
+/// `.sav` beside it is perfectly fine.
+fn write_rgba_bmp_standard(path: &Path, img: &RgbaImage) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -4040,33 +4048,41 @@ fn write_rgba_bmp_top_down(path: &Path, img: &RgbaImage) -> Result<()> {
     if width == 0 || height == 0 {
         anyhow::bail!("invalid zero-sized bmp image {}x{}", width, height);
     }
-    let pixel_size = width.saturating_mul(height).saturating_mul(4);
-    let file_size = 14u32.saturating_add(40).saturating_add(pixel_size);
-    let mut out = Vec::with_capacity(file_size as usize);
+    let row_stride = ((width as usize) * 3 + 3) / 4 * 4;
+    let pixel_size = row_stride.saturating_mul(height as usize);
+    let file_size = 14usize + 40 + pixel_size;
+    let mut out = Vec::with_capacity(file_size);
 
     out.extend_from_slice(b"BM");
-    push_u32_le(&mut out, file_size);
+    push_u32_le(&mut out, file_size as u32);
     push_u16_le(&mut out, 0);
     push_u16_le(&mut out, 0);
     push_u32_le(&mut out, 14 + 40);
 
     push_u32_le(&mut out, 40);
     push_i32_le(&mut out, width as i32);
-    push_i32_le(&mut out, -(height as i32));
+    push_i32_le(&mut out, height as i32);
     push_u16_le(&mut out, 1);
-    push_u16_le(&mut out, 32);
+    push_u16_le(&mut out, 24);
     push_u32_le(&mut out, 0);
-    push_u32_le(&mut out, 0);
+    push_u32_le(&mut out, pixel_size as u32);
     push_i32_le(&mut out, 0);
     push_i32_le(&mut out, 0);
     push_u32_le(&mut out, 0);
     push_u32_le(&mut out, 0);
 
-    for px in img.rgba.chunks_exact(4) {
-        out.push(px[2]);
-        out.push(px[1]);
-        out.push(px[0]);
-        out.push(px[3]);
+    // Bottom-up: the last source row is stored first.
+    for y in (0..height as usize).rev() {
+        let row = y * width as usize * 4;
+        for x in 0..width as usize {
+            let px = &img.rgba[row + x * 4..row + x * 4 + 4];
+            out.push(px[2]);
+            out.push(px[1]);
+            out.push(px[0]);
+        }
+        for _ in width as usize * 3..row_stride {
+            out.push(0);
+        }
     }
     fs::write(path, out)?;
     mark_game_file_written(path);

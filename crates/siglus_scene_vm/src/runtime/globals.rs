@@ -1395,6 +1395,9 @@ pub struct GlobalMovieState {
     pub last_frame_idx: Option<usize>,
     pub audio_id: Option<u64>,
     pub audio_start_attempted: bool,
+    /// Consecutive polls that produced no video frame. Used to notice movies that can
+    /// never advance (unsupported video codec + no audio clock) instead of waiting forever.
+    pub polls_without_frame: u32,
 }
 
 impl Default for GlobalMovieState {
@@ -1415,6 +1418,7 @@ impl Default for GlobalMovieState {
             last_frame_idx: None,
             audio_id: None,
             audio_start_attempted: false,
+            polls_without_frame: 0,
         }
     }
 }
@@ -1442,6 +1446,7 @@ impl GlobalMovieState {
         self.last_frame_idx = None;
         self.audio_id = None;
         self.audio_start_attempted = false;
+        self.polls_without_frame = 0;
     }
 
     pub fn stop(&mut self) {
@@ -1453,6 +1458,7 @@ impl GlobalMovieState {
         self.last_frame_idx = None;
         self.audio_id = None;
         self.audio_start_attempted = false;
+        self.polls_without_frame = 0;
     }
 
     pub fn tick(&mut self, past_real_time: i32) {

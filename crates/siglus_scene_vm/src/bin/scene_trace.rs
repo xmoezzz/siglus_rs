@@ -9,6 +9,7 @@ use siglus_scene_vm::scene_stream::SceneStream;
 use siglus_scene_vm::vm::SceneVm;
 
 fn main() -> Result<()> {
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let mut args = std::env::args().skip(1);
 
     let mut project_dir: Option<PathBuf> = None;
@@ -79,6 +80,12 @@ Other controls:
     if chunk.is_empty() {
         return Err(anyhow!("scene chunk is empty: {}", scn_no));
     }
+    let mut head = String::new();
+    use std::fmt::Write;
+    for &byte in &chunk[..chunk.len().min(64)] {
+        let _ = write!(head, "{byte:02x} ");
+    }
+    eprintln!("[scene_trace] scene={} name={:?} len={} head=[{}]", scn_no, scene_sel, chunk.len(), head);
 
     let mut stream = SceneStream::new(chunk)?;
     stream.jump_to_z_label(0)?;

@@ -1,6 +1,7 @@
 package com.chino.siglus;
 
 import android.os.Bundle;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.Choreographer;
 import android.view.MotionEvent;
@@ -12,6 +13,7 @@ import android.app.AlertDialog;
 import java.lang.ref.WeakReference;
 import java.util.concurrent.ConcurrentHashMap;
 
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -64,6 +66,12 @@ public final class SiglusGameActivity extends AppCompatActivity
     private boolean running = false;
     private long lastFrameNs = 0;
 
+    /** 0x1B is what the host maps to VmKey::Escape, the engine's own cancel/back key. */
+    private static final int KEY_ESCAPE = 0x1B;
+    /** Two back presses within this window actually leave the game. */
+    private static final long BACK_EXIT_WINDOW_MS = 2000L;
+    private long lastBackMs = 0L;
+
     private String gameRoot;
 
     @Override
@@ -91,6 +99,36 @@ public final class SiglusGameActivity extends AppCompatActivity
         surfaceView.setKeepScreenOn(true);
 
         applyImmersive();
+        installBackKeyHandling();
+    }
+
+    /**
+     * Android's back gesture must not kill the game outright (the Activity has no back handling of
+     * its own, so the platform default finished the Activity and tore the engine down).
+     *
+     * A single back press is forwarded to the engine as Escape, which is genuinely the game's own
+     * cancel key: the scripts use it to close menus, cancel a selection
+     * (`selbtn.cancel_enable` / `sel.cancel_enable`) and to skip. Pressing it twice within
+     * {@link #BACK_EXIT_WINDOW_MS} leaves the game, so the player is never trapped.
+     */
+    private void installBackKeyHandling() {
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                long now = SystemClock.uptimeMillis();
+                if (now - lastBackMs <= BACK_EXIT_WINDOW_MS) {
+                    setEnabled(false);
+                    getOnBackPressedDispatcher().onBackPressed();
+                    return;
+                }
+                lastBackMs = now;
+                if (handle != 0) {
+                    NativeSiglus.keyDown(handle, KEY_ESCAPE);
+                    NativeSiglus.keyUp(handle, KEY_ESCAPE);
+                }
+                Toast.makeText(SiglusGameActivity.this, "再按一次返回键退出游戏", Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     @Override
