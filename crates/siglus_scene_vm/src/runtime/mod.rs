@@ -1369,6 +1369,11 @@ impl CommandContext {
     pub fn new(project_dir: PathBuf) -> Self {
         let mut unknown = unknown::UnknownOpRecorder::default();
         let tables = tables::AssetTables::load(&project_dir, &mut unknown);
+        // All native entry points (including the desktop executable) must
+        // recover/cache the PSB key before script execution can create a model.
+        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+        let emote_key = crate::emote_key::preload_emote_key(&project_dir);
+        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
         let emote_key = crate::resource::load_project_emote_key(&project_dir)
             .ok()
             .flatten();

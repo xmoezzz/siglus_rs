@@ -219,12 +219,6 @@ fn load_scene_pck_decode_options(project_dir: &Path) -> Result<ScenePckDecodeOpt
 
 impl SiglusHost {
     pub async fn new_with_renderer(config: SiglusHostConfig, renderer: Renderer) -> Result<Self> {
-        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-        let preloaded_emote_key = crate::emote_key::preload_emote_key(&config.project_dir);
-        #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
-        let preloaded_emote_key = load_key_toml_config(&config.project_dir)?
-            .and_then(|cfg| cfg.emote_key);
-
         let initial_size = Self::resolve_initial_size(&config);
         let boot = Self::resolve_boot_config(&config);
         let mut flow = ProcFlow::default();
@@ -232,9 +226,6 @@ impl SiglusHost {
         flow.push(ProcType::StartWarning, 0);
         let renderer = Rc::new(RefCell::new(renderer));
         let mut vm = Self::init_vm(&config, &boot, initial_size)?;
-        if preloaded_emote_key.is_some() {
-            vm.ctx.emote_key = preloaded_emote_key;
-        }
         let capture_backend: FrameCaptureBackendRef = renderer.clone();
         vm.ctx.set_frame_capture_backend(Some(capture_backend));
         Ok(Self {

@@ -3134,7 +3134,7 @@ impl Default for RuntimeConstants {
             obj_create_movie_loop: elm_value::OBJECT_CREATE_MOVIE_LOOP,
             obj_create_movie_wait: elm_value::OBJECT_CREATE_MOVIE_WAIT,
             obj_create_movie_wait_key: elm_value::OBJECT_CREATE_MOVIE_WAIT_KEY,
-            obj_create_emote: 0,
+            obj_create_emote: elm_value::OBJECT_CREATE_EMOTE,
             obj_create_copy_from: elm_value::OBJECT_CREATE_COPY_FROM,
             obj_set_weather_param_type_a: elm_value::OBJECT_SET_WEATHER_PARAM_TYPE_A,
             obj_set_weather_param_type_b: elm_value::OBJECT_SET_WEATHER_PARAM_TYPE_B,

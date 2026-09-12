@@ -12,9 +12,10 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{anyhow, bail, Context, Result};
 use eluna::{
-    EmoteLoadOptions, EmoteModelSchema, EmotePlayerControl, EmoteRuntime, EmoteStaticScene,
-    EmoteTextureSource, PsbFile, TimelinePlayMode,
+    EmotePlayerControl, EmoteStaticScene, EmoteTextureSource, TimelinePlayMode,
 };
+
+mod player;
 
 #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
 static NEXT_RENDER_ID: AtomicU64 = AtomicU64::new(1);
@@ -132,7 +133,7 @@ impl EmoteRenderPacket {
 
 #[derive(Debug, Clone)]
 pub struct SiglusEmoteRuntime {
-    runtime: EmoteRuntime,
+    runtime: player::Player,
     decoded_textures: Arc<HashMap<u32, EmoteDecodedTexture>>,
     render_id: u64,
     version: u64,
@@ -141,29 +142,16 @@ pub struct SiglusEmoteRuntime {
 
 impl SiglusEmoteRuntime {
     pub fn from_psb_bytes(data: &[u8], key: Option<u32>) -> Result<Self> {
-        let mut options = EmoteLoadOptions::default();
-        // Original IEmoteDevice::CreatePlayer only creates/shows the player;
-        // Siglus explicitly starts timelines through OBJECT.EMOTE_PLAY_TIMELINE.
-        options.autoplay_timeline = false;
-        if let Some(key) = key {
-            options = options.with_emote_key(key);
-        }
+        Self::from_psb_sources(&[data], key)
+    }
 
-        let runtime = EmoteRuntime::from_bytes(data, options.clone())
+    pub fn from_psb_sources(sources: &[&[u8]], key: Option<u32>) -> Result<Self> {
+        let runtime = player::Player::from_sources(sources, key)
             .context("Eluna failed to create Emote runtime")?;
-
-        // The renderer needs the PSB's texture spec to reproduce the official
-        // byte ordering. The stable runtime facade exposes resource bytes and
-        // texture metadata but not schema.spec, so parse the normalized schema
-        // once at object creation. This is intentionally not repeated per frame.
-        let (_normalized, psb) = PsbFile::parse_normalized(data, &options.normalize)
-            .context("Eluna failed to normalize Emote PSB for texture metadata")?;
-        let schema = EmoteModelSchema::from_psb(&psb)
-            .context("Eluna failed to decode Emote texture schema")?;
-        let spec = schema.spec.as_deref();
+        let spec = runtime.schema().spec.as_deref();
 
         let mut decoded = HashMap::new();
-        for source in runtime.texture_sources().values() {
+        for source in runtime.schema().textures.values() {
             let bytes = runtime
                 .texture_bytes(source.resource_index)
                 .ok_or_else(|| anyhow!("missing Emote texture resource {}", source.resource_index))?;
@@ -208,8 +196,8 @@ impl SiglusEmoteRuntime {
     }
 
     pub fn set_face_talk(&mut self, value: f32) -> Result<()> {
-        self.runtime
-            .set_variable_immediate("face_talk", value)
+        self.runtime.inner.set_variable_immediate("face_talk", value);
+        self.runtime.rebuild_scene(0.0)
             .context("Eluna SetVariable(face_talk) failed")?;
         self.bump_version();
         Ok(())
@@ -226,38 +214,36 @@ impl SiglusEmoteRuntime {
     /// Mirrors the no-argument IEmotePlayer::StopTimeline overload used by
     /// Siglus: Eluna represents it as an empty timeline name.
     pub fn stop_all_timelines(&mut self) -> Result<()> {
-        self.runtime
-            .stop_timeline("")
+        self.runtime.inner.stop_timeline("");
+        self.runtime.rebuild_scene(0.0)
             .context("Eluna StopTimeline() failed")?;
         self.bump_version();
         Ok(())
     }
 
     pub fn stop_timeline(&mut self, name: &str) -> Result<()> {
-        self.runtime
-            .stop_timeline(name)
+        self.runtime.inner.stop_timeline(name);
+        self.runtime.rebuild_scene(0.0)
             .with_context(|| format!("Eluna StopTimeline({name:?}) failed"))?;
         self.bump_version();
         Ok(())
     }
 
     pub fn is_animating(&self) -> bool {
-        self.runtime.is_animating()
+        self.runtime.inner.is_animating()
     }
 
     pub fn pass(&mut self) -> Result<()> {
-        self.runtime.pass().context("Eluna Pass failed")?;
+        self.runtime.inner.pass();
+        self.runtime.rebuild_scene(0.0).context("Eluna Pass failed")?;
         self.bump_version();
         Ok(())
     }
 
     pub fn skip(&mut self) -> Result<()> {
-        // EmoteRuntime 0.1.0 does not expose a facade skip method, but its
-        // stable public inner-player escape hatch and EmotePlayerControl trait
-        // do. This is the real Eluna player operation, not a Siglus reimplementation.
-        self.runtime.inner_player_mut().skip();
+        self.runtime.inner.skip();
         self.runtime
-            .rebuild_scene()
+            .rebuild_scene(0.0)
             .context("Eluna scene rebuild after Skip failed")?;
         self.bump_version();
         Ok(())

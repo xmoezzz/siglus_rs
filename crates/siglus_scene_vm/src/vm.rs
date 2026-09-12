@@ -12767,6 +12767,41 @@ mod command_dispatch_tests {
     }
 
     #[test]
+    fn create_emote_dispatches_with_position_overload_and_reinitializes_on_empty_file() {
+        use crate::runtime::forms::codes;
+        let mut vm = test_vm();
+        let object = vec![
+            codes::ELM_GLOBAL_FRONT, codes::ELM_STAGE_OBJECT, ELM_ARRAY, 0,
+            codes::ELM_OBJECT_CREATE_EMOTE,
+        ];
+        let mut args = vec![
+            Value::Int(640), Value::Int(720), Value::Str("missing_emote_fixture".into()),
+            Value::Int(1), Value::Int(320), Value::Int(80),
+            Value::NamedArg { id: 0, value: Box::new(Value::Int(12)) },
+            Value::NamedArg { id: 1, value: Box::new(Value::Int(-8)) },
+        ];
+        // Exercise the real VM route with the default command table. A missing
+        // PSB may fail to create a player, but the void command must not panic.
+        vm.exec_command(object.clone(), 2, vm.cfg.fm_void, &mut args).unwrap();
+        let stage = &vm.ctx.globals.stage_forms[&vm.ctx.ids.form_global_stage];
+        let obj = &stage.object_lists[&1][0];
+        assert_eq!(obj.object_type, 12);
+        assert_eq!(obj.file_name.as_deref(), Some("missing_emote_fixture"));
+        assert_eq!((obj.emote.width, obj.emote.height), (640, 720));
+        assert_eq!((obj.emote.rep_x, obj.emote.rep_y), (12, -8));
+        assert_eq!(obj.get_int_prop(&vm.ctx.ids, vm.ctx.ids.obj_disp), 1);
+        assert_eq!(obj.get_int_prop(&vm.ctx.ids, vm.ctx.ids.obj_x), 320);
+        assert_eq!(obj.get_int_prop(&vm.ctx.ids, vm.ctx.ids.obj_y), 80);
+        assert!(vm.ctx.stack.is_empty() && vm.int_stack.is_empty());
+
+        vm.exec_command(object, 0, vm.cfg.fm_void, &mut vec![
+            Value::Int(640), Value::Int(720), Value::Str(String::new()),
+        ]).unwrap();
+        let stage = &vm.ctx.globals.stage_forms[&vm.ctx.ids.form_global_stage];
+        assert_eq!(stage.object_lists[&1][0].object_type, 0);
+    }
+
+    #[test]
     fn current_local_save_layout_still_restores_font_and_stacks() {
         let mut source = test_vm();
         source.current_scene_name = Some("saved_scene".to_owned());
