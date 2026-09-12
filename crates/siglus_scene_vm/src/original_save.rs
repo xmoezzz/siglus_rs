@@ -980,18 +980,13 @@ pub fn write_global_save_file(project_dir: &Path, global_stream: &[u8]) -> Resul
     Ok(())
 }
 
-pub fn read_global_save_file(project_dir: &Path) -> Result<Vec<u8>> {
+pub fn read_global_save_file(project_dir: &Path) -> Result<(OriginalGlobalSaveHeader, Vec<u8>)> {
     let path = save_dir(project_dir).join("global.sav");
     let data = crate::resource::read_file_bytes(&path).with_context(|| format!("read global save file {}", path.display()))?;
     if data.len() < GLOBAL_SAVE_HEADER_SIZE {
         bail!("global save file too short: {}", path.display());
     }
     let header = OriginalGlobalSaveHeader::from_bytes(&data[..GLOBAL_SAVE_HEADER_SIZE])?;
-    // Hatsuyuki Sakura's 1.2 saves use the same packed global stream as 2.0:
-    // play time, fixed flag/name arrays, CG/BGM flags, and named voice flags.
-    if !matches!((header.major_version, header.minor_version), (1, 2) | (2, 0)) {
-        bail!("unsupported global save version {}.{}", header.major_version, header.minor_version);
-    }
     let size = header.global_data_size.max(0) as usize;
     let end = GLOBAL_SAVE_HEADER_SIZE
         .checked_add(size)
@@ -999,7 +994,8 @@ pub fn read_global_save_file(project_dir: &Path) -> Result<Vec<u8>> {
     if end > data.len() {
         bail!("global save payload truncated: need {}, have {}", end, data.len());
     }
-    unpack_buffer(&data[GLOBAL_SAVE_HEADER_SIZE..end])
+    let payload = unpack_buffer(&data[GLOBAL_SAVE_HEADER_SIZE..end])?;
+    Ok((header, payload))
 }
 
 

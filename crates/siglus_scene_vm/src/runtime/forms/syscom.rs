@@ -1,5 +1,7 @@
 use anyhow::Result;
 
+mod save_versions;
+
 use crate::runtime::globals::{
     SaveSlotState, SyscomFallbackDialogKind, SyscomFallbackDialogState, SyscomPendingProc,
     SyscomPendingProcKind, SystemMessageBoxButton, ToggleFeatureState, ValueFeatureState,
@@ -1555,134 +1557,7 @@ fn load_config_save(ctx: &mut CommandContext) -> Result<()> {
         return Ok(());
     }
     let (header, payload) = original_save::read_config_save_file(&ctx.project_dir)?;
-    let mut rd = original_save::OriginalStreamReader::new(&payload);
-    let result: anyhow::Result<()> = (|| {
-        cfg.screen_size_mode = rd.i32()? as i64;
-        let v12_uses_v13_screen_layout = header.minor_version == 2
-            && gameexe_unquoted_owned(ctx, "GAMEID") == "planetarian [HD Edition]";
-        if header.minor_version >= 3 || v12_uses_v13_screen_layout {
-            cfg.screen_size_mode_window = rd.i32()? as i64;
-            cfg.screen_size_scale = (rd.i32()? as i64, rd.i32()? as i64);
-            cfg.screen_size_free = (rd.i32()? as i64, rd.i32()? as i64);
-        } else {
-            cfg.screen_size_scale = (rd.i32()? as i64, rd.i32()? as i64);
-        }
-        cfg.fullscreen_change_resolution = rd.bool()?;
-        cfg.fullscreen_display_cnt = rd.i32()? as i64;
-        cfg.fullscreen_display_no = rd.i32()? as i64;
-        cfg.fullscreen_resolution_cnt = rd.i32()? as i64;
-        cfg.fullscreen_resolution_no = rd.i32()? as i64;
-        cfg.fullscreen_resolution = (rd.i32()? as i64, rd.i32()? as i64);
-        cfg.fullscreen_mode = rd.i32()? as i64;
-        cfg.fullscreen_scale = (rd.i32()? as i64, rd.i32()? as i64);
-        cfg.fullscreen_scale_sync_switch = rd.bool()?;
-        cfg.fullscreen_move = (rd.i32()? as i64, rd.i32()? as i64);
-        cfg.all_sound_user_volume = rd.i32()? as i64;
-        // Version 1.0 stores BGM/voice/PCM/SE/movie only. Later versions
-        // reserve 32 audio categories; retain defaults for the missing ones.
-        let sound_count = if header.minor_version == 0 { 5 } else { 32 };
-        for value in cfg.sound_user_volume.iter_mut().take(sound_count) {
-            *value = rd.i32()? as i64;
-        }
-        cfg.play_all_sound_check = rd.bool()?;
-        for value in cfg.play_sound_check.iter_mut().take(sound_count) {
-            *value = rd.bool()?;
-        }
-        cfg.bgmfade_volume = rd.i32()? as i64;
-        cfg.bgmfade_use_check = rd.bool()?;
-        cfg.filter_color_argb = u32::from_le_bytes(rd.take_raw(4)?.try_into().unwrap());
-        cfg.font_proportional = rd.bool()?;
-        cfg.font_name = rd.string()?;
-        cfg.font_shadow = rd.i32()? as i64;
-        cfg.font_futoku = rd.bool()?;
-        cfg.message_speed = rd.i32()? as i64;
-        cfg.message_speed_nowait = rd.bool()?;
-        cfg.auto_mode_onoff = rd.bool()?;
-        cfg.auto_mode_moji_wait = rd.i32()? as i64;
-        cfg.auto_mode_min_wait = rd.i32()? as i64;
-        // Versions 1.0/1.1 go directly from auto-mode waits to jitan settings.
-        // Cursor auto-hide was added in 1.2; retain defaults for older saves.
-        if header.minor_version >= 2 {
-            cfg.mouse_cursor_hide_onoff = rd.bool()?;
-            cfg.mouse_cursor_hide_time = rd.i32()? as i64;
-        }
-        cfg.jitan_normal_onoff = rd.bool()?;
-        cfg.jitan_auto_mode_onoff = rd.bool()?;
-        cfg.jitan_msgbk_onoff = rd.bool()?;
-        cfg.jitan_speed = rd.i32()? as i64;
-        cfg.koe_mode = rd.i32()? as i64;
-        let chrkoe_count_raw = rd.i32()?;
-        anyhow::ensure!(
-            (0..=256).contains(&chrkoe_count_raw),
-            "invalid config.sav CHRKOE count: {chrkoe_count_raw}"
-        );
-        let chrkoe_count = chrkoe_count_raw as usize;
-        cfg.chrkoe.clear();
-        cfg.chrkoe.reserve(chrkoe_count);
-        for _ in 0..chrkoe_count {
-            let onoff = rd.bool()?;
-            rd.skip(3)?;
-            let volume = rd.i32()? as i64;
-            cfg.chrkoe.push(crate::runtime::globals::ConfigChrKoeState {
-                onoff,
-                volume: volume.clamp(0, 255),
-            });
-        }
-        cfg.message_chrcolor_flag = rd.bool()?;
-        let object_count_raw = rd.i32()?;
-        anyhow::ensure!(
-            object_count_raw == 4,
-            "invalid config.sav OBJECT_DISP count: {object_count_raw}"
-        );
-        let object_count = object_count_raw as usize;
-        cfg.object_disp_flag.clear();
-        for _ in 0..object_count {
-            cfg.object_disp_flag.push(rd.bool()?);
-        }
-        let switch_count_raw = rd.i32()?;
-        anyhow::ensure!(
-            switch_count_raw == 4,
-            "invalid config.sav GLOBAL_EXTRA_SWITCH count: {switch_count_raw}"
-        );
-        let switch_count = switch_count_raw as usize;
-        cfg.global_extra_switch_flag.clear();
-        for _ in 0..switch_count {
-            cfg.global_extra_switch_flag.push(rd.bool()?);
-        }
-        let mode_count_raw = rd.i32()?;
-        anyhow::ensure!(
-            mode_count_raw == 4,
-            "invalid config.sav GLOBAL_EXTRA_MODE count: {mode_count_raw}"
-        );
-        let mode_count = mode_count_raw as usize;
-        cfg.global_extra_mode_flag.clear();
-        for _ in 0..mode_count {
-            cfg.global_extra_mode_flag.push(rd.i32()? as i64);
-        }
-        cfg.sleep_flag = rd.bool()?;
-        cfg.no_wipe_anime_flag = rd.bool()?;
-        cfg.skip_wipe_anime_flag = rd.bool()?;
-        cfg.no_mwnd_anime_flag = rd.bool()?;
-        cfg.wheel_next_message_flag = rd.bool()?;
-        cfg.koe_dont_stop_flag = rd.bool()?;
-        cfg.skip_unread_message_flag = rd.bool()?;
-        if header.minor_version == 0 {
-            // The original 1.0 loader reads an obsolete bool/i32 pair here,
-            // before the two save/load toggles (Hatsuyuki Sakura).
-            rd.bool()?;
-            rd.i32()?;
-        }
-        cfg.saveload_alert_flag = rd.bool()?;
-        cfg.saveload_dblclick_flag = rd.bool()?;
-        cfg.ss_path = rd.string()?;
-        cfg.editor_path = rd.string()?;
-        if header.minor_version >= 1 {
-            cfg.koe_path = rd.string()?;
-            cfg.koe_tool_path = rd.string()?;
-        }
-        Ok(())
-    })();
-    result?;
+    save_versions::read_config(header, &payload, &mut cfg, &gameexe_unquoted_owned(ctx, "GAMEID"))?;
     resize_original_config_arrays(ctx, &mut cfg);
     ctx.globals.syscom.original_config = cfg;
     apply_original_config_to_runtime(ctx);
@@ -1870,7 +1745,7 @@ pub fn write_global_save(ctx: &CommandContext) {
 pub fn load_global_save(ctx: &mut CommandContext) -> Result<()> {
     let global_path = original_save::save_dir(&ctx.project_dir).join("global.sav");
     if crate::resource::resolve_windows_case_insensitive_file(&global_path)?.is_some() {
-        let payload = original_save::read_global_save_file(&ctx.project_dir)?;
+        let (header, payload) = original_save::read_global_save_file(&ctx.project_dir)?;
         let fixed_flag_cnt = ctx
             .tables
             .gameexe
@@ -1880,48 +1755,15 @@ pub fn load_global_save(ctx: &mut CommandContext) -> Result<()> {
                     .or_else(|| cfg.get_usize("GLOBAL_FLAG.CNT"))
             })
             .map(|count| count.min(10000));
-        let mut rd = original_save::OriginalStreamReader::new(&payload);
-        let total_play_time = rd.i64()?;
-        let mut g = rd.fixed_i32_list()?;
-        if let Some(fixed_flag_cnt) = fixed_flag_cnt {
-            g.resize(fixed_flag_cnt, 0);
-            g.truncate(fixed_flag_cnt);
+        let save_versions::GlobalSaveData {
+            total_play_time, mut g, mut z, mut m, mut namae_global, cg, bgm, chrkoe_look_flags,
+        } = save_versions::read_global(header, &payload)?;
+        if let Some(count) = fixed_flag_cnt {
+            g.resize(count, 0);
+            z.resize(count, 0);
+            m.resize_with(count, String::new);
         }
-        let mut z = rd.fixed_i32_list()?;
-        if let Some(fixed_flag_cnt) = fixed_flag_cnt {
-            z.resize(fixed_flag_cnt, 0);
-            z.truncate(fixed_flag_cnt);
-        }
-        let mut m = rd.fixed_str_list()?;
-        if let Some(fixed_flag_cnt) = fixed_flag_cnt {
-            m.resize_with(fixed_flag_cnt, String::new);
-            m.truncate(fixed_flag_cnt);
-        }
-        let mut namae_global = rd.fixed_str_list()?;
         namae_global.resize_with(26 + 26 * 26, String::new);
-        namae_global.truncate(26 + 26 * 26);
-        let _dummy_check_id = rd.i32()?;
-        // An uninitialized native CG table saves an extendable empty list:
-        // one zero count, without a fixed-array jump. A fixed-array jump at
-        // this stream position cannot be zero. Also accept fixed empty lists
-        // written by earlier Rust builds.
-        let cg = if rd.remaining().starts_with(&0i32.to_le_bytes()) {
-            rd.extend_i32_list()?
-        } else {
-            rd.fixed_i32_list()?
-        };
-        let bgm = rd.fixed_i32_list()?;
-        let chrkoe_cnt = rd.i32()?;
-        anyhow::ensure!((0..=256).contains(&chrkoe_cnt), "invalid global.sav CHRKOE count: {chrkoe_cnt}");
-        let mut chrkoe_look_flags = std::collections::HashMap::new();
-        for _ in 0..chrkoe_cnt {
-            let name = rd.string()?;
-            // C_tnm_chrkoe::look_flag is bool, and C_tnm_save_stream::load<T>
-            // pops sizeof(T) bytes. Reading an i32 here consumes three bytes
-            // from the following field and corrupts the remainder of global.sav.
-            let look_flag = rd.bool()?;
-            chrkoe_look_flags.insert(name, look_flag);
-        }
         ctx.globals.syscom.chrkoe_look_flags = chrkoe_look_flags;
 
         ctx.globals.syscom.total_play_time = total_play_time;
@@ -6345,16 +6187,16 @@ mod global_save_init_tests {
 
     #[test]
     fn config_save_versions_preserve_settings_after_optional_fields() {
-        for minor_version in [0, 1, 2, 3] {
+        for (minor_version, planetarian) in [(0, false), (1, false), (2, false), (2, true), (3, false)] {
             let project_dir = test_project_dir();
             let mut stream = original_save::OriginalStreamWriter::new();
             stream.push_i32(0); // screen mode
-            if minor_version >= 3 {
+            if minor_version >= 3 || planetarian {
                 stream.push_i32(1); // window mode
             }
             stream.push_i32(80);
             stream.push_i32(90);
-            if minor_version >= 3 {
+            if minor_version >= 3 || planetarian {
                 stream.push_i32(1280);
                 stream.push_i32(720);
             }
@@ -6425,7 +6267,8 @@ mod global_save_init_tests {
                 stream.push_str("voices");
                 stream.push_str("voice-tool");
             }
-            let packed = original_save::pack_buffer(&stream.into_inner());
+            let payload = stream.into_inner();
+            let packed = original_save::pack_buffer(&payload);
             let mut data = original_save::OriginalConfigSaveHeader {
                 major_version: 1,
                 minor_version,
@@ -6435,11 +6278,20 @@ mod global_save_init_tests {
             fs::create_dir_all(project_dir.join("savedata")).unwrap();
             fs::write(project_dir.join("savedata/config.sav"), data).unwrap();
             let mut ctx = CommandContext::new(project_dir.clone());
+            if planetarian {
+                ctx.tables.gameexe = Some(crate::formats::gameexe::GameexeConfig::from_text(
+                    "#GAMEID=\"planetarian [HD Edition]\"\n",
+                ));
+            }
             let defaults = original_config_defaults(&ctx);
 
             load_config_save(&mut ctx).unwrap();
             let cfg = &ctx.globals.syscom.original_config;
             assert_eq!(cfg.screen_size_scale, (80, 90));
+            if minor_version >= 3 || planetarian {
+                assert_eq!(cfg.screen_size_mode_window, 1);
+                assert_eq!(cfg.screen_size_free, (1280, 720));
+            }
             assert_eq!(cfg.all_sound_user_volume, 180);
             assert_eq!(&cfg.sound_user_volume[..5], &[200; 5]);
             if minor_version == 0 {
@@ -6467,6 +6319,17 @@ mod global_save_init_tests {
                 if minor_version == 0 { defaults.koe_path.as_str() } else { "voices" });
             assert_eq!(cfg.koe_tool_path,
                 if minor_version == 0 { defaults.koe_tool_path.as_str() } else { "voice-tool" });
+            let header = original_save::OriginalConfigSaveHeader {
+                major_version: 1, minor_version, config_data_size: 0,
+            };
+            let game_id = gameexe_unquoted_owned(&ctx, "GAMEID");
+            assert!(save_versions::read_config(header, &payload[..payload.len() - 1], &mut defaults.clone(), &game_id).is_err());
+            let mut trailing = payload.clone();
+            trailing.push(0);
+            assert!(save_versions::read_config(header, &trailing, &mut defaults.clone(), &game_id).is_err());
+            let unknown = original_save::OriginalConfigSaveHeader { minor_version: 99, ..header };
+            assert!(save_versions::read_config(unknown, &payload, &mut defaults.clone(), &game_id)
+                .unwrap_err().to_string().contains("unsupported config save version"));
             fs::remove_dir_all(project_dir).unwrap();
         }
     }
@@ -6583,7 +6446,7 @@ mod global_save_init_tests {
         ));
         ctx.globals.bgm_table_flags = vec![true, false, true];
         write_global_save(&ctx);
-        let payload = original_save::read_global_save_file(&project_dir).unwrap();
+        let (_, payload) = original_save::read_global_save_file(&project_dir).unwrap();
         let mut rd = original_save::OriginalStreamReader::new(&payload);
         rd.i64().unwrap();
         rd.fixed_i32_list().unwrap();
@@ -6598,12 +6461,14 @@ mod global_save_init_tests {
 
     #[test]
     fn original_global_save_uses_one_byte_character_voice_flags() {
-        for (major, minor) in [(1, 2), (2, 0)] {
-            check_original_global_save(major, minor);
+        for (major, minor) in [(1, 2), (1, 5), (2, 0)] {
+            for empty_cg in [false, true] {
+                check_original_global_save(major, minor, empty_cg);
+            }
         }
     }
 
-    fn check_original_global_save(major_version: i32, minor_version: i32) {
+    fn check_original_global_save(major_version: i32, minor_version: i32, empty_cg: bool) {
         let project_dir = test_project_dir();
         fs::create_dir_all(&project_dir).expect("test project dir");
 
@@ -6614,14 +6479,19 @@ mod global_save_init_tests {
         stream.push_fixed_str_list(&["global".to_string()], 1);
         stream.push_fixed_str_list(&["名前".to_string()], 702);
         stream.push_i32(1359557559);
-        stream.push_fixed_i32_list(&[1, 0, 1], 1000);
+        if empty_cg {
+            stream.push_extend_i32_list(&[]);
+        } else {
+            stream.push_fixed_i32_list(&[1, 0, 1], 1000);
+        }
         stream.push_fixed_i32_list(&[0, 1], 52);
         stream.push_i32(2);
         stream.push_str("桜");
         stream.push_bool(true);
         stream.push_str("second");
         stream.push_bool(false);
-        let packed = original_save::pack_buffer(&stream.into_inner());
+        let payload = stream.into_inner();
+        let packed = original_save::pack_buffer(&payload);
         let mut data = original_save::OriginalGlobalSaveHeader {
             major_version,
             minor_version,
@@ -6639,10 +6509,22 @@ mod global_save_init_tests {
         assert_eq!(ctx.globals.int_lists[&(codes::ELM_GLOBAL_Z as u32)][0], 7);
         assert_eq!(ctx.globals.str_lists[&(codes::ELM_GLOBAL_M as u32)][0], "global");
         assert_eq!(ctx.globals.str_lists[&(codes::ELM_GLOBAL_NAMAE_GLOBAL as u32)][0], "名前");
-        assert_eq!(&ctx.tables.cg_flags[..3], &[1, 0, 1]);
+        if empty_cg {
+            assert!(ctx.tables.cg_flags.is_empty());
+        } else {
+            assert_eq!(&ctx.tables.cg_flags[..3], &[1, 0, 1]);
+        }
         assert_eq!(&ctx.globals.bgm_table_flags[..2], &[false, true]);
         assert_eq!(ctx.globals.syscom.chrkoe_look_flags.get("桜"), Some(&true));
         assert_eq!(ctx.globals.syscom.chrkoe_look_flags.get("second"), Some(&false));
+
+        let header = original_save::OriginalGlobalSaveHeader {
+            major_version, minor_version, global_data_size: 0,
+        };
+        assert!(save_versions::read_global(header, &payload[..payload.len() - 1]).is_err());
+        let mut trailing = payload;
+        trailing.push(0);
+        assert!(save_versions::read_global(header, &trailing).is_err());
 
         fs::write(&path, &data[..data.len() - 1]).unwrap();
         assert!(load_global_save(&mut ctx).unwrap_err().to_string().contains("payload truncated"));
