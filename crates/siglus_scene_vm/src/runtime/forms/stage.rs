@@ -6631,6 +6631,12 @@ fn restore_object_backend_after_load(
         }
     }
 
+    if let Some(name) = obj.gan_file.as_deref() {
+        if let Err(err) = obj.gan.load_gan_only(&ctx.project_dir, &ctx.globals.append_dir, name) {
+            log::error!("[SG_SAVELOAD] failed to restore GAN {name:?}: {err:#}");
+        }
+    }
+
     for (child_index, child) in obj.runtime.child_objects.iter_mut().enumerate() {
         let child_slot = child
             .nested_runtime_slot
@@ -11160,9 +11166,9 @@ fn dispatch_object_state_op(
                         name,
                     ) {
                         if let Ok(id) = ctx.images.load_file(&path, pat) {
-                            if let Some(img) = ctx.images.get(&id) {
-                                sx = img.width as i64;
-                                sy = img.height as i64;
+                            if let Some((width, height)) = ctx.images.original_size(&id) {
+                                sx = width as i64;
+                                sy = height as i64;
                             }
                         }
                     }

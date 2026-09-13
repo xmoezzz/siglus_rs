@@ -688,7 +688,7 @@ impl WmaDecoder {
     }
 
     fn wma_decode_init(&mut self, flags2: i32) -> Result<()> {
-        // Initialize MDCT contexts (naive) like wma_decode_init.
+        // Initialize inverse MDCT plans for each WMA block size.
         let scale = 1.0f64 / 32768.0f64;
         self.mdct.clear();
         for i in 0..self.nb_block_sizes {
