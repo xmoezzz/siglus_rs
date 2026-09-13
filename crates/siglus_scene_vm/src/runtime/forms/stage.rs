@@ -11160,9 +11160,9 @@ fn dispatch_object_state_op(
                         name,
                     ) {
                         if let Ok(id) = ctx.images.load_file(&path, pat) {
-                            if let Some(img) = ctx.images.get(&id) {
-                                sx = img.width as i64;
-                                sy = img.height as i64;
+                            if let Some((width, height)) = ctx.images.original_size(&id) {
+                                sx = width as i64;
+                                sy = height as i64;
                             }
                         }
                     }
