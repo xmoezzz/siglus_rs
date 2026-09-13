@@ -90,7 +90,7 @@ impl ButtonRect {
 
 pub struct DesktopMessageBoxWindow {
     request: NativeMessageBoxRequest,
-    window: &'static Window,
+    window: Arc<Window>,
     window_id: WindowId,
     renderer: Renderer,
     egui_renderer: EguiRenderer,
@@ -119,8 +119,8 @@ impl DesktopMessageBoxWindow {
                     .with_resizable(false),
             )
             .context("create desktop messagebox window")?;
-        let window: &'static Window = Box::leak(Box::new(window));
-        let renderer = pollster::block_on(Renderer::new(window)).context("messagebox renderer init")?;
+        let window = Arc::new(window);
+        let renderer = pollster::block_on(Renderer::new(window.clone())).context("messagebox renderer init")?;
         let egui_renderer = EguiRenderer::new(&renderer.device, renderer.config.format, None, 1);
         let egui_ctx = egui::Context::default();
         configure_egui_default_font(&egui_ctx);
