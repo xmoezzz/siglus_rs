@@ -17,6 +17,7 @@ pub const SAVE_FLAG_MAX_CNT: usize = 256;
 
 const SAVE_FIXED_STRING_CNT: usize = 7;
 pub const SAVE_HEADER_SIZE: usize = 10 * 4 + SAVE_FIXED_STRING_CNT * 256 * 2 + SAVE_FLAG_MAX_CNT * 4 + 4;
+const LEGACY_SAVE_HEADER_SIZE: usize = SAVE_HEADER_SIZE - 3 * 256 * 2;
 pub const GLOBAL_SAVE_HEADER_SIZE: usize = 12;
 pub const CONFIG_SAVE_HEADER_SIZE: usize = 12;
 pub const READ_SAVE_HEADER_SIZE: usize = 16;
@@ -30,6 +31,7 @@ pub enum SaveKind {
 
 #[derive(Debug, Clone)]
 pub struct OriginalSaveHeader {
+    legacy_header: bool,
     pub major_version: i32,
     pub minor_version: i32,
     pub year: i32,
@@ -54,6 +56,7 @@ pub struct OriginalSaveHeader {
 impl Default for OriginalSaveHeader {
     fn default() -> Self {
         Self {
+            legacy_header: false,
             major_version: 1,
             minor_version: 0,
             year: 0,
@@ -84,6 +87,7 @@ impl OriginalSaveHeader {
             *dst = slot.values.get(&(idx as i32)).copied().unwrap_or(0) as i32;
         }
         Self {
+            legacy_header: false,
             major_version: 1,
             minor_version: 0,
             year: slot.year as i32,
@@ -135,8 +139,10 @@ impl OriginalSaveHeader {
     }
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() < SAVE_HEADER_SIZE {
-            bail!("save header too short: {} < {}", bytes.len(), SAVE_HEADER_SIZE);
+        let legacy_header = bytes.len() == LEGACY_SAVE_HEADER_SIZE;
+        let header_size = if legacy_header { LEGACY_SAVE_HEADER_SIZE } else { SAVE_HEADER_SIZE };
+        if bytes.len() < header_size {
+            bail!("save header too short: {} < {}", bytes.len(), header_size);
         }
         let mut rd = Reader::new(bytes);
         let major_version = rd.i32()?;
@@ -149,11 +155,11 @@ impl OriginalSaveHeader {
         let minute = rd.i32()?;
         let second = rd.i32()?;
         let millisecond = rd.i32()?;
-        let append_dir = rd.utf16_fixed(SAVE_APPEND_DIR_MAX_LEN)?;
-        let append_name = rd.utf16_fixed(SAVE_APPEND_NAME_MAX_LEN)?;
+        let append_dir = if legacy_header { String::new() } else { rd.utf16_fixed(SAVE_APPEND_DIR_MAX_LEN)? };
+        let append_name = if legacy_header { String::new() } else { rd.utf16_fixed(SAVE_APPEND_NAME_MAX_LEN)? };
         let title = rd.utf16_fixed(SAVE_TITLE_MAX_LEN)?;
         let message = rd.utf16_fixed(SAVE_MESSAGE_MAX_LEN)?;
-        let full_message = rd.utf16_fixed(SAVE_FULL_MESSAGE_MAX_LEN)?;
+        let full_message = if legacy_header { message.clone() } else { rd.utf16_fixed(SAVE_FULL_MESSAGE_MAX_LEN)? };
         let comment = rd.utf16_fixed(SAVE_COMMENT_MAX_LEN)?;
         let comment2 = rd.utf16_fixed(SAVE_COMMENT2_MAX_LEN)?;
         let mut flag = [0i32; SAVE_FLAG_MAX_CNT];
@@ -162,6 +168,7 @@ impl OriginalSaveHeader {
         }
         let data_size = rd.i32()?;
         Ok(Self {
+            legacy_header,
             major_version,
             minor_version,
             year,
@@ -185,7 +192,7 @@ impl OriginalSaveHeader {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut out = Vec::with_capacity(SAVE_HEADER_SIZE);
+        let mut out = Vec::with_capacity(self.header_size());
         push_i32(&mut out, self.major_version);
         push_i32(&mut out, self.minor_version);
         push_i32(&mut out, self.year);
@@ -196,19 +203,42 @@ impl OriginalSaveHeader {
         push_i32(&mut out, self.minute);
         push_i32(&mut out, self.second);
         push_i32(&mut out, self.millisecond);
-        push_utf16_fixed(&mut out, &self.append_dir, SAVE_APPEND_DIR_MAX_LEN);
-        push_utf16_fixed(&mut out, &self.append_name, SAVE_APPEND_NAME_MAX_LEN);
+        if !self.legacy_header {
+            push_utf16_fixed(&mut out, &self.append_dir, SAVE_APPEND_DIR_MAX_LEN);
+            push_utf16_fixed(&mut out, &self.append_name, SAVE_APPEND_NAME_MAX_LEN);
+        }
         push_utf16_fixed(&mut out, &self.title, SAVE_TITLE_MAX_LEN);
         push_utf16_fixed(&mut out, &self.message, SAVE_MESSAGE_MAX_LEN);
-        push_utf16_fixed(&mut out, &self.full_message, SAVE_FULL_MESSAGE_MAX_LEN);
+        if !self.legacy_header {
+            push_utf16_fixed(&mut out, &self.full_message, SAVE_FULL_MESSAGE_MAX_LEN);
+        }
         push_utf16_fixed(&mut out, &self.comment, SAVE_COMMENT_MAX_LEN);
         push_utf16_fixed(&mut out, &self.comment2, SAVE_COMMENT2_MAX_LEN);
         for v in &self.flag {
             push_i32(&mut out, *v);
         }
         push_i32(&mut out, self.data_size);
-        debug_assert_eq!(out.len(), SAVE_HEADER_SIZE);
+        debug_assert_eq!(out.len(), self.header_size());
         out
+    }
+
+    fn header_size(&self) -> usize {
+        if self.legacy_header { LEGACY_SAVE_HEADER_SIZE } else { SAVE_HEADER_SIZE }
+    }
+
+    fn from_file_prefix(bytes: &[u8], file_len: usize) -> Result<Self> {
+        // Both generations use version 1.0. The packed payload length identifies
+        // the header boundary without interpreting compressed bytes as text.
+        for size in [SAVE_HEADER_SIZE, LEGACY_SAVE_HEADER_SIZE] {
+            if bytes.len() >= size {
+                let payload = i32::from_le_bytes(bytes[size - 4..size].try_into().unwrap());
+                if payload >= 0 && size.checked_add(payload as usize) == Some(file_len) {
+                    return Self::from_bytes(&bytes[..size]);
+                }
+            }
+        }
+        // Preserve the usual truncation diagnostic for damaged current saves.
+        Self::from_bytes(&bytes[..bytes.len().min(SAVE_HEADER_SIZE)])
     }
 }
 
@@ -314,7 +344,7 @@ impl OriginalLocalSaveEnvelope {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         let mut rd = Reader::new(bytes);
-        read_envelope(&mut rd, true)
+        read_envelope(&mut rd, true, false)
     }
 }
 
@@ -355,16 +385,16 @@ fn write_envelope(out: &mut Vec<u8>, env: &OriginalLocalSaveEnvelope, include_se
     }
 }
 
-fn read_envelope(rd: &mut Reader<'_>, include_sel_saves: bool) -> Result<OriginalLocalSaveEnvelope> {
+fn read_envelope(rd: &mut Reader<'_>, include_sel_saves: bool, legacy: bool) -> Result<OriginalLocalSaveEnvelope> {
     let mut save_id = [0u16; 7];
     for dst in &mut save_id {
         *dst = rd.u16()?;
     }
-    let append_dir = rd.str_len()?;
-    let append_name = rd.str_len()?;
-    let title = rd.str_len()?;
-    let message = rd.str_len()?;
-    let full_message = rd.str_len()?;
+    let (append_dir, append_name, title, message, full_message) = if legacy {
+        Default::default()
+    } else {
+        (rd.str_len()?, rd.str_len()?, rd.str_len()?, rd.str_len()?, rd.str_len()?)
+    };
     let local_size = rd.i32()?.max(0) as usize;
     let local_stream = rd.take(local_size)?.to_vec();
     let local_ex_size = rd.i32()?.max(0) as usize;
@@ -373,7 +403,7 @@ fn read_envelope(rd: &mut Reader<'_>, include_sel_saves: bool) -> Result<Origina
     if include_sel_saves {
         let sel_save_cnt = rd.i32()?.max(0) as usize;
         for _ in 0..sel_save_cnt {
-            sel_saves.push(read_envelope(rd, false)?);
+            sel_saves.push(read_envelope(rd, false, legacy)?);
         }
     }
     Ok(OriginalLocalSaveEnvelope {
@@ -544,13 +574,20 @@ impl OriginalStreamWriter {
     }
 }
 
+#[derive(Clone)]
 pub struct OriginalStreamReader<'a> {
     rd: Reader<'a>,
+    // Native pre-font saves: no local font fields,
+    // full GAN work records, and no backlog save_id_check_flag.
+    pub(crate) legacy_local_layout: bool,
+    // Earlier native saves additionally use the 332-byte local POD and
+    // the record readers in vm/early_save.rs.
+    pub(crate) early_local_layout: bool,
 }
 
 impl<'a> OriginalStreamReader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Self { rd: Reader::new(data) }
+        Self { rd: Reader::new(data), legacy_local_layout: false, early_local_layout: false }
     }
 
     pub fn i32(&mut self) -> Result<i32> {
@@ -620,6 +657,66 @@ impl<'a> OriginalStreamReader<'a> {
 
     pub fn remaining(&self) -> &'a [u8] {
         &self.rd.data[self.rd.pos..]
+    }
+
+    /// Called immediately after the window-button disable bytes. Save headers
+    /// do not distinguish these layouts. Validate the stack and absolute flag
+    /// array boundaries: a voice number can also look like a string length.
+    pub(crate) fn detect_local_layout(&mut self) -> Result<()> {
+        if self.early_local_layout { return Ok(()); }
+        for legacy in [false, true] {
+            if self.check_local_layout(legacy, if legacy { 344 } else { 356 }).is_ok() {
+                self.legacy_local_layout = legacy;
+                return Ok(());
+            }
+        }
+        bail!("unsupported or corrupt local save layout at byte {}", self.rd.pos)
+    }
+
+    /// Probe before the optional full-message string and window buttons.
+    /// Early saves omit that string as well as the later font fields.
+    pub(crate) fn detect_early_local_layout(&mut self, button_count: usize) {
+        let mut probe = self.clone();
+        if probe.skip(button_count).is_ok() && probe.check_local_layout(true, 332).is_ok() {
+            self.early_local_layout = true;
+            self.legacy_local_layout = true;
+        }
+    }
+
+    fn check_local_layout(&self, legacy: bool, pod_size: usize) -> Result<()> {
+        let mut probe = self.clone();
+        if !legacy {
+            probe.string()?;
+        }
+        probe.skip(pod_size)?;
+        // Integer stack, string stack, and element-point stack. Bound counts
+        // before iterating; this probe must not allocate from untrusted counts.
+        for string_stack in [false, true, false] {
+            let count = probe.i32()?;
+            if count < 0 || count as usize > probe.remaining().len() / 4 {
+                bail!("invalid local stack count {count}");
+            }
+            if string_stack {
+                for _ in 0..count { probe.string()?; }
+            } else {
+                probe.skip(count as usize * 4)?;
+            }
+        }
+        probe.skip(12 + 76)?; // Local clocks and system menu POD.
+        probe.string()?; // Fog texture name.
+        probe.skip(44 + 8)?; // Fog event and near/far planes.
+        for _ in 0..7 {
+            let jump = probe.i32()?;
+            let count = probe.i32()?;
+            if count < 0 || count as usize > probe.remaining().len() / 4 {
+                bail!("invalid local flag count {count}");
+            }
+            probe.skip(count as usize * 4)?;
+            if jump < 0 || jump as usize != probe.rd.pos {
+                bail!("invalid local flag boundary {jump}");
+            }
+        }
+        Ok(())
     }
 
     pub fn string(&mut self) -> Result<String> {
@@ -759,10 +856,11 @@ pub fn read_header_from_path(path: &Path) -> Result<OriginalSaveHeader> {
     {
         let mut file = crate::resource::open_game_file(path)
             .with_context(|| format!("open save header {}", path.display()))?;
-        let mut data = vec![0u8; SAVE_HEADER_SIZE];
+        let file_len = file.metadata()?.len() as usize;
+        let mut data = vec![0u8; file_len.min(SAVE_HEADER_SIZE)];
         file.read_exact(&mut data)
             .with_context(|| format!("read save header {}", path.display()))?;
-        return OriginalSaveHeader::from_bytes(&data);
+        return OriginalSaveHeader::from_file_prefix(&data, file_len);
     }
 
     // The browser VFS currently exposes whole-file reads only. Preserve that
@@ -771,7 +869,7 @@ pub fn read_header_from_path(path: &Path) -> Result<OriginalSaveHeader> {
     {
         let data = crate::resource::read_file_bytes(path)
             .with_context(|| format!("read save header {}", path.display()))?;
-        OriginalSaveHeader::from_bytes(&data[..data.len().min(SAVE_HEADER_SIZE)])
+        OriginalSaveHeader::from_file_prefix(&data[..data.len().min(SAVE_HEADER_SIZE)], data.len())
     }
 }
 
@@ -789,6 +887,12 @@ pub fn read_slot_from_path(path: &Path) -> Option<SaveSlotState> {
 }
 
 pub fn write_header_in_place(path: &Path, header: &OriginalSaveHeader) -> Result<()> {
+    // Callers rebuild metadata from SaveSlotState, which does not carry the
+    // on-disk layout. Retain the existing boundary and payload length.
+    let existing = read_header_from_path(path)?;
+    let mut header = header.clone();
+    header.legacy_header = existing.legacy_header;
+    header.data_size = existing.data_size;
     // C_tnm_save_cache::save_cache() opens the existing file as rb+ and
     // overwrites only S_tnm_save_header. Keep the packed payload untouched.
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
@@ -806,10 +910,10 @@ pub fn write_header_in_place(path: &Path, header: &OriginalSaveHeader) -> Result
     {
         let mut data = crate::resource::read_file_bytes(path)
             .with_context(|| format!("read save file {}", path.display()))?;
-        if data.len() < SAVE_HEADER_SIZE {
+        if data.len() < header.header_size() {
             bail!("save file too short for header update: {}", path.display());
         }
-        data[..SAVE_HEADER_SIZE].copy_from_slice(&header.to_bytes());
+        data[..header.header_size()].copy_from_slice(&header.to_bytes());
         fs::write(path, data).with_context(|| format!("write save file {}", path.display()))?;
         crate::resource::invalidate_game_path_cache(path);
         Ok(())
@@ -837,19 +941,24 @@ pub fn write_slot_file(path: &Path, slot: &SaveSlotState) -> Result<()> {
 
 pub fn read_local_save_file(path: &Path) -> Result<(OriginalSaveHeader, OriginalLocalSaveEnvelope)> {
     let data = crate::resource::read_file_bytes(path).with_context(|| format!("read save file {}", path.display()))?;
-    if data.len() < SAVE_HEADER_SIZE {
+    if data.len() < LEGACY_SAVE_HEADER_SIZE {
         bail!("save file too short: {}", path.display());
     }
-    let header = OriginalSaveHeader::from_bytes(&data[..SAVE_HEADER_SIZE])?;
+    let header = OriginalSaveHeader::from_file_prefix(&data, data.len())?;
     let data_size = header.data_size.max(0) as usize;
-    let end = SAVE_HEADER_SIZE
+    let end = header.header_size()
         .checked_add(data_size)
         .ok_or_else(|| anyhow!("save data size overflow"))?;
     if end > data.len() {
         bail!("save payload truncated: need {}, have {}", end, data.len());
     }
-    let payload = unpack_buffer(&data[SAVE_HEADER_SIZE..end])?;
-    let env = OriginalLocalSaveEnvelope::from_bytes(&payload)?;
+    let payload = unpack_buffer(&data[header.header_size()..end])?;
+    let mut env = read_envelope(&mut Reader::new(&payload), true, header.legacy_header)?;
+    if header.legacy_header {
+        env.title = header.title.clone();
+        env.message = header.message.clone();
+        env.full_message = header.full_message.clone();
+    }
     Ok((header, env))
 }
 
@@ -1146,6 +1255,7 @@ fn push_utf16_fixed(out: &mut Vec<u8>, s: &str, units: usize) {
     }
 }
 
+#[derive(Clone)]
 struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
@@ -1240,3 +1350,158 @@ const TPC_ANGOU_TABLE: [u8; 256] = [
     0xf0,0xa1,0xe0,0x30,0x44,0x00,0x83,0xc4,0x08,0x85,0xc0,0x75,0x56,0x8b,0x1d,0xd0,
     0xb0,0x43,0x00,0x85,0xff,0x76,0x49,0x81,0xff,0x00,0x00,0x04,0x00,0x6a,0x00,0x76,
 ];
+
+#[cfg(test)]
+mod local_layout_tests {
+    use super::*;
+
+    fn local_prefix(legacy: bool, voice: i32, font: &str) -> (Vec<u8>, usize) {
+        let mut w = OriginalStreamWriter::new();
+        // Exercise absolute array jumps with a nonzero header length.
+        w.push_padding(19);
+        let start = w.position();
+        if !legacy { w.push_str(font); }
+        w.push_i32(voice);
+        w.push_padding(if legacy { 340 } else { 352 });
+        w.push_i32(2);
+        w.push_i32(-1);
+        w.push_i32(123);
+        w.push_i32(1);
+        w.push_str("stack value");
+        w.push_i32(1);
+        w.push_i32(0);
+        w.push_padding(12 + 76);
+        w.push_str("fog");
+        w.push_padding(44 + 8);
+        for _ in 0..7 { w.push_fixed_i32_list(&[1, -1, 3], 3); }
+        (w.into_inner(), start)
+    }
+
+    #[test]
+    fn early_local_layout_skips_buttons_and_has_no_message_or_font_string() {
+        for button_count in [0, 19, 32] {
+            let mut w = OriginalStreamWriter::new();
+            w.push_padding(23);
+            let start = w.position();
+            w.push_padding(button_count);
+            w.push_i32(-1); // Current voice, not a string length.
+            w.push_padding(328);
+            for _ in 0..3 { w.push_i32(0); }
+            w.push_padding(12 + 76);
+            w.push_str("");
+            w.push_padding(44 + 8);
+            for _ in 0..7 { w.push_fixed_i32_list(&[3, 5], 2); }
+            let mut bytes = w.into_inner();
+            let mut rd = OriginalStreamReader::new(&bytes);
+            rd.skip(start).unwrap();
+            rd.detect_early_local_layout(button_count);
+            assert!(rd.early_local_layout && rd.legacy_local_layout);
+            assert_eq!(rd.remaining().len(), bytes.len() - start);
+            rd.skip(button_count).unwrap();
+            rd.detect_local_layout().unwrap();
+            assert_eq!(rd.i32().unwrap(), -1);
+
+            bytes.pop();
+            let mut rd = OriginalStreamReader::new(&bytes);
+            rd.skip(start).unwrap();
+            rd.detect_early_local_layout(button_count);
+            assert!(!rd.early_local_layout);
+        }
+    }
+
+    #[test]
+    fn legacy_header_and_envelope_load_and_metadata_update_preserves_payload() {
+        // The early native envelope stores only IDs and streams, including its
+        // selection snapshots. Text metadata exists only in the 3116-byte header.
+        let mut payload = Vec::new();
+        for index in 0..2u16 {
+            for value in [2022, 6, 6, 18, 24, index, 740] { push_u16(&mut payload, value); }
+            push_i32(&mut payload, 3);
+            payload.extend_from_slice(&[index as u8, 7, 9]);
+            push_i32(&mut payload, 1024);
+            payload.extend_from_slice(&[4, 5]);
+            payload.resize(payload.len() + 1022, 0);
+            if index == 0 { push_i32(&mut payload, 1); }
+        }
+        let packed = pack_buffer(&payload);
+        let mut header = Vec::new();
+        for value in [1, 0, 2022, 6, 6, 1, 18, 24, 0, 740] { push_i32(&mut header, value); }
+        for value in ["saved scene", "saved message", "comment", "comment2"] {
+            push_utf16_fixed(&mut header, value, 256);
+        }
+        for value in 0..256 { push_i32(&mut header, value); }
+        push_i32(&mut header, packed.len() as i32);
+        assert_eq!(header.len(), 3116);
+        let mut bytes = header;
+        bytes.extend_from_slice(&packed);
+        assert!(bytes.len() > SAVE_HEADER_SIZE);
+        let dir = std::env::temp_dir().join(format!("siglus-early-save-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("0001.sav");
+        fs::write(&path, &bytes).unwrap();
+        let (header, env) = read_local_save_file(&path).unwrap();
+        assert!(header.legacy_header);
+        assert_eq!(header.flag[255], 255);
+        assert_eq!(env.title, "saved scene");
+        assert_eq!(env.full_message, "saved message");
+        assert_eq!(env.local_stream, [0, 7, 9]);
+        assert_eq!(env.local_ex_stream.len(), 1024);
+        assert_eq!(&env.local_ex_stream[..2], &[4, 5]);
+        assert_eq!(env.sel_saves.len(), 1);
+        assert_eq!(env.sel_saves[0].local_stream, [1, 7, 9]);
+        assert_eq!(env.sel_saves[0].save_id[5], 1);
+        // Match the cache path: it reconstructs a current-format header.
+        let mut updated = OriginalSaveHeader::default();
+        updated.comment = "edited".to_owned();
+        write_header_in_place(&path, &updated).unwrap();
+        let after = fs::read(&path).unwrap();
+        assert_eq!(after.len(), bytes.len());
+        assert_eq!(&after[3116..], &bytes[3116..]);
+        let (header, env) = read_local_save_file(&path).unwrap();
+        assert_eq!(header.comment, "edited");
+        assert_eq!(env.local_stream, [0, 7, 9]);
+        let modern_path = dir.join("0002.sav");
+        let slot = SaveSlotState::default();
+        let mut modern = OriginalLocalSaveEnvelope::from_slot_with_streams(&slot, vec![1, 2], vec![3]);
+        modern.full_message = "complete message".to_owned();
+        write_local_save_file(&modern_path, &slot, &modern).unwrap();
+        let (header, restored) = read_local_save_file(&modern_path).unwrap();
+        assert!(!header.legacy_header);
+        assert_eq!(restored.full_message, modern.full_message);
+        assert_eq!(restored.local_stream, modern.local_stream);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn local_layout_uses_boundaries_not_voice_number_as_string_length() {
+        for legacy in [false, true] {
+            for voice in [-1, 0, 1, 240] {
+                for font in ["", "Test Font"] {
+                    let (bytes, start) = local_prefix(legacy, voice, font);
+                    let mut rd = OriginalStreamReader::new(&bytes);
+                    rd.skip(start).unwrap();
+                    let remaining = rd.remaining().len();
+                    rd.detect_local_layout().unwrap();
+                    assert_eq!(rd.legacy_local_layout, legacy);
+                    assert_eq!(rd.remaining().len(), remaining);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn local_layout_rejects_truncated_or_invalid_flag_boundaries() {
+        for legacy in [false, true] {
+            let (mut bytes, start) = local_prefix(legacy, -1, "");
+            let boundary = bytes.len() - 20;
+            bytes[boundary..boundary + 4].copy_from_slice(&0i32.to_le_bytes());
+            let mut rd = OriginalStreamReader::new(&bytes);
+            rd.skip(start).unwrap();
+            assert!(rd.detect_local_layout().is_err());
+            bytes.truncate(boundary);
+            let mut rd = OriginalStreamReader::new(&bytes);
+            rd.skip(start).unwrap();
+            assert!(rd.detect_local_layout().is_err());
+        }
+    }
+}
