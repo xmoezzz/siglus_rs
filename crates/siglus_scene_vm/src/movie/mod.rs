@@ -115,7 +115,7 @@ struct Mpeg2StreamState {
     decoded_frames: usize,
     first_video_pts_90k: Option<i64>,
     last_video_timeline_ms: Option<u64>,
-    seek_start_ms: u64,
+    last_requested_timer_ms: u64,
     done: bool,
     audio: Option<MovieAudio>,
     decoded_any_this_poll: bool,
@@ -662,35 +662,7 @@ impl MovieManager {
         let restart_stream = self
             .mpeg2_streams
             .get(&path)
-            .map(|state| {
-                let front_ms = state
-                    .frames
-                    .front()
-                    .and_then(|frame| mpeg_frame_timeline_ms(frame, state));
-                let back_ms = state
-                    .frames
-                    .back()
-                    .and_then(|frame| mpeg_frame_timeline_ms(frame, state));
-                let target_before_cache = front_ms
-                    .map(|front| timer_ms.saturating_add(40) < front)
-                    .unwrap_or(false);
-                let large_forward_jump = back_ms
-                    .map(|back| {
-                        timer_ms > back.saturating_add(5_000)
-                            && timer_ms > state.seek_start_ms.saturating_add(5_000)
-                    })
-                    .unwrap_or(false);
-                let decoder_already_past_target = desired_frame_idx
-                    .map(|desired| {
-                        state.frames.is_empty()
-                            && state.decoded_frames
-                                > desired.saturating_add(MPEG2_STREAM_DECODE_LEAD_FRAMES)
-                            && !state.done
-                    })
-                    .unwrap_or(false);
-                target_before_cache || large_forward_jump || decoder_already_past_target
-            })
-            .unwrap_or(false);
+            .is_some_and(|state| mpeg_stream_needs_restart(state, timer_ms));
         if restart_stream {
             self.mpeg2_streams.remove(&path);
             let state = spawn_mpeg2_stream_state(path.clone(), audio.clone(), timer_ms)?;
@@ -701,6 +673,7 @@ impl MovieManager {
             .mpeg2_streams
             .get_mut(&path)
             .expect("mpeg2 stream state exists");
+        state.last_requested_timer_ms = timer_ms;
         let request_until = desired_frame_idx
             .unwrap_or(0)
             .saturating_add(MPEG2_STREAM_DECODE_LEAD_FRAMES);
@@ -1362,6 +1335,28 @@ fn frame_index_for_timer(timer_ms: u64, fps: f32, frame_count: usize) -> usize {
     ((timer_ms as f64) * (fps as f64) / 1000.0).floor() as usize
 }
 
+// Cache position is not evidence of a seek: decoding can lag behind the
+// audio clock, and sparse PTS can put the next cached frame ahead of it.
+// Restart only for a request discontinuity outside the cached interval.
+// In particular, MPEG files with only an initial sequence header must decode
+// from the beginning after a seek. Repeatedly restarting a lagging worker
+// prevents it from ever catching up.
+fn mpeg_stream_needs_restart(state: &Mpeg2StreamState, timer_ms: u64) -> bool {
+    let rewound = timer_ms.saturating_add(40) < state.last_requested_timer_ms;
+    let jumped_forward = timer_ms > state.last_requested_timer_ms.saturating_add(5_000);
+    let before_cache = state
+        .frames
+        .front()
+        .and_then(|frame| mpeg_frame_timeline_ms(frame, state))
+        .is_some_and(|front| timer_ms.saturating_add(40) < front);
+    let after_cache = state
+        .frames
+        .back()
+        .and_then(|frame| mpeg_frame_timeline_ms(frame, state))
+        .is_some_and(|back| timer_ms > back.saturating_add(5_000));
+    (rewound && (before_cache || state.frames.is_empty())) || (jumped_forward && after_cache)
+}
+
 fn spawn_mpeg2_stream_state(
     path: PathBuf,
     audio: Option<MovieAudio>,
@@ -1418,7 +1413,7 @@ fn spawn_mpeg2_stream_state(
         decoded_frames: 0,
         first_video_pts_90k,
         last_video_timeline_ms: None,
-        seek_start_ms: target_ms,
+        last_requested_timer_ms: target_ms,
         done: false,
         audio,
         decoded_any_this_poll: false,
@@ -4947,7 +4942,7 @@ mod mpeg_video_pts_tests {
     use std::sync::{mpsc, Arc};
 
     use super::{
-        select_mpeg_stream_frame, Mpeg2DecodedFrame, Mpeg2StreamEvent,
+        mpeg_stream_needs_restart, select_mpeg_stream_frame, Mpeg2DecodedFrame, Mpeg2StreamEvent,
         Mpeg2StreamState, RgbaImage,
     };
 
@@ -4965,11 +4960,9 @@ mod mpeg_video_pts_tests {
         }
     }
 
-    #[test]
-    fn frame_selection_uses_pts_instead_of_fixed_fps_index() {
+    fn state(frames: VecDeque<Mpeg2DecodedFrame>, timer_ms: u64) -> Mpeg2StreamState {
         let (_tx, rx) = mpsc::channel::<Result<Mpeg2StreamEvent, String>>();
-        let frames = VecDeque::from([frame(0, 0), frame(1, 9_000), frame(2, 27_000)]);
-        let state = Mpeg2StreamState {
+        Mpeg2StreamState {
             rx,
             frames,
             width: Some(1),
@@ -4978,12 +4971,58 @@ mod mpeg_video_pts_tests {
             decoded_frames: 3,
             first_video_pts_90k: Some(0),
             last_video_timeline_ms: Some(300),
-            seek_start_ms: 0,
+            last_requested_timer_ms: timer_ms,
             done: false,
             audio: None,
             decoded_any_this_poll: false,
             request_frames: Arc::new(AtomicUsize::new(0)),
-        };
+        }
+    }
+
+    #[test]
+    fn lagging_decoder_is_not_restarted_during_continuous_playback() {
+        // A seek into a file with no later sequence header starts decoding at
+        // zero. Let it catch up, even if it is over five seconds behind audio.
+        let mut state = state(VecDeque::from([frame(30, 90_000)]), 60_000);
+        for timer in (60_016..80_000).step_by(16) {
+            assert!(!mpeg_stream_needs_restart(&state, timer));
+            state.last_requested_timer_ms = timer;
+        }
+    }
+
+    #[test]
+    fn future_pts_does_not_turn_continuous_playback_into_a_rewind() {
+        let state = state(VecDeque::from([frame(1806, 5_418_000)]), 60_000);
+        assert!(!mpeg_stream_needs_restart(&state, 60_016));
+    }
+
+    #[test]
+    fn explicit_seek_outside_cache_restarts_once() {
+        let mut state = state(VecDeque::from([frame(1800, 5_400_000)]), 60_000);
+        assert!(mpeg_stream_needs_restart(&state, 90_000));
+        state.last_requested_timer_ms = 90_000;
+        assert!(!mpeg_stream_needs_restart(&state, 90_016));
+        assert!(mpeg_stream_needs_restart(&state, 30_000));
+    }
+
+    #[test]
+    fn rewind_while_seek_is_still_loading_restarts() {
+        let state = state(VecDeque::new(), 60_000);
+        assert!(mpeg_stream_needs_restart(&state, 0));
+    }
+
+    #[test]
+    fn rewind_inside_cache_does_not_restart_decoder() {
+        let state = state(VecDeque::from([frame(0, 0), frame(9, 27_000)]), 200);
+        assert!(!mpeg_stream_needs_restart(&state, 100));
+    }
+
+    #[test]
+    fn frame_selection_uses_pts_instead_of_fixed_fps_index() {
+        let state = state(
+            VecDeque::from([frame(0, 0), frame(1, 9_000), frame(2, 27_000)]),
+            0,
+        );
 
         // Fixed 30 fps arithmetic would request index 6 at 200 ms.  PTS says
         // frame 1 is still the last frame whose presentation time has passed.

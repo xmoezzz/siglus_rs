@@ -12708,6 +12708,35 @@ mod command_dispatch_tests {
     }
 
     #[test]
+    fn get_line_no_returns_current_script_line_through_command_dispatch() {
+        let mut chunk = empty_scene_chunk();
+        let mut code = Vec::new();
+        for line in [29i32, 83] {
+            code.push(CD_NL);
+            code.extend_from_slice(&line.to_le_bytes());
+        }
+        chunk[8..12].copy_from_slice(&(code.len() as i32).to_le_bytes());
+        chunk.extend_from_slice(&code);
+        let stream = SceneStream::new(Box::leak(chunk.into_boxed_slice())).unwrap();
+        let mut vm = SceneVm::new(stream, CommandContext::new(PathBuf::from(".")));
+
+        for expected in [-1, 29, 83] {
+            if expected >= 0 {
+                assert!(vm.step_inner(false).unwrap());
+            }
+            vm.exec_command(
+                vec![constants::elm_value::GLOBAL_GET_LINE_NO],
+                0,
+                vm.cfg.fm_int,
+                &mut vec![],
+            ).unwrap();
+            assert_eq!(vm.pop_int().unwrap(), expected);
+            assert!(vm.int_stack.is_empty());
+            assert!(vm.ctx.stack.is_empty());
+        }
+    }
+
+    #[test]
     fn excall_indexed_stage_creates_menu_objects_and_preserves_properties() {
         use crate::runtime::forms::{codes, excall};
 
