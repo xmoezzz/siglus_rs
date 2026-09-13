@@ -446,4 +446,24 @@ mod tests {
         let path = Path::new("/tmp/siglus-emote-key-test");
         assert_eq!(project_cache_id(path), project_cache_id(path));
     }
+
+    #[test]
+    fn command_context_preloads_emote_key_from_fallback_cache() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let project = std::env::temp_dir().join(format!("siglus-emote-bootstrap-{}-{nonce}", std::process::id()));
+        fs::create_dir_all(&project).unwrap();
+        let Some(cache) = fallback_cache_path(&project) else {
+            fs::remove_dir(&project).unwrap();
+            return;
+        };
+        fs::create_dir_all(cache.parent().unwrap()).unwrap();
+        fs::write(&cache, "emote_key = 0x1234ABCD\n").unwrap();
+        let ctx = crate::runtime::CommandContext::new(project.clone());
+        let loaded = ctx.emote_key;
+        drop(ctx);
+        fs::remove_file(cache).unwrap();
+        fs::remove_dir_all(project).unwrap();
+        assert_eq!(loaded, Some(0x1234ABCD));
+    }
 }

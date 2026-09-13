@@ -23,6 +23,9 @@ pub struct DecodedG00 {
     pub height: u32,
     /// For TypeDir, this contains multiple frames.
     pub frames: Vec<RgbaImage>,
+    /// Per-cut canvas dimensions before display-rectangle cropping.
+    /// These are C_d3d_texture::get_original_width/height(), used by scripts.
+    pub original_sizes: Vec<(u32, u32)>,
 }
 
 fn read_u16le(buf: &[u8], off: usize) -> Result<u16> {
@@ -96,6 +99,7 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 kind,
                 width,
                 height,
+                original_sizes: vec![(width, height)],
                 frames: vec![RgbaImage {
                     width,
                     height,
@@ -171,6 +175,7 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 kind,
                 width,
                 height,
+                original_sizes: vec![(width, height)],
                 frames: vec![RgbaImage {
                     width,
                     height,
@@ -226,6 +231,7 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
             // calls get_cut_data_point() for every slot. The decompressed table
             // can therefore leave later slots empty without changing PATNO numbering.
             let mut frames: Vec<RgbaImage> = Vec::with_capacity(index_entries);
+            let mut original_sizes = vec![(0, 0); index_entries];
             for i in 0..index_entries {
                 if i >= debuf_entries {
                     frames.push(transparent_missing_g00_cut());
@@ -247,6 +253,8 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 let part_bytes = &debuf[offset..];
                 let img = extract_g02_part(part_bytes)
                     .with_context(|| format!("extract g02 part idx={i}"))?;
+                let part = parse_g02_part_info_prefix(part_bytes)?;
+                original_sizes[i] = (part.width, part.height);
                 frames.push(img);
             }
 
@@ -259,6 +267,7 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 width,
                 height,
                 frames,
+                original_sizes,
             })
         }
         G00Type::TypeJpeg => {
@@ -284,6 +293,7 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 kind,
                 width,
                 height,
+                original_sizes: vec![(width, height)],
                 frames: vec![RgbaImage {
                     width,
                     height,
