@@ -9112,11 +9112,16 @@ fn mwnd_button_forced_disabled(
     syscom: &globals::SyscomRuntimeState,
     mwnd_button_idx: Option<usize>,
 ) -> bool {
+    // elm_mwnd_waku.cpp applies these flags only to MWND buttons.
+    // Ordinary OBJECT buttons (including EXCALL menus) remain interactive.
+    let Some(idx) = mwnd_button_idx else {
+        return false;
+    };
     if syscom.mwnd_btn_disable_all {
         return true;
     }
-    mwnd_button_idx
-        .and_then(|idx| syscom.mwnd_btn_disable.get(&(idx as i64)))
+    syscom.mwnd_btn_disable
+        .get(&(idx as i64))
         .copied()
         .unwrap_or(false)
 }

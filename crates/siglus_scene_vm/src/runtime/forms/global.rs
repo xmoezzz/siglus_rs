@@ -2031,6 +2031,10 @@ pub fn dispatch_global_form(
         ctx.stack.push(Value::Str(ctx.current_scene_name.clone().unwrap_or_default()));
         return Ok(true);
     }
+    if form_id == constants::elm_value::GLOBAL_GET_LINE_NO as u32 {
+        ctx.stack.push(Value::Int(ctx.current_line_no));
+        return Ok(true);
+    }
     if form_id == constants::elm_value::GLOBAL_RETURNMENU as u32 {
         use crate::runtime::globals::{SyscomPendingProc, SyscomPendingProcKind};
 

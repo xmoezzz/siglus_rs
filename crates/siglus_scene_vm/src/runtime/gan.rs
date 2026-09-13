@@ -162,6 +162,23 @@ pub struct GanState {
 }
 
 impl GanState {
+    pub(crate) fn read_original_work(
+        &mut self,
+        reader: &mut crate::original_save::OriginalStreamReader<'_>,
+    ) -> Result<()> {
+        self.now_time = reader.i32()?;
+        self.anm_set_no = reader.i32()?;
+        self.next_anm_set_no = reader.i32()?;
+        self.anm_start = reader.bool()?;
+        self.anm_pause = reader.bool()?;
+        self.anm_loop_flag = reader.bool()?;
+        self.anm_real_time_flag = reader.bool()?;
+        self.next_anm_flag = reader.bool()?;
+        self.next_anm_loop_flag = reader.bool()?;
+        self.next_anm_real_time_flag = reader.bool()?;
+        Ok(())
+    }
+
     pub fn reset(&mut self) {
         *self = GanState::default();
     }

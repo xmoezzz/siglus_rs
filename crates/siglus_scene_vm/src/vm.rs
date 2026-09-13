@@ -8183,6 +8183,7 @@ impl<'a> SceneVm<'a> {
     fn read_cpp_local_data_pod(
         &mut self,
         rd: &mut crate::original_save::OriginalStreamReader<'_>,
+        has_font: bool,
     ) -> Result<()> {
         let script = &mut self.ctx.globals.script;
 
@@ -8228,9 +8229,14 @@ impl<'a> SceneVm<'a> {
 
         script.msg_back_off = rd.bool()?;
         script.msg_back_disp_off = rd.bool()?;
-        rd.skip(2)?;
-        script.font_bold = rd.i32()? as i64;
-        script.font_shadow = rd.i32()? as i64;
+        if has_font {
+            rd.skip(2)?;
+            script.font_bold = rd.i32()? as i64;
+            script.font_shadow = rd.i32()? as i64;
+        } else {
+            script.font_bold = -1;
+            script.font_shadow = -1;
+        }
 
         script.cursor_disp_off = rd.bool()?;
         script.cursor_runtime_visible = !script.cursor_disp_off;
@@ -8254,7 +8260,7 @@ impl<'a> SceneVm<'a> {
         script.counter_time_stop_flag = rd.bool()?;
         script.frame_action_time_stop_flag = rd.bool()?;
         script.stage_time_stop_flag = rd.bool()?;
-        rd.skip(3)?;
+        rd.skip(if has_font { 3 } else { 1 })?;
 
         self.ctx.globals.syscom.replay_koe = if script.cur_koe_no >= 0 {
             Some((script.cur_koe_no, script.cur_chr_no))
@@ -9123,6 +9129,11 @@ impl<'a> SceneVm<'a> {
         obj.frame_action_ch = rd.extend_items(|rd| Self::read_cpp_frame_action(rd))?;
         let gan_file = rd.string()?;
         obj.gan_file = if gan_file.is_empty() { None } else { Some(gan_file) };
+        if rd.legacy_local_layout {
+            // C_tnm_gan::save follows the name with three ints and seven
+            // bools, even for an object with no animation.
+            obj.gan.read_original_work(rd)?;
+        }
         obj.runtime.child_objects = rd.extend_items(|rd| Self::read_cpp_object(rd))?;
         obj.used = obj.object_type != 0 || obj.file_name.is_some() || obj.string_value.is_some();
         Ok(obj)
@@ -10548,7 +10559,9 @@ impl<'a> SceneVm<'a> {
             entry.scn_no = rd.i32()? as i64;
             entry.line_no = rd.i32()? as i64;
             rd.skip(14)?;
-            entry.save_id_check_flag = rd.bool()?;
+            if !rd.legacy_local_layout {
+                entry.save_id_check_flag = rd.bool()?;
+            }
             st.history.push(entry);
         }
         st.history_cnt = cnt;
@@ -11130,8 +11143,10 @@ impl<'a> SceneVm<'a> {
                 self.ctx.globals.syscom.mwnd_btn_disable.insert(idx as i64, true);
             }
         }
-        self.ctx.globals.script.font_name = rd.string()?;
-        self.read_cpp_local_data_pod(&mut rd)?;
+        rd.detect_local_layout()?;
+        let has_font = !rd.legacy_local_layout;
+        self.ctx.globals.script.font_name = if has_font { rd.string()? } else { String::new() };
+        self.read_cpp_local_data_pod(&mut rd, has_font)?;
 
         let int_cnt = rd.i32()?.max(0) as usize;
         let mut int_stack = Vec::with_capacity(int_cnt);
@@ -12705,6 +12720,145 @@ mod command_dispatch_tests {
         let chunk = Box::leak(empty_scene_chunk().into_boxed_slice());
         let stream = SceneStream::new(chunk).expect("empty scene stream");
         SceneVm::new(stream, CommandContext::new(PathBuf::from(".")))
+    }
+
+    #[test]
+    fn current_local_save_layout_still_restores_font_and_stacks() {
+        let mut source = test_vm();
+        source.current_scene_name = Some("saved_scene".to_owned());
+        source.current_line_no = 62;
+        source.ctx.globals.script.font_name = "Test Font".to_owned();
+        source.ctx.globals.script.font_bold = 1;
+        source.ctx.globals.script.font_shadow = 2;
+        source.int_stack = vec![-1, 123];
+        source.str_stack = vec!["saved string".to_owned()];
+        let bytes = source.build_original_local_stream();
+        let mut restored = test_vm();
+        let snapshot = restored.parse_original_local_stream(&bytes).unwrap();
+        assert_eq!(snapshot.scene_name, "saved_scene");
+        assert_eq!(snapshot.line_no, 62);
+        assert_eq!(snapshot.int_stack, source.int_stack);
+        assert_eq!(snapshot.str_stack, source.str_stack);
+        assert_eq!(restored.ctx.globals.script.font_name, "Test Font");
+        assert_eq!(restored.ctx.globals.script.font_bold, 1);
+        assert_eq!(restored.ctx.globals.script.font_shadow, 2);
+    }
+
+    #[test]
+    fn legacy_local_pod_restores_flags_without_consuming_stack_data() {
+        use crate::original_save::OriginalStreamReader;
+        let mut bytes = vec![0u8; 344];
+        for (offset, value) in [(0, 12i32), (4, 3), (52, 585), (56, -1)] {
+            bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+        }
+        bytes[67] = 1; // All message-window buttons disabled.
+        bytes[74] = 1; // Cursor hidden, immediately after the message flags.
+        bytes[76 + 65] = 1; // Key A disabled.
+        bytes[332] = 1; // Quake stopped.
+        bytes[342] = 1; // Stage clock stopped.
+        bytes.extend_from_slice(&42i32.to_le_bytes());
+        let mut vm = test_vm();
+        vm.ctx.globals.script.font_bold = 1;
+        vm.ctx.globals.script.font_shadow = 2;
+        let mut rd = OriginalStreamReader::new(&bytes);
+        vm.read_cpp_local_data_pod(&mut rd, false).unwrap();
+        let script = &vm.ctx.globals.script;
+        assert_eq!((script.cur_koe_no, script.cur_chr_no), (12, 3));
+        assert_eq!(script.msg_back_save_cntr, 585);
+        assert_eq!((script.font_bold, script.font_shadow), (-1, -1));
+        assert!(vm.ctx.globals.syscom.mwnd_btn_disable_all);
+        assert!(script.cursor_disp_off && script.key_disable.contains(&65));
+        assert!(script.quake_stop_flag && script.stage_time_stop_flag);
+        assert_eq!(rd.i32().unwrap(), 42);
+    }
+
+    #[test]
+    fn legacy_object_gan_work_does_not_shift_the_next_object() {
+        use crate::original_save::{OriginalStreamReader, OriginalStreamWriter};
+        let vm = test_vm();
+        let mut bytes = Vec::new();
+        for name in ["first", "second"] {
+            let mut obj = runtime::globals::ObjectState::default();
+            obj.file_name = Some(name.to_owned());
+            let mut w = OriginalStreamWriter::new();
+            vm.write_cpp_object(&mut w, &obj);
+            let mut record = w.into_inner();
+            // Native GAN work sits before the final child-list count.
+            let child_count = record.split_off(record.len() - 4);
+            for value in [123i32, 2, 3] { record.extend_from_slice(&value.to_le_bytes()); }
+            record.extend_from_slice(&[1, 0, 1, 0, 1, 1, 0]);
+            record.extend_from_slice(&child_count);
+            bytes.extend(record);
+        }
+        let mut rd = OriginalStreamReader::new(&bytes);
+        rd.legacy_local_layout = true;
+        for name in ["first", "second"] {
+            let obj = SceneVm::read_cpp_object(&mut rd).unwrap();
+            assert_eq!(obj.file_name.as_deref(), Some(name));
+            assert!(obj.runtime.child_objects.is_empty());
+        }
+        assert!(rd.remaining().is_empty());
+    }
+
+    #[test]
+    fn legacy_backlog_entries_do_not_have_save_id_check_bytes() {
+        use crate::original_save::{OriginalStreamReader, OriginalStreamWriter};
+        let mut w = OriginalStreamWriter::new();
+        w.push_i32(2);
+        for message in ["first", "second"] {
+            w.push_bool(false);
+            w.push_str(message);
+            w.push_str("name");
+            w.push_str("display name");
+            for value in [0, 0, 1, 123, 1, 2, 0] { w.push_i32(value); }
+            w.push_str("");
+            w.push_i32(36);
+            w.push_i32(29);
+            w.push_tid_zero();
+        }
+        for value in [0, 1, 2, 1] { w.push_i32(value); }
+        w.push_i32(42);
+        let bytes = w.into_inner();
+        let mut rd = OriginalStreamReader::new(&bytes);
+        rd.legacy_local_layout = true;
+        let backlog = SceneVm::read_cpp_msg_back(&mut rd).unwrap();
+        assert_eq!(backlog.history_cnt, 2);
+        assert_eq!(backlog.history[0].msg_str, "first");
+        assert_eq!(backlog.history[1].msg_str, "second");
+        assert_eq!(backlog.history[1].koe_no_list, vec![123]);
+        assert_eq!(backlog.history[1].chr_no_list, vec![2]);
+        assert_eq!(backlog.history_insert_pos, 2);
+        assert!(backlog.new_msg_flag);
+        assert_eq!(rd.i32().unwrap(), 42);
+    }
+
+    #[test]
+    fn get_line_no_returns_current_script_line_through_command_dispatch() {
+        let mut chunk = empty_scene_chunk();
+        let mut code = Vec::new();
+        for line in [29i32, 83] {
+            code.push(CD_NL);
+            code.extend_from_slice(&line.to_le_bytes());
+        }
+        chunk[8..12].copy_from_slice(&(code.len() as i32).to_le_bytes());
+        chunk.extend_from_slice(&code);
+        let stream = SceneStream::new(Box::leak(chunk.into_boxed_slice())).unwrap();
+        let mut vm = SceneVm::new(stream, CommandContext::new(PathBuf::from(".")));
+
+        for expected in [-1, 29, 83] {
+            if expected >= 0 {
+                assert!(vm.step_inner(false).unwrap());
+            }
+            vm.exec_command(
+                vec![constants::elm_value::GLOBAL_GET_LINE_NO],
+                0,
+                vm.cfg.fm_int,
+                &mut vec![],
+            ).unwrap();
+            assert_eq!(vm.pop_int().unwrap(), expected);
+            assert!(vm.int_stack.is_empty());
+            assert!(vm.ctx.stack.is_empty());
+        }
     }
 
     #[test]

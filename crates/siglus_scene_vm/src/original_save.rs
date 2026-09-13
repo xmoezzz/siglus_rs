@@ -544,13 +544,17 @@ impl OriginalStreamWriter {
     }
 }
 
+#[derive(Clone)]
 pub struct OriginalStreamReader<'a> {
     rd: Reader<'a>,
+    // Native pre-font saves: no local font fields,
+    // full GAN work records, and no backlog save_id_check_flag.
+    pub(crate) legacy_local_layout: bool,
 }
 
 impl<'a> OriginalStreamReader<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        Self { rd: Reader::new(data) }
+        Self { rd: Reader::new(data), legacy_local_layout: false }
     }
 
     pub fn i32(&mut self) -> Result<i32> {
@@ -620,6 +624,55 @@ impl<'a> OriginalStreamReader<'a> {
 
     pub fn remaining(&self) -> &'a [u8] {
         &self.rd.data[self.rd.pos..]
+    }
+
+    /// Called immediately after the window-button disable bytes. Save headers
+    /// do not distinguish these layouts. Validate the stack and absolute flag
+    /// array boundaries: a voice number can also look like a string length.
+    pub(crate) fn detect_local_layout(&mut self) -> Result<()> {
+        for legacy in [false, true] {
+            if self.check_local_layout(legacy).is_ok() {
+                self.legacy_local_layout = legacy;
+                return Ok(());
+            }
+        }
+        bail!("unsupported or corrupt local save layout at byte {}", self.rd.pos)
+    }
+
+    fn check_local_layout(&self, legacy: bool) -> Result<()> {
+        let mut probe = self.clone();
+        if !legacy {
+            probe.string()?;
+        }
+        probe.skip(if legacy { 344 } else { 356 })?;
+        // Integer stack, string stack, and element-point stack. Bound counts
+        // before iterating; this probe must not allocate from untrusted counts.
+        for string_stack in [false, true, false] {
+            let count = probe.i32()?;
+            if count < 0 || count as usize > probe.remaining().len() / 4 {
+                bail!("invalid local stack count {count}");
+            }
+            if string_stack {
+                for _ in 0..count { probe.string()?; }
+            } else {
+                probe.skip(count as usize * 4)?;
+            }
+        }
+        probe.skip(12 + 76)?; // Local clocks and system menu POD.
+        probe.string()?; // Fog texture name.
+        probe.skip(44 + 8)?; // Fog event and near/far planes.
+        for _ in 0..7 {
+            let jump = probe.i32()?;
+            let count = probe.i32()?;
+            if count < 0 || count as usize > probe.remaining().len() / 4 {
+                bail!("invalid local flag count {count}");
+            }
+            probe.skip(count as usize * 4)?;
+            if jump < 0 || jump as usize != probe.rd.pos {
+                bail!("invalid local flag boundary {jump}");
+            }
+        }
+        Ok(())
     }
 
     pub fn string(&mut self) -> Result<String> {
@@ -1146,6 +1199,7 @@ fn push_utf16_fixed(out: &mut Vec<u8>, s: &str, units: usize) {
     }
 }
 
+#[derive(Clone)]
 struct Reader<'a> {
     data: &'a [u8],
     pos: usize,
@@ -1240,3 +1294,63 @@ const TPC_ANGOU_TABLE: [u8; 256] = [
     0xf0,0xa1,0xe0,0x30,0x44,0x00,0x83,0xc4,0x08,0x85,0xc0,0x75,0x56,0x8b,0x1d,0xd0,
     0xb0,0x43,0x00,0x85,0xff,0x76,0x49,0x81,0xff,0x00,0x00,0x04,0x00,0x6a,0x00,0x76,
 ];
+
+#[cfg(test)]
+mod local_layout_tests {
+    use super::*;
+
+    fn local_prefix(legacy: bool, voice: i32, font: &str) -> (Vec<u8>, usize) {
+        let mut w = OriginalStreamWriter::new();
+        // Exercise absolute array jumps with a nonzero header length.
+        w.push_padding(19);
+        let start = w.position();
+        if !legacy { w.push_str(font); }
+        w.push_i32(voice);
+        w.push_padding(if legacy { 340 } else { 352 });
+        w.push_i32(2);
+        w.push_i32(-1);
+        w.push_i32(123);
+        w.push_i32(1);
+        w.push_str("stack value");
+        w.push_i32(1);
+        w.push_i32(0);
+        w.push_padding(12 + 76);
+        w.push_str("fog");
+        w.push_padding(44 + 8);
+        for _ in 0..7 { w.push_fixed_i32_list(&[1, -1, 3], 3); }
+        (w.into_inner(), start)
+    }
+
+    #[test]
+    fn local_layout_uses_boundaries_not_voice_number_as_string_length() {
+        for legacy in [false, true] {
+            for voice in [-1, 0, 1, 240] {
+                for font in ["", "Test Font"] {
+                    let (bytes, start) = local_prefix(legacy, voice, font);
+                    let mut rd = OriginalStreamReader::new(&bytes);
+                    rd.skip(start).unwrap();
+                    let remaining = rd.remaining().len();
+                    rd.detect_local_layout().unwrap();
+                    assert_eq!(rd.legacy_local_layout, legacy);
+                    assert_eq!(rd.remaining().len(), remaining);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn local_layout_rejects_truncated_or_invalid_flag_boundaries() {
+        for legacy in [false, true] {
+            let (mut bytes, start) = local_prefix(legacy, -1, "");
+            let boundary = bytes.len() - 20;
+            bytes[boundary..boundary + 4].copy_from_slice(&0i32.to_le_bytes());
+            let mut rd = OriginalStreamReader::new(&bytes);
+            rd.skip(start).unwrap();
+            assert!(rd.detect_local_layout().is_err());
+            bytes.truncate(boundary);
+            let mut rd = OriginalStreamReader::new(&bytes);
+            rd.skip(start).unwrap();
+            assert!(rd.detect_local_layout().is_err());
+        }
+    }
+}
