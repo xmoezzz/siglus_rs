@@ -10,3 +10,6 @@ anyhow.workspace = true
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "horizon")'.dependencies]
+siglus_switch_compat = { path = "../../platform/switch/compat" }

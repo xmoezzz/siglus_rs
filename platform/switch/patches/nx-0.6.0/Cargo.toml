@@ -1,0 +1,88 @@
+[package]
+name = "nx"
+version = "0.6.0"
+authors = ["XorTroll", "Pantsman0"]
+edition = "2024"
+include = ["src", "nx_derive"]
+
+[features]
+default = []
+services = []
+smc = []
+gpu = ["services"]
+vty = ["canvas", "dep:embedded-term", "dep:embedded-graphics-core"]
+console = ["fonts"]
+canvas = ["gpu", "dep:line_drawing"]
+fonts = ["canvas", "dep:ab_glyph", "dep:font8x8"]
+truetype = ["fonts"]
+fs = ["services", "dep:embedded-io"]
+input = ["services", "applet"]
+la = ["services"]
+rand = ["services", "dep:rand"]
+socket = ["services", "dep:embedded-io"]
+applet = ["services"]
+mii = ["services"]
+
+[dependencies]
+paste = "1.0"
+logpacket = { git = "https://github.com/aarch64-switch-rs/logpacket", tag = "0.1.0" }
+arrayvec = { version = "0.7.8", default-features = false }
+static_assertions = "1.1.0"
+lock_api = { version = "0.4.12", features = ["nightly"] }
+atomic_enum = "0.3.0"
+zeroize = { version = "1.8.1", features = ["aarch64"] }
+nx-derive = { path = "nx-derive/" }
+bitfield-struct = "0.13.0"
+enum-iterator = "2.1.0"
+
+[dependencies.embedded-io]
+version = "0.7.1"
+optional = true
+features = ["alloc"]
+
+[dependencies.embedded-term]
+git = "https://github.com/rcore-os/embedded-term"
+rev = "ce0fc1b30a883dba95f7d6ef794699100f178bd6"
+optional = true
+default-features = false
+
+[dependencies.embedded-graphics-core]
+version = "0.4.1"
+optional = true
+
+[dependencies.line_drawing]
+optional = true
+version = "1.0.1"
+
+[dependencies.ab_glyph]
+optional = true
+version = "0.2.31"
+default-features = false
+features = ["variable-fonts", "libm"]
+
+[dependencies.font8x8]
+optional = true
+version = "0.3"
+default-features = false
+features = ["unicode"]
+
+[dependencies.num-traits]
+version = "0.2.19"
+default-features = false
+features = ["libm"]
+
+[dependencies.unwinding]
+version = "0.2.10"
+default-features = false
+features = ["unwinder", "panic", "fde-custom", "personality"]
+
+[dependencies.linked_list_allocator]
+version = "0.10.5"
+default-features = false
+features = ["const_mut_refs", "alloc_ref", "use_spin"]
+
+[dependencies.rand]
+optional = true
+version = "0.10.2"
+default-features = false
+features = ["alloc"]

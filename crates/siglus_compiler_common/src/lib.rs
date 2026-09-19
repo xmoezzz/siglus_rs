@@ -4,6 +4,17 @@
 //! XOR loops. Higher-level compiler and linker policy deliberately lives in
 //! the three tool crates.
 
+#![cfg_attr(target_os = "horizon", no_std)]
+
+#[cfg(target_os = "horizon")]
+extern crate alloc;
+
+#[cfg(target_os = "horizon")]
+use siglus_switch_compat as std;
+
+#[cfg(target_os = "horizon")]
+use alloc::{borrow::ToOwned, format, string::String, vec, vec::Vec};
+
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};

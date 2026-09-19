@@ -1,0 +1,28 @@
+{
+  "arch": "aarch64",
+  "data-layout": "e-m:e-p:64:64-i64:64-i128:128-n32:64-S128",
+  "executables": true,
+  "linker": "aarch64-none-elf-gcc",
+  "llvm-target": "aarch64-unknown-none-elf",
+  "max-atomic-width": 64,
+  "os": "switch",
+  "panic-strategy": "abort",
+  "pre-link-args": {
+    "gcc": [
+      "-specs=../libnx/specs",
+      "-Wl,--start-group",
+      "-lswitch",
+      "-lgnutls",
+      "-lm",
+      "-pthread",
+      "-Wl,--end-group"
+    ]
+  },
+  "target-endian": "little",
+  "target-pointer-width": "64",
+  "target-c-int-width": "32",
+  "vendor": "nintendo",
+  "no-default-libraries": false,
+  "singlethread": false,
+  "has-thread-local": true
+}

@@ -29,7 +29,7 @@ precedence = "allow"
 misrefactored_assign_op = "allow"
 
 [workspace.dependencies]
-anyhow = "1"
+anyhow = { version = "1", default-features = false }
 clap = { version = "4", features = ["derive"] }
 bytemuck = { version = "1", features = ["derive"] }
 wgpu = { version = "0.20", features = ["wgsl"] }
@@ -40,3 +40,6 @@ log = "0.4"
 env_logger = "0.11"
 kira = "0.9"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[patch.crates-io]
+unwinding = { path = "platform/switch/patches/unwinding-0.2.10" }

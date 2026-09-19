@@ -1,0 +1,7 @@
+[package]
+name = "siglus_switch_compat"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+nx = { path = "../patches/nx-0.6.0", features = ["services", "fs"] }

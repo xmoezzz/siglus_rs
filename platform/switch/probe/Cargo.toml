@@ -1,0 +1,18 @@
+[package]
+name = "siglus_switch_probe"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+nx = { path = "../patches/nx-0.6.0", features = ["services"] }
+
+[patch.crates-io]
+unwinding = { path = "../patches/unwinding-0.2.10" }
+
+[package.metadata.nx.nro.nacp]
+default_name = "siglus_switch_probe"
+default_author = "siglus_rs"
+version = "0.1.0"
+application_id = "0x0100AAAAAAAAAAAA"
