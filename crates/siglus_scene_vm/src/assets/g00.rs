@@ -59,6 +59,36 @@ fn read_i32le(buf: &[u8], off: usize) -> Result<i32> {
     ]))
 }
 
+fn decode_mark_type2_payload(payload: &[u8]) -> Result<Vec<u8>> {
+    // MARK replaces the LZSS body with a preserved G02 metadata prefix and
+    // one UCI-compressed chip bitmap. The final eight prefix bytes carry the
+    // UCI byte length and a reserved field, not G02 pixel data.
+    if !payload.starts_with(b"MARK") {
+        bail!("not a MARK-compressed G00 payload");
+    }
+    let prefix_len = read_u32le(payload, 4)? as usize;
+    if prefix_len < 8 {
+        bail!("MARK prefix too short");
+    }
+    let prefix = payload
+        .get(8..8 + prefix_len)
+        .context("MARK prefix truncated")?;
+    let uci_len = read_u32le(prefix, prefix_len - 8)? as usize;
+    let uci = payload
+        .get(8 + prefix_len..8 + prefix_len + uci_len)
+        .context("MARK UCI stream truncated")?;
+    let (_, _, mut rgba) = super::uci::decode_uci(uci).context("decode MARK UCI chip")?;
+    // G02 chip pixels are BGRA; UCI decoder returns RGBA.
+    for pixel in rgba.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+    let mut decoded = Vec::with_capacity(prefix_len + rgba.len());
+    decoded.extend_from_slice(&prefix[..prefix_len - 8]);
+    decoded.extend_from_slice(&[0; 8]);
+    decoded.extend_from_slice(&rgba);
+    Ok(decoded)
+}
+
 /// Decode a `.g00` file into RGBA frames.
 pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
     if data.len() < 1 + 2 + 2 {
@@ -87,6 +117,26 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
             }
             if decompress_length == 0 {
                 bail!("g00 type0 decompress_length=0");
+            }
+            if data[off..].starts_with(b"UCI") {
+                let (uci_width, uci_height, rgba) = super::uci::decode_uci(&data[off..])
+                    .context("decode UCI-compressed g00 type0")?;
+                if (uci_width, uci_height) != (width, height) {
+                    bail!("g00/UCI size mismatch: {uci_width}x{uci_height} vs {width}x{height}");
+                }
+                return Ok(DecodedG00 {
+                    kind,
+                    width,
+                    height,
+                    original_sizes: vec![(width, height)],
+                    frames: vec![RgbaImage {
+                        width,
+                        height,
+                        center_x: 0,
+                        center_y: 0,
+                        rgba,
+                    }],
+                });
             }
             let mut out = vec![0u8; decompress_length];
             lzss_decompress_24bit(&data[off..], &mut out).context("lzss_decompress_24bit")?;
@@ -210,8 +260,14 @@ pub fn decode_g00(data: &[u8]) -> Result<DecodedG00> {
                 bail!("type2 payload out of bounds");
             }
 
-            let mut debuf = vec![0u8; decompress_length];
-            lzss_decompress(&data[off..], &mut debuf).context("lzss_decompress")?;
+            let debuf = if data[off..].starts_with(b"MARK") {
+                decode_mark_type2_payload(&data[off..])
+                    .context("decode MARK-compressed g00 type2")?
+            } else {
+                let mut debuf = vec![0u8; decompress_length];
+                lzss_decompress(&data[off..], &mut debuf).context("lzss_decompress")?;
+                debuf
+            };
 
             // debuf: u32 entries, then entries * {u32 offset,u32 length}
             if debuf.len() < 4 {

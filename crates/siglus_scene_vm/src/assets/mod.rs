@@ -1,4 +1,5 @@
 pub mod g00;
+mod uci;
 
 use anyhow::{Context, Result, bail};
 use std::path::Path;
