@@ -6,8 +6,18 @@
 
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::sync::OnceLock;
 
 use anyhow::{Context, Result, bail};
+
+type InProcessDecoder = fn(&[u8], &str, usize) -> Result<Vec<u8>>;
+static IN_PROCESS_DECODER: OnceLock<InProcessDecoder> = OnceLock::new();
+
+/// An embedding host may provide decoding without an external ffmpeg process.
+/// The native launcher keeps its existing CLI fallback when no host is installed.
+pub fn install_in_process_decoder(decoder: InProcessDecoder) {
+    let _ = IN_PROCESS_DECODER.set(decoder);
+}
 
 fn take_stream<'a>(bytes: &'a [u8], offset: &mut usize) -> Result<&'a [u8]> {
     let length_bytes = bytes
@@ -23,6 +33,9 @@ fn take_stream<'a>(bytes: &'a [u8], offset: &mut usize) -> Result<&'a [u8]> {
 }
 
 fn decode_h264(stream: &[u8], pixel_format: &str, expected_len: usize) -> Result<Vec<u8>> {
+    if let Some(decoder) = IN_PROCESS_DECODER.get() {
+        return decoder(stream, pixel_format, expected_len);
+    }
     let mut child = Command::new("ffmpeg")
         .args([
             "-hide_banner",

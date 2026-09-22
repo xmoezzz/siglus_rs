@@ -1,5 +1,6 @@
 pub mod g00;
 mod uci;
+pub use uci::install_in_process_decoder;
 
 use anyhow::{Context, Result, bail};
 use std::path::Path;
