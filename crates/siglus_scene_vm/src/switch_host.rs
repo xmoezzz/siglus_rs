@@ -71,7 +71,14 @@ pub struct SwitchHost {
     /// Frames to save as PNGs (`sdmc:/switch/siglus_rs/dump-frames`, one
     /// frame number per line; a diagnosis aid).
     dump_frames: Vec<u64>,
+    /// The global save as last written (`global_save_fingerprint`).
+    global_fingerprint: u64,
 }
+
+/// How often the global save is checked for changes. Nothing else writes
+/// it before the game's own end/return-to-menu, and closing the app from
+/// HOME never gets there: the game would start as on its first boot again.
+const GLOBAL_SAVE_INTERVAL: u64 = 300;
 
 const DUMP_DIR: &str = "sdmc:/switch/siglus_rs/dump";
 
@@ -86,16 +93,14 @@ impl SwitchHost {
         // The game draws at its own #SCREEN_SIZE; the renderer fits that
         // into the display (as on the Vita).
         Self::fit_game_screen(&mut host, width, height);
-        // Line by line: `read_to_string` sizes its buffer from a file size
-        // Horizon's stat does not report sensibly here.
-        let dump_frames: Vec<u64> = std::fs::File::open("sdmc:/switch/siglus_rs/dump-frames")
-            .map(|file| {
-                std::io::BufRead::lines(std::io::BufReader::new(file))
-                    .map_while(Result::ok)
-                    .filter_map(|line| line.trim().parse().ok())
-                    .collect()
-            })
-            .unwrap_or_default();
+        // The loaded global data is the baseline: changes from the first
+        // frames on (the game marks its first boot right away) are written.
+        let global_fingerprint = host.persist_global_if_changed(None);
+        let dump_frames: Vec<u64> = std::fs::read_to_string("sdmc:/switch/siglus_rs/dump-frames")
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| line.trim().parse().ok())
+            .collect();
         if !dump_frames.is_empty() {
             let _ = std::fs::create_dir_all(DUMP_DIR);
         }
@@ -103,6 +108,7 @@ impl SwitchHost {
             host,
             frame: 0,
             dump_frames,
+            global_fingerprint,
         })
     }
 
@@ -114,7 +120,11 @@ impl SwitchHost {
             self.host.renderer_mut().dump_next_frame(PathBuf::from(path));
         }
         self.frame += 1;
-        self.host.step(dt_ms)
+        let running = self.host.step(dt_ms);
+        if self.frame % GLOBAL_SAVE_INTERVAL == 0 {
+            self.global_fingerprint = self.host.persist_global_if_changed(Some(self.global_fingerprint));
+        }
+        running
     }
 
     /// The display size changed; the game keeps its own screen size.
@@ -258,6 +268,9 @@ pub unsafe extern "C" fn siglus_switch_engine_touch(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn siglus_switch_engine_destroy(host: *mut SwitchHost) {
     if !host.is_null() {
-        drop(unsafe { Box::from_raw(host) });
+        let mut host = unsafe { Box::from_raw(host) };
+        let last = host.global_fingerprint;
+        host.host.persist_global_if_changed(Some(last));
+        drop(host);
     }
 }

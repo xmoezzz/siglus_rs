@@ -16,7 +16,7 @@ use anyhow::Result;
 
 use crate::assets::RgbaImage;
 use crate::emote::EmoteRenderPacket;
-use crate::image_manager::{ImageHandle, ImageManager};
+use crate::image_manager::{ImageHandle, ImageKey, ImageManager};
 use crate::layer::{RenderFrame, RenderSprite, SpriteBlend, WipeRenderPlan};
 use crate::render_plan::emote::{EmoteTexture, EmoteVertex, plan_emote_draws};
 use crate::render_plan::{
@@ -298,19 +298,6 @@ impl Renderer {
                 .sprites
                 .iter()
                 .any(|entry| matches!(entry.sprite.blend, SpriteBlend::Overlay));
-        if dump.is_some() {
-            for cmd in &self.plan.draws {
-                let e = &cmd.vs_uniform.sprite_effects;
-                crate::switch_host::report_switch_diagnostic(&format!(
-                    "siglus_switch: draw blend={:?} alpha={} tone={} mask={} e1={:?} e2={:?} e3={:?} e4={:?} e5={:?} e7={:?}\n",
-                    cmd.pipeline_key.blend,
-                    cmd.pipeline_key.alpha_blend,
-                    cmd.tonecurve_image_id.is_some(),
-                    cmd.mask_image_id.is_some(),
-                    e[0], e[1], e[2], e[3], e[4], e[6]
-                ));
-            }
-        }
         if needs_scene_texture {
             let final_target = self.render_frame_to_targets(images, frame)?;
             if let Some(path) = dump {
@@ -478,6 +465,12 @@ impl Renderer {
         self.sprite_verts.clear();
         self.sprite_verts
             .extend(self.plan.verts.iter().map(|v| VertexSprite2dData::from(*v)));
+        // Images the runtime released (`organize_textures`); gpu.c frees
+        // their memory once the frames still reading them are done.
+        self.textures.retain(|key, _| match key {
+            TexKey::Image(index) => images.contains(ImageKey(*index)),
+            TexKey::External(_) => true,
+        });
         for index in 0..self.plan.draws.len() {
             let draw = &self.plan.draws[index];
             let handles = [

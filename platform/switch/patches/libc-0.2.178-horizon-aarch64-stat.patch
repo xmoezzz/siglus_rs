@@ -1,0 +1,34 @@
+diff -ru a/src/unix/newlib/mod.rs b/src/unix/newlib/mod.rs
+--- a/src/unix/newlib/mod.rs
++++ b/src/unix/newlib/mod.rs
+@@ -1,7 +1,15 @@
+ use crate::prelude::*;
+ 
+-pub type blkcnt_t = i32;
+-pub type blksize_t = i32;
++cfg_if! {
++    // devkitA64's newlib (Nintendo Switch): 64-bit block counts.
++    if #[cfg(all(target_os = "horizon", target_arch = "aarch64"))] {
++        pub type blkcnt_t = c_long;
++        pub type blksize_t = c_long;
++    } else {
++        pub type blkcnt_t = i32;
++        pub type blksize_t = i32;
++    }
++}
+ 
+ pub type clockid_t = c_ulong;
+ 
+@@ -14,6 +22,12 @@
+         pub type dev_t = c_short;
+         pub type ino_t = c_ushort;
+         pub type off_t = c_int;
++    } else if #[cfg(all(target_os = "horizon", target_arch = "aarch64"))] {
++        // devkitA64's newlib (Nintendo Switch): 16-bit device and inode
++        // numbers, as in its `struct stat` and `struct dirent`.
++        pub type dev_t = c_short;
++        pub type ino_t = c_ushort;
++        pub type off_t = i64;
+     } else {
+         pub type dev_t = u32;
+         pub type ino_t = u32;

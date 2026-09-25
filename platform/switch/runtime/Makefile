@@ -22,7 +22,16 @@ RUST_LIB := ../../../target/aarch64-switch/release/libsiglus_scene_vm.a
 # Opt-in and scoped to this build: nothing in the current NRO depends on
 # unwinding, and an unused patch only produces a Cargo warning.
 # Use `make UNWINDING_PATCH=1` when adding a Rust dependency that needs it (nx).
-RUST_PATCHES :=
+#
+# libc is always patched: std's `struct stat` and `struct dirent` for
+# aarch64 Horizon must match devkitA64's newlib, or every metadata call
+# (is_dir, file sizes) and directory listing reads the wrong fields. It is
+# fetched from crates.io, checked and patched under $(BUILD).
+LIBC_VERSION := 0.2.178
+LIBC_SHA256 := 37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091
+LIBC_PATCH := ../patches/libc-$(LIBC_VERSION)-horizon-aarch64-stat.patch
+LIBC_DIR := $(BUILD)/libc-$(LIBC_VERSION)
+RUST_PATCHES := --config 'patch.crates-io.libc.path="platform/switch/runtime/$(LIBC_DIR)"'
 ifeq ($(UNWINDING_PATCH),1)
 RUST_PATCHES += --config 'patch.crates-io.unwinding.path="platform/switch/patches/unwinding-0.2.10"'
 endif
@@ -40,11 +49,20 @@ SHADERS := $(foreach n,$(SHADER_NAMES),$(ROMFS)/shaders/$(n)_vsh.dksh $(ROMFS)/s
 .PHONY: all clean rust
 all: $(TARGET).nro
 
-rust:
+rust: $(LIBC_DIR)/.patched
 	cd ../../.. && RUSTFLAGS='--cfg getrandom_backend="custom"' rustup run nightly-2026-01-20 cargo build $(RUST_PATCHES) -p siglus_scene_vm --lib --release --target platform/switch/rust/aarch64-switch.json -Zbuild-std=std,panic_abort
 
 $(BUILD) $(ROMFS)/shaders:
 	mkdir -p $@
+
+$(LIBC_DIR)/.patched: $(LIBC_PATCH) | $(BUILD)
+	rm -rf $(LIBC_DIR) $(BUILD)/libc.crate
+	curl -sSfL -o $(BUILD)/libc.crate https://static.crates.io/crates/libc/libc-$(LIBC_VERSION).crate
+	echo "$(LIBC_SHA256)  $(BUILD)/libc.crate" | sha256sum -c --quiet -
+	tar -xzf $(BUILD)/libc.crate -C $(BUILD)
+	cd $(LIBC_DIR) && patch -s -p1 < ../../$(LIBC_PATCH)
+	rm $(BUILD)/libc.crate
+	touch $@
 
 $(BUILD)/%.o: source/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -MMD -MP -c $< -o $@

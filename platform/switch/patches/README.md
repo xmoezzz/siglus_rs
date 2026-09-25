@@ -8,7 +8,19 @@ only crates that do not compile with the pinned nightly
 
 | Crate | Patch | Why |
 |---|---|---|
+| `libc` 0.2.178 (std's) | `libc-0.2.178-horizon-aarch64-stat.patch` | libc's `horizon` types are the 3DS's (32-bit newlib). On aarch64, devkitA64's `struct stat` has 16-bit `dev_t`/`ino_t` and 64-bit `blksize_t`/`blkcnt_t`, so std read `st_mode`/`st_size` at the wrong offsets (`is_dir()` always false, `create_dir_all` failing on existing directories, bogus file sizes) and `dirent` names two bytes off. |
 | `unwinding` 0.2.10 | `unwinding-0.2.10-catch-unwind-i32.patch` | `core::intrinsics::catch_unwind` now returns `i32` rather than `bool`; upstream 0.2.10 (the newest release, and `trunk` as of this writing) still treats it as `bool`. |
+
+## libc (always applied, not vendored)
+
+The Makefile downloads the crates.io release named by `LIBC_VERSION` (the
+version pinned in the nightly's `library/Cargo.lock`), checks it against
+`LIBC_SHA256`, applies the patch under `runtime/build/` and passes it to
+the `-Zbuild-std` build with `--config patch.crates-io.libc.path=...`.
+Cargo then warns that the patch is unused by the workspace graph (the
+workspace locks a newer libc); std does use it. When the pinned nightly
+changes, update `LIBC_VERSION`/`LIBC_SHA256` and re-check the layouts
+against devkitA64 (`offsetof` over `struct stat` and `struct dirent`).
 
 ## Rules
 

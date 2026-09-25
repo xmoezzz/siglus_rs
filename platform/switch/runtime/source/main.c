@@ -8,18 +8,9 @@
 
 #include "gpu.h"
 
-
-enum {
-    // The Rust VM, the decoded images and the movie frames; deko3d GPU
-    // allocations are separate memory blocks.
-    ApplicationHeapSize = 256 * 1024 * 1024,
-};
-
-// libnx provides this as a weak 64-bit symbol. Override it for the Rust VM;
-// loading the game's 11 MiB compressed Scene.pck alone peaks
-// near 124 MiB before Horizon's graphics/static allocation overhead. deko3d
-// GPU allocations remain in their own memory blocks.
-uint64_t __nx_heap_size = ApplicationHeapSize;
+// libnx's default heap takes all the memory the process may use: the Rust
+// VM, the decoded images and the movie frames, and deko3d's memory blocks,
+// which it allocates from the same heap.
 
 enum {
     // A 20 ms buffer and six queued buffers tolerate decode/GPU stalls of up

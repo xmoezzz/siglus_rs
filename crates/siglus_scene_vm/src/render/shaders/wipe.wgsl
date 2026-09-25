@@ -242,7 +242,7 @@ fn affected_color(uv: vec2<f32>) -> vec4<f32> {
     if (kind == 0) {
         if (p <= 0.0) { return next; }
         if (p >= 1.0) { return current; }
-        return next + (current - next) * p;
+        return mix(next, current, p);
     }
     if (kind == 1) { return current; }
     if (kind == 2) { return next; }
@@ -437,7 +437,12 @@ fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
     let uv = clamp(in.uv, vec2<f32>(0.0), vec2<f32>(1.0));
     let kind = i32(round(wipe.kind_progress.x));
     if (kind == 0 || kind == 1 || kind == 2) {
-        return affected_color(uv);
+        // The cross fades on their own, ahead of the effect families.
+        let p = clamp(wipe.kind_progress.y, 0.0, 1.0);
+        let current = textureSample(current_tex, current_smp, uv);
+        let next = textureSample(next_tex, next_smp, uv);
+        let t = select(select(p, 1.0, kind == 1), 0.0, kind == 2);
+        return mix(next, current, t);
     }
     let under = textureSample(under_tex, under_smp, uv);
     return alpha_over(under, affected_color(uv));
