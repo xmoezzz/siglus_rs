@@ -174,6 +174,16 @@ non-Siglus games. See [crates/game_launcher](crates/game_launcher/README.md).
 cargo run --release -p siglus_scene_vm --bin siglus_engine -- --project-dir ~/Documents/siglus_rs-main/testcase
 ```
 
+Closing the desktop game window prefers the game's own exit confirmation.
+The engine looks for a unique, parameterless exit action in shared script
+commands, the configured cancel-menu scene, and the active title menu's local
+button actions. Title actions are available only after the title buttons are
+ready. Scripts that require EXCALL menu storage, unsupported or ambiguous
+scripts, and already active system menus use the built-in confirmation instead.
+An optional `#CLOSE_SCENE = "scene_name", label` entry in `Gameexe.ini` overrides
+discovery: that scene must handle confirmation and call `syscom.end_game` on
+acceptance; returning resumes the game.
+
 Desktop windows use `icon.png`, `icon.ico`, or the first readable `.ico` file
 (in filename order) from the game directory, falling back to the Siglus icon.
 The engine uses winit `0.31.0-beta.3` to send window icons directly through

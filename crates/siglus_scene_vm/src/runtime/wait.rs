@@ -1424,6 +1424,10 @@ impl VmWait {
         self.group_selection = Some((form_id, stage_idx, group_idx));
     }
 
+    pub(crate) fn button_selection_waiting(&self) -> bool {
+        self.selbtn || self.group_selection.is_some()
+    }
+
     pub fn wait_input_key(&mut self, skip_disabled: bool) {
         self.mark_block_request();
         self.waiting_for_key = true;

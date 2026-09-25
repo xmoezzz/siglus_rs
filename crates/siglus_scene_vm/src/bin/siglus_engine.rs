@@ -3847,6 +3847,40 @@ impl App {
         }
     }
 
+    fn begin_main_window_close(&mut self) {
+        if self
+            .syscom_suspended_waits
+            .iter()
+            .any(|(_, _, key)| key == "CLOSE_SCENE")
+        {
+            return;
+        }
+        let Some(vm) = self.vm.as_mut() else {
+            return;
+        };
+        // EXCALL storage is shared by menus. Opening another menu while it
+        // is owned could overwrite the active menu's objects and wait state.
+        if !vm.ctx.excall_state.ex_call_flag && !vm.ctx.excall_state.ready {
+            match vm.call_game_close_scene() {
+                Ok(true) => {
+                    self.ensure_requested_script_proc();
+                    self.suspend_wait_for_syscom_excall("CLOSE_SCENE");
+                    return;
+                }
+                Ok(false) => {}
+                Err(err) => log::warn!("game close action failed: {err:#}"),
+            }
+        }
+        self.begin_syscom_warning(SyscomPendingProc {
+            kind: SyscomPendingProcKind::EndGame,
+            warning: true,
+            se_play: false,
+            fade_out: false,
+            leave_msgbk: false,
+            save_id: 0,
+        });
+    }
+
     fn request_main_window_close(&mut self, elwt: &dyn ActiveEventLoop) {
         let Some(vm) = self.vm.as_ref() else {
             elwt.exit();
@@ -3869,14 +3903,7 @@ impl App {
             self.wake_for_input();
             return;
         }
-        self.begin_syscom_warning(SyscomPendingProc {
-            kind: SyscomPendingProcKind::EndGame,
-            warning: true,
-            se_play: false,
-            fade_out: false,
-            leave_msgbk: false,
-            save_id: 0,
-        });
+        self.begin_main_window_close();
         self.wake_for_input();
     }
 }
@@ -4769,6 +4796,191 @@ fn run_headless_capture(args: Args) -> Result<()> {
 #[cfg(test)]
 mod desktop_coordinate_tests {
     use super::App;
+
+    #[cfg(feature = "virtual-clock")]
+    fn close_test_excall_errors() -> &'static std::sync::Mutex<Vec<String>> {
+        struct Logger(std::sync::Mutex<Vec<String>>);
+        impl log::Log for Logger {
+            fn enabled(&self, meta: &log::Metadata<'_>) -> bool {
+                meta.level() == log::Level::Error
+            }
+            fn log(&self, record: &log::Record<'_>) {
+                if self.enabled(record.metadata()) && record.target().ends_with("forms::excall") {
+                    self.0.lock().unwrap().push(record.args().to_string());
+                }
+            }
+            fn flush(&self) {}
+        }
+        static LOGGER: Logger = Logger(std::sync::Mutex::new(Vec::new()));
+        static INIT: std::sync::Once = std::sync::Once::new();
+        INIT.call_once(|| {
+            log::set_logger(&LOGGER).unwrap();
+            log::set_max_level(log::LevelFilter::Error);
+        });
+        &LOGGER.0
+    }
+
+    #[cfg(feature = "virtual-clock")]
+    #[test]
+    #[ignore = "requires a disposable SIGLUS_CLOSE_TEST_PROJECT with Sana assets"]
+    fn game_close_during_loading_uses_fallback() {
+        use super::*;
+        let errors = close_test_excall_errors();
+        let project = std::env::var("SIGLUS_CLOSE_TEST_PROJECT").unwrap();
+        // Both the boot scene and the title's initial loading state must avoid
+        // borrowing a cancel-menu callback or uninitialized title buttons.
+        for scene in ["__start", "_01menu"] {
+            for result in [1, 0] {
+                let mut app = App::new(Args::parse_from([
+                    "siglus_engine",
+                    "--project-dir",
+                    &project,
+                    "--scene-name",
+                    scene,
+                ]));
+                app.vm = Some(app.init_vm().unwrap());
+                app.flow.push(ProcType::Script, 0);
+                let depth = app.flow.stack.len();
+                app.begin_main_window_close();
+                let vm = app.vm.as_mut().unwrap();
+                assert_eq!(vm.current_scene_name(), Some(scene));
+                assert!(!vm.take_script_proc_request());
+                assert!(!vm.ctx.excall_state.ready);
+                assert!(vm.ctx.globals.system.messagebox_modal.take().is_some());
+                assert!(app.syscom_suspended_waits.is_empty());
+                assert_eq!(app.flow.stack.len(), depth + 1);
+                vm.ctx.globals.system.messagebox_modal_result = Some(result);
+                app.pump_vm().unwrap();
+                // EndGame presents one last frame before completing.
+                if result == 0 {
+                    for _ in 0..4 {
+                        if app.pending_exit {
+                            break;
+                        }
+                        app.redraw_count += 1;
+                        app.pump_vm().unwrap();
+                    }
+                }
+                assert_eq!(app.pending_exit, result == 0);
+                assert!(
+                    !app.flow
+                        .stack
+                        .iter()
+                        .any(|proc| proc.ty == ProcType::SyscomWarning)
+                );
+            }
+        }
+        assert!(errors.lock().unwrap().is_empty(), "{errors:?}");
+    }
+
+    #[cfg(feature = "virtual-clock")]
+    #[test]
+    #[ignore = "requires a disposable SIGLUS_CLOSE_TEST_PROJECT; set SIGLUS_CLOSE_TEST_GAME=sprb for Summer Pockets RB"]
+    fn game_close_dialog_cancel_and_confirm() {
+        use super::*;
+        use siglus_scene_vm::runtime::forms::codes::ELM_GLOBAL_G;
+        let errors = close_test_excall_errors();
+
+        fn frames(app: &mut App, count: usize) {
+            for _ in 0..count {
+                siglus_scene_vm::platform_time::advance_virtual_clock(
+                    std::time::Duration::from_millis(16),
+                );
+                app.pump_vm().unwrap();
+                app.vm.as_mut().unwrap().tick_frame().unwrap();
+                app.redraw_count += 1;
+                if app.pending_exit {
+                    break;
+                }
+            }
+        }
+
+        let project = std::env::var("SIGLUS_CLOSE_TEST_PROJECT").unwrap();
+        let sprb = std::env::var("SIGLUS_CLOSE_TEST_GAME").as_deref() == Ok("sprb");
+        let (title, dialog, flag, yes) = if sprb {
+            ("_rb_titlemenu", "__sys_system_call", 1323, (850, 540))
+        } else {
+            ("_01menu", "_00dialog", 18, (900, 510))
+        };
+        let mut app = App::new(Args::parse_from([
+            "siglus_engine",
+            "--project-dir",
+            &project,
+            "--scene-name",
+            title,
+        ]));
+        app.vm = Some(app.init_vm().unwrap());
+        app.flow.push(ProcType::Script, 0);
+        frames(&mut app, 500);
+        let vm = app.vm.as_mut().unwrap();
+        let flags = vm
+            .ctx
+            .globals
+            .int_lists
+            .entry(ELM_GLOBAL_G as u32)
+            .or_default();
+        if flags.len() <= flag {
+            flags.resize(flag + 1, 0);
+        }
+        flags[flag] = 1;
+        let original_scene = vm.current_scene_name().unwrap().to_string();
+        let depth = app.flow.stack.len();
+        app.begin_main_window_close();
+        assert_eq!(app.syscom_suspended_waits.len(), 1);
+        app.begin_main_window_close();
+        assert_eq!(app.syscom_suspended_waits.len(), 1);
+        frames(&mut app, 120);
+        assert_eq!(app.vm.as_ref().unwrap().current_scene_name(), Some(dialog));
+        assert!(
+            app.vm
+                .as_ref()
+                .unwrap()
+                .ctx
+                .globals
+                .system
+                .messagebox_modal
+                .is_none()
+        );
+        // The game maps right-click to No.
+        app.vm
+            .as_mut()
+            .unwrap()
+            .ctx
+            .on_mouse_down(VmMouseButton::Right);
+        frames(&mut app, 2);
+        app.vm
+            .as_mut()
+            .unwrap()
+            .ctx
+            .on_mouse_up(VmMouseButton::Right);
+        frames(&mut app, 120);
+        assert!(!app.pending_exit);
+        assert!(app.syscom_suspended_waits.is_empty());
+        assert_eq!(app.flow.stack.len(), depth);
+        assert_eq!(
+            app.vm.as_ref().unwrap().current_scene_name(),
+            Some(original_scene.as_str())
+        );
+
+        app.begin_main_window_close();
+        frames(&mut app, 120);
+        app.vm.as_mut().unwrap().ctx.on_mouse_move(yes.0, yes.1);
+        frames(&mut app, 2);
+        app.vm
+            .as_mut()
+            .unwrap()
+            .ctx
+            .on_mouse_down(VmMouseButton::Left);
+        frames(&mut app, 2);
+        app.vm
+            .as_mut()
+            .unwrap()
+            .ctx
+            .on_mouse_up(VmMouseButton::Left);
+        frames(&mut app, 240);
+        assert!(app.pending_exit);
+        assert!(errors.lock().unwrap().is_empty(), "{errors:?}");
+    }
 
     fn temp_project_dir(tag: &str) -> std::path::PathBuf {
         let nonce = std::time::SystemTime::now()

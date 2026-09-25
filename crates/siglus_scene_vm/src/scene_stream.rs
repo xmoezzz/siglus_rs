@@ -578,6 +578,16 @@ pub struct SceneStream<'a> {
 }
 
 impl<'a> SceneStream<'a> {
+    pub(crate) fn instruction_end(&self, pc: usize) -> Option<usize> {
+        let (mut end, _, kind) = scan_instruction(self.scn, pc, -1)?;
+        if matches!(kind, ReadFlagScanKind::Command)
+            && self.command_read_flags.as_ref()?.contains_key(&end)
+        {
+            end = end.checked_add(4)?;
+        }
+        (end <= self.scn.len()).then_some(end)
+    }
+
     pub fn new(chunk: &'a [u8]) -> Result<Self> {
         Self::new_with_string_codec(chunk, SceneStringCodec::Xor)
     }

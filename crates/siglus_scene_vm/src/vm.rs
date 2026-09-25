@@ -1,5 +1,6 @@
 //! Scene VM
 
+mod close;
 mod early_save;
 mod short_save;
 use crate::original_save::NativeLocalLayout;
@@ -1157,7 +1158,7 @@ impl<'a> SceneVm<'a> {
                 self.call_stack.len()
             );
         }
-        self.farcall_scene_name_ex(&scene_name, z_no, self.cfg.fm_void, true, &[])?;
+        self.call_syscom_scene(&scene_name, z_no)?;
         if self.runtime_options.proc_flow_trace {
             eprintln!(
                 "[SG_PROC_FLOW] syscom_config_scene entered key={} now_scene={:?} line={} scene_stack={} call_depth={}",
@@ -1169,6 +1170,12 @@ impl<'a> SceneVm<'a> {
             );
         }
         Ok(true)
+    }
+
+    /// Enter a game-owned system menu. The host must suspend the caller's wait
+    /// and service the script-proc push/pop requests, as for CONFIG_SCENE.
+    fn call_syscom_scene(&mut self, scene_name: &str, z_no: i32) -> Result<()> {
+        self.farcall_scene_name_ex(scene_name, z_no, self.cfg.fm_void, true, &[])
     }
 
     #[inline(always)]
@@ -6784,7 +6791,11 @@ impl<'a> SceneVm<'a> {
         }
         self.element_points.push(end);
         self.int_stack.extend_from_within(start..end);
-        vm_trace!(self, None, format!("COPY_ELM copied {:?}", &self.int_stack[end..]));
+        vm_trace!(
+            self,
+            None,
+            format!("COPY_ELM copied {:?}", &self.int_stack[end..])
+        );
         Ok(())
     }
 
