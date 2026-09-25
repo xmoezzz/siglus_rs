@@ -888,6 +888,10 @@ impl CommandContext {
                 || obj.frame_action_ch.iter().any(frame_action_needs_tick)
                 || obj.movie.playing
                 || obj.gan.is_active()
+                // Emote Progress also drives procedural blinking, breathing
+                // and physics after authored timelines finish. Keep ticking
+                // a live player while the script waits for reader input.
+                || (obj.object_type == 12 && obj.emote.runtime.is_some())
                 || obj.runtime.child_objects.iter().any(object_needs_tick)
         }
 
@@ -17187,6 +17191,77 @@ mod selbtn_continuous_frame_tests {
         ctx.globals.selbtn.capture_now_flag = true;
         assert!(ctx.needs_continuous_frame());
         ctx.globals.selbtn.capture_now_flag = false;
+        assert!(!ctx.needs_continuous_frame());
+    }
+}
+
+#[cfg(test)]
+mod emote_continuous_frame_tests {
+    use super::*;
+
+    #[test]
+    #[ignore = "requires SIGLUS_EMOTE_TEST_PROJECT pointing to 神待少女纱波"]
+    fn live_emote_keeps_idle_dialogue_and_child_objects_ticking() {
+        let project = PathBuf::from(std::env::var_os("SIGLUS_EMOTE_TEST_PROJECT").unwrap());
+        let sources = [
+            "bup_sn01_03制服＋エプロン.psb",
+            "bup_sn01_頭部.psb",
+            "bup_共通tl.psb",
+        ]
+        .map(|name| std::fs::read(project.join("dat").join(name)).unwrap());
+        let key = siglus_assets::key_toml::load_emote_key_from_project_dir(&project).unwrap();
+        let runtime = crate::emote::SiglusEmoteRuntime::from_psb_sources(
+            &sources.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+            key,
+        )
+        .unwrap();
+        // No PlayTimeline: procedural controllers alone still need Progress.
+        let mut ctx = CommandContext::new(project);
+        let form = ctx.ids.form_global_stage;
+        assert!(!ctx.needs_continuous_frame());
+        let mut obj = globals::ObjectState::default();
+        obj.used = true;
+        obj.object_type = 12;
+        obj.emote.runtime = Some(runtime);
+        ctx.globals
+            .stage_forms
+            .entry(form)
+            .or_default()
+            .object_lists
+            .insert(1, vec![obj]);
+        assert!(ctx.needs_continuous_frame());
+
+        let child = ctx
+            .globals
+            .stage_forms
+            .get_mut(&form)
+            .unwrap()
+            .object_lists
+            .get_mut(&1)
+            .unwrap()
+            .pop()
+            .unwrap();
+        let mut parent = globals::ObjectState::default();
+        parent.used = true;
+        parent.runtime.child_objects.push(child);
+        ctx.globals
+            .stage_forms
+            .get_mut(&form)
+            .unwrap()
+            .object_lists
+            .insert(1, vec![parent]);
+        assert!(ctx.needs_continuous_frame());
+        ctx.globals
+            .stage_forms
+            .get_mut(&form)
+            .unwrap()
+            .object_lists
+            .get_mut(&1)
+            .unwrap()[0]
+            .runtime
+            .child_objects[0]
+            .emote
+            .clear_runtime();
         assert!(!ctx.needs_continuous_frame());
     }
 }

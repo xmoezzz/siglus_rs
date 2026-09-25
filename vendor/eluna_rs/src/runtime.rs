@@ -614,12 +614,17 @@ impl ElunaPlayer {
     }
 
     pub fn replace_scene(&mut self, scene: EmoteStaticScene) {
+        self.swap_scene(scene);
+    }
+
+    /// Install a scene and retain the preceding frame without copying it.
+    pub fn swap_scene(&mut self, scene: EmoteStaticScene) -> EmoteStaticScene {
         // Camera StepFrame writes the active camera fov into the player's
         // stereovision coefficient input (+500 in this driver build).
         if let Some(camera) = scene.camera_runtime.as_ref() {
             self.stereovision_fov = camera.fov;
         }
-        self.scene = scene;
+        std::mem::replace(&mut self.scene, scene)
     }
 
     pub fn bounds(&self) -> Option<EmoteSceneBounds> {
@@ -759,7 +764,7 @@ impl ElunaPlayer {
         // `self.variables` intentionally keeps the latest controller/physics
         // values queryable, so reconstruct the pre-physics image first and
         // then replay only the ordering-sensitive overlays below.
-        let final_variables = self.variables.clone();
+        let final_variables = &self.variables;
         let mut values = final_variables.clone();
 
         // A positive-tick physics pass runs *after* Mirror/Clamp. Restore the
@@ -1236,6 +1241,7 @@ impl ElunaPlayer {
     }
 
     pub fn set_variable_immediate(&mut self, name: &str, value: f32) {
+        self.pre_physics_output_values.remove(name);
         if self
             .set_control_variable(name, value, 0.0, 0.0)
             .is_some()
@@ -1256,6 +1262,7 @@ impl ElunaPlayer {
     }
 
     pub fn reset_variable_to_default(&mut self, name: &str) {
+        self.pre_physics_output_values.remove(name);
         if let Some(state) = self.variables.get_mut(name) {
             let default = state.info.default_value;
             state.value = default;
@@ -2137,7 +2144,12 @@ impl ElunaPlayer {
         // evaluated_variable_states().  A positive-tick physics pass comes
         // *after* them, so remember the affected references before the solver
         // overwrites them and re-overlay the solver result at evaluation time.
-        self.pre_physics_output_values.clear();
+        // A zero-time setter (e.g. face_talk) must preserve the already
+        // published physics result. Otherwise rebuilding the same frame clamps
+        // or mirrors that result again, causing visible discontinuities.
+        if delta_ticks > PHYSICS_EPSILON_TICKS {
+            self.pre_physics_output_values.clear();
+        }
         if self.physics_enabled && delta_ticks > PHYSICS_EPSILON_TICKS {
             self.capture_pre_physics_output_values();
             self.evaluate_physics_controls(delta_ticks);
@@ -3748,12 +3760,9 @@ fn init_bust_states(pipeline: &EmoteRuntimePipeline) -> Vec<BustPhysicsState> {
     out
 }
 
-/// Initialize pendulum states from the original constructor semantics.
-///
-/// EPPendControl does not initialize its bobs from param.p/pv in the PSB path.
-/// The constructor creates rest0 = root + length[0] * (0, 1, 0) and
-/// rest1 = rest0 + length[1] * (0, 1, 0), then copies those rest points into
-/// the two current bobs and zeroes both velocities.
+/// Restore the exported pendulum state. Without a serialized state, use the
+/// constructor's straight, stationary chain. Mixing a serialized equilibrium
+/// bias with constructor bob positions produces a large startup impulse.
 fn init_hair_states(pipeline: &EmoteRuntimePipeline) -> Vec<HairPhysicsState> {
     let mut out = Vec::new();
     for control in &pipeline.physics_controls {
@@ -3762,20 +3771,29 @@ fn init_hair_states(pipeline: &EmoteRuntimePipeline) -> Vec<HairPhysicsState> {
             _ => continue,
         };
         let lengths = physics_field_f32_list_2(def, "length");
-        let root = [0.0, 0.0, 0.0];
+        let param = def.fields.get("param");
+        let root = parse_vec3_field(param, "op");
         let rest0 = [root[0], root[1] + lengths[0], root[2]];
         let rest1 = [rest0[0], rest0[1] + lengths[1], rest0[2]];
-        let param = def.fields.get("param");
         let param_ofs = param.and_then(|v| v.field_f32("ofs")).unwrap_or(0.0);
+        let vectors = |key: &str, fallback: [[f32; 3]; 2]| {
+            let Some(items) = param.and_then(|p| p.field(key)).and_then(PsbValue::as_list)
+                .filter(|items| items.len() == 2) else { return fallback; };
+            std::array::from_fn(|i| [
+                items[i].field_f32("x").unwrap_or(fallback[i][0]),
+                items[i].field_f32("y").unwrap_or(fallback[i][1]),
+                items[i].field_f32("z").unwrap_or(fallback[i][2]),
+            ])
+        };
         out.push(HairPhysicsState {
-            bob: [rest0, rest1],
-            vel: [[0.0; 3], [0.0; 3]],
+            bob: vectors("p", [rest0, rest1]),
+            vel: vectors("pv", [[0.0; 3]; 2]),
             ofs: param_ofs,
             first_tick: true,
-            root_offset: [0.0, 0.0, 0.0],
+            root_offset: root,
             last_anchor: None,
-            bend_phase: 0.0,
-            bend_power: 0.0,
+            bend_phase: param.and_then(|p| p.field_f32("bendR")).unwrap_or(0.0),
+            bend_power: param.and_then(|p| p.field_f32("bendS")).unwrap_or(0.0),
         });
     }
     out
@@ -5059,21 +5077,11 @@ fn step_hair_physics(
         return;
     }
     if state.first_tick {
-        let lengths = physics_field_f32_list_2(def, "length");
-        let root = [
-            target_anchor[0] + state.root_offset[0],
-            target_anchor[1] + state.root_offset[1],
-            target_anchor[2] + state.root_offset[2],
-        ];
-        let rest0 = [root[0], root[1] + lengths[0], root[2]];
-        let rest1 = [rest0[0], rest0[1] + lengths[1], rest0[2]];
-        state.root_offset = [
-            root[0] - target_anchor[0],
-            root[1] - target_anchor[1],
-            root[2] - target_anchor[2],
-        ];
-        state.bob = [rest0, rest1];
-        state.vel = [[0.0; 3], [0.0; 3]];
+        // Attach the restored simulation to this model's anchor without
+        // discarding its equilibrium displacement or velocity.
+        for bob in &mut state.bob {
+            *bob = add_vec3(*bob, target_anchor);
+        }
         state.last_anchor = Some(target_anchor);
         state.first_tick = false;
         step_hair_physics_once(
@@ -6688,6 +6696,16 @@ mod reverse_parity_tests {
         // Native mirrors the pre-physics 0.5, then the solver overwrites the
         // reference with +2.0. The old Rust final pass mirrored +2.0 to -2.0.
         assert_eq!(player.evaluated_variable_values().get("hair_lr").copied(), Some(2.0));
+
+        let mut mouth = player.variables["hair_lr"].clone();
+        mouth.info.name = "face_talk".to_owned();
+        player.variables.insert("face_talk".to_owned(), mouth);
+        player.set_variable_immediate("face_talk", 0.75);
+        assert_eq!(player.evaluated_variable_values()["hair_lr"], 2.0);
+        // An explicit write to the physics output itself still goes through
+        // the ordinary variable mirror/clamp stage.
+        player.set_variable_immediate("hair_lr", 3.0);
+        assert_eq!(player.evaluated_variable_values()["hair_lr"], -3.0);
     }
 
     #[test]
