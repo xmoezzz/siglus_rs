@@ -32,6 +32,11 @@ Physics corrections also address discontinuous hair and bust motion:
 - Preserve published physics outputs across zero-time variable updates, so
   mouth updates cannot mirror or clamp those outputs again.
 
+Parameterized layers follow EPParameter::SetValue (sub_10350230; inlined
+at 0x100327cc in the 2017 runtime): a `discretization` parameter truncates
+its value toward zero, and the value is clamped into
+[rangeBegin, rangeEnd] before it becomes the layer's sample time.
+
 Keep this patch until an upstream release includes equivalent fixes.
 Do not reformat the upstream files: keeping the diff small makes updating
 the vendored source easier.

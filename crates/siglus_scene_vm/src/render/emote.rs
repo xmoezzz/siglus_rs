@@ -830,3 +830,137 @@ fn build_draws(device: &wgpu::Device, packet: &EmoteRenderPacket) -> Result<Vec<
         })
         .collect())
 }
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    /// Renders a game's Emote model through the compositor into a PNG.
+    ///
+    /// ```text
+    /// EMOTE_SNAPSHOT_PROJECT=<game> EMOTE_SNAPSHOT_OUT=out.png \
+    ///   EMOTE_SNAPSHOT_SOURCES='a.psb|b.psb' EMOTE_SNAPSHOT_TIMELINES=$'0,name\n1,other' \
+    ///   cargo test -p siglus_scene_vm --lib emote_snapshot -- --ignored
+    /// ```
+    /// Optional: EMOTE_SNAPSHOT_SIZE (square side, default 2048),
+    /// EMOTE_SNAPSHOT_REP ("x,y", default "0,0"), EMOTE_SNAPSHOT_FRAMES (60).
+    #[test]
+    #[ignore = "requires EMOTE_SNAPSHOT_PROJECT and a GPU"]
+    fn emote_snapshot() {
+        let var = |name: &str| std::env::var(name).ok();
+        let project = std::path::PathBuf::from(var("EMOTE_SNAPSHOT_PROJECT").unwrap());
+        let out = var("EMOTE_SNAPSHOT_OUT").unwrap_or_else(|| "emote_snapshot.png".into());
+        let sources = var("EMOTE_SNAPSHOT_SOURCES").unwrap();
+        let sources: Vec<Vec<u8>> = sources
+            .split('|')
+            .map(|name| std::fs::read(project.join("dat").join(name)).unwrap())
+            .collect();
+        let key = siglus_assets::key_toml::load_emote_key_from_project_dir(&project).unwrap();
+        let mut runtime = crate::emote::SiglusEmoteRuntime::from_psb_sources(
+            &sources.iter().map(Vec::as_slice).collect::<Vec<_>>(),
+            key,
+        )
+        .unwrap();
+        for entry in var("EMOTE_SNAPSHOT_TIMELINES").unwrap_or_default().lines() {
+            if let Some((flags, name)) = entry.split_once(',') {
+                runtime
+                    .play_timeline(name, flags.trim().parse().unwrap())
+                    .unwrap();
+            }
+        }
+        let frames: usize = var("EMOTE_SNAPSHOT_FRAMES").map_or(60, |v| v.parse().unwrap());
+        for _ in 0..frames {
+            runtime.progress_ms(16).unwrap();
+        }
+        let side: i64 = var("EMOTE_SNAPSHOT_SIZE").map_or(2048, |v| v.parse().unwrap());
+        let (rep_x, rep_y) = var("EMOTE_SNAPSHOT_REP")
+            .and_then(|v| {
+                let (x, y) = v.split_once(',')?;
+                Some((x.trim().parse().ok()?, y.trim().parse().ok()?))
+            })
+            .unwrap_or((0, 0));
+        let packet = runtime.packet(side, side, rep_x, rep_y, false);
+
+        let instance = wgpu::Instance::default();
+        let adapter = pollster::block_on(instance.request_adapter(&Default::default())).unwrap();
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&Default::default(), None)).unwrap();
+        let mut compositor = EmoteCompositor::new(&device);
+        compositor.prepare(&device, &queue, &packet).unwrap();
+        let texture = compositor.texture(packet.render_id).unwrap();
+
+        let (width, height) = (packet.width, packet.height);
+        let padded = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: padded as u64 * height as u64,
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = device.create_command_encoder(&Default::default());
+        encoder.copy_texture_to_buffer(
+            texture._tex.as_image_copy(),
+            wgpu::ImageCopyBuffer {
+                buffer: &buffer,
+                layout: wgpu::ImageDataLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit(Some(encoder.finish()));
+        buffer.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        device.poll(wgpu::Maintain::Wait);
+        let data = buffer.slice(..).get_mapped_range();
+        let mut rgba = Vec::with_capacity((width * height * 4) as usize);
+        for row in data.chunks(padded as usize).take(height as usize) {
+            rgba.extend_from_slice(&row[..(width * 4) as usize]);
+        }
+        image::save_buffer(&out, &rgba, width, height, image::ColorType::Rgba8).unwrap();
+        if var("EMOTE_SNAPSHOT_DUMP").is_some() {
+            for sprite in &packet.scene.sprites {
+                eprintln!(
+                    "{:?} motion={} tex={} ({}x{} res={} present={}) icon={} vis={} op={:.2} bm={:#x} c=({:.0},{:.0}) wh=({:.0},{:.0}) sc=({:.2},{:.2}) rot={:.1} wt={:?} mesh={} pass={:?}",
+                    sprite.draw_frame_info.layer_label,
+                    sprite.motion_name,
+                    sprite.texture_name,
+                    sprite.texture_width,
+                    sprite.texture_height,
+                    sprite.texture_resource_index,
+                    packet.textures.contains_key(&sprite.texture_resource_index),
+                    sprite.icon_name,
+                    sprite.visible,
+                    sprite.opacity,
+                    sprite.blend_mode,
+                    sprite.center_x,
+                    sprite.center_y,
+                    sprite.width,
+                    sprite.height,
+                    sprite.scale_x,
+                    sprite.scale_y,
+                    sprite.rotation_degrees,
+                    sprite.world_transform,
+                    sprite.mesh.is_some(),
+                    sprite.draw_frame_info.pass,
+                );
+            }
+        }
+        eprintln!(
+            "sprites={} visible={} -> {out}",
+            packet.scene.sprites.len(),
+            packet
+                .scene
+                .sprites
+                .iter()
+                .filter(|s| s.visible && s.opacity > 0.0)
+                .count()
+        );
+    }
+}

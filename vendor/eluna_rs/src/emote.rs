@@ -4551,10 +4551,18 @@ fn layer_parameter_eval(
             });
         }
         // EPParameter::SetValue (sub_10350230): parameter+44 is the value
-        // consumed directly as layer sample time by sub_1032FB00. Native does
-        // not clamp the normalized value; authored `division`, not frameList
-        // max time, defines the parameter-time domain.
-        let local_time_ticks = (value - begin) * division / (end - begin);
+        // consumed directly as layer sample time by sub_1032FB00. It first
+        // truncates the value toward zero when `discretization` (+0x1C) is
+        // set, then clamps it with std::min/std::max into
+        // [min(begin, end), max(begin, end)]. Authored `division`, not
+        // frameList max time, defines the parameter-time domain. The 2017
+        // runtime inlines the same steps (0x100327cc).
+        let mut sample = value;
+        if content_bool_like(parameter, "discretization").unwrap_or(false) {
+            sample = sample.trunc();
+        }
+        let sample = sample.min(begin.max(end)).max(begin.min(end));
+        let local_time_ticks = (sample - begin) * division / (end - begin);
         return Some(LayerParameterEval {
             id: Some(id.to_owned()),
             value: Some(value),
@@ -7887,11 +7895,37 @@ mod tests {
         // sub_10350230: (5 - -10) * 100 / (10 - -10) = 75.
         assert!((eval.local_time_ticks - 75.0).abs() < 1.0e-6);
 
-        // Native does not clamp parameter+44 to [0, division].
+        // sub_10350230 clamps the value into [rangeBegin, rangeEnd] first.
         variables.insert("face_lr".to_owned(), 20.0);
         let eval = layer_parameter_eval(&layer, Some(&parameters), &variables, &frame_list, 0.0)
             .unwrap();
-        assert!((eval.local_time_ticks - 150.0).abs() < 1.0e-6);
+        assert!((eval.local_time_ticks - 100.0).abs() < 1.0e-6);
+        variables.insert("face_lr".to_owned(), -20.0);
+        let eval = layer_parameter_eval(&layer, Some(&parameters), &variables, &frame_list, 0.0)
+            .unwrap();
+        assert!(eval.local_time_ticks.abs() < 1.0e-6);
+    }
+
+    #[test]
+    fn discretized_parameter_truncates_toward_zero() {
+        let layer = PsbValue::Object(vec![("parameterize".to_owned(), PsbValue::Int(0))]);
+        let parameters = vec![PsbValue::Object(vec![
+            ("id".to_owned(), PsbValue::String("face_lr".to_owned())),
+            ("discretization".to_owned(), PsbValue::Int(1)),
+            ("rangeBegin".to_owned(), PsbValue::Float(-10.0)),
+            ("rangeEnd".to_owned(), PsbValue::Float(10.0)),
+            ("division".to_owned(), PsbValue::Float(100.0)),
+        ])];
+        let frame_list = vec![test_frame(0.0, 1, test_content(vec![]))];
+        let eval_at = |value: f32| {
+            let variables = BTreeMap::from([("face_lr".to_owned(), value)]);
+            layer_parameter_eval(&layer, Some(&parameters), &variables, &frame_list, 0.0)
+                .unwrap()
+                .local_time_ticks
+        };
+        // cvttss2si: 5.7 -> 5, -3.7 -> -3.
+        assert!((eval_at(5.7) - 75.0).abs() < 1.0e-6);
+        assert!((eval_at(-3.7) - 35.0).abs() < 1.0e-6);
     }
 
     #[test]

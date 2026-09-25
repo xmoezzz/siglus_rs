@@ -3,7 +3,7 @@
 //! Eluna 0.1's SDK constructor only accepts one serialized PSB. Its public
 //! schema and player APIs also work with a combined, already parsed archive.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
@@ -151,6 +151,7 @@ fn append_archive(
         .field("easing")
         .and_then(PsbValue::as_list)
         .map_or(0, <[_]>::len);
+    rename_colliding_sources(&psb.root, &mut next.root);
     rebase_texture_indices(&mut next.root, resource_base)?;
     rebase_references(&mut next.root, resource_base, extra_base, easing_base)?;
     for range in next.resources.iter_mut().chain(&mut next.extra_resources) {
@@ -184,6 +185,69 @@ fn entry_motion(psb: &PsbFile, schema: &EmoteModelSchema) -> Result<Option<Strin
         return Ok(Some(motion.to_owned()));
     }
     Ok(schema.default_motion_name(psb)?)
+}
+
+/// Each PSB of a CREATE_EMOTE set has its own `source` table: a layer's
+/// `src` names a source of the file it comes from. Body and head files
+/// both commonly name theirs `tex`; merged by name, the head's table would
+/// replace the body's and every body layer would take its icon from the
+/// head's texture. Rename the incoming file's colliding sources, and its
+/// references to them, before the merge.
+fn rename_colliding_sources(root: &PsbValue, next: &mut PsbValue) {
+    let Some(PsbValue::Object(existing)) = root.field("source") else {
+        return;
+    };
+    let PsbValue::Object(fields) = next else {
+        return;
+    };
+    let Some((_, PsbValue::Object(sources))) = fields.iter_mut().find(|(name, _)| name == "source")
+    else {
+        return;
+    };
+    let mut renamed = HashMap::new();
+    for index in 0..sources.len() {
+        let name = sources[index].0.clone();
+        if !existing.iter().any(|(key, _)| key == &name) {
+            continue;
+        }
+        let unique = (1..)
+            .map(|n| format!("{name}@{n}"))
+            .find(|candidate| {
+                !existing
+                    .iter()
+                    .chain(sources.iter())
+                    .any(|(key, _)| key == candidate)
+            })
+            .expect("unbounded suffixes");
+        sources[index].0 = unique.clone();
+        renamed.insert(name, unique);
+    }
+    if !renamed.is_empty() {
+        rename_source_references(next, &renamed);
+    }
+}
+
+fn rename_source_references(value: &mut PsbValue, renamed: &HashMap<String, String>) {
+    match value {
+        PsbValue::List(values) => {
+            for value in values {
+                rename_source_references(value, renamed);
+            }
+        }
+        PsbValue::Object(fields) => {
+            for (name, value) in fields {
+                if name == "src"
+                    && let PsbValue::String(src) = value
+                    && let Some(new) = renamed.get(src.as_str())
+                {
+                    *src = new.clone();
+                    continue;
+                }
+                rename_source_references(value, renamed);
+            }
+        }
+        _ => {}
+    }
 }
 
 fn rebase_texture_indices(root: &mut PsbValue, base: u32) -> Result<()> {
@@ -356,6 +420,44 @@ mod tests {
                 length: 1,
             }],
         }
+    }
+
+    #[test]
+    fn colliding_sources_keep_their_own_file() {
+        // Body and head both name their source `tex`; each file's layers
+        // must keep drawing from that file's texture.
+        let layer = |src: &str| object(&[("content", object(&[("src", string(src))]))]);
+        let body = object(&[
+            ("source", object(&[("tex", string("body"))])),
+            ("object", object(&[("body", layer("tex"))])),
+        ]);
+        let mut head = object(&[
+            (
+                "source",
+                object(&[("tex", string("head")), ("tex@1", string("taken"))]),
+            ),
+            (
+                "object",
+                object(&[("head", layer("tex")), ("nested", layer("motion/body/x"))]),
+            ),
+        ]);
+        rename_colliding_sources(&body, &mut head);
+        let sources = head.field("source").unwrap();
+        assert_eq!(sources.field_str("tex@2"), Some("head"));
+        assert_eq!(sources.field_str("tex@1"), Some("taken"));
+        assert!(sources.field("tex").is_none());
+        let src = |name: &str| {
+            head.field("object")
+                .unwrap()
+                .field(name)
+                .unwrap()
+                .field("content")
+                .unwrap()
+                .field_str("src")
+                .map(str::to_owned)
+        };
+        assert_eq!(src("head").as_deref(), Some("tex@2"));
+        assert_eq!(src("nested").as_deref(), Some("motion/body/x"));
     }
 
     fn texture(index: PsbValue) -> PsbValue {
@@ -566,5 +668,91 @@ mod tests {
                 .to_string()
                 .contains("at least one")
         );
+    }
+}
+
+#[cfg(test)]
+mod field_audit {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// Every (path, key) the game's PSBs contain, for checking which ones
+    /// Eluna reads. Object keys that name things (motions, layers, sources,
+    /// icons) are folded to `*`.
+    #[test]
+    #[ignore = "requires EMOTE_SNAPSHOT_PROJECT"]
+    fn emote_field_audit() {
+        let project = std::path::PathBuf::from(std::env::var("EMOTE_SNAPSHOT_PROJECT").unwrap());
+        let key = siglus_assets::key_toml::load_emote_key_from_project_dir(&project).unwrap();
+        let mut options = EmoteLoadOptions::default();
+        if let Some(key) = key {
+            options = options.with_emote_key(key);
+        }
+        let mut seen = BTreeSet::new();
+        let mut values = BTreeMap::<String, BTreeSet<String>>::new();
+        fn named(parent: &str) -> bool {
+            [
+                "object",
+                "motion",
+                "source",
+                "icon",
+                "texture",
+                "variable",
+                "parameter",
+            ]
+            .iter()
+            .any(|name| parent.ends_with(name))
+                || parent.ends_with("timeline")
+        }
+        fn walk(
+            value: &PsbValue,
+            path: &str,
+            seen: &mut BTreeSet<String>,
+            values: &mut BTreeMap<String, BTreeSet<String>>,
+        ) {
+            match value {
+                PsbValue::List(items) => items
+                    .iter()
+                    .for_each(|v| walk(v, &format!("{path}[]"), seen, values)),
+                PsbValue::Object(fields) => {
+                    let fold = named(path);
+                    for (name, value) in fields {
+                        let key = if fold { "*" } else { name.as_str() };
+                        let child = format!("{path}.{key}");
+                        seen.insert(child.clone());
+                        walk(value, &child, seen, values);
+                    }
+                }
+                PsbValue::Int(n) => {
+                    let set = values.entry(path.to_owned()).or_default();
+                    if set.len() < 24 {
+                        set.insert(n.to_string());
+                    }
+                }
+                PsbValue::String(s) if s.len() < 24 => {
+                    let set = values.entry(path.to_owned()).or_default();
+                    if set.len() < 24 {
+                        set.insert(format!("{s:?}"));
+                    }
+                }
+                _ => {}
+            }
+        }
+        for entry in std::fs::read_dir(project.join("dat")).unwrap() {
+            let path = entry.unwrap().path();
+            if path.extension().is_none_or(|e| e != "psb") {
+                continue;
+            }
+            let bytes = std::fs::read(&path).unwrap();
+            let (_, psb) = PsbFile::parse_normalized(&bytes, &options.normalize).unwrap();
+            walk(&psb.root, "", &mut seen, &mut values);
+        }
+        for path in &seen {
+            let vals = values
+                .get(path)
+                .map(|v| v.iter().cloned().collect::<Vec<_>>().join(","))
+                .unwrap_or_default();
+            println!("FIELD {path}\t{vals}");
+        }
     }
 }
