@@ -465,23 +465,22 @@ fn create_target(
         0,
     );
 
-    // eng_emote.cpp sets both D3DSAMP_MAGFILTER and D3DSAMP_MINFILTER to
-    // D3DTEXF_POINT while the Emote player renders into its object RT. Keep
-    // that internal sampler separate from `GpuTexture::sampler`: the latter is
-    // consumed later by the ordinary Siglus OBJECT renderer, where the Emote
-    // RT behaves like any other object texture.
-    let internal_point_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("siglus-emote-internal-point-sampler"),
+    // Filter the moving mesh's RGBA texels before compositing. Point sampling
+    // makes thin hair and alpha edges jump between texels as the mesh deforms;
+    // filtering the completed object texture later cannot remove that shimmer.
+    // This deliberately improves on eng_emote.cpp's POINT initialization.
+    let internal_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("siglus-emote-internal-linear-sampler"),
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
         address_mode_w: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Nearest,
-        min_filter: wgpu::FilterMode::Nearest,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
         mipmap_filter: wgpu::FilterMode::Nearest,
         ..Default::default()
     });
     let feedback_bind_group =
-        create_texture_bind_group(device, layout, &feedback, &internal_point_sampler);
+        create_texture_bind_group(device, layout, &feedback, &internal_sampler);
 
     let stencil_texture = device.create_texture(&wgpu::TextureDescriptor {
         label: Some("siglus-emote-stencil"),
@@ -530,7 +529,7 @@ fn create_target(
                 depth_or_array_layers: 1,
             },
         );
-        let bind_group = create_texture_bind_group(device, layout, &tex, &internal_point_sampler);
+        let bind_group = create_texture_bind_group(device, layout, &tex, &internal_sampler);
         textures.insert(resource_index, tex);
         texture_bind_groups.insert(resource_index, bind_group);
     }
