@@ -125,6 +125,22 @@ This project is non-commercial and intended for research purposes.
   </tr>
 </table>
 
+### On game consoles
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="./images/psvita.png" width="100%"><br>
+      <b>PS Vita</b><br>
+      <sub>Summer Pockets REFLECTION BLUE for PS Vita.</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="./images/switch.png" width="100%"><br>
+      <b>Nintendo Switch</b><br>
+      <sub>Anemoi for Nintendo Switch.</sub>
+    </td>
+  </tr>
+</table>
 
 * siglus_rs works on a wide range of platforms, including Windows, Linux, macOS, iOS, Android, and WebAssembly.
 
