@@ -25,7 +25,7 @@ chrono.workspace = true
 ab_glyph = "0.2.32"
 ttf-parser = "0.25.1"
 encoding_rs = "0.8"
-eluna = { package = "eluna_rs", version = "0.1.0" }
+eluna = { package = "eluna_rs", version = "0.1.0", path = "../../vendor/eluna_rs" }
 siglus_omv_decoder = { path = "../siglus_omv_decoder" }
 na_mpeg2_decoder = { path = "../na_mpeg2_decoder" }
 wmv_decoder = { package = "wmv-decoder", path = "../na_wmv_player" }

@@ -892,8 +892,6 @@ checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 [[package]]
 name = "eluna_rs"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7300e1447e14d82aaf83c0ea68b5f57f35a2524b59b6f684221c58962c5f8391"
 dependencies = [
  "flate2",
  "lz4_flex",
