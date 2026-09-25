@@ -3,6 +3,7 @@ resolver = "3"
 members = [
   "crates/*",
 ]
+exclude = ["vendor/eluna_rs"]
 
 [workspace.package]
 edition = "2024"

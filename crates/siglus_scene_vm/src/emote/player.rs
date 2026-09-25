@@ -116,8 +116,7 @@ impl Player {
         };
         // Both passes must see the same previous frame, as in EmoteRuntime.
         // Otherwise HOLD and nested-motion dt=2 advance twice during physics.
-        let previous = self.inner.scene().clone();
-        let build = |player: &ElunaPlayer| {
+        let build = |player: &ElunaPlayer, previous: &EmoteStaticScene| {
             model
                 .schema
                 .build_motion_scene_at_with_resources_variables_and_previous_scene(
@@ -126,13 +125,14 @@ impl Player {
                     motion,
                     player.elapsed_ticks(),
                     &player.evaluated_variable_values(),
-                    &previous,
+                    previous,
                 )
         };
-        self.inner.replace_scene(build(&self.inner)?);
+        let scene = build(&self.inner, self.inner.scene())?;
+        let previous = self.inner.swap_scene(scene);
         if physics_ticks > 0.0 && self.inner.is_physics_enabled() {
             self.inner.evaluate_physics_for_current_scene(physics_ticks);
-            self.inner.replace_scene(build(&self.inner)?);
+            self.inner.replace_scene(build(&self.inner, &previous)?);
         }
         Ok(())
     }
