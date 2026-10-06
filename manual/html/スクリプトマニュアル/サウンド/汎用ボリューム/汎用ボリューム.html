@@ -1,0 +1,69 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\汎用ボリューム\汎用ボリューム.html">汎用ボリューム</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\汎用ボリューム\汎用ボリューム.html">汎用ボリューム</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 汎用ボリューム</h1>
+
+<p>Siglus には、0=BGM、1=KOE（声）、2=PCM（効果音）、3=SE（システム音）、4=MOV（ムービー）の５つのボリュームがあります。
+</p>
+<p>ところが、バックグラウンドで流れる声を表現するとき、上記のどれでもない新しいボリュームが欲しいことがありました。
+</p>
+<p>そのために Siglus では、内部では 32 個のボリュームを持っています。
+そのうち 16 番以降を、汎用ボリュームとして自由に使うことができます。
+（ボリューム 5～15 はシステムが予約しています。）
+</p>
+<div class="table-container">
+<table>
+<caption>ボリュームチャンネル</caption>
+<tr><td>番号</td><td>タイプ</td></tr>
+<tr><td>0</td><td>BGM</td></tr>
+<tr><td>1</td><td>KOE（声）</td></tr>
+<tr><td>2</td><td>PCM（効果音）</td></tr>
+<tr><td>3</td><td>SE（システム音）</td></tr>
+<tr><td>4</td><td>MOV（ムービー）</td></tr>
+<tr><td>5～15</td><td>（予約）</td></tr>
+<tr><td>16～31</td><td>汎用ボリューム</td></tr>
+</table>
+</div>
+
+<p>効果音のボリュームを汎用ボリュームに合わせるには、
+<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音チャンネル（フルパラメータ）.html">効果音チャンネル（フルパラメータ）</a> の volume_type を 16～31 に合わせて下さい。
+</p>
+<p>汎用ボリュームのボリュームやオンオフを設定するには、
+<a href="../../../スクリプトマニュアル\システム制御\環境設定\環境設定.html">環境設定</a> の音量設定を参考にして下さい。
+</p>
+<h5> 効果音を汎用ボリュームで再生する</h5>
+
+<pre class="source">
+<span class="comment">// 効果音チャンネル 0 番で効果音を、汎用ボリューム 16 番に合わせて再生する</span>
+pcmch[0].play("sound00", volume_type = 16)
+</pre>
+
+<h5> 汎用ボリュームの音量を設定する</h5>
+
+<p>汎用ボリュームはグローバルに保存されます。
+環境設定画面などでユーザーが操作できるように組んで下さい。
+</p>
+<pre class="source">
+<span class="comment">// ボリューム 16 番のボリュームを 64 に設定する</span>
+syscom.set_sound_volume(16, 64)
+</pre>
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

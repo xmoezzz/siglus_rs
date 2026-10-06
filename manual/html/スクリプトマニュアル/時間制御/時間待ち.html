@@ -1,0 +1,36 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　時間制御　＞　<a href="../../スクリプトマニュアル/時間制御/時間待ち.html">時間待ち</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 時間待ち</h1>
+
+<h4> 時間を待つ</h4>
+
+<pre class="exp">
+timewait($time)
+a[0] = timewait_key($time)  // （0=ﾀｲﾑｵｰﾊﾞｰ、1=決定キー、-1=キャンセルキー）
+</pre>
+
+<p>$time ﾐﾘ秒間、時間を待ちます。
+</p>
+<p>timewait_key の場合、キーで時間待ちをスキップできます。
+決定キーまたはキャンセルキーでスキップした場合は 1 または -1 が返ります。
+タイムオーバーした場合は 0 が返ります。
+</p>
+<p>右クリックでシステムコマンドメニューが呼び出せる場合は、
+-1 が返ってくることはありません。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

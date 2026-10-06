@@ -1,0 +1,80 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　総プレイ時間を取得／設定する
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 総プレイ時間を取得／設定する</h1>
+
+<h4> 総プレイ時間を取得する</h4>
+
+<pre class="exp">
+syscom.get_total_play_time($day, $hour, $minute, $second, $millsecond)
+</pre>
+
+<p>ゲームの総プレイ時間を取得／設定します。
+</p>
+<div class="table-container">
+<table>
+<tr><td>$day</td><td>日（0～）</td></tr>
+<tr><td>$hour</td><td>時間（0～23）</td></tr>
+<tr><td>$minute</td><td>分（0～59）</td></tr>
+<tr><td>$second</td><td>秒（0～59）</td></tr>
+<tr><td>$millsecond</td><td>ﾐﾘ秒（0～999）</td></tr>
+</table>
+</div>
+
+<h4> 総プレイ時間を設定する</h4>
+
+<pre class="exp">
+syscom.set_total_play_time($day, $hour, $minute, $second, $millsecond)
+</pre>
+
+
+<p>デバッグ用のコマンドです。それ以外で使うことはほとんどないと思います。
+</p>
+<p>総プレイ時間を表示する画面を作ったときに、
+それが正常に動いているかをチェックするために使って下さい。
+</p>
+<h4> サンプル：総プレイ時間を取得する</h4>
+
+<pre class="source">
+<span class="comment">// 総プレイ時間を取得します。</span>
+syscom.get_total_play_time(l[0], l[1], l[2], l[3], l[4])
+
+<span class="comment">// 文字列を組み立てます。表示方法は少し工夫が必要です。</span>
+<span class="comment">// たとえばプレイ時間が１時間と１秒のときは、「日」の表示は必要ないですが「分」の表示は必要です。</span>
+k[0] = ""
+if (l[0] > 0)	{
+<p>k[0] += math.tostr(l[0]) + "日"
+}
+if (l[0] > 0 || l[1] > 0)	{
+k[0] += math.tostr(l[1]) + "時間"
+}
+if (l[0] > 0 || l[1] > 0 || l[2] > 0)	{
+k[0] += math.tostr(l[2]) + "分"
+}
+if (l[0] > 0 || l[1] > 0 || l[2] > 0 || l[3] > 0)	{
+k[0] += math.tostr(l[3]) + "秒"
+}
+if (l[0] > 0 || l[1] > 0 || l[2] > 0 || l[3] > 0)	{
+k[0] += math.tostr_zero(l[4], 3)
+}
+</pre>
+</p>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

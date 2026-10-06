@@ -1,0 +1,83 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ＣＧテーブル/ＣＧテーブル.html">ＣＧテーブル</a>　＞　<a href="../../スクリプトマニュアル/ＣＧテーブル/ＣＧテーブル.html">ＣＧテーブル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＣＧテーブル</h1>
+
+<p>ＣＧを見た／見てないを調べる機能です。
+ＣＧ鑑賞モードを簡単に作ることができます。
+</p>
+<p>ＣＧテーブルを使うには、CGTablePack.exe で mode.cgm を作成し、
+設定ファイルに登録しておく必要があります。
+詳しくは CGTablePack のマニュアル、および <a href="../../設定ファイル/ＣＧテーブルの設定.html">ＣＧテーブルの設定</a> を参照して下さい。
+</p>
+<h4> 一時的にＣＧテーブルの機能をオフにする／解除する</h4>
+
+<pre class="exp">
+cgtable.set_disable                            // 一時的に機能をオフにする
+cgtable.set_enable                             // 解除する
+</pre>
+
+<h4> 見た／見てないフラグを取得する</h4>
+
+<pre class="exp">
+a[0] = cgtable.get_look_by_name($file_name)    // 名前から取得する
+</pre>
+
+<p>戻り値: 0=見てない、1=見た、-1=登録されていない
+</p>
+<h4> 見た／見てないフラグを設定する</h4>
+
+<pre class="exp">
+cgtable.set_look_by_name($file_name, $look)    // 名前から設定する
+</pre>
+
+<p>$look: 0=見てない、1=見た
+</p>
+<h4> 全てのＣＧを見た／見てない状態にする</h4>
+
+<pre class="exp">
+a[0] = cgtable.set_all_flag($look)
+</pre>
+
+<p>全てのＣＧを見た／見ていない状態にします。
+デバッグ時に使うことが多いと思いますが、
+リリース時にコメントアウトし忘れることが多いので注意して下さい。
+</p>
+<p>$look: 0=見てない、1=見た
+</p>
+<h4> 登録されているＣＧの枚数を取得する</h4>
+
+<pre class="exp">
+a[0] = cgtable.get_cg_cnt
+</pre>
+
+<h4> 見たＣＧの枚数を取得する</h4>
+
+<pre class="exp">
+a[0] = cgtable.get_look_cnt
+</pre>
+
+<h4> 見たＣＧの数をパーセントで取得する</h4>
+
+<pre class="exp">
+a[0] = cgtable.get_look_percent
+</pre>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

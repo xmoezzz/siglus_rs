@@ -1,0 +1,66 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../素材について/素材について.html">素材について</a>　＞　<a href="../素材について/音について.html">音について</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 音について</h1>
+
+<p>Siglus では、「ＢＧＭ」、「音声」、「効果音」、「システム音」の４種類の音が扱えます。
+[exe] フォルダ内に [bgm] [koe] [wav] というフォルダを作り、その中に入れて下さい。
+</p>
+<div class="table-container">
+<table>
+<caption>音の種類と保存するフォルダ</caption>
+<tr><td>ＢＧＭ</td><td>[bgm]</td></tr>
+<tr><td>音声</td><td>[koe]</td></tr>
+<tr><td>効果音、システム音</td><td>[wav]</td></tr>
+</table>
+</div>
+
+<p>「効果音」は、爆発や足音など、ゲーム中の演出に使います。
+「システム音」は、ボタンの選択音や、セーブ音に使います。
+</p>
+<h4> 対応形式</h4>
+
+<p>nwa、wav、ogg<br />ｽﾃﾚｵ/ﾓﾉﾗﾙ、22050/44010kHz、16bit
+</p>
+<p>※8bit、24bit には対応していません。<br />11025kHz、48000kHz には対応していません。
+</p>
+<h5> nwa</h5>
+
+<p>独自形式です。通常はこれを使ってください。
+NWAPack.exe を使って、wav から作成できます。
+また、NWALib.exe を使って、音を確認できます。
+</p>
+<h5> wav、ogg</h5>
+
+<p>手軽に作れますが、誰でも簡単に中身が聴けてしまいます。
+製品では使わないことをオススメしますが、
+Web 上で配布する体験版など、容量を小さくしたいときは ogg を使っても構いません。
+</p>
+<p>ogg 変換ツールは、フリーソフトがありますので、ウェブから入手して下さい。
+私の知っているものでは「oggdropXPd.exe」と言うものがあります。
+</p>
+<h4> DirectSound の音質について</h4>
+
+<p>Siglus では、DirectSound を用いて音を再生しています。
+推奨は 44100kHz / 16bit です。その他のフォーマットも、44100kHz / 16bit に変換されて再生されます。
+</p>
+<h4> CD-DA について</h4>
+
+<p>Siglus は CD-DA には対応していません。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

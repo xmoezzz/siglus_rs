@@ -1,0 +1,96 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　入力制御　＞　<a href="../../スクリプトマニュアル/入力制御/決定キーとキャンセルキー.html">決定キーとキャンセルキー</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>決定キーとキャンセルキー</h1>
+
+<p>マウスやキーボードの入力を管理するには、input を使います。
+</p>
+<h4>キーの種類</h4>
+
+<p>Siglus には、次の２つのキーがあります。
+</p>
+<pre class="exp">
+input.decide    // 決定キー（マウス左、Enter キーなど）
+input.cancel    // キャンセルキー（マウス右、Esc キーなど）
+</pre>
+
+<h4>キーの操作</h4>
+
+<p>独自のメニュー画面などを作る場合は、
+「決定キーを押した場合の処理」などを自分で記述する必要があります。
+決定キーを使った例を示します。
+</p>
+<pre class="source">
+input.clear
+while (1)  {
+
+    if (input.decide.on_down == 1)  {
+        <font color="green"><span class="comment">// 決定キーを押したときの処理</font></span>
+        <font color="green"><span class="comment">// ボタンを押したときの効果音を鳴らしたりなどの処理を書きます。</font></span>
+    }
+    if (input.decide.is_down == 1)  {
+        <font color="green"><span class="comment">// 決定キーが押されている間の処理</font></span>
+        <font color="green"><span class="comment">// つかんで動かせるボタンなどの場合は、ここの処理が重要です。</font></span>
+    }
+    if (input.decide.on_down_up == 1)  {
+        <font color="green"><span class="comment">// 決定キーを押して放したときの処理</font></span>
+        <font color="green"><span class="comment">// ボタンが選択されたときの処理を書きます。</font></span>
+    }
+
+    <font color="green"><span class="comment">// 入力の状態を更新します。必ず disp の直前に置いて下さい！</font></span>
+    input.next
+
+    <font color="green"><span class="comment">// 画面を更新します。</font></span>
+    disp
+}
+</pre>
+
+<p>on_down などのコマンドを使って、キーが押されたかどうかを判定することが出来ます。
+</p>
+<p>on_down は、キーが押された時に 1 になります。next を実行することで、0 に戻ります。
+disp によって画面が更新されますが、その間にキーが押されると、再び on_down が 1 になります。
+必ずループ内では、「キーが押されたとき（放されたときの）処理」→「input.next」→「disp」の順に行って下さい。
+</p>
+<p>ループの最初では、必ず input.clear を行ってください。
+</p>
+<h4>マウスやキーボードを個別に扱う</h4>
+
+<p>ほとんどの処理は、決定キーとキャンセルキーだけで十分です。
+まれに、マウスとキーボードを個別に扱いたい場合があります。
+その場合は次のキーを使って下さい。
+</p>
+<pre class="exp">
+mouse.left      // マウス左（決定キーとは区別されます。あまり使うことはないと思います。）
+mouse.right     // マウス右（キャンセルキーとは区別されます。あまり使うことはないと思います。）
+key[$key_no]    // キーボードの各種キー（$key_no: キーコード）
+</pre>
+
+<p>詳しくは <a href="../../スクリプトマニュアル/入力制御/マウス.html">マウス</a>、<a href="../../スクリプトマニュアル/入力制御/キーボード.html">キーボード</a> を参照して下さい。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

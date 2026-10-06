@@ -1,0 +1,85 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/時間や画面を更新する.html">時間や画面を更新する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 時間や画面を更新する</h1>
+
+<h4> 画面を更新する</h4>
+
+<pre class="exp">
+disp
+</pre>
+
+<p>フレーム処理を行い、画面を更新します。
+</p>
+<p>このコマンドは、メニュー画面などを自力で作成する場合は必須のコマンドです。
+このコマンドがなければ、オブジェクトを読み込んだり動かしたりした場合に、
+それをいつ画面に反映させていいのかが分かりません。
+</p>
+<p>通常時は、メッセージ表示や wipe コマンド、timewait コマンドなどで描画を行っています。
+それらを使わないメニュー画面などで使ってください。
+</p>
+<p>disp を行わずに処理をし続けると、いわゆる「応答なし」状態になってしまいます。
+</p>
+<pre class="source">
+while (1)   {
+    <span class="comment">// オブジェクトなどの処理</span>
+    disp
+}
+</pre>
+
+<p>時間を更新する場合にも使えます。
+</p>
+<pre class="source">
+<span class="comment">// 悪い例</span>
+front.object[0].create(BIG_CG)  <span class="comment">// すごく大きな画像を読み込む</span>
+front.object[0].x_eve.set(100, 1000, 0, 0)
+イベント中です…。r
+</pre>
+
+<pre class="source">
+<span class="comment">// 良い例</span>
+front.object[0].create(BIG_CG)  <span class="comment">// すごく大きな画像を読み込む</span>
+disp
+front.object[0].x_eve.set(100, 1000, 0, 0)
+イベント中です…。r
+</pre>
+
+<p>disp がなければ時間も進みません。
+上の様に、重い処理の後には一度時間を進める、必要があります。
+</p>
+<h4> 時間を更新する</h4>
+
+<pre class="exp">
+frame
+</pre>
+
+<p>時間を更新します。disp に似ていますが、画面を更新しません。
+</p>
+<h4> 何もしない</h4>
+
+<pre class="exp">
+nop
+</pre>
+
+<p>何もしません。
+</p>
+<h5> どんな時に使うの？</h5>
+
+<p>使わないと思います。マクロの展開などで、単語の区切りが上手く行かない場合があれば使ってください。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

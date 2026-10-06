@@ -1,0 +1,80 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>　＞　<a href="../../スクリプトマニュアル/メッセージ/マルチメッセージ.html">マルチメッセージ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> マルチメッセージ</h1>
+
+<p>１つのメッセージウィンドウに、複数のメッセージを同時に表示する機能です。
+</p>
+<pre class="exp">
+multi_msg           // マルチメッセージを開始する
+next_msg            // 次のメッセージに移動する
+</pre>
+
+<h5> スクリプトサンプル</h5>
+
+<pre class="source">
+<span class="comment">// ★３つのセリフを同時に表示</span>
+
+<font color="red">multi_msg</font> KOE(051400486,001)【鈴・りん・リン】
+【鈴】「おまえにもわかるか…そうだろうそうだろう」nl <font color="red">next_msg</font>
+【りん】「絶対に捕まえられないな」nl <font color="red">next_msg</font>
+【リン】「捕まえるのに六十五年はかかるな」r
+</pre>
+
+<h5> 名前について</h5>
+
+<p>必ず、「それぞれのメッセージにつく名前」および「表示される名前」の両方を設定してください。
+実際に表示されるのは、multi_msg の前の「表示される名前」だけです。
+「それぞれのメッセージにつく名前」は、声撮りのためには必須です。
+</p>
+<h5> 声について</h5>
+
+<p>２つ以上の声を再生する場合は、あらかじめ声を合成したデータを作っておく必要があります。
+</p>
+<h5> 長い文章の自動改行</h5>
+
+<pre class="source">
+multi_msg
+「あいうえおかきくけこさしすせそたちつてとなにぬねの」nl next_msg
+「はひふへほまみむめもやゆよらりるれろわをん」r
+</pre>
+
+<p>長い文章は自動で改行されるので、次のように表示されます。
+</p>
+<pre class="result">
+「あいうえおかきくけこさしすせそたちつてと
+　なにぬねの」
+「はひふへほまみむめもやゆよらりるれろわを
+　ん」
+</pre>
+
+<h5> 色、サイズ、ルビ等</h5>
+
+<p>文章を装飾する系のコマンドは、普通に使うことが出来ます。
+</p>
+<pre class="source">
+multi_msg
+「color(2)あいうえおcolorかきくけこsize(32)さしすせそsize」nl next_msg
+「かんじruby(かんじ)漢字rubyカンジ」r
+</pre>
+
+<h5> オーバーフロー</h5>
+
+<p>オーバーフローには対応していません。文章が長くなりすぎないように注意してください。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

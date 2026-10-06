@@ -1,0 +1,129 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトを重ねて読み込む\オブジェクトを重ねて読み込む.html">オブジェクトを重ねて読み込む</a>　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトを重ねて読み込む\オブジェクトを重ねて読み込む.html">オブジェクトを重ねて読み込む</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オブジェクトを重ねて読み込む</h1>
+
+<h4> オブジェクトに画像を読み込む</h4>
+
+<p>オブジェクトを重ねて読み込む機能です。
+</p>
+<p><img src="lib01.png">
+<img src="lib02.png">
+</p>
+<p>上のように、立ち絵と顔差分を分けて作成し、重ねて表示することがよくあると思います。
+</p>
+<pre class="source">
+front.object[0].create("bg003", 1)
+front.object[1].create("bs2_mh01101", 1, 640, 200)
+front.object[2].create("bs2_mh001_f", 1, 640, 200)
+front.object[2].patno = 2
+</pre>
+
+<p><img src="kasane01.png">
+</p>
+<p>普通に重ねるだけなら問題ありません。
+</p>
+<p>ところが、これを半透明で表示したいとします。
+</p>
+<pre class="source">
+front.object[0].create("bg003", 1)
+front.object[1].create("bs2_mh01101", 1, 640, 200)
+front.object[2].create("bs2_mh001_f", 1, 640, 200)
+front.object[2].patno = 2
+front.object[1].tr = 128
+front.object[2].tr = 128
+</pre>
+
+<p><img src="kasane02.png">
+</p>
+<p>失敗例です。
+下地、差分それぞれを半透明にするので、下地の表情が透けてしまっています。
+</p>
+<p>これを防ぐには、「あらかじめ重ねた状態で読み込む」必要があります。
+</p>
+<pre class="source">
+front.object[0].create("bg003", 1)
+front.object[1].create("bs2_mh01101 | bs2_mh001_f(0, 0, 2)", 1, 640, 200)
+front.object[1].tr = 128
+</pre>
+
+<p><img src="kasane03.png">
+</p>
+<p>重ねて読み込んでから半透明にしました。
+</p>
+<h4> 使い方</h4>
+
+<p>画像を重ねて読み込むには、"file1 | file2" のようにファイル名を続けて指定します。
+</p>
+<pre class="source">
+front.object[0].create("bs2_mh01101 | bs2_mh001_f", 1, 0, 0)
+</pre>
+
+<p>文字列変数を使っている場合は以下のようになります。
+</p>
+<pre class="source">
+s[0] = "bs2_mh01101"
+s[1] = "bs2_mh001_f"
+front.object[0].create(s[0] + "|" + s[1], 1, 0, 0)
+
+<span class="comment">// s[0] | s[1] としてしまう間違いが多いです。注意して下さい。</span>
+</pre>
+
+<p>重ねる位置やパターン番号を指定することもできます。
+ファイル名の後ろに "(x, y, patno)" をつけます。
+</p>
+<pre class="source">
+front.object[0].create("bs2_mh01101 | bs2_mh001_f(0, 0, 2)", 1, 0, 0)
+</pre>
+
+<p>こちらも、例えばパターン番号を変数にしている場合は以下のようになります。
+</p>
+<pre class="source">
+s[0] = "bs2_mh01101"
+s[1] = "bs2_mh001_f"
+a[0] = 2
+front.object[0].create(s[0] + "|" + s[1] + "(0, 0, " + math.tostr(a[0]) + ")", 1, 0, 0)
+</pre>
+
+<p>文字列をこのように使う例はあまりなかったので少し難しいですが、
+「"bs2_mh01101 | bs2_mh001_f(0, 0, 2)" のような文字列を作る」という感覚でやってみて下さい。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

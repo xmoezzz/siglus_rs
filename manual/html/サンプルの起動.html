@@ -1,0 +1,96 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="サンプルの起動.html">サンプルの起動</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> サンプルの起動</h1>
+
+<p>まずはサンプルを起動して下さい。
+</p>
+<pre class="exp">
+◇Siglus\◇サンプル開発環境\exe\SiglusEngine.exe
+</pre>
+
+<h4> デバッグモードで起動する</h4>
+
+<p>開発中は、デバッグモードで起動することをお勧めします。
+SiglusDebugger3.dll が必要です。
+</p>
+<pre class="exp">
+◇Siglus\◇サンプル開発環境\work\SiglusDebugger3.dll
+</pre>
+
+<div class="chips">
+SiglusEngine Ver.1.1.0.0 より、SiglusDebugger2.dll → SiglusDebugger3.dll に変更されました。
+<br /><s>SiglusEngine Ver.1.0.4.2 より、SiglusDebugger.dll → SiglusDebugger2.dll に変更されました。</s>
+</div>
+
+<p>デバッグモードで起動するには、いくつかの方法があります。
+</p>
+<ul>
+<li> exe フォルダに SiglusDebugger3.dll を入れる</li>
+
+<p>一番簡単な方法です。ただし、製品時に取り除く必要があります。忘れやすいのであまりお勧めしません。
+</p>
+<li> システムフォルダ（32bit版OSの場合は C:\Windows\System32、64bit版OSの場合は C:\Windows\SysWOW64）に SiglusDebugger3.dll を入れる</li>
+
+<p>常にデバッグモードで起動できます。逆にリリースモードで起動するために、コンパイラが必要になります。
+</p>
+<li> 作業フォルダに SiglusDebugger3.dll を入れる</li>
+
+<p>コンパイラの操作が必要になります。お勧めの方法です。
+</ul>
+</p>
+<div class="chips">
+SiglusEngine Ver.1.0.4.2 より、セキュリティ強化のため、コマンドラインからの起動はなくなりました。ご了承下さい。
+</div>
+
+<h5> コンパイラを使ってデバッグモードで起動する</h5>
+
+<pre class="exp">
+◇Siglus\◇サンプル開発環境\SiglusCompiler.exe
+</pre>
+
+<p>コンパイラを起動し、「新規」ボタンでプロジェクトを作成します。
+出てきた「プロジェクトを追加」ダイアログで、以下の設定をして下さい。
+</p>
+<div class="table-container">
+<table>
+<tr><td></td><td></td><td>例</td></tr>
+<tr><td>プロジェクト名</td><td>好きな名前を設定してください。</td><td>サンプルゲーム</td></tr>
+<tr><td>実行ファイル</td><td>exe フォルダ内の SiglusEngine.exe を指定してください。</td><td>C:\◇Siglus\◇サンプル開発環境\exe\SiglusEngine.exe</td></tr>
+<tr><td>作業フォルダ</td><td>work フォルダを指定してください。</td><td>C:\◇Siglus\◇サンプル開発環境\work</td></tr>
+</table>
+</div>
+
+<p><font color="red">ファイルやフォルダを、入力欄にドラッグ＆ドロップすることで、簡単に設定することができます。</font>
+多くのツールがこの方法に対応しています。
+</p>
+<p>[ ＯＫ：プロジェクトを【追加】する ] を押してください。
+</p>
+<p>ダイアログ左の「実行」ボタンを押すと、デバッグモードで起動できます。
+作業フォルダを指定した場合、セーブデータも作業フォルダに出力されます。
+製品版に間違って入れてしまうのを防ぐことができます。
+開発中はこの方法で起動することをお勧めします。
+</p>
+<p>デバッグモードで起動すると、ウィンドウ上部にデバッグメニューが表示されます。
+</p>
+<div align="center">
+<img src="../img/デバッグメニュー.png" />
+</div>
+
+<p>基本操作の他、システムコマンドメニュー、デバッグメニューを１通り触ってみてください。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

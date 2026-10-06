@@ -1,0 +1,135 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　セーブ／ロード　＞　<a href="../../../セーブデータ.html">セーブデータ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> セーブデータ</h1>
+
+
+<h4>セーブデータの個数を取得する</h4>
+
+<pre class="exp">
+a[0] = syscom.get_save_cnt                          // セーブデータの個数を取得する
+a[0] = syscom.get_quick_save_cnt                    // クイックセーブデータの個数を取得する
+</pre>
+
+<h4>最新のセーブデータの番号を取得する</h4>
+
+<pre class="exp">
+a[0] = syscom.get_save_new_no                       // 最新のセーブデータの番号を取得する（存在しない = -1）
+</pre>
+
+<h4>セーブデータが存在しているかを調べる</h4>
+
+<pre class="exp">
+a[0] = syscom.get_save_exist($save_no)              // セーブデータが存在しているかどうかを取得する（0=存在しない、1=存在する）
+a[0] = syscom.get_quick_save_exist($save_no)        // クイックセーブデータが存在しているかどうかを取得する（0=存在しない、1=存在する）
+</pre>
+
+<h4>セーブデータの日時を取得する</h4>
+
+<pre class="exp">
+a[0] = syscom.get_save_year($save_no)               // セーブデータの「年」を取得する
+a[0] = syscom.get_save_month($save_no)              // セーブデータの「月」を取得する
+a[0] = syscom.get_save_day($save_no)                // セーブデータの「日」を取得する
+a[0] = syscom.get_save_weekday($save_no)            // セーブデータの「曜日」を取得する（0=日、1=月、2=火、3=水、4=木、5=金、6=土）
+a[0] = syscom.get_save_hour($save_no)               // セーブデータの「時」を取得する
+a[0] = syscom.get_save_minute($save_no)             // セーブデータの「分」を取得する
+a[0] = syscom.get_save_second($save_no)             // セーブデータの「秒」を取得する
+a[0] = syscom.get_save_millisecond($save_no)        // セーブデータの「ﾐﾘ秒」を取得する（0 - 999）
+
+a[0] = syscom.get_quick_save_year($save_no)         // クイックセーブデータの「年」を取得する
+a[0] = syscom.get_quick_save_month($save_no)        // クイックセーブデータの「月」を取得する
+a[0] = syscom.get_quick_save_day($save_no)          // クイックセーブデータの「日」を取得する
+a[0] = syscom.get_quick_save_weekday($save_no)      // クイックセーブデータの「曜日」を取得する（0=日、1=月、2=火、3=水、4=木、5=金、6=土）
+a[0] = syscom.get_quick_save_hour($save_no)         // クイックセーブデータの「時」を取得する
+a[0] = syscom.get_quick_save_minute($save_no)       // クイックセーブデータの「分」を取得する
+a[0] = syscom.get_quick_save_second($save_no)       // クイックセーブデータの「秒」を取得する
+a[0] = syscom.get_quick_save_millisecond($save_no)  // クイックセーブデータの「ﾐﾘ秒」を取得する（0 - 999）
+</pre>
+
+<h4>セーブデータのタイトルを取得する</h4>
+
+<pre class="exp">
+s[0] = syscom.get_save_title($save_no)              // セーブデータのタイトルを取得する
+s[0] = syscom.get_quick_save_title($save_no)        // クイックセーブデータのタイトルを取得する
+</pre>
+
+<p>セーブした時に set_title で指定されていたタイトルを取得します。
+</p>
+<h4>セーブデータのメッセージを取得する</h4>
+
+<pre class="exp">
+s[0] = syscom.get_save_message($save_no)            // セーブデータのメッセージを取得する
+s[0] = syscom.get_quick_save_message($save_no)      // クイックセーブデータのメッセージを取得する
+s[0] = syscom.get_save_full_message($save_no)       // セーブデータのメッセージを取得する（ノベル用）
+s[0] = syscom.get_quick_save_full_message($save_no) // クイックセーブデータのメッセージを取得する（ノベル用）
+</pre>
+
+<p>セーブした時にメッセージウィンドウに表示されていたメッセージを取得します。
+</p>
+<p>ノベルウィンドウの場合、直前の r コマンドまでが取得できます。
+メッセージウィンドウ全体の文字列を取得する場合は、full_message の方を使って下さい。
+</p>
+<h4>セーブデータのコメントを取得／設定する</h4>
+
+<pre class="exp">
+s[0] = syscom.get_save_comment($save_no)            // セーブデータのコメントを取得する
+syscom.set_save_comment($save_no, $str)             // セーブデータのコメントを設定する
+s[0] = syscom.get_quick_save_comment($save_no)      // クイックセーブデータのコメントを取得する
+syscom.set_quick_save_comment($save_no, $str)       // クイックセーブデータのコメントを設定する
+</pre>
+
+<p>自由に取得／設定することができます。
+セーブデータを直接読み書きするので、無駄に処理を行うと時間がかかります。
+</p>
+<h4>セーブデータの汎用フラグを取得／設定する</h4>
+
+<pre class="exp">
+syscom.get_save_value($save_no, $flag, $start_index, $flag_cnt)        // セーブデータのフラグを取得する
+syscom.set_save_value($save_no, $flag, $start_index, $flag_cnt)        // セーブデータのフラグを設定する
+syscom.get_quick_save_value($save_no, $flag, $start_index, $flag_cnt)  // クイックセーブデータのフラグを取得する
+syscom.set_quick_save_value($save_no, $flag, $start_index, $flag_cnt)  // クイックセーブデータのフラグを設定する
+</pre>
+
+<p>セーブデータはそれぞれ汎用フラグを持っています。それを取得／設定するコマンドです。
+セーブデータを直接読み書きするので、無駄に処理を行うと時間がかかります。
+汎用フラグは 256 個あります。汎用フラグの個数を変更することはできません。
+</p>
+<pre class="source">
+<span class="comment">// セーブデータ０番から、汎用フラグを３つ受け取り、</span>
+<span class="comment">// F[10]～F[12] に順に代入する</span>
+syscom.get_save_flag(0, F, 10, 3)
+</pre>
+
+<h4>セーブデータをコピー／交換／削除する</h4>
+
+<pre class="exp">
+a[0] = syscom.copy_save($save_no_1, $save_no_2)     // セーブデータ１をセーブデータ２にコピーする
+a[0] = syscom.change_save($save_no_1, $save_no_2)   // セーブデータを交換する
+a[0] = syscom.delete_save($save_no)                 // セーブデータを削除する
+
+a[0] = syscom.copy_quick_save($save_no_1, $save_no_2)     // クイックセーブデータ１をクイックセーブデータ２にコピーする
+a[0] = syscom.change_quick_save($save_no_1, $save_no_2)   // クイックセーブデータを交換する
+a[0] = syscom.delete_quick_save($save_no)                 // クイックセーブデータを削除する
+</pre>
+
+<h5>戻り値</h5>
+
+<p>0=失敗した、1=成功した
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

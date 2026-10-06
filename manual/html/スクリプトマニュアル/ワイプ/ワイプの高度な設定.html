@@ -1,0 +1,83 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプ.html">ワイプ</a>　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプの高度な設定.html">ワイプの高度な設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ワイプ（高度な設定）</h1>
+
+<p>wipe, wipe_all, mask_wipe, mask_wipe_all コマンドは、名前つき引数が使えます。
+名前つき引数を使うことで、より高度な設定ができます。
+</p>
+<pre class="exp">
+名前つき引数 = {type, time, start_time, speed_mode, option, wait, key_skip, start_order, end_order, start_layer, end_layer, with_low_order}
+</pre>
+
+<h5> 名前つき引数の使い方の例</h5>
+
+<pre class="source">
+<span class="comment">// ワイプする、ワイプの終了を待たない（wait=0）</span>
+wipe(wait=0)
+
+<span class="comment">// ワイプ番号４番（じわだし）（type=4）、サイズは 32×32（option=[0, 32, 32]）でワイプする</span>
+wipe(type=4, option=[0, 32, 32])
+
+<span class="comment">// ワイプ番号１５番（元絵も一緒にスクロール）で、1000ﾐﾘ秒でワイプする</span>
+<span class="comment">// キーを押してもスキップできない（key_skip=0）</span>
+wipe(15, 1000, key_skip=0)
+</pre>
+
+<h5> 名前つき引数</h5>
+
+<div class="table-container">
+<table>
+<tr><td>type</td><td>引数の $type と同じです。</td></tr>
+<tr><td>time</td><td>引数の $time と同じです。</td></tr>
+<tr><td>start_time</td><td>ワイプの開始時刻を設定します。例えば start_time=1000 の場合、1000ﾐﾘ秒進んだ状態からワイプが始まります。</td></tr>
+<tr><td>speed_mode</td><td>引数の $speed_mode と同じです。</td></tr>
+<tr><td>option</td><td>引数の [$opt00, $opt01, ...] の部分と同じです。</td></tr>
+<tr><td>wait</td>
+<td>
+ワイプが終わるのを待つかどうかを指定します。（0=待たない、1=待つ）<br />
+省略した場合は 1 が使われます。
+</td></tr>
+<tr><td>key_skip</td>
+<td>
+wait=1 の時に、ウェイトをキーで飛ばせるかを指定します。（0=飛ばせない、1=飛ばせる、-1=環境設定に従う）<br />
+省略した場合は -1 が使われます。
+</td></tr>
+<tr><td>start_order, end_order</td>
+<td>
+ワイプするオーダーの範囲を指定します。
+オーダーについては <a href="../../スクリプトマニュアル/ステージ／オーダー/オーダー.html">オーダー</a> を参照して下さい。
+</td></tr>
+<tr><td>start_layer, end_layer</td>
+<td>
+ワイプするレイヤーの範囲を指定します。
+詳しくは <a href="../../スクリプトマニュアル/ステージ／オーダー/オーダー.html">オーダー</a> を参照して下さい。
+</td></tr>
+<tr><td>with_low_order</td><td>ワイプ時に下のオーダーごと動かします。詳しくは <a href="../../スクリプトマニュアル/ワイプ/下のオーダーも一緒に動かす.html">下のオーダーも一緒に動かす</a> を参照して下さい。</td></tr>
+</div>
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

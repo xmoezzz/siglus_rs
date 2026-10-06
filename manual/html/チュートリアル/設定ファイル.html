@@ -1,0 +1,73 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>設定ファイル</h1>
+
+<p>
+ウィンドウサイズなど、ゲームの各種設定を行うファイルです。
+ファイル名は "Gameexe.ini" 固定です。
+</p>
+
+<h4>設定ファイルを作る</h4>
+
+<p>
+ss フォルダの中に新規作成してください。
+</p>
+
+<pre class="source">
+SampleGame
+  +- exe
+  |   +- SiglusEngine.exe
+  |
+  +- ss
+  |   +- _start.ss
+  |   +- _menu.ss
+  |   +- <font color="red">Gameexe.ini          <span class="comment">// 設定ファイル。新規作成して下さい。</font></span>
+  |
+  +- tmp
+  |
+  +- work
+  |   +- SiglusDebugger3.dll
+  |
+  +- SiglusCompiler.exe
+</pre>
+
+<p>
+Gameexe.ini をテキストエディタで開き、
+試しに、以下のように書き込んでみます。
+</p>
+
+<pre class="source">
+#SCREEN_SIZE = 1280, 720           <span class="comment">// スクリーンサイズ</span>
+</pre>
+
+<p>
+作り終えたら、もう一度コンパイルを行って下さい。
+exe フォルダに Gameexe.dat というファイルが出来上がります。
+ゲームを起動してみましょう。ウィンドウサイズが大きくなっています。
+</p>
+
+<p>
+なお、SCREEN_SIZE が設定されていない場合は、デフォルト値として 800×600 が使われます。
+</p>
+
+<p>
+その他の設定に関しては、サンプルの Gameexe.ini を参照して下さい。
+コメントつきで、全ての設定が使われています。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

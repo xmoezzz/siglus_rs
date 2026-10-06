@@ -1,0 +1,79 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　ステージ／オーダー　＞　<a href="../../スクリプトマニュアル/ステージ／オーダー/オーダー.html">オーダー</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オーダー</h1>
+
+<p>各 <a href="../../スクリプトマニュアル/ステージ／オーダー/ステージ.html">ステージ</a> は、オーダーに分かれています。
+オブジェクトはオーダー０に、メッセージウィンドウはオーダー１に描画されます。
+（メッセージウィンドウのオーダーについては <a href="../../設定ファイル/メッセージウィンドウの設定.html">メッセージウィンドウの設定</a> で変更できます。）
+</p>
+<p>オーダーは、番号の大きいほうが上に表示されます。
+つまり、オーダー０のオブジェクトよりオーダー１のメッセージウィンドウの方が上に表示されます。
+</p>
+<p>メッセージウィンドウより上にオブジェクトを表示したい場合は、
+オブジェクトのオーダーを指定します。
+</p>
+<h5> オブジェクトのオーダーを変更する</h5>
+
+<pre class="source">
+front.object[0].order = 2   <span class="comment">// オブジェクトのオーダーを２にする</span>
+                            <span class="comment">// （メッセージウィンドウより上に表示される）</span>
+</pre>
+
+<p>ワイプやクエイクなどの演出は、範囲をオーダー単位で指定できます。
+例えば、オーダー０のみをクエイクした場合、オブジェクトのみが揺れます。
+オーダー０～１をクエイクした場合は、メッセージウィンドウごと揺れます。
+</p>
+<h5> クエイクのオーダーを指定する</h5>
+
+<pre class="source">
+<span class="comment">// オーダー１のみを揺らす（メッセージウィンドウのみを揺らす）</span>
+<span class="comment">// タイプ＝０（片方向）、時間＝1000ﾐﾘ秒、揺れ回数＝２＋１回、向き＝４（下）</span>
+screen.quake[0].start(0, 1000, 2, 1, <font color="red">1</font>, <font color="red">1</font>, [100, 4])
+
+<span class="comment">// オーダー０～１を揺らす（オブジェクトとメッセージウィンドウを揺らす）</span>
+<span class="comment">// タイプ＝０（片方向）、時間＝1000ﾐﾘ秒、揺れ回数＝３回、向き＝０（上）</span>
+screen.quake[0].start(0, 1000, 3, 0, <font color="red">0</font>, <font color="red">1</font>, [100, 0])
+
+<span class="comment">// 全てのオーダーを揺らす</span>
+<span class="comment">// タイプ＝０（片方向）、時間＝1000ﾐﾘ秒、揺れ回数＝３回、向き＝０（上）</span>
+screen.quake[0].<font color="red">start_all</font>(0, 1000, 3, 0, [100, 0])
+</pre>
+
+<h5> ワイプのオーダーを指定する</h5>
+
+<p>ワイプは名前つき引数を使ってオーダーを指定します。
+（クエイクなどと引数の名前が違うので注意して下さい。）
+</p>
+<pre class="source">
+<span class="comment">// オーダー０のみをワイプ（オブジェクトのみをワイプ）</span>
+back.object[0].create(BG001, 1)
+wipe(start_order=0, end_order=0)
+てすと。r
+
+<span class="comment">// オーダー０～１をワイプ（メッセージウィンドウごとワイプ）</span>
+back.object[0].create(BG002, 1)
+wipe(start_order=0, end_order=1)
+
+<span class="comment">// 全てのオーダーをワイプする</span>
+back.object[0].create(BG003, 1)
+wipe_all
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

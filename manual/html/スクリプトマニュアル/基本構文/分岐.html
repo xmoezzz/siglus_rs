@@ -1,0 +1,102 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/分岐.html">分岐</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 分岐</h1>
+
+<h4> if / elseif / else</h4>
+
+<p>if 文を使ってスクリプト処理を分岐できます。
+選択肢によってシナリオを変更する時などに使います。
+</p>
+<pre class="source">
+<span class="comment">// 選択肢を表示します。</span>
+<span class="comment">// 「選択肢１」が選ばれた場合、a[0] に 0 が代入されます。</span>
+<span class="comment">// 「選択肢２」が選ばれた場合、a[0] に 1 が代入されます。</span>
+<span class="comment">// 「選択肢３」が選ばれた場合、a[0] に 2 が代入されます。</span>
+a[0] = sel("選択肢１", "選択肢２", "選択肢３")
+
+<span class="comment">// a[0] の値でシナリオを分岐します。</span>
+if (a[0] == 0) {
+
+    <span class="comment">// a[0] が 0 の場合はここを通ります。</span>
+    選択肢１が選ばれました。r
+}
+elseif (a[0] == 1)  {
+
+    <span class="comment">// a[0] が 1 の場合はここを通ります。</span>
+    選択肢２が選ばれました。r
+}
+else  {
+
+    <span class="comment">// それ以外の場合はここを通ります。</span>
+    選択肢３が選ばれました。r
+}
+</pre>
+
+<p>複雑な条件文を書くこともできます。
+</p>
+<pre class="source">
+<span class="comment">// #define @１度ゲームをクリアした g[0]</span>
+<span class="comment">// #define @キャラＡの好感度       a[0]</span>
+<span class="comment">// #define @キャラＢの好感度       a[1]</span>
+
+<span class="comment">// １度でもゲームをクリアしたか、もしくは、</span>
+<span class="comment">// キャラＡとＢの両方の好感度が１０以上の場合、隠しシナリオを表示する</span>
+if (@１度ゲームをクリアした || (@キャラＡの好感度 >= 10 && @キャラＢの好感度 >= 10)) {
+
+    <span class="comment">// ここに隠しシナリオを記述する</span>
+}
+</pre>
+
+
+<h4> switch / case / default</h4>
+
+<p>条件が単純で数の多い分岐の時は、switch 文を使うと楽です。
+</p>
+<pre class="source">
+どのシナリオを読みますか？
+
+<span class="comment">// 選択肢を表示する</span>
+<span class="comment">// 選んだ結果によって、a[0] に 0～7 が入る</span>
+<span class="comment">// 右クリックでキャンセルすると、-1 が入る</span>
+a[0] = sel_cancel(
+    "プロローグ",
+    "第１章",
+    "第２章",
+    "第３章",
+    "第４章",
+    "エンディングＡ",
+    "エンディングＢ",
+    "ゲームを終了する"
+    )
+
+<span class="comment">// a[0] の値によって飛び先を分岐する</span>
+<span class="comment">// 7 もしくは -1 が入っている場合はゲームを終了する</span>
+switch (a[0]) {
+    case (00)   jump("プロローグ")
+    case (01)   jump("第１章")
+    case (02)   jump("第２章")
+    case (03)   jump("第３章")
+    case (04)   jump("第４章")
+    case (05)   jump("エンディングＡ")
+    case (06)   jump("エンディングＢ")
+    default     owari
+}
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,123 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージ</h1>
+
+<h4>一般的なメッセージの例</h4>
+
+<pre class="source">
+koe(100000000,000)set_face(FCRN00)【鈴】「今日はすごいぞ」r
+koe(100000001,000)set_face(FCRN01)【鈴】「聞いて驚け」r
+koe(100000002,000)set_face(FCRN02)【鈴】「じゃん！」r
+</pre>
+
+<p>通常は、声、顔グラフィック、名前、メッセージ、r コマンドの順に並べます。
+</p>
+<h4>メッセージを表示する</h4>
+
+<pre class="exp">
+print($num)
+print($str)
+</pre>
+
+<p>メッセージを表示します。
+フラグの内容を表示するときなどに使います。
+</p>
+<pre class="source">
+print(a[0])           <span class="comment">// a[0] の値を表示する</span>
+print(a[0] + a[1])    <span class="comment">// a[0] + a[1] の値を表示する</span>
+</pre>
+
+<h4>メッセージを消去する</h4>
+
+<pre class="exp">
+clear
+</pre>
+
+<p>文字を消去する準備を行います。
+</p>
+<p>実際は、すぐには消去されません。
+次に文字が表示される直前に消去されます。
+</p>
+<pre class="source">
+（キャラ１を表示）
+（文章１を表示）pp clear
+wipe(0, 1000)
+（キャラ２を表示）
+（文章２を表示）pp clear
+</pre>
+
+<p>上記のような演出時、は、以下の用に処理されます。
+</p>
+<ul>
+<li>キャラ１が表示される</li>
+<li>文章１が表示される</li>
+<li>ワイプされる</li>
+<li>キャラ２が表示される</li>
+<li><font color="red">文章１が消える</font></li>
+<li>文章２が表示される</li>
+</ul>
+
+<h4>メッセージの表示終了を待つ</h4>
+
+<pre class="exp">
+wait_msg
+</pre>
+
+<p>現在の文章が最後まで表示されるのを待ちます。
+通常は自動で待つので、あまり使うことのないコマンドです。
+</p>
+<h4>メッセージのキー待ちを行う</h4>
+
+<pre class="exp">
+pp
+</pre>
+
+<p>現在の文章が最後まで表示されるのを待ち、その後、キー待ちを行います。
+</p>
+<h4>メッセージのＲ待ちを行う</h4>
+
+<pre class="exp">
+r
+</pre>
+
+<p>現在の文章が最後まで表示されるのを待ち、キー待ちを行い、メッセージのクリア準備を行います。
+pp clear とほぼ同じコマンドです。
+ほぼ全ての文章の後につけることになると思います。非常に重要なコマンドです。
+</p>
+<p><a href="../../スクリプトマニュアル/メッセージ/ノベルモード.html">ノベルモード</a> の場合は、メッセージはクリアされません。
+</p>
+<pre class="source">
+【鈴】「今日はすごいぞ」r
+【鈴】「聞いて驚け」r
+【鈴】「じゃん！」r
+</pre>
+
+<h4>メッセージのＲ待ちを行い、改ページする</h4>
+
+<pre class="exp">
+page
+</pre>
+
+<p><a href="../../スクリプトマニュアル/メッセージ/ノベルモード.html">ノベルモード</a> で使います。
+ノベルモードでは r コマンドでメッセージはクリアされないので、
+ページの切り替え位置で page コマンドを使って下さい。
+</p>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

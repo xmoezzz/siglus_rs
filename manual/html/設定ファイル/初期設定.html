@@ -1,0 +1,65 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/初期設定.html">初期設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 初期設定</h1>
+
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■初期設定</span>
+<span class="comment">// =============================================================</span>
+#DISCMARK = "SampleProject.env"         <span class="comment">// ディスク認識ファイルのファイル名</span>
+#GAMENAME = "サンプルプロジェクト"      <span class="comment">// キャプションなどに表示されるゲーム名</span>
+#GAMEVERSION = "Ver.1.0"                <span class="comment">// ゲーム名のバージョン情報</span>
+#MANUAL_PATH = "manual\\index.html"     <span class="comment">// マニュアルへのパス</span>
+#SCREEN_SIZE = 1280, 720                <span class="comment">// スクリーンサイズ</span>
+</pre>
+
+<h5> #DISCMARK</h5>
+
+<p>ゲームディスクを認識する env ファイルを設定します。
+開発環境の「◇セットアップ環境」を参考に、ここで指定したファイルを環境に入れて下さい。
+ダミファイルチェックなどに使うため、ファイル名はゲーム固有のものにして下さい。（例：Rewrite.env など）
+</p>
+<p>ダウンロード用の体験版など、ディスクが存在しない場合は書く必要はありません。
+（書いてあっても問題はありません。）
+</p>
+<h5> #GAMENAME</h5>
+
+<p>ゲーム名を指定して下さい。
+ゲーム名は、ウィンドウキャプションに表示されます。
+</p>
+<h5> #GAMEVERSION</h5>
+
+<p>ゲームのバージョンを指定して下さい。
+バージョンは、システムコマンドメニューの「バージョン情報」や、環境設定ダイアログに表示されます。
+</p>
+<h5> #MANUAL_PATH</h5>
+
+<p>マニュアルのパスを指定して下さい。
+マニュアルは、システムコマンドメニューの「マニュアルを開く」から呼び出されます。
+</p>
+<p>&yen; は &yen;&yen; と表記することに注意して下さい。
+</p>
+<h5> #SCREEN_SIZE</h5>
+
+<p>ゲームウィンドウのサイズを指定します。
+「800, 600」、「1280, 720」などが一般的です。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

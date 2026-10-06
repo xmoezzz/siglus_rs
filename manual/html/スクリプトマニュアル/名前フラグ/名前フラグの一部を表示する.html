@@ -1,0 +1,49 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/名前フラグ/名前フラグ.html">名前フラグ</a>　＞　<a href="../../スクリプトマニュアル/名前フラグ/名前フラグの一部を表示する.html">名前フラグの一部を表示する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 名前フラグの一部を表示する</h1>
+
+<p>＊Ａ０、＊Ａ１、…で名前の１文字目、２文字目…を表示できます。
+＊Ａ＝たろう　とした場合、＊Ａ０＝た、＊Ａ１＝ろ、＊Ａ２＝う　となります。
+</p>
+<h4> サンプル：名前フラグの一部を表示する機能の有効な使い方１</h4>
+
+<pre class="source">
+namae("＊Ａ") = 太郎
+namae("＊Ｂ") = たろう
+「＊Ｂ０、＊Ａ…」r
+</pre>
+
+<pre class="result">
+「た、太郎…」
+</pre>
+
+<h4> サンプル：名前フラグの一部を表示する機能の有効な使い方２</h4>
+
+<pre class="source">
+namae("＊Ａ") = 太郎
+namae("＊Ｂ") = たろう
+「＊Ｂ０～＊Ｂ１～＊Ｂ２！！」r
+</pre>
+
+<pre class="result">
+「た～ろ～う！！」
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

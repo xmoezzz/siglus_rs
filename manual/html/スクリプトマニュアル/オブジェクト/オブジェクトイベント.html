@@ -1,0 +1,124 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a>　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクトイベント.html">オブジェクトイベント</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>オブジェクトイベント</h1>
+
+<h4>オブジェクトイベント</h4>
+
+<p>処理時間を指定できるパラメータ設定命令です。
+たとえば「オブジェクトの座標をＡ地点からＢ地点へ１秒間で移動する」と言う事が簡単にできます。
+</p>
+<pre class="exp">
+front.object[0].patno_eve
+front.object[0].x_eve
+front.object[0].y_eve
+front.object[0].z_eve
+front.object[0].x_rep_eve
+front.object[0].y_rep_eve
+front.object[0].z_rep_eve
+front.object[0].center_x_eve
+front.object[0].center_y_eve
+front.object[0].center_z_eve
+front.object[0].center_rep_x_eve
+front.object[0].center_rep_y_eve
+front.object[0].center_rep_z_eve
+front.object[0].scale_x_eve
+front.object[0].scale_y_eve
+front.object[0].scale_z_eve
+front.object[0].rotate_x_eve
+front.object[0].rotate_y_eve
+front.object[0].rotate_z_eve
+front.object[0].clip_left_eve
+front.object[0].clip_top_eve
+front.object[0].clip_right_eve
+front.object[0].clip_bottom_eve
+front.object[0].src_clip_left_eve
+front.object[0].src_clip_top_eve
+front.object[0].src_clip_right_eve
+front.object[0].src_clip_bottom_eve
+front.object[0].tr_eve
+front.object[0].tr_rep_eve
+front.object[0].mono_eve
+front.object[0].reverse_eve
+front.object[0].bright_eve
+front.object[0].dark_eve
+front.object[0].color_r_eve
+front.object[0].color_g_eve
+front.object[0].color_b_eve
+front.object[0].color_rate_eve
+front.object[0].color_add_r_eve
+front.object[0].color_add_g_eve
+front.object[0].color_add_b_eve
+</pre>
+
+<p>※RealLive にあった OBJFRONTEVE_DISP（表示イベント）はありません。
+</p>
+<p>詳しくは <a href="../../スクリプトマニュアル/演出/イベント.html">イベント</a> を参照ください。
+</p>
+<h5>１秒かけてオブジェクトを移動させる</h5>
+
+<pre class="source">
+<span class="comment">// オブジェクトを(100,100)に表示</span>
+front.object[0].create("UNIT00", 1, 100, 100)
+
+オブジェクトを移動します。r
+
+<span class="comment">// object[0] のＸ座標を300に、1000ﾐﾘ秒かけて、遅延時間0、速度変化0 = 等速　で移動</span>
+front.object[0].x_eve.set(300, 1000, 0, 0)
+
+<span class="comment">// object[0] のＹ座標を500に、1000ﾐﾘ秒かけて、遅延時間500ﾐﾘ秒、速度変化0 = 等速　で移動</span>
+front.object[0].y_eve.set(500, 1000, 500, 0)
+
+<span class="comment">// 上記２つの動作自体は同時に開始されますが、Ｙ方向の移動に500ﾐﾘ秒の遅延指定がさ</span>
+<span class="comment">//　Ｘ方向の移動が 500ﾐﾘ秒先に終了します。</span>
+<span class="comment">//　最終的に object[0] は (300, 500) の位置に移動します。</span></span>
+
+<span class="comment">// Ｙ座標の移動が終了するまで待つ</span>
+front.object[0].y_eve.wait
+
+オブジェクトを移動しました。r
+</pre>
+
+<h4>修正座標のイベント</h4>
+
+<p>修正座標を確保すると、修正座標イベントも確保されます。
+</p>
+<pre class="source">
+<span class="comment">// object[0] の修正座標を１０個確保する</span>
+front.object[0].x_rep.resize(10)
+
+<span class="comment">// 上の行と、↓この行は全く同じです。</span>
+front.object[0].x_rep_eve.resize(10)
+
+<span class="comment">// object[0] の修正座標Ｘの０番を100に、1000ﾐﾘ秒かけて、遅延時間0、速度変化0 = 等速　で移動</span>
+front.object[0].x_rep_eve[0].set(100, 1000, 0, 0)
+
+<span class="comment">// object[0] の修正座標Ｘの１番を-300に、2000ﾐﾘ秒かけて、遅延時間0、速度変化1 = 加速　で移動</span>
+front.object[0].x_rep_eve[1].set(-300, 2000, 0, 1)
+</pre>
+
+<h4>オブジェクト全体イベント</h4>
+
+<pre class="exp">
+front.object[0].all_eve
+</pre>
+
+<p>全てのオブジェクトをまとめて停止したりするときに使います。
+詳しくは <a href="../../スクリプトマニュアル/演出/イベントの一括操作.html">イベントの一括操作</a> を参照して下さい。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

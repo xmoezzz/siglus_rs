@@ -1,0 +1,66 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../../スクリプトマニュアル\基本構文\ユーザフラグ\ユーザフラグ.html">ユーザフラグ</a>　＞　<a href="../../../スクリプトマニュアル\基本構文\ユーザフラグ\定義ファイルで作る.html">定義ファイルで作る</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 定義ファイルでユーザフラグを作る</h1>
+
+<h4> 定義ファイルでユーザフラグを作る</h4>
+
+<h5> 定義ファイル</h5>
+
+<pre class="source">
+#property   $point : int
+#property   $name : str
+</pre>
+
+<p>名前の後ろに &quot;: 型名&quot; をつけ、フラグの型を指定します。
+</p>
+<h5> _start.ss</h5>
+
+<pre class="source">
+#z00
+
+<span class="comment">// $name に名前を、$point に好感度を代入する</span>
+$name = "舞"
+$point = 5
+
+<span class="comment">// 好感度を１あげる</span>
+$point += 1
+
+<span class="comment">// 結果を表示する</span>
+print($name)の好感度が１あがった！r
+現在の好感度はprint($point)です。r
+
+<span class="comment">// ゲームを終了する</span>
+owari
+</pre>
+
+<h5> 実行結果</h5>
+
+<pre class="result">
+舞の好感度が１あがった！
+現在の好感度＝6
+</pre>
+
+<h4> 型名を省略する</h4>
+
+<pre class="source">
+#property   $point
+</pre>
+
+<p>型名を省略した場合は int 型（整数）になります。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

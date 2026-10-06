@@ -1,0 +1,191 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/基本構文/整数.html">整数</a>　＞　<a href="../../スクリプトマニュアル/整数/数値演算.html">数値演算</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 数値演算</h1>
+
+<h4> 最大値、最小値を求める</h4>
+
+<pre class="exp">
+a[0] = math.max($a, $b)
+a[0] = math.min($a, $b)
+</pre>
+
+<p>２つの値のうち、大きい（小さい）方の値を求めます。
+</p>
+<h4> 範囲内に収める</h4>
+
+<pre class="exp">
+a[0] = math.limit($a, $num, $b)
+</pre>
+
+<p>$num を、$a ～ $b の範囲に収めます。
+</p>
+<h5>使い方の例</h5>
+
+<pre class="source">
+math.limit(100,  50, 200) → 100
+math.limit(100, 150, 200) → 150
+math.limit(100, 250, 200) → 200
+</pre>
+
+<h4> 絶対値を求める</h4>
+
+<pre class="exp">
+a[0] = math.abs($num)
+</pre>
+
+<h4> 乱数を求める</h4>
+
+<pre class="exp">
+a[0] = math.rand($min, $max)
+</pre>
+
+<p>$min～$max の範囲でランダムな値を返します。
+</p>
+<h5> 使い方の例</h5>
+
+<pre class="source">
+a[0] = math.rand(0, 99)
+</pre>
+
+<p>0～99 の範囲でランダムな値を返します。
+</p>
+<h4> ルートの値を求める</h4>
+
+<pre class="exp">
+a[0] = math.sqrt($num, $rate)
+</pre>
+
+<ul>
+<li> $num：数値</li>
+<li> $rate：この値を掛け算した結果が求まります。小数は切り捨てられます。</li>
+</ul>
+
+<h5> 使い方の例</h5>
+
+<pre class="source">
+a[0] = math.sqrt(2, 100)       <span class="comment">// (√2) * 100</span>
+</pre>
+
+<p>√2 = 1.4142... なので、100 をかけた 141 が返ってきます。
+</p>
+<h4> 対数の値を求める</h4>
+
+<pre class="exp">
+a[0] = math.log2($num, $rate)       // 2 を底とした対数
+a[0] = math.log10($num, $rate)      // 常用対数（10 を底とした対数）
+a[0] = math.log($num, $rate)        // 自然対数（e を底とした対数）
+</pre>
+
+<ul>
+<li> $num：数値</li>
+<li> $rate：この値を掛け算した結果が求まります。小数は切り捨てられます。</li>
+</ul>
+
+<h5> 使い方の例</h5>
+
+<pre class="source">
+a[0] = math.log10(2, 100)        <span class="comment">// log10(2) * 100</span>
+</pre>
+
+<p>log(2) = 0.3010... なので、100 を掛けた 30 が返ってきます。
+</p>
+<h4> 三角関数の値を求める</h4>
+
+<pre class="exp">
+a[0] = math.sin($degree, $rate)
+a[0] = math.cos($degree, $rate)
+a[0] = math.tan($degree, $rate)
+</pre>
+
+<ul>
+<li> $degree：角度（10 = 1ﾟ、3600 = 360ﾟ）</li>
+<li> $rate：この値を掛け算した結果が求まります。小数は切り捨てられます。</li>
+</ul>
+
+<h5> 使い方の例</h5>
+
+<pre class="source">
+a[0] = math.sin(600, 100)    <span class="comment">// sin(600 / 10) * 100</span>
+</pre>
+
+<p>sin(60ﾟ) = 0.866... なので、100 を掛けた 86 が返ってきます。
+</p>
+<h4> 逆三角関数の値を求める</h4>
+
+<pre class="exp">
+a[0] = math.arcsin($num, $rate)
+a[0] = math.arccos($num, $rate)
+a[0] = math.arctan($num, $rate)
+</pre>
+
+<ul>
+<li> $num：数値</li>
+<li> $rate：$num をこの値で割り算した値を渡します。</li>
+<li> 戻り値：角度で求まります。小数は切り捨てられます。（0～3599）（arctan の場合は 0～1799）（10 = 1ﾟ、3600 = 360ﾟ）</li>
+</ul>
+
+<h5>使い方の例</h5>
+
+<pre class="source">
+a[0] = math.arcsin(50, 100)   <span class="comment">// arcsin(50 / 100) * 10</span>
+</pre>
+
+<p>arcsin(50 / 100) = 30ﾟ なので、300 が返ってきます。
+</p>
+<h4> ２点の距離を求める</h4>
+
+<pre class="exp">
+a[0] = math.distance($x1, $y1, $x2, $y2)
+</pre>
+
+<ul>
+<li> $x1, $y1, $x2, $y2：２点の座標</li>
+</ul>
+
+<h5> 使い方の例</h5>
+
+<pre class="source">
+a[0] = math.distance(100, 100, 200, 200)
+</pre>
+
+<p>(100, 100) - (200, 200) の距離は 141.421... なので、141 が返ってきます。
+</p>
+<h4> ２点の角度を求める</h4>
+
+<pre class="exp">
+a[0] = math.angle($x1, $y1, $x2, $y2)
+</pre>
+
+<p>(x1, y1) を中心としたときの点 (x2, y2) への偏角を求めます。（10 = 1ﾟ、3600 = 360ﾟ）
+</p>
+<p>x 軸正の向きを基準（0ﾟ）に、y 軸正の向きへの回転を正として計算します。
+</p>
+<ul>
+<li> $x1, $y1, $x2, $y2：２点の座標</li>
+</ul>
+
+<h5> 使い方の例</h5>
+
+<pre class="source">
+a[0] = math.angle(0, 0, 100, 100)
+</pre>
+
+<p>(0, 0) - (100, 100) の偏角は 45ﾟ なので、450 が返ってきます。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

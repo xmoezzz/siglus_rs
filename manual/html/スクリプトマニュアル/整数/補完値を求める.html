@@ -1,0 +1,114 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/基本構文/整数.html">整数</a>　＞　<a href="../../スクリプトマニュアル/整数/補完値を求める.html">補完値を求める</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 補完値を求める</h1>
+
+<h4> 補完値を求める１</h4>
+
+<pre class="exp">
+a[0] = math.linear($time_0, $time_1, $value_1, $time_2, $value_2)
+</pre>
+
+<p>ある値が time_1 のときに value_1, time_2 のときに value_2 になるとして、time_0 のときの値を調べます。
+</p>
+<h5> 使い方の例</h5>
+
+<pre class="source">
+a[0] = math.linear(500, 0, 100, 1000, 200)
+</pre>
+
+<pre class="p">
+時刻    -1000     ０     1000    2000
+─────┼───＋───＋───┼──────
+ 値       ０     100      200     300
+</pre>
+
+<p>time_1 や time_2 の外側を指定した場合、値は value_1 や value_2 の外側になります。
+</p>
+<h4> 補完値を求める２<font color="red">（ｵｽｽﾒ!）</font></h4>
+
+<pre class="exp">
+a[0] = math.timetable($now_time, $rep_time, $start_value, 
+                    [$start_time, $end_time, $end_value(, $speed_mode)],
+                    [$start_time, $end_time, $end_value(, $speed_mode)],
+                    ...
+                   )
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>$now_time</td><td>現在時刻（ﾐﾘ秒）</td></tr>
+<tr><td>$rep_time</td><td>修正時刻（ﾐﾘ秒）</td></tr>
+<tr><td>$start_value</td><td>開始値</td></tr>
+<tr><td>$start_time</td><td>開始時刻（ﾐﾘ秒）</td></tr>
+<tr><td>$end_time</td><td>終了時刻（ﾐﾘ秒）</td></tr>
+<tr><td>$end_value</td><td>終了値</td></tr>
+<tr><td>$speed_mode</td><td>0: 等速、1:加速、2:減速（省略すると等速になります）</td></tr>
+</table>
+</div>
+
+<p>「時刻 $start_time から 時刻 $end_time の間に、値を $start_value から $end_value に変化させたときの現在の値を求める」コマンドです。
+カウンタと同時に使うことが多いと思います。
+</p>
+<h5> 使い方の例</h5>
+
+<pre class="source">
+a[0] = math.timetable(500, 0, 0, [0, 1000, 255])
+</pre>
+
+<pre class="p">
+時刻      ０                       1000
+─────┼────────────┼──────
+ 値       ０                        255
+</pre>
+
+<p>時刻 0 ﾐﾘ秒～時刻 1000 ﾐﾘ秒の間に、値を 0～255 に変化させます。
+現在時刻は 500 秒なので、128 が返ってきます。
+</p>
+<pre class="source">
+a[0] = math.timetable(500, 0, 0, [1000, 2000, 255], [3000, 4000, 0])
+</pre>
+
+<pre class="p">
+時刻      ０   1000  2000  3000  4000
+─────┼──┼──┼──┼──┼──
+ 値       ０    ０    255   255   ０
+</pre>
+
+<p>時刻 1000 ﾐﾘ秒～時刻 1000 ﾐﾘ秒の間に値を 0～255 に変化させます。
+また、時刻 3000 ﾐﾘ秒～時刻 4000 ﾐﾘ秒の間に値を 255～0 に変化させます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>現在時刻が ～1000 の時</td><td>0 が返ります。</td></tr>
+<tr><td>現在時刻が 1000～2000 の時</td><td>0～255 が返ります。</td></tr>
+<tr><td>現在時刻が 2000～3000 の時</td><td>255 が返ります。</td></tr>
+<tr><td>現在時刻が 3000～4000 の時</td><td>255～0 が返ります。</td></tr>
+<tr><td>現在時刻が 4000～ の時</td><td>255 が返ります。</td></tr>
+</table>
+</div>
+
+<h5> 修正時間</h5>
+
+<p>タイムテーブルの計算を、修正時間分遅らせて開始します。
+</p>
+<h5> 加速減速モード</h5>
+
+<p>$speed_mode に 1 を指定すると徐々に速く、2 を指定すると徐々に遅くなるよう動きます。
+実際に使ってみて、目で確認した方が分かりやすいと思います。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　文字列
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 文字列</h1>
+
+<h4> 文字列</h4>
+
+<p>文字列は &quot;&quot;（ダブルクォート）で囲みます。
+全角文字のみの場合は &quot;&quot; を省略できます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>表記</td><td>意味</td></tr>
+<tr><td>&quot;abc&quot;</td><td>abc</td></tr>
+<tr><td>&quot;あいうえお&quot;</td><td>あいうえお</td></tr>
+<tr><td><font color="red">あいうえお</font></td><td>あいうえお</td></tr>
+<tr><td>&quot;\\&quot;</td><td>\（円記号）</td></tr>
+<tr><td>&quot;\&quot;&quot;</td><td>&quot;（ダブルコーテーション）</td></tr>
+<tr><td>&quot;'&quot;</td><td>'（シングルコーテーション）</td></tr>
+<tr><td>&quot; &quot;</td><td>&nbsp;（半角スペース）</td></tr>
+</table>
+</div>
+
+<h4> 文字列の例外</h4>
+
+<p>コマンドの引数や代入文の右辺としてのみ、半角文字列も文字列として扱います。
+</p>
+<pre class="source">
+front.object[0].create("BG001", 1, 0, 0)
+front.object[0].create(BG001, 1, 0, 0)     <span class="comment">// これでもＯＫ</span>
+</pre>
+
+<p>危険な処理ですが、手間を考えると圧倒的に楽になります。
+また、声撮りに関してもこの方が都合が良いです。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

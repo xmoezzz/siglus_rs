@@ -1,0 +1,81 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプ.html">ワイプ</a>　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプ.html">ワイプ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ワイプ</h1>
+
+<p>ワイプを行います。
+</p>
+<h4> ワイプを行う</h4>
+
+<pre class="exp">
+wipe
+wipe($type)
+wipe($type, $time)
+wipe($type, $time, $speed_mode)
+wipe($type, $time, $speed_mode, [$opt00, $opt01, ...])
+</pre>
+
+<h5> 使い方の例</h5>
+
+<pre class="source">
+<span class="comment">// ワイプ番号０番（クロスフェード）でワイプする</span>
+wipe(0)
+
+<span class="comment">// ワイプ番号１５番（元絵も一緒にスクロール）で、</span>
+<span class="comment">// 右から（オプション＝３番）、500 ﾐﾘ秒かけてワイプする</span>
+wipe(15, 500, [3])
+
+<span class="comment">// ワイプ番号４番（じわだし）のサイズは 32×32 で、</span>
+<span class="comment">// 1000 ﾐﾘ秒かけて、加速するように（speed_mode = 1）ワイプする</span>
+wipe(4, 1000, 1, [0, 32, 32])
+</pre>
+
+<h5> 引数</h5>
+
+<div class="table-container">
+<table>
+<tr><td>$type</td>
+
+<td>
+ワイプタイプを指定します。
+ワイプタイプを変更すると、「クロスフェード」させたり「スラインドイン」させたりできます。
+詳しくは <a href="../../資料/ワイプタイプ一覧.html">ワイプタイプ一覧</a> を参照してください。
+フェード効果については説明が難しいですが、実際に動かして目で確認してください。
+</td>
+</tr>
+
+<tr><td>$time</td>
+
+<td>ワイプにかける時間を指定します。省略すると500ﾐﾘ秒でワイプします。</td>
+</tr>
+
+<tr><td>$speed_mode</td>
+
+<td>スピードモードを指定します。0=等速、1=加速、2=減速</td>
+</tr>
+
+</table>
+</div>
+
+<h4> 高度な設定</h4>
+
+<p>より高度な設定については <a href="../../スクリプトマニュアル/ワイプ/ワイプの高度な設定.html">ワイプの高度な設定</a> を参照して下さい。
+</p>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

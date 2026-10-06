@@ -1,0 +1,88 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウ.html">メッセージウィンドウ</a>　＞　<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウを操作する.html">メッセージウィンドウを操作する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージウィンドウを操作する</h1>
+
+<p>メッセージウィンドウには、
+「現在のメッセージウィンドウを操作する」「特定のメッセージウィンドウを操作する」の２通りの使い方があります。
+例えば、メッセージウィンドウを開くには、
+</p>
+<pre class="source">
+open               <span class="comment">// 現在のメッセージウィンドウを表示する</span>
+front.mwnd[0].open <span class="comment">// メッセージウィンドウ０番を表示する</span>
+</pre>
+
+<p>のように指定します。
+</p>
+<p>通常は上の方法を使います。
+メッセージウィンドウを複数使う場合は、下の方法を使うと便利です。
+上の方法を「省略形」と言います。
+</p>
+<h4> 省略形が使えるコマンド</h4>
+
+<p>set_waku, open, open_wait, open_nowait, close, close_wait, close_nowait, 
+clear, print, wait_msg, pp, r, nl, nli, clear_indent, size, sel, koe, clear_face, set_face, …
+</p>
+<h4> メッセージウィンドウを変更する／番号を取得する</h4>
+
+<pre class="exp">
+set_mwnd(0)                // メッセージウィンドウを０番に設定する
+set_mwnd(front.mwnd[0])    // メッセージウィンドウを front.mwnd[0] に設定する
+a[0] = get_mwnd            // 現在のメッセージウィンドウの番号を取得する
+</pre>
+
+
+<h4> メッセージウィンドウを開く</h4>
+
+<pre class="exp">
+open                       // メッセージウィンドウを開き、開き終わるまで待つ
+open_wait                  // メッセージウィンドウを開き、開き終わるまで待つ
+open_nowait                // メッセージウィンドウを開き、開き終わるのを待たずに次に進む
+</pre>
+
+<p>メッセージウィンドウを開きます。
+通常は、文字が表示されると自動的にウィンドウが開くので、あまり使うことのない命令です。
+open と open_wait は同じ命令です。
+</p>
+<h4> メッセージウィンドウを閉じる</h4>
+
+<pre class="exp">
+close                      // メッセージウィンドウを閉じ、閉じ終わるまで待つ
+close_wait                 // メッセージウィンドウを閉じ、閉じ終わるまで待つ
+close_nowait               // メッセージウィンドウを閉じ、閉じ終わるのを待たずに次に進む
+</pre>
+
+<p>メッセージウィンドウを閉じます。
+close と close_wait は同じ命令です。
+</p>
+<h4> メッセージウィンドウの閉じアニメを終了する</h4>
+
+<pre class="exp">
+end_close                  // メッセージウィンドウの閉じアニメを終了する
+</pre>
+
+<p>close_nowait で、非同期にメッセージウィンドウを閉じたとします。
+処理が終わって、強制的にメッセージウィンドウを閉じ終えたい場合、このコマンドを使って下さい。
+close / close_wait の場合はこのコマンドを使うことはないと思います。
+</p>
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

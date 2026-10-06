@@ -1,0 +1,53 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプ.html">ワイプ</a>　＞　<a href="../../スクリプトマニュアル/ワイプ/下のオーダーも一緒に動かす.html">下のオーダーも一緒に動かす</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 下のオーダーも一緒に動かす</h1>
+
+<p>200～300 番台の移動系ワイプを使うとき、
+普通にワイプする場合は問題ありませんが、オーダーを指定したり、
+システムコール中にワイプするときは注意が必要です。
+</p>
+<p>例えば、システムコール（右クリックメニューなど）で excall を使っているとします。
+このときにワイプを行うと、excall の部分のみがワイプされます。
+ゲーム部分の背景などはワイプされずに残ったままになります。
+</p>
+<p>移動系ワイプの場合、ゲーム部分も含めて動いてほしいことがあると思います。
+その場合は with_low_order を使います。
+</p>
+<pre class="source">
+<span class="comment">// ３Ｄ回転ワイプ、1000ﾐﾘ秒、視野角＝45度、インアウト両方</span>
+wipe(300, 1000, 0, [1, 450, 0], <font color="red">with_low_order = 1</font>)
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td><img src="with_low_order_off.png" /></td><td><img src="with_low_order_on.png" /></td></tr>
+<tr><td>with_low_order=0</td><td>with_low_order=1<br />（分かりやすくするため、画面を赤くしています。）</td></tr>
+</table>
+</div>
+
+<p>with_low_order=0 の場合は excall 部分のみが動いています。
+一方、with_low_order=1 の場合はゲーム部分も動きます。
+</p>
+<p>with_low_order=1 を指定しても、ゲーム部分がワイプされるわけではありません。
+つまり、back→front、front→next へのコピーは行われません。
+あくまで見た目上、ワイプされているように動くだけです。
+</p>
+<p>文章では分かりにくいと思います。実際に動かして見て下さい。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

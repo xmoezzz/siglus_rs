@@ -1,0 +1,130 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/ボタン選択肢の設定.html">ボタン選択肢の設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ボタン選択肢の設定</h1>
+
+<p>ボタン選択肢（selbtn）の設定を行います。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■ボタン選択肢の設定</span>
+<span class="comment">// =============================================================</span>
+#SELBTN.CNT = 1                             <span class="comment">// ボタン選択肢の数</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#SELBTN.000.BASE_FILE = "_sel_base00"       <span class="comment">// ボタンのファイル名</span>
+#SELBTN.000.BACK_FILE = "_sel_back00"       <span class="comment">// 背景のファイル名</span>
+#SELBTN.000.BASE_POS = 640, 300             <span class="comment">// ボタンの位置</span>
+#SELBTN.000.REP_POS = 40, 90                <span class="comment">// ボタンの修正位置</span>
+#SELBTN.000.ALIGN = 1, 1                    <span class="comment">// ＸＹ方向の揃え位置（0=左／上、1=中央、2=右／下）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#SELBTN.000.MOJI_SIZE = 30, 0, 0, 0         <span class="comment">// 文字のサイズ、字間、行間、横文字数</span>
+#SELBTN.000.MOJI_POS = 286, 22              <span class="comment">// 文字の位置</span>
+#SELBTN.000.MOJI_ALIGN = 1, 0               <span class="comment">// 文字のＸＹ方向の揃え位置（0=左／上、1=中央、2=右／下）</span>
+#SELBTN.000.MOJI_COLOR = 0                  <span class="comment">// 文字の色</span>
+#SELBTN.000.MOJI_HIT_COLOR = 5              <span class="comment">// マウスが当たったときの文字の色（-1=変更しない）</span>
+#SELBTN.000.BTN_ACTION = 3                  <span class="comment">// ボタンアクション（-1:使わない）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#SELBTN.000.OPEN_ANIME = 6, 500             <span class="comment">// 開きアニメタイプ、時間</span>
+#SELBTN.000.CLOSE_ANIME = 6, 500            <span class="comment">// 閉じアニメタイプ、時間</span>
+#SELBTN.000.DECIDE_ANIME = 2, 500           <span class="comment">// 決定アニメタイプ、時間</span>
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>#SELBTN.CNT</td><td>ボタン選択肢の個数を指定します。</td></tr>
+<tr><td>#SELBTN.???.BASE_FILE</td><td>ボタン選択肢のベースとなるファイルを指定します。</td></tr>
+<tr><td>#SELBTN.???.BACK_FILE</td><td>ボタン選択肢の背景となるファイルを指定します。</td></tr>
+<tr><td>#SELBTN.???.BASE_POS</td><td>１つ目のボタンの位置を指定します。</td></tr>
+<tr><td>#SELBTN.???.REP_POS</td><td>２つ目以降のボタンの修正位置を指定します。</td></tr>
+<tr><td>#SELBTN.???.ALIGN</td><td>ＸＹ方向の揃え位置を指定します。（0=左／上、1=中央、2=右／下）</td></tr>
+<tr><td>#SELBTN.???.MOJI_SIZE</td><td>文字のサイズ、字間、行間、横文字数を指定します。</td></tr>
+<tr><td>#SELBTN.???.MOJI_POS</td><td>文字の位置を指定します。</td></tr>
+<tr><td>#SELBTN.???.MOJI_ALIGN</td><td>文字のＸＹ方向の揃え位置を指定します。（0=左／上、1=中央、2=右／下）</td></tr>
+<tr><td>#SELBTN.???.MOJI_COLOR</td><td>文字の色を指定します。<a href="../設定ファイル/カラーテーブルの設定.html">カラーテーブルの設定</a> を参照して下さい。</td></tr>
+<tr><td>#SELBTN.???.MOJI_HIT_COLOR</td><td>マウスが当たったときの文字の色を指定します。<a href="../設定ファイル/カラーテーブルの設定.html">カラーテーブルの設定</a> を参照して下さい。（-1=変更しない）</td></tr>
+<tr><td>#SELBTN.???.BTN_ACTION</td><td>ボタンアクションを指定します。<a href="../設定ファイル/ボタンアクションの設定.html">ボタンアクションの設定</a> を参照して下さい。（-1:指定しない）</td></tr>
+<tr><td>#SELBTN.???.OPEN_ANIME</td><td>開きアニメタイプと時間を指定します。下記のアニメタイプを参照して下さい。</td></tr>
+<tr><td>#SELBTN.???.CLOSE_ANIME</td><td>閉じアニメタイプと時間を指定します。下記のアニメタイプを参照して下さい。</td></tr>
+<tr><td>#SELBTN.???.DECIDE_ANIME</td><td>決定アニメタイプと時間を指定します。下記のアニメタイプを参照して下さい。</td></tr>
+</table>
+</div>
+
+<h4> 開く / 閉じる / 決定時のアニメタイプ</h4>
+
+<h5> 開きアニメタイプ</h5>
+
+<div class="table-container">
+<table>
+<tr><td>0</td><td>アニメなし</td></tr>
+<tr><td>1</td><td>フェードイン</td></tr>
+<tr><td>2</td><td>上から出てくる</td></tr>
+<tr><td>3</td><td>下から出てくる</td></tr>
+<tr><td>4</td><td>左から出てくる</td></tr>
+<tr><td>5</td><td>右から出てくる</td></tr>
+<tr><td>6</td><td>左右から交互に出てくる</td></tr>
+<tr><td>7</td><td>一番上の選択肢の位置から散らばるように出てくる（▲未実装）</td></tr>
+<tr><td>8</td><td>一番上の選択肢の位置から順番に出てくる（▲未実装）</td></tr>
+</table>
+</div>
+
+<h5> 閉じアニメタイプ</h5>
+
+<div class="table-container">
+<table>
+<tr><td>0</td><td>アニメなし</td></tr>
+<tr><td>1</td><td>フェードアウト</td></tr>
+<tr><td>2</td><td>上へ消える</td></tr>
+<tr><td>3</td><td>下へ消える</td></tr>
+<tr><td>4</td><td>左へ消える</td></tr>
+<tr><td>5</td><td>右へ消える</td></tr>
+<tr><td>6</td><td>左右へ交互に消える</td></tr>
+<tr><td>7</td><td>一番上の選択肢の位置へ集まるように消える（▲未実装）</td></tr>
+<tr><td>8</td><td>一番上の選択肢から順番に消える（▲未実装）</td></tr>
+</table>
+</div>
+
+<h5> 決定アニメタイプ</h5>
+
+<div class="table-container">
+<table>
+<tr><td>0</td><td>アニメなし</td></tr>
+<tr><td>1</td><td>選択した項目以外をフェードで消去</td></tr>
+<tr><td>2</td><td>選択した項目以外を選択した項目に集まるように消去</td></tr>
+<tr><td>3</td><td>選択した項目以外を消去（▲未実装）</td></tr>
+</table>
+</div>
+
+<h5> 閉じアニメタイプの注意</h5>
+
+<p>決定アニメモードを 0（アニメなし）以外に指定した場合、
+閉じアニメモードは自動的に変更されます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>0</td><td>アニメなし</td></tr>
+<tr><td>1 - 7</td><td>フェードアウト</td></tr>
+</table>
+</div>
+
+<p>キャンセルした場合は決定アニメが行われないので、
+指定された閉じアニメが実行されます。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

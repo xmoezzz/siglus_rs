@@ -1,0 +1,65 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ＢＧＭテーブル/ＢＧＭテーブル.html">ＢＧＭテーブル</a>　＞　<a href="../../スクリプトマニュアル/ＢＧＭテーブル/ＢＧＭテーブル.html">ＢＧＭテーブル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＢＧＭテーブル</h1>
+
+<p>ＢＧＭを聴いた／聴いていないを調べる機能です。
+ＢＧＭ鑑賞モードを簡単に作ることができます。
+</p>
+<p>ＢＧＭテーブルはＣＧテーブルと違い、mode.cgm のような特殊なファイルを作る必要はありません。
+</p>
+<h4> 聴いた／聴いていないフラグを取得する</h4>
+
+<pre class="exp">
+a[0] = bgmtable.get_listen_by_name($file_name)
+</pre>
+
+<p>戻り値: 0=聴いていない、1=聴いた、-1=登録されていない
+</p>
+<p>名前はファイル名ではなく、Gameexe.ini の「登録名」で指定することに注意して下さい。
+</p>
+<h4> 聴いた／聴いていないフラグを設定する</h4>
+
+<pre class="exp">
+bgmtable.set_listen_by_name($file_name, $listen)
+</pre>
+
+<p>$listen: 0=聴いていない、1=聴いた
+</p>
+<p>名前はファイル名ではなく、Gameexe.ini の「登録名」で指定することに注意して下さい。
+</p>
+<h4> 全てのＢＧＭを聴いた／聴いていない状態にする</h4>
+
+<pre class="exp">
+a[0] = bgmtable.set_all_flag($listen)
+</pre>
+
+<p>全てのＢＧＭを聴いた／聴いていない状態にします。
+デバッグ時に使うことが多いと思いますが、
+リリース時にコメントアウトし忘れることが多いので注意して下さい。
+</p>
+<p>$listen: 0=聴いていない、1=聴いた
+</p>
+<h4> 登録されているＢＧＭの枚数を取得する</h4>
+
+<pre class="exp">
+a[0] = bgmtable.get_bgm_cnt
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

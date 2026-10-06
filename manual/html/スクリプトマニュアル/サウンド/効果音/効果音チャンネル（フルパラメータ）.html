@@ -1,0 +1,133 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音.html">効果音</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音チャンネル（フルパラメータ）.html">効果音チャンネル（フルパラメータ）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 効果音チャンネル（フルパラメータ）</h1>
+
+<p>効果音チャンネルの play コマンドは、名前つき引数が使えます。
+</p>
+<pre class="exp">
+pcmch[0].play({名前つき引数})
+pcmch[0].play($file_name, {名前つき引数})
+pcmch[0].play($file_name, $fade_in_time, {名前つき引数})
+
+名前つき引数 = {file_name, bgm_name, koe_no, se_no, loop, wait, fade, volume_type, chara_no, bgm_fade_target}
+</pre>
+
+<ul>
+<li> file_name</li>
+
+<p>再生する効果音のファイル名を指定します。
+以下の２つのコマンドは、どちらも "punch" を再生します。
+</p>
+<pre class="source">
+pcmch[0].play("punch")               <span class="comment">// "punch" を再生する</span>
+pcmch[0].play(file_name="punch")     <span class="comment">// "punch" を再生する</span>
+</pre>
+
+<h5> bgm_name</h5>
+
+<p>Gameexe.ini で登録した BGM の登録名を使って効果音を再生することができます。
+<font color="red">ボリュームを BGM チャンネルに割り当てるには、volume_type=0 を同時に指定して下さい。</font>
+</p>
+<h5> koe_no（初期値=-1）</h5>
+
+<p>声ファイルを使って効果音を再生することができます。
+<font color="red">ボリュームを声チャンネルに割り当てるには、volume_type=1 を同時に指定して下さい。</font>
+さらにボリュームをキャラクター音声に合わせるには、chara_no を指定して下さい。
+</p>
+<pre class="source">
+<span class="comment">// 声番号 101900040 の声を再生する</span>
+<span class="comment">// 環境設定の「声」ボリュームに、「キャラクター音声」を１番に割り当てる</span>
+pcmch[0].play(koe_no=101900040, volume_type=1, chara_no=1)
+</pre>
+
+<h5> se_no（初期値=-1）</h5>
+
+<p>設定ファイルで設定したシステム音番号から、効果音を再生することができます。
+<font color="red">ボリュームをシステム音チャンネルに割り当てるには、volume_type=3 を同時に指定して下さい。</font>
+</p>
+<pre class="source">
+<span class="comment">// システム音番号 2 番の音（キャンセル音）を再生する</span>
+<span class="comment">// 環境設定の「システム音」ボリュームに割り当てる</span>
+pcmch[0].play(se_no=2, volume_type=3)
+</pre>
+
+<h5> loop（初期値=0）</h5>
+
+<p>0=ループしない、1=ループする
+</p>
+<h5> wait（初期値=0）</h5>
+
+<p>0=再生終了を待たない、1=再生終了を待つ
+</p>
+<h5> fade（初期値=0）</h5>
+
+<p>フェードイン時間（0=フェードインしない）
+</p>
+<h5> volume_type（初期値=2）</h5>
+
+<p>効果音は普通、環境設定の「効果音」のボリュームに従います。
+volume_type を設定すると、他のボリュームに従うことができます。
+ミニゲームの効果音として音声を鳴らす、
+各ボリュームのサンプル音を再生する、などに使って下さい。
+</p>
+<p>-1=全体、0=BGM、1=KOE（音声）、2=PCM（効果音）、3=SE（システム音）、4=MOV（ムービー）、16～31（汎用ボリューム）
+</p>
+<p>-1 を指定した場合、BGM、KOE、PCM、SE、MOV のいずれのボリュームにも従わず、全体ボリュームの設定にのみ従います。
+「全体ボリュームのサンプル音」を鳴らすのに使えます。それ以外に使うことはないと思います。
+</p>
+<p>汎用ボリュームについては <a href="../../../スクリプトマニュアル\サウンド\汎用ボリューム\汎用ボリューム.html">汎用ボリューム</a> を参照して下さい。
+</p>
+<pre class="source">
+<span class="comment">// 「全体ボリューム」のサンプル音を鳴らす</span>
+pcmch[0].play("sample", volume_type=-1)
+</pre>
+
+<pre class="source">
+<span class="comment">// 「声ボリューム」のサンプル音を鳴らす</span>
+pcmch[0].play("sample", volume_type=1)
+</pre>
+
+<p>サンプル音として「音声」を再生する場合は、<a href="../../../スクリプトマニュアル\サウンド\声\ＥＸ声.html">ＥＸ声</a> を使うほうが良いと思います。
+ＢＧＭフェードなどが適切に効きます。
+</p>
+<h5> chara_no（初期値=-1）</h5>
+
+<p>キャラクター番号を指定します。
+設定すると、該当するキャラクター音声のボリュームに従います。
+</p>
+<h5> bgm_fade_source（初期値=0）</h5>
+
+<p>1 を指定した場合、BGM フェードのソースとなります。
+この音が再生されている間、BGM フェードの設定に従って、BGM のボリュームが小さくなります。
+デフォルト値は 0 です。
+</p>
+<h5> bgm_fade_target（初期値=0）</h5>
+
+<p>1 を指定した場合、BGM フェードのターゲットとなります。
+声が再生されている間、BGM フェードの設定に従ってこの音のボリュームが小さくなります。
+デフォルト値は 0 です。
+</p>
+<h5> bgm_fade2_target（初期値=0）</h5>
+
+<p>1 を指定した場合、BGM フェードのターゲットとなります。
+声が再生されている間、無音になります。
+※ほとんどBGV用の設定となります。
+</p>
+</ul>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

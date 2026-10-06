@@ -1,0 +1,51 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\メッセージウィンドウ\メッセージウィンドウ.html">メッセージウィンドウ</a>　＞　<a href="../../../スクリプトマニュアル\メッセージウィンドウ\顔グラフィック\顔グラフィック.html">顔グラフィック</a>　＞　<a href="../../../スクリプトマニュアル\メッセージウィンドウ\顔グラフィック\顔グラフィック.html">顔グラフィック</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>顔グラフィック</h1>
+
+<p>メッセージウィンドウに顔グラ（顔グラフィック）を設定できます。
+設定した顔グラは、r コマンドや clear コマンドによって、メッセージと一緒に消えます。
+</p>
+<p>顔グラは標準では１つだけ使えます。
+２つ以上使いたい場合は、設定ファイルの設定を変更して下さい。
+（<a href="../../../設定ファイル/メッセージウィンドウ枠個別の設定.html">メッセージウィンドウ枠個別の設定</a> 参照）
+</p>
+<h4> 顔グラの個数を設定する</h4>
+
+<h5> 設定ファイル</h5>
+
+<pre class="source">
+#WAKU.FACE.CNT = 1      <span class="comment">// 顔グラフィックの個数</span>
+</pre>
+
+<h4> 顔グラのレイヤーを設定する</h4>
+
+<h5> 設定ファイル</h5>
+
+<pre class="source">
+#MWND.FACE_LAYER_REP = 20       <span class="comment">// 顔グラのレイヤー値補正</span>
+</pre>
+
+<p>メッセージウィンドウ自体のレイヤーに、この値が加算されます。
+</p>
+<h4> 顔グラの初期設定</h4>
+
+<p>顔グラは、メッセージウィンドウ枠につけることになります。
+<a href="../../../設定ファイル/メッセージウィンドウ枠個別の設定.html">メッセージウィンドウ枠個別の設定</a> を参照して下さい。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

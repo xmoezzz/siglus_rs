@@ -1,0 +1,80 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="コマンドラインからの起動.html">コマンドラインからの起動</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> コマンドラインからの起動</h1>
+
+<p>上級者向けの起動方法です。普通は使うことがないと思います。
+分かる方は、他のアプリと連携するときなどに使って下さい。
+</p>
+<h4> コマンドラインからコンパイル</h4>
+
+<p>SiglusCompiler.exe に引数を送ることで、コマンドラインからコンパイルが出来ます。
+</p>
+<p>ただし、プロジェクトの設定などは GUI で行う必要があります。
+「あとはコンパイルするだけ」と言うところまで設定し、終了して下さい。
+その後、コマンドラインからコンパイルのみを行って下さい。
+</p>
+<div class="table-container">
+<table>
+<tr><td>/cui</td><td>CUI モードで起動します。必須のオプションです。</td></tr>
+<tr><td>/project_no=???</td><td>プロジェクト番号を指定します。GUI の左上のコンボボックスで選ぶやつです。省略すると、GUI で指定されているプロジェクトが使われます。</td></tr>
+<tr><td>/full</td><td>指定するとフルコンパイルを行います。GUI の「全コンパイル」ボタンと同じ動作です。指定しない場合は更新分だけがコンパイルされます。GUI の「更新分をコンパイル」ボタンと同じ動作です。</td></tr>
+<tr><td>/log="???"</td><td>ログファイルの出力ディレクトリを指定します。絶対パスもしくは相対パスが使えます。エラー詳細などを受け取るために必要です。省略するとログファイルが出力されません。<br />パスは &quot;&quot; で囲う必要があります。<b>文字列の指定とエスケープ文字</b>を参照して下さい。</td></tr>
+</table>
+</div>
+
+<h5> エラーログの取得</h5>
+
+<p>コンパイルを行うと、/log で指定したフォルダに log.txt が作成されます。
+</p>
+<p>コンパイルにエラーがあった場合、/log で指定したフォルダに error.dat が作成されます（中身は空です）。
+エラーがなかった場合は自動的に削除されます。
+error.dat の有無で、エラーの有無を判定できます。
+</p>
+<h4> コマンドラインから起動</h4>
+
+<p>SiglusEngine.exe に引数を送ることで、コマンドラインからゲームを起動できます。
+普通に起動するだけなら引数は必要ありません。（&gt;SiglusEngine.exe）
+</p>
+<div class="table-container">
+<table>
+<tr><td>/start="???"</td><td>スタートシーン名を文字列で指定します。拡張子は必要ありません。</td></tr>
+<tr><td>/z_no=???</td><td>スタートシーンのＺラベル番号を指定します。</td></tr>
+<tr><td>/debug_off</td><td>強制的にデバッグモードをオフで起動します。</td></tr>
+<tr><td>/work_dir="???"</td><td>作業フォルダを指定します。</td></tr>
+<tr><td>/end_start</td><td>（★ｵｽｽﾒ）既に SiglusEngine.exe が起動している場合、終了してから改めて起動します。</td></tr>
+</table>
+</div>
+
+<p>デバッグモードをオンにする指定子はありません。
+SiglusDebugger2.dll を置くことでデバッグモードにして下さい。
+</p>
+<h4> 文字列の指定とエスケープ文字</h4>
+
+<p>引数に文字列を指定するときは、必ずダブルコーテーション（&quot;&quot;）で囲って下さい。
+円記号（&yen;）はエスケープ文字になります。文字列の中で円記号を使うときは、円記号を２つ並べて下さい。（&yen;&yen;）
+</p>
+<pre class="exp">
+// コンパイラにプロジェクト番号とログファイルを指定する
+SiglusCompiler.exe /cui /project_no=0 /log_file="C:\\sample project\\log\\a.txt"
+</pre>
+
+<p>コマンドラインの慣例と少し異なりますが、今後の拡張のためです。ご了承下さい。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

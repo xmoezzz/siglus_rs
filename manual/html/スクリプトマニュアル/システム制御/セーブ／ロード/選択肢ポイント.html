@@ -1,0 +1,73 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　セーブ／ロード　＞　<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\選択肢ポイント.html">選択肢ポイント</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 選択肢ポイント</h1>
+
+<h4>選択肢ポイントとは？</h4>
+
+<p>選択肢ポイントは、「前の選択肢に戻る」で戻るスクリプトの位置です。
+</p>
+<h4>選択肢ポイントを設定する</h4>
+
+<pre class="exp">
+selpoint
+</pre>
+
+<p>現在のセーブポイントの位置に選択肢ポイントを設定します。
+選択肢ポイントは sel コマンドなどで自動的に設定されるので、
+このコマンドを使う機会はあまりありません。
+どんな時に使うかと言いますと、自力で選択肢などを作る時に使います。
+</p>
+<p>selpoint は、「現在のセーブポイントの位置」に選択肢ポイントを設定するコマンドです。
+selpoint コマンドを入れる位置は注意が必要です。
+</p>
+<pre class="source">
+<span class="comment">// 選択肢の前にセーブポイントを置きます。</span>
+<span class="comment">// 「前の選択肢に戻る」を使った場合、ここに戻ってきます。</span>
+<font color="red"><b>savepoint</b></font>
+
+<span class="comment">// まだ selpoint を置いてはいけません。</span>
+<span class="comment">// 選択中に「前の選択肢に戻る」を選んだ場合、戻るべき位置は「１つ前の選択肢」です。</span>
+<span class="comment">// ここに selpoint を置くと、ここに戻ってきてしまいます。</span>
+
+<span class="comment">//</span>
+<span class="comment">// ここに自分で作った選択肢を入れます</span>
+<span class="comment">//</span>
+
+<span class="comment">// selpoint を使うタイミングは、「選択終了後」のここです。</span>
+<font color="red"><b>selpoint</b></font>
+
+<span class="comment">// メッセージを表示します。</span>
+選択を終了します。r
+</pre>
+
+<h4> 選択肢ポイントをクリアする</h4>
+
+<pre class="exp">
+clear_selpoint
+</pre>
+
+<h4> 選択肢ポイントが立っているかを判定する</h4>
+
+<pre class="exp">
+a[0] = check_selpoint
+</pre>
+
+<p>0=立っていない、1=立っている
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

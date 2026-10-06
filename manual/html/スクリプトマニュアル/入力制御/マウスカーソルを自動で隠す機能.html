@@ -1,0 +1,52 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　入力制御　＞　<a href="../../スクリプトマニュアル/入力制御/マウスカーソルを自動で隠す機能.html">マウスカーソルを自動で隠す機能</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> マウスカーソルを自動で隠す機能</h1>
+
+<h4> 一時的にマウスカーソルを自動で隠す機能のオンオフを設定する</h4>
+
+<pre class="exp">
+script.set_mouse_cursor_hide_onoff($onoff)   // 一時的にマウスカーソルを自動で隠す機能のオンオフを設定する
+script.set_mouse_cursor_hide_onoff_default   // 一時的にマウスカーソルを自動で隠す機能のオンオフを初期化する
+a[0] = script.get_mouse_cursor_hide_onoff    // 一時的にマウスカーソルを自動で隠す機能のオンオフを取得する
+</pre>
+
+<p>環境設定の「一時的にマウスカーソルを自動で隠す機能のオンオフ」の値を一時的に変更します。
+</p>
+<p><font color="red">
+この設定のデフォルト値は -1（環境設定に従う）です。（他のコマンドとは仕様が異なりますので注意！）
+初期化するときは必ず script.set_mouse_cursor_hide_onoff_default を使って下さい。
+</font>
+</p>
+<h4> 一時的にマウスカーソルを自動で隠す機能の時間を設定する</h4>
+
+<pre class="exp">
+script.set_mouse_cursor_hide_time($time)     // 一時的にマウスカーソルを自動で隠す機能の時間を設定する
+script.set_mouse_cursor_hide_time_default    // 一時的にマウスカーソルを自動で隠す機能の時間を初期化する
+a[0] = script.get_mouse_cursor_hide_time     // 一時的にマウスカーソルを自動で隠す機能の時間を取得する
+</pre>
+
+<p>環境設定の「一時的にマウスカーソルを自動で隠す機能の時間」の値を一時的に変更します。
+</p>
+<p><font color="red">
+この設定のデフォルト値は -1（環境設定に従う）です。（他のコマンドとは仕様が異なりますので注意！）
+初期化するときは必ず script.set_mouse_cursor_hide_time_default を使って下さい。
+</font>
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

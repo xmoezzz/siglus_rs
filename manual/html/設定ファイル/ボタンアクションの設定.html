@@ -1,0 +1,83 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/ボタンアクションの設定.html">ボタンアクションの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ボタンアクションの設定</h1>
+
+<p>ボタンにマウスが当たったとき、押したときなどのボタンの動作を設定します。
+（マウスが当たったときは明るくする、押したときは右下に少しずらす、など）
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■ボタンアクションの設定</span>
+<span class="comment">// =============================================================</span>
+#BUTTON.ACTION.CNT = 16
+
+<span class="comment">//                           pat,  x,  y,  tr,  br,  dr</span>
+<span class="comment">// カットのない１枚絵のボタン</span>
+#BUTTON.ACTION.000.NORMAL  =   0,  0,  0, 255,   0,   0
+#BUTTON.ACTION.000.HIT     =   0,  0,  0, 255,  64,   0
+#BUTTON.ACTION.000.PUSH    =   0,  1,  1, 255,  64,   0
+#BUTTON.ACTION.000.SELECT  =   0,  0,  0, 255, 128,   0
+#BUTTON.ACTION.000.DISABLE =   0,  0,  0, 255,   0, 128
+
+<span class="comment">// カットを利用したボタン</span>
+#BUTTON.ACTION.001.NORMAL  =   0,  0,  0, 255,   0,   0
+#BUTTON.ACTION.001.HIT     =   1,  0,  0, 255,   0,   0
+#BUTTON.ACTION.001.PUSH    =   2,  0,  0, 255,   0,   0
+#BUTTON.ACTION.001.SELECT  =   3,  0,  0, 255,   0,   0
+#BUTTON.ACTION.001.DISABLE =   4,  0,  0, 255,   0,   0
+</pre>
+
+<h5> #BUTTON.ACTION.CNT = 16</h5>
+
+<p>ボタンアクションの個数を指定します。
+</p>
+<h5> #BUTTON.ACTION.???.??? = [パターン番号], [x], [y], [不透明度], [明度], [暗度]</h5>
+
+<p>ボタンには、「通常」、「マウスが当たっている」、「マウスが押されている」、
+「決定されている」、「無効」の５種類の状態があります。
+それぞれの状態についてアクションを設定できます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>NORMAL</td><td>マウスが当たっていない場合</td></tr>
+<tr><td>HIT</td><td>マウスが当たっている場合</td></tr>
+<tr><td>PUSH</td><td>押している場合</td></tr>
+<tr><td>SELECT</td><td>選んでいる場合</td></tr>
+<tr><td>DESABLE</td><td>無効なボタンの場合</td></tr>
+</table>
+</div>
+
+<h5> [パターン番号]</h5>
+
+<p>それぞれの状態で表示される画像のパターン番号を指定します。
+オブジェクトに設定したパターン番号に、この値が加算されます。
+</p>
+<h5> [x], [y], [不透明度], [明度], [暗度]</h5>
+
+<p>それぞれの状態のときのオブジェクトに与えるパラメータを指定します。
+</p>
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

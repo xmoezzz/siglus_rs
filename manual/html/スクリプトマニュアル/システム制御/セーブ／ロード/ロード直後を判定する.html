@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　セーブ／ロード　＞　<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\ロード直後を判定する.html">ロード直後を判定する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ロード直後を判定する</h1>
+
+<p>セーブポイントを立てたときと、そのデータをロードした時で、
+処理を分けたいことがあります。
+</p>
+<p>たとえばドラクエのようなＲＰＧだと、データをロードした場合のみ、
+「よくぞ戻った勇者よ！」といったメッセージが表示されます。
+</p>
+<p>このためには、ロード直後を判定する必要があります。
+</p>
+<p>ロード直後を判定するには、savepoint の戻り値を使います。
+<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\セーブポイント.html">セーブポイント</a> を参照して下さい。
+</p>
+<h4> savepoint の戻り値</h4>
+
+<pre class="exp">
+a[0] = savepoint
+</pre>
+
+<p>0=ロード直後でない、1=ロード直後
+</p>
+<h4> サンプル：ロードした場合のみメッセージを表示する</h4>
+
+<h5> 失敗例</h5>
+
+<pre class="source">
+セーブしますか？r
+l[0] = sel("はい", "いいえ")
+
+<span class="comment">// 「はい」を選んだ場合</span>
+if (l[0] == 0)	{
+
+    a[0] = savepoint        <span class="comment">// セーブポイントを立てます。</span>
+
+    capture                 <span class="comment">// サムネイルを作る必要がある場合はここで作りましょう。</span>
+    syscom.save(0, 0, 1)    <span class="comment">// セーブ番号０番にセーブします。</span>
+
+    セーブしました。r
+}
+</pre>
+
+<p>この例では、このデータをロードした場合、
+すぐに「セーブしました」と表示されてしまい、不自然です。
+</p>
+<h5> 成功例</h5>
+
+<pre class="source">
+セーブしますか？r
+l[0] = sel("はい", "いいえ")
+
+<span class="comment">// 「はい」を選んだ場合</span>
+if (l[0] == 0)	{
+
+    a[0] = savepoint            <span class="comment">// セーブポイントを立てます。</span>
+
+    <span class="comment">// ロード直後の場合はここを通る</span>
+    if (a[0] == 1)	{
+
+        ロードしました。r
+    }
+
+    <span class="comment">// 通常はここを通る</span>
+    else	{
+
+        capture                 <span class="comment">// サムネイルを作る必要がある場合はここで作りましょう。</span>
+        syscom.save(0, 0, 1)    <span class="comment">// セーブ番号０番にセーブします。</span>
+
+        セーブしました。r
+    }
+}
+</pre>
+
+<p>セーブした場合は「セーブしました」、
+ロードした場合は「ロードしました」が表示されます。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

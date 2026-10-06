@@ -1,0 +1,86 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/比較・条件演算.html">比較・条件演算</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 条件演算</h1>
+
+<h4> 等号・不等号</h4>
+
+<div class="table-container">
+<table>
+<tr><td>整数 == 整数</td><td>左と右が等しい</td></tr>
+<tr><td>整数 != 整数</td><td>左と右が等しくない</td></tr>
+<tr><td>整数 &gt;= 整数</td><td>右より左が大きいか等しい</td></tr>
+<tr><td>整数 &lt;= 整数</td><td>右より左が小さいか等しい</td></tr>
+<tr><td>整数 &gt; 整数</td><td>右より左が大きい</td></tr>
+<tr><td>整数 &lt; 整数</td><td>右より左が小さい</td></tr>
+<tr><td>文字列 == 文字列</td><td>左と右が等しい</td></tr>
+<tr><td>文字列 != 文字列</td><td>左と右が等しくない</td></tr>
+</table>
+</div>
+
+<h5> 例</h5>
+
+<pre class="source">
+<span class="comment">// a[0] が 0 の時に文字列を表示するサンプル</span>
+if (a[0] == 0) {
+    print("こんにちは。")r
+}
+
+<span class="comment">// a[0] が 5 より等しい時に文字列を表示するサンプル</span>
+if (a[0] >= 5) {
+    print("こんばんは。")r
+}
+</pre>
+
+<p>文字列の比較は、大文字小文字を無視して比較します。
+</p>
+<pre class="source">
+s[0] = "abc"
+if (s[0] == "ABC") {
+    /* ... */              <span class="comment">// ここを通る</span>
+}
+</pre>
+
+
+
+<h4> 条件演算</h4>
+
+<div class="table-container">
+<table>
+<tr><td>A &amp;&amp; B</td><td>A と B が両方成り立つ</td></tr>
+<tr><td>A || B</td><td>A と B の片方、または両方が成り立つ</td></tr>
+</table>
+</div>
+
+<pre class="source">
+<span class="comment">// a[0] が 0、かつ b[0] が 0 の時に文字列を表示するサンプル</span>
+if (a[0] == 0 &amp;&amp; b[0] == 0) {
+<p>print("こんにちは。")r
+}
+</p>
+<span class="comment">// a[0] と b[0] のどちらか片方、または両方が 95 以上のときに文字列を表示するサンプル</span>
+if (a[0] >= 95 || b[0] >= 95) {
+<p>print("合格です！")r
+}
+</pre>
+</p>
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

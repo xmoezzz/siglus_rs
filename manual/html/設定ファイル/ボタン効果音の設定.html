@@ -1,0 +1,60 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/ボタン効果音の設定.html">ボタン効果音の設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ボタンアクションの設定</h1>
+
+<p>ボタンにマウスが当たったとき、押したときなどに鳴らす効果音を設定します。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■ボタン効果音の設定</span>
+<span class="comment">// =============================================================</span>
+#BUTTON.SE.CNT = 4
+
+<span class="comment">// 決定ボタン</span>
+#BUTTON.SE.000.HIT    = 0
+#BUTTON.SE.000.PUSH   = -1
+#BUTTON.SE.000.DECIDE = 1
+
+<span class="comment">// キャンセルボタン</span>
+#BUTTON.SE.001.HIT    = 0
+#BUTTON.SE.001.PUSH   = -1
+#BUTTON.SE.001.DECIDE = 2
+</pre>
+
+<h5> #BUTTON.SE.CNT = 16</h5>
+
+<p>ボタン効果音の個数を指定します。
+</p>
+<h5> #BUTTON.SE.???.??? = [システム音番号]</h5>
+
+<div class="table-container">
+<table>
+<tr><td>HIT</td><td>マウスが当たったときの効果音</td></tr>
+<tr><td>PUSH</td><td>マウスで押したときの効果音</td></tr>
+<tr><td>DECIDE</td><td>決定したときの効果音</td></tr>
+</table>
+</div>
+
+<h5> [システム音番号]</h5>
+
+<p>システム音番号で指定します。<a href="../設定ファイル/システム音の設定.html">システム音の設定</a> を参照して下さい。
+-1 を指定すると、効果音は鳴りません。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

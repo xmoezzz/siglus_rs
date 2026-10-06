@@ -1,0 +1,52 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　その他のシステム　＞　<a href="../../../スクリプトマニュアル\システム制御\その他のシステム\ファイルを開く.html">ファイルを開く</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ファイルを開く</h1>
+
+<pre class="exp">
+system.shell_open_file($path)    // ファイルを開く
+</pre>
+
+<p>ファイルを、Windows に関連付けられたアプリケーションで開きます。
+</p>
+<p>ファイルのパスは、Siglus.exe からの相対パスで指定して下さい。
+</p>
+<h5> 注意点１</h5>
+
+<p>ファイルは必ず何らかのフォルダに入れてください。（sys フォルダ、manual フォルダなど）
+Siglus.exe と同じ階層にあるファイルを開くことはできません。（最小セットアップ時に問題が起きます。）
+</p>
+<h5> 注意点２</h5>
+
+<p>html マニュアルを開く際には注意が必要です。
+フルスクリーンで起動している場合、マニュアルを開いても、ブラウザがゲームウィンドウに隠れてしまいます。
+一度ウィンドウモードに戻してあげると親切です。
+</p>
+<h5> 注意点３</h5>
+
+<p>ファイルパスについて、&yen; は &yen;&yen; と表記することに注意して下さい。
+</p>
+<h4> manual フォルダの index.html を開く</h4>
+
+<pre class="source">
+syscom.set_window_mode(0)                       <span class="comment">// ウィンドウモードに戻す</span>
+system.shell_open_file("manual\\index.html")    <span class="comment">// マニュアルを開く</span>
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,172 @@
+
+/* 全体のフォント設定 */
+body
+{
+/*	font-family: 'ＭＳ ゴシック';*/
+	font-size: 0.8em;
+}
+td
+{
+	font-size: 0.8em;
+}
+p
+{
+	line-height: 150%;
+	margin-left: 2em;
+}
+.p
+{
+	margin-left: 2em;
+}
+li
+{
+	line-height: 150%;
+}
+
+ul.td
+{
+	margin-left: 2em;
+	margin-top: 0;
+	margin-right: 0;
+	margin-bottom: 0;
+}
+
+/* キャプション */
+h1
+{
+	background-color: #0066cc;
+	color: #ffffff;
+	padding: 3px 0.5em 1px;
+	border-left: 0.5em solid #005599;
+}
+h2
+{
+	background-color: #0099cc;
+	color: #ffffff;
+	padding: 3px 0.5em 1px;
+	border-left: 0.5em solid #005588;
+}
+h3
+{
+	border-left: 0.5em solid black;
+	border-bottom: 1px solid black;
+	padding-left: 0.5em;
+}
+
+h4
+{
+	border-left: 0.5em solid black;
+	border-bottom: 1px solid black;
+	padding-left: 0.5em;
+}
+h5
+{
+}
+
+/* テーブル */
+div.table-container
+{
+	text-align: center;
+}
+table
+{
+	border-collapse: collapse;
+	margin-left: auto;
+	margin-right: auto;
+	margin-top: 1em;
+	margin-bottom: 1em;
+}
+caption
+{
+	font-size: 0.8em;
+	padding-top: 10px;
+	padding-bottom: 10px;
+}
+td
+{
+	border: 1px solid black;
+	padding: 0.2em;
+}
+
+/* 全体テーブル */
+td.whole
+{
+	width: 800px;
+	border: none;
+}
+
+/* 未実装 */
+.mada
+{
+	color: #cccccc;
+}
+
+/* ソース */
+pre.source
+{
+	background-color: #ffff99;
+	border: 1px solid black;
+	padding: 1em;
+	margin-left: 2em;
+}
+pre.source span.comment
+{
+	color: #008000;
+}
+pre.exp
+{
+	background-color: #ccffff;
+	border: 1px solid black;
+	padding: 0.5em;
+	padding-left: 1em;
+	margin-left: 2em;
+}
+pre.exp span.comment
+{
+	color: #008000;
+}
+pre.result
+{
+	background-color: #cccccc;
+	border: 1px solid black;
+	padding: 1em;
+	margin-left: 2em;
+}
+
+/* chips */
+.chips
+{
+	background-color: #AEFF35;
+	border: 1px solid #739900;
+	padding: 0.5em;
+	margin-left: 3em;
+}
+
+
+/* エレメントツリー */
+table.element_tree
+{
+	margin: 0px 0px 0px 10px;
+}
+
+table.element_tree td
+{
+	border: none;
+	white-space: nowrap;
+	padding: 1px;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,84 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　ムービーオブジェクト　＞　<a href="../../../スクリプトマニュアル\オブジェクト\ムービーオブジェクト\ムービーオブジェクトを作成する.html">ムービーオブジェクトを作成する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ムービーオブジェクトを作成する</h1>
+
+<pre class="exp">
+front.object[0].create_movie($file)
+front.object[0].create_movie($file, $disp)
+front.object[0].create_movie($file, $disp, $x, $y)
+
+front.object[0].create_movie_loop($file)
+front.object[0].create_movie_loop($file, $disp)
+front.object[0].create_movie_loop($file, $disp, $x, $y)
+
+// 名前つき引数
+{auto_free, real_time, ready_only}
+</pre>
+
+<h5> 引数</h5>
+
+<div class="table-container">
+<table>
+<tr><td>file</td><td>omv のファイル名</td></tr>
+<tr><td>disp</td><td>表示フラグ（0=表示しない、1=表示する）</td></tr>
+<tr><td>x, y</td><td>x 座標、y 座標</td></tr>
+<tr><td>real_time</td><td>実時間フラグ（0=ゲーム時間、1=実時間）<br />実時間で再生すると、Ctrl キーなどで早送りできなくなります。デフォルトでは実時間で再生されます。</td></tr>
+<tr><td>auto_free</td><td>自動解放フラグ（0=自動解放しない、1=自動解放する）<br />自動解放する場合、ムービーが終わると自動的にオブジェクトが解放されます。自動解放しない場合は、最後のフレームが表示され続けます。デフォルトでは自動解放されます。</td></tr>
+<tr><td>ready_only</td><td>準備フラグ（0=普通に再生する、1=準備のみ行う）</td></tr>
+</table>
+</div>
+
+<h5> 名前つき引数の使い方の例</h5>
+
+<h5> ムービーをゲーム時間で再生する</h5>
+
+<pre class="source">
+front.object[0].create_movie(mov00, 1, 0, 0, <font color="red">real_time = 0</font>)
+</pre>
+
+<h5> ムービーを再生する、自動解放しない</h5>
+
+<pre class="source">
+front.object[0].create_movie(mov00, 1, 0, 0, <font color="red">auto_free = 0</font>)
+</pre>
+
+<p>ready_only については、<a href="../../../スクリプトマニュアル\オブジェクト\ムービーオブジェクト\ムービーオブジェクトを準備する（再生遅延を抑える）.html">ムービーオブジェクトを準備する（再生遅延を抑える）</a> を参照して下さい。
+</p>
+<h4> サンプル：ムービーオブジェクトを再生する</h4>
+
+<pre class="source">
+<span class="comment">// 背景を表示します。</span>
+front.object[0].create(BG001, 1, 0, 0)
+
+<span class="comment">// バストショットを表示します。</span>
+front.object[1].create(BS0101, 1, 0, 0)
+
+<span class="comment">// ムービーその１を表示します。</span>
+<span class="comment">// create_movie_loop を使い、ループ再生します。</span>
+front.object[2].create_movie_loop(w_cutter01, 1, 320, 120)
+
+<span class="comment">// その上にムービーその２を表示します。</span>
+<span class="comment">// create_movie_loop を使い、ループ再生します。</span>
+front.object[3].create_movie_loop(m_light01, 1, 320, 120)
+
+<span class="comment">// ムービーその２は加算合成を行います。</span>
+front.object[3].blend = 1
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

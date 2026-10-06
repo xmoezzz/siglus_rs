@@ -1,0 +1,83 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/オブジェクト個別の設定.html">オブジェクト個別の設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オブジェクト個別の設定</h1>
+
+<p><a href="../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a> の設定をします。
+</p>
+<p>オブジェクト全体の設定については <a href="../設定ファイル/オブジェクトの設定.html">オブジェクトの設定</a> を参照して下さい。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■オブジェクト個別の設定</span>
+<span class="comment">// =============================================================</span>
+
+<span class="comment">// 全てのオブジェクトを使う</span>
+#OBJECT.000-099.USE = 1
+
+<span class="comment">// 90～99番オブジェクトはセーブしない</span>
+#OBJECT.090-099.SAVE = 0
+
+<span class="comment">// 20-21番オブジェクトは環境設定の「オブジェクトの表示０番」に従う</span>
+#OBJECT.020-021.OBJECT_DISP_NO = 0
+
+<span class="comment">// 20-21番オブジェクトはスペースキーで消える</span>
+#OBJECT.020-021.SPACE_HIDE = 1
+</pre>
+
+<p>単体で設定する場合は #OBJECT.???、複数まとめて設定する場合は #OBJECT.???-??? のように記述できます。
+</p>
+<h5> #OBJECT.???.USE = 1</h5>
+
+<p>オブジェクトを使うかどうかを設定します。（0=使わない、1=使う）
+</p>
+<p>USE=0 にすると、そのオブジェクトは使えなくなります。
+使っていないオブジェクトを USE=0 にすることで、動作が速くなります。
+</p>
+<h5> #OBJECT.???.SAVE = 1</h5>
+
+<p>オブジェクトをセーブするかどうかを設定します。（0=セーブしない、1=セーブする）
+</p>
+<p>SAVE=0 にすると、そのオブジェクトはセーブされなくなります。
+システム画面などで使うオブジェクトは、セーブする必要がありません。
+セーブしないオブジェクトを SAVE=0 にすることで、動作が速くなります。
+</p>
+<h5> #OBJECT.???.OBJECT_DISP_NO = -1</h5>
+
+<p>環境設定の「オブジェクトの表示」???番に従う機能です。
+初期値は -1 です。（環境設定に従わない）
+</p>
+<p>例えば 0 を指定した場合、環境設定の「オブジェクト０番を表示しない」をオフにすると、
+そのオブジェクトは表示されなくなります。
+</p>
+<p>「日付を表示しない」などの機能が実装できます。
+</p>
+<h5> #OBJECT.???.SPACE_HIDE = 0</h5>
+
+<p>スペースキーで、メッセージウィンドウと一緒に隠す機能です。（0=隠さない、1=隠す）
+</p>
+<p>日付などを表示しているオブジェクトは、スペースキーで一緒に消えると便利です。
+</p>
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

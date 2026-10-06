@@ -1,0 +1,68 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/代入・代入演算.html">代入・代入演算</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 代入</h1>
+
+<p>代入は "=" を使います。
+</p>
+<pre class="source">
+a[0] = 10        <span class="comment">// a[0] に 10 を代入する</span>
+a[0] = 30 + 5    <span class="comment">// a[0] に 30 + 5 の結果を代入する</span>
+</pre>
+
+<p>文字列も整数と同じように、文字列フラグに代入できます。
+</p>
+<pre class="source">
+s[0] = "abc"     <span class="comment">// s[0] に "abc" を代入する</span>
+</pre>
+
+<h4> 代入演算</h4>
+
+<p>代入と演算を同時に行えます。
+</p>
+<pre class="source">
+a[0] += 5           <span class="comment">// a[0] = a[0] + 5 と同じ</span>
+a[0] *= 10 + a[1]   <span class="comment">// a[0] = a[0] * (10 + a[1]) と同じ</span>
+s[0] += "def"       <span class="comment">// s[0] = s[0] + "def" と同じ</span>
+</pre>
+
+<div class="table-container">
+<table>
+<caption>代入演算子一覧</caption>
+<tr><td>a[0] += 整数</td><td>加算代入（足し算）</td></tr>
+<tr><td>a[0] -= 整数</td><td>減算代入（引き算）</td></tr>
+<tr><td>a[0] *= 整数</td><td>乗算代入（掛け算）</td></tr>
+<tr><td>a[0] /= 整数</td><td>除算代入（割り算）</td></tr>
+<tr><td>a[0] %= 整数</td><td>剰余算代入（余り）</td></tr>
+<tr><td>a[0] &amp;= 整数</td><td>AND 演算代入（論理積）</td></tr>
+<tr><td>a[0] |= 整数</td><td>OR 演算代入（論理和）</td></tr>
+<tr><td>a[0] ^= 整数</td><td>XOR 演算代入（排他的論理和）</td></tr>
+<tr><td>a[0] &lt;&lt;= 整数</td><td>左シフト演算代入</td></tr>
+<tr><td>a[0] &gt;&gt;= 整数</td><td>右シフト演算代入（算術）</td></tr>
+<tr><td>a[0] &gt;&gt;&gt;= 整数</td><td>右シフト演算代入（論理）</td></tr>
+<tr><td>s[0] += 文字列</td><td>加算代入（足し算）</td></tr>
+<tr><td>s[0] *= 整数</td><td>乗算代入（掛け算）</td></tr>
+</table>
+</div>
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,44 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/シェイクの設定.html">シェイクの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> シェイクの設定</h1>
+
+<p><a href="../スクリプトマニュアル\演出\シェイク.html">シェイク</a> の設定を行います。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■シェイクの設定</span>
+<span class="comment">// =============================================================</span>
+#SHAKE.CNT = 4         <span class="comment">// シェイクの個数</span>
+#SHAKE.000 = (0,8,64)(0,-8,64)(0,8,64)(0,-8,48)(0,8,32)
+#SHAKE.001 = (-32,32,64)(-32,-32,64)(32,-32,64)(32,32,64)(16,-16,64)(-8,-8,64)(-4,4,48)(2,2,32)
+</pre>
+
+<h5> #SHAKE.CNT</h5>
+
+<p>シェイクの個数を設定します。
+</p>
+<h5> #SHAKE.??? = ([x], [y], [time])...</h5>
+
+<p>揺れをコマ単位で設定します。
+各コマの揺れＸ、Ｙ、かける時間を指定します。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

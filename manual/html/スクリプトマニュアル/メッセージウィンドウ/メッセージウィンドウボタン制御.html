@@ -1,0 +1,73 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウ.html">メッセージウィンドウ</a>　＞　<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウボタン制御.html">メッセージウィンドウボタン制御</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージウィンドウボタン制御</h1>
+
+<h4> メッセージウィンドウのボタンを禁止／解除する</h4>
+
+<pre class="exp">
+syscom.set_mwnd_btn_disable                  // メッセージウィンドウのボタンを禁止する
+syscom.set_mwnd_btn_disable($mwnd_btn_no)    // メッセージウィンドウのボタンを禁止する（個別）
+syscom.set_mwnd_btn_enable                   // メッセージウィンドウのボタンの禁止を解除する
+syscom.set_mwnd_btn_enable($mwnd_btn_no)     // メッセージウィンドウのボタンを禁止を解除する（個別）
+</pre>
+
+<p>メッセージウィンドウのボタンを禁止状態にします。
+ボタンアクションの「DISABLE」の設定が使われます。 
+<font color="red">通常は使わないコマンドです。</font>「注意」を参照して下さい。
+</p>
+<h5> $mwnd_btn_no</h5>
+
+<p>Gameexe.ini で登録したボタンの番号です。
+</p>
+<pre>
+#WAKU.000.BTN.000.TYPE = "close_mwnd"          // ボタンの種類（メッセージウィンドウを閉じる）
+             ^^^^^ ←ココ
+</pre>
+
+<h5> 注意</h5>
+
+<p>通常は使わないコマンドです。
+システムコマンドのオンオフコマンドなどを使って下さい。
+</p>
+<ul>
+<li> 例：セーブを禁止したい → システムコマンドの「セーブ」を禁止するべき（<a href="../../スクリプトマニュアル/システム制御/システムコマンド/システムコマンド.html">システムコマンド</a> 参照）</li>
+<li> 例：早送りを禁止したい → システムコマンドの「早送り」を禁止するべき（<a href="../../スクリプトマニュアル/システム制御/早送り制御.html">早送り制御</a> 参照）</li>
+</ul>
+
+<h4> メッセージウィンドウのボタンを触れなくする／解除する</h4>
+
+<pre class="exp">
+syscom.set_mwnd_btn_touch_disable            // メッセージウィンドウのボタンを触れなくする
+syscom.set_mwnd_btn_touch_enable             // メッセージウィンドウのボタンの触れなくするを解除する
+</pre>
+
+<p>メッセージウィンドウのボタンを触れなくします。
+ボタンの見かけは「有効」ですが、マウスを当てても反応しなくなります。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

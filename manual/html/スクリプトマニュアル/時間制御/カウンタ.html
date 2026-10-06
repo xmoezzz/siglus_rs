@@ -1,0 +1,149 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　時間制御　＞　<a href="../../スクリプトマニュアル/時間制御/カウンタ.html">カウンタ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> カウンタ</h1>
+
+<p>カウンタを使って、時間を計測することができます。
+「１秒かけてオブジェクトを移動する」などの処理を組むために使えます。
+</p>
+<p>カウンタはデフォルトで１６個あります。
+（設定ファイルで変更できます。<a href="../../設定ファイル/カウンタの設定.html">カウンタの設定</a> 参照）
+</p>
+<h4> カウンタを開始する</h4>
+
+<pre class="exp">
+counter[0].start
+counter[0].start_real                                               // 早送りできないバージョン
+
+counter[0].start_frame($start_num, $end_num, $time)
+counter[0].start_frame_real($start_num, $end_num, $time)            // 早送りできないバージョン
+
+counter[0].start_frame_loop($start_num, $end_num, $time)
+counter[0].start_frame_loop_real($start_num, $end_num, $time)       // 早送りできないバージョン
+</pre>
+
+<p>時間の計測を 0 から開始します（1000 = 1秒）。
+</p>
+<h5> フレーム</h5>
+
+<p>_frame のつくコマンドは、カウンタを、$time 時間かけて $start_num から $end_num まで動かします。
+</p>
+<p>_frame_loop の場合はフレームの値がループします。$start_num = 0, $end_num = 60 の場合、0, 1, 2, ..., 58, 59, 0, 1, 2, ... となります。60 になることはないので注意してください。</p>
+</p>
+<h5> 早送りできないバージョン</h5>
+
+<ul>
+<li> _real がつかないコマンドは、早送りできます。</li>
+
+<ul>
+<li> Ctrl キーを押している間は 32倍速で進みます。</li>
+<li> ウィンドウをつかんでいる間などは時間が進みません。</li>
+</ul>
+
+<li> _real がつくコマンドは、早送りできません。</li>
+
+<ul>
+<li> Ctrl キーで早送りされません。</li>
+<li> ウィンドウをつかんでいる間なども時間が進みます。</li>
+<li> 音楽にあわせた演出を組むときなどに使ってください。</li>
+</ul>
+
+</ul>
+
+<p>どちらの場合でも、デバッグキーによる加速・減速ができます。
+</p>
+<div class="table-container">
+<table>
+<caption>デバッグキーによる加速・減速</caption>
+<tr><td>[Insert]</td><td>４倍速</td></tr>
+<tr><td>[Delete]</td><td>２倍速</td></tr>
+<tr><td>[Home]</td><td>１／４倍速</td></tr>
+<tr><td>[End]</td><td>１／８倍速</td></tr>
+<tr><td>[Home] + [End]</td><td>時間を進めない</td></tr>
+</table>
+</div>
+
+<h4> カウンタを停止する</h4>
+
+<pre class="exp">
+counter[0].stop
+</pre>
+
+<p>カウンタを一時停止します。
+</p>
+<h4> カウンタを再開する</h4>
+
+<pre class="exp">
+counter[0].resume
+</pre>
+
+<p>カウンタを、一時停止した場所から再開します。
+</p>
+<h4> カウンタの値をリセットする</h4>
+
+<pre class="exp">
+counter[0].reset
+</pre>
+
+<p>カウンタの値を 0 に戻します。
+</p>
+<h4> カウンタの値を設定する</h4>
+
+<pre class="exp">
+counter[0].set($count)
+</pre>
+
+<p>カウンタの値を $count に設定します。
+</p>
+<h4> カウンタの値を取得する</h4>
+
+<pre class="exp">
+a[0] = counter[0].get
+</pre>
+
+<p>カウンタの値を取得します。
+</p>
+<h4> カウンタを待つ</h4>
+
+<pre class="exp">
+counter[0].wait($count)
+a[0] = counter[0].wait_key($count)      // キーで飛ばせるバージョン
+</pre>
+
+<p>カウンタの値が $count になるまで待ちます。
+wait_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<h4> カウンタの値を判定する</h4>
+
+<pre class="exp">
+counter[0].check_value($count)         // カウンタの値が $count を超えているかどうかを判定する
+</pre>
+
+<p>カウンタの値が $count を超えているかどうかをチェックします。
+0=超えていない、1=等しいまたは超えている
+</p>
+<h4> カウンタが動いているかを判定する</h4>
+
+<pre class="exp">
+counter[0].check_active                // カウンタが動いているかどうかを判定する
+</pre>
+
+<p>カウンタが動いているかどうかを判定します。
+0=動いていない、1=動いている
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

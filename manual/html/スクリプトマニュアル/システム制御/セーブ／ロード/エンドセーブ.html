@@ -1,0 +1,62 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　セーブ／ロード　＞　<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\エンドセーブ.html">エンドセーブ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> エンドセーブについて</h1>
+
+<p>エンドセーブは、ゲーム終了時に自動的にセーブを行う機能です。
+owari、syscom.end_game を呼び出したとき、
+またはウィンドウの [×] ボタンで終了したときにセーブが行われます。
+</p>
+<h4> エンドセーブの設定</h4>
+
+<p><a href="../../../設定ファイル/エンドセーブの設定.html">エンドセーブの設定</a> を参照して下さい。
+エンドセーブの個数を１にすると、エンドセーブを行います。
+</p>
+<h4> エンドセーブされたデータをロードする</h4>
+
+<p>エンドセーブされたデータをロードするには、syscom.end_load コマンドを使います。
+<a href="../../../スクリプトマニュアル\システム制御\システムコマンド\システムコマンド.html">システムコマンド</a> を参照して下さい。
+エンドセーブを行うコマンドもありますが、あまり使わないと思います。
+</p>
+<h4> エンドセーブのセーブデータ番号</h4>
+
+<p>エンドセーブのセーブデータ番号は、「セーブデータの個数＋クイックセーブデータの個数」になります。
+例えば、セーブデータが100個、クイックセーブデータが3個のとき、
+エンドセーブのセーブデータ番号は103番になります。
+</p>
+<div class="table-container">
+<table>
+<tr><td></td><td>個数</td><td>番号</td></tr>
+<tr><td>セーブデータ</td><td>100個</td><td>0～99番</td></tr>
+<tr><td>クイックセーブデータ</td><td>3個</td><td>100～102番</td></tr>
+<tr><td>エンドセーブデータ</td><td>1個</td><td>103番</td></tr>
+</table>
+</div>
+
+<p>これを利用して、セーブデータの操作ができます。
+</p>
+<pre class="source">
+<span class="comment">// エンドセーブデータが存在するかどうかを調べる</span>
+a[0] = syscom.get_save_exist(103)
+
+<span class="comment">// セーブデータ０番とエンドセーブデータを交換する</span>
+syscom.change_save(0, 103)
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

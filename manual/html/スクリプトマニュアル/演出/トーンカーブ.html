@@ -1,0 +1,99 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/トーンカーブ.html">トーンカーブ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>トーンカーブ</h1>
+
+<p>キャラクターなどを、夕方や夜っぽい色に変換する機能です。
+トーンカーブデータを作成する必要があります。
+</p>
+<h5>トーンカーブ機能を使った様子</h5>
+
+<div class="table-container">
+<table>
+<tr><td><img src="昼.jpg" /></td><td><img src="夕方.jpg" /></td><td><img src="夜.jpg" /></td></tr>
+<tr><td>昼</td><td>夕方<br />トーンカーブ０番</td><td>夜<br />トーンカーブ１番</td></tr>
+</table>
+</div>
+
+<p>キャラクターの色が背景に合わせて変更されています。
+</p>
+<h4>トーンカーブデータを作成する</h4>
+
+<p>ToneCurveEdit.exe を使って作成します。詳しくは ToneCurveEdit.exe のマニュアルを参照して下さい。
+出来上がった tcdata.tcr を dat フォルダに入れ、Gameexe.ini でファイルを指定します。
+</p>
+<pre class="source">
+SampleGame
+  +- exe
+  |   +- <font color="red">dat</font>
+  |      +- <font color="red">tcdata.tcr</font>
+  |   +- SiglusEngine.exe
+  |
+  +- SiglusCompiler.exe
+</pre>
+
+<h5>Gameexe.ini</h5>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■トーンカーブ</span>
+<span class="comment">// =============================================================</span>
+#TONECURVE_FILE = "tcdata.tcr"
+</pre>
+
+<h4>オブジェクトにトーンカーブを当てる</h4>
+
+<p>サンプル環境の tcdata.tcr は、０番が夕方、１番が夜になっています。
+</p>
+<pre class="source">
+<span class="comment">// オブジェクト０番に昼の背景を読み込む</span>
+<span class="comment">// オブジェクト１番にキャラクターを読み込む</span>
+back.object[0].create(BG005, 1)
+back.object[1].create(BS0101, 1)
+wipe
+
+昼の背景です。r
+
+<span class="comment">// オブジェクト０番に夕方の背景を読み込む</span>
+<span class="comment">// オブジェクト１番にキャラクターを読み込み、トーンカーブ０番（夕方）を設定する</span>
+back.object[0].create(BG005E, 1)
+back.object[1].create(BS0101, 1)
+back.object[1].tonecurve_no = 0
+wipe
+
+夕方の背景です。r
+
+<span class="comment">// オブジェクト０番に夜の背景を読み込む</span>
+<span class="comment">// オブジェクト１番にキャラクターを読み込み、トーンカーブ１番（夜）を設定する</span>
+back.object[0].create(BG005N, 1)
+back.object[1].create(BS0101, 1)
+back.object[1].tonecurve_no = 1
+wipe
+
+夜の背景です。r
+</pre>
+
+<p>夕方や夜以外にも、曇り空や朝方など、背景に合わせて上手に作って下さい。
+その他にも、モノクロやセピア調などを表現することもできます。
+</p>
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

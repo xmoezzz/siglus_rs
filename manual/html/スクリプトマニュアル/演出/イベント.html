@@ -1,0 +1,180 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/イベント.html">イベント</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> イベント</h1>
+
+<h4> イベントについて</h4>
+
+<p>イベントを使えば、「画面を１秒かけてモノクロにする」
+「オブジェクトをＡ地点からＢ地点の間をループさせる」などが簡単にできます。
+</p>
+<p>画面全体にイベントを与えるには、スクリーンやステージの「エフェクトイベント」を使います。
+オブジェクトにイベントを与えるには、「オブジェクトイベント」を使います。
+その他、いろいろなイベントがありますが、どれも使い方は同じです。
+イベントの種類については、それぞれ <a href="../../スクリプトマニュアル/オブジェクト/オブジェクトイベント.html">オブジェクトイベント</a>、<a href="../../スクリプトマニュアル/演出/エフェクト.html">エフェクト</a> などを参照して下さい。
+</p>
+<h5> 代表的なイベント</h5>
+
+<pre class="exp">
+screen.effect[0].mono_eve  // スクリーンのモノクロイベント
+front.effect[0].mono_eve   // フロントステージのモノクロイベント
+front.object[0].x_eve      // オブジェクトのＸ座標イベント
+front.object[0].tr_eve     // オブジェクトの不透明度イベント
+</pre>
+
+<p>以下、イベントを $event と書きます。
+</p>
+<h5> 使い方の例</h5>
+
+<p>例えば「オブジェクトのＸ座標イベント（x_eve）」に対して「ループイベント(loop)」を実行したい場合は、次のように使います。
+</p>
+<pre class="source">
+front.object[0].x_eve.loop(100, 200, 1000, 0, 0)
+</pre>
+
+<h4> イベントを開始する</h4>
+
+<pre class="exp">
+$event.set($value, $time, $rep_time, $speed_mode)                          // イベントを開始する
+$event.set_real($value, $time, $rep_time, $speed_mode)                     // イベントを開始する（実時間）
+$event.loop($start_value, $end_value, $time, $rep_time, $speed_mode)       // ループイベントを開始する
+$event.loop_real($start_value, $end_value, $time, $rep_time, $speed_mode)  // ループイベントを開始する（実時間）
+$event.turn($start_value, $end_value, $time, $rep_time, $speed_mode)       // ターンイベントを開始する
+$event.turn_real($start_value, $end_value, $time, $rep_time, $speed_mode)  // ターンイベントを開始する（実時間）
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>set</td><td>$time ﾐﾘ秒かけて、値を現在の値から $value に変化させます。</td></tr>
+<tr><td>loop</td><td>$time ﾐﾘ秒かけて、値を $start_value から $end_value の間でループさせます。</td></tr>
+<tr><td>turn</td><td>$time ﾐﾘ秒かけて、値を $start_value から $end_value の間で往復させます。</td></tr>
+</table>
+</div>
+
+<h5> 引数</h5>
+
+<h5> $rep_time: 修正時刻</h5>
+
+<p>$rep_time を指定すると、イベントを $rep_time ﾐﾘ秒遅らせて開始できます。
+</p>
+<h5> $speed_mode: 加速モード</h5>
+
+<p>$spped_mode を指定すると、イベントを加速させたり減速させたりできます。0=等速、1=加速、2=減速。
+</p>
+<h5> 最終値についての注意</h5>
+
+<p>イベントを停止した場合、値は最後の値になります。
+例えば、「１秒かけてＡ地点からＢ地点に移動する」イベントを途中で止めた場合、すぐにＢ地点に移動します。
+ただし、ループイベントやターンイベントの場合は、Ａ地点に戻ります。
+</p>
+
+<h5> 画面を１秒かけてモノクロにする</h5>
+
+<pre class="source">
+front.effect[0].mono_eve.set(255, 1000, 0, 0)
+</pre>
+
+<h5> オブジェクトのＸ座標を１秒かけて１００にする</h5>
+
+<pre class="source">
+front.object[0].x_eve.set(100, 1000, 0, 0)
+</pre>
+
+<h5> 実時間について</h5>
+
+<p>_real のつくコマンドは、実時間で実行されます。
+早送りなどの制御を受け付けません。
+音楽と同期を取るときなどに使って下さい。
+</p>
+<h4> イベントの初期値設定</h4>
+
+<p>名前つき引数を使って、初期値を与えることができます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>start</td><td>イベントの初期値</td></tr>
+</table>
+</div>
+
+<h5> オブジェクトをふわっと登場させる</h5>
+
+<pre class="source">
+front.object[0].create(UNIT00, 1)
+front.object[0].x_eve.set(640, 200, 0, 2, start=740)
+front.object[0].tr_eve.set(255, 200, 0, 2, start=0)
+</pre>
+
+<p>オブジェクトのＸ座標を、740から640に、200ﾐﾘ秒かけて、減速で動かします。
+オブジェクトの不透明度を、0から255に、200ﾐﾘ秒かけて、減速で動かします。
+この組み合わせで、オブジェクトがふわっと浮き出るように登場します。
+</p>
+<p>以下のように書くのと同じですが、名前つき引数を使った方が簡潔に書けます。
+</p>
+<pre class="source">
+front.object[0].create(UNIT00, 1)
+front.object[0].x = 740
+front.object[0].x_eve.set(640, 200, 0, 2)
+front.object[0].tr = 0
+front.object[0].tr_eve.set(255, 200, 0, 2)
+</pre>
+
+<h4> イベントを終了させる</h4>
+
+<pre class="exp">
+$event.end                                     // イベントを終了する
+</pre>
+
+<p>イベントを終了させます。あまり使わないと思います。
+</p>
+<h4> イベントが終わるのを待つ</h4>
+
+<pre class="exp">
+$event.wait                                    // イベントが終了するのを待つ
+a[0] = $event.wait_key                         // イベントが終了するのを待つ（キーで飛ばせる）
+</pre>
+
+<p>wait_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。 
+</p>
+<h4> イベントを判定する</h4>
+
+<pre class="exp">
+a[0] = $event.check                            // イベントを判定する（0=イベントなし、1=イベント中）
+</pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

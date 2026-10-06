@@ -1,0 +1,65 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/マウスカーソルの設定.html">マウスカーソルの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> マウスカーソルの設定</h1>
+
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■マウスカーソルの登録</span>
+<span class="comment">// =============================================================</span>
+#MOUSE_CURSOR.CNT = 1
+
+<span class="comment">// -------------------------------------------------------------</span>
+#MOUSE_CURSOR.000.FILE = "_MCUR00"    <span class="comment">// ファイル名</span>
+#MOUSE_CURSOR.000.SPEED = 100         <span class="comment">// アニメスピード（ﾐﾘ秒で指定）</span>
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■マウスカーソルの設定</span>
+<span class="comment">// =============================================================</span>
+#MOUSE_CURSOR.DEFAULT = 0
+</pre>
+
+<p>マウスカーソルを設定します。
+</p>
+<p>マウスカーソルの作り方については <a href="../チュートリアル/マウスカーソルを設定する.html">マウスカーソルを設定する</a> を参照して下さい。
+</p>
+<h4> #MOUSE_CURSOR.CNT</h4>
+
+<p>登録するマウスカーソルの個数を指定します。
+現バージョンでは、２つ以上登録しても意味はありません。
+</p>
+<h4> #MOUSE_CURSOR.???.FILE</h4>
+
+<p>マウスカーソルに使う g00 のファイル名を指定します。
+</p>
+<h4> #MOUSE_CURSOR.???.SPEED</h4>
+
+<p>マウスカーソルのアニメーションスピードを設定します。
+値＝１コマにかける時間（ﾐﾘ秒）になります。
+値が大きいほど遅くなります。
+</p>
+<h4> #MOUSE_CURSOR.DEFAULT</h4>
+
+<p>デフォルトで使うマウスカーソルの番号を指定します。
+-1 を設定すると、Windows のデフォルトのカーソルが使われます。
+</p>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,83 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../../スクリプトマニュアル\演出\フレームアクション\フレームアクション.html">フレームアクション</a>　＞　<a href="../../../スクリプトマニュアル\演出\フレームアクション\フレームアクションチャンネル.html">フレームアクションチャンネル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> フレームアクションチャンネル</h1>
+
+<p>フレームアクションの専用チャンネルです。
+１つのチャンネルにつき１つのフレームアクションを設定できます。
+チャンネル単位でアクションを止めたりできます。
+</p>
+<p>チャンネルは初期値で４個あります。（Gameexe.ini で変更できます。）
+</p>
+<h4> フレームアクションを開始／終了する</h4>
+
+<pre class="exp">
+frame_action_ch[0].start($end_time, $command_name)                // フレームアクションを開始する
+frame_action_ch[0].start($end_time, $command_name, $param, ...)   // フレームアクションを開始する
+frame_action_ch[0].end                                            // フレームアクションを終了する
+</pre>
+
+<p>詳細については <a href="../../../スクリプトマニュアル\演出\フレームアクション\フレームアクション.html">フレームアクション</a> を参照して下さい。
+</p>
+<h4> サンプル：複数のフレームアクションを動かす</h4>
+
+<pre class="source">
+<span class="comment">// フレームアクション０番に $frame_action_quake_loop を設定する</span>
+<span class="comment">// 時間に -1 を指定することでループアクションにする</span>
+frame_action_ch[0].start(-1, "$frame_action_quake_loop")
+
+画面を揺らしています。r
+
+<span class="comment">// フレームアクション１番に $screen_action_red_loop を設定する</span>
+<span class="comment">// 時間に -1 を指定することでループアクションにする</span>
+frame_action_ch[1].start(-1, "$screen_action_red_loop")
+
+画面を明滅させています。r
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// 画面を揺らすフレームアクション</span>
+<span class="comment">// =============================================================</span>
+command $frame_action_quake_loop(property $fa : frameaction)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    <span class="comment">// 500ﾐﾘ秒でループさせるため、500 で割った余りを使います。</span>
+    l[0] = $fa.counter.get % 500
+
+    <span class="comment">// カウンタが 0～500 の間、揺れを -10～10 の範囲で動かす</span>
+    l[1] = math.timetable(l[0], 0, 0, [0, 500, 3600])   <span class="comment">// l[1]: 角度（500ﾐﾘ秒で360度）</span>
+    l[2] = math.sin(l[1], 10)                           <span class="comment">// l[2]: 揺れ</span>
+
+    <span class="comment">// 画面のＸ座標の揺れを設定する</span>
+    screen.x = l[2]
+}
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// 画面を赤く明滅させるフレームアクション</span>
+<span class="comment">// =============================================================</span>
+command $screen_action_red_loop(property $fa : frameaction)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    <span class="comment">// 2000ﾐﾘ秒でループさせるため、2000 で割った余りを使います。</span>
+    l[0] = $fa.counter.get % 2000
+
+    <span class="comment">// カウンタが 0～2000 の間、ゲーム画面の「色加算：赤」を 0→255→0 に変化させる</span>
+    screen.color_add_r = math.timetable(l[0], 0, 0, [0, 1000, 255], [1000, 2000, 0])
+}
+
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

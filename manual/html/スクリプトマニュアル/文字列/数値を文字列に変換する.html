@@ -1,0 +1,50 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　文字列　＞　<a href="../../スクリプトマニュアル/文字列/数値を文字列に変換する.html">数値を文字列に変換する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 数値を文字列に変換する</h1>
+
+<h4> 数値を文字列に変換する</h4>
+
+<pre class="exp">
+s[0] = math.tostr($num)
+s[0] = math.tostr($num, $length)
+s[0] = math.tostr_zero($num, $length)
+s[0] = math.tostr_zen($num)
+s[0] = math.tostr_zen($num, $length)
+s[0] = math.tostr_zen_zero($num, $length)
+</pre>
+
+<p>数値を文字列に変換します。
+</p>
+<h5> $length</h5>
+
+<p>長さを指定します。文字列は右寄せになります。
+</p>
+<div class="table-container">
+<table>
+<tr><td>tostr(123) → "123"</td></tr>
+<tr><td>tostr(123, 5) → "**123"（'*' は半角スペース）</td></tr>
+<tr><td>tostr_zero(123, 5) → "00123"</td></tr>
+<tr><td>tostr_zen(123) → "１２３"</td></tr>
+<tr><td>tostr_zen(123, 5) → "＊＊１２３"（'＊' は全角スペース）</td></tr>
+<tr><td>tostr_zen_zero(123, 5) → "００１２３"</td></tr>
+</table>
+</div>
+
+<p>※ '*'、'＊' はそれぞれ半角、全角のスペースです。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

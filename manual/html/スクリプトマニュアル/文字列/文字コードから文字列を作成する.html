@@ -1,0 +1,50 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　文字列　＞　<a href="../../スクリプトマニュアル/文字列/文字コードから文字列を作成する.html">文字コードから文字列を作成する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 文字コードから文字列を作成する</h1>
+
+<h4> 文字コードから文字列を作成する</h4>
+
+<pre class="exp">
+s[0] = math.tostr_by_code($num)
+</pre>
+
+<p>文字コードから文字列を作成します。
+文字コードは Unicode（UTF-16）に準拠します。
+</p>
+<p>ハートマークなど、Shift-JIS に存在しない文字を表示したい場合に使って下さい。
+</p>
+<p>フォントによっては上手く表示されない場合があります。必ず「フォントの問題」をお読み下さい。
+</p>
+<pre class="source">
+print(math.tostr_by_code(0x2661))r
+</pre>
+
+<pre class="result">
+（ハートマークが表示されます）
+</pre>
+
+<h4> フォントの問題</h4>
+
+<p>選んだフォントによっては、文字が表示できない場合があります。
+</p>
+<p>Windows 標準フォント（「ＭＳ　ゴシック」など）は問題なく対応していますので、普通は問題ありません（XP でも大丈夫です）。
+フリーの古いフォントなどは対応していない可能性が高いので、
+環境設定の「フォントの変更」機能を重視する場合は注意して下さい。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

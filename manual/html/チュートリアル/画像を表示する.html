@@ -1,0 +1,68 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../チュートリアル/画像を表示する.html">画像を表示する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>画像を表示する</h1>
+
+<h4>オブジェクトを用いて画像を表示する</h4>
+
+<p>画面に画像を表示するには、<font color="red">オブジェクト</font> を使います。
+オブジェクトは、デフォルトで 000～099 まで（合計 100 個）あります。（Gameexe.ini で設定できます。）
+</p>
+<p>番号の若いものほど奥に表示されます。（レイヤー値を変えることで変更できます。）
+例えば、オブジェクト１番はオブジェクト０番よりも前に表示されます。
+それを考慮して、あらかじめどのオブジェクトに何を割り当てるかを決めておくと便利です。
+</p>
+<div class="table-container">
+<table>
+<caption>オブジェクトの割り当て例</caption>
+<tr><td>object[00]</td><td>背景</td></tr>
+<tr><td>object[10]</td><td>バストショット１</td></tr>
+<tr><td>object[11]</td><td>バストショット２</td></tr>
+<tr><td>object[12]</td><td>バストショット３</td></tr>
+<tr><td>object[20]</td><td>汗、ため息などのエモーション１</td></tr>
+<tr><td>object[21]</td><td>汗、ため息などのエモーション２</td></tr>
+<tr><td>object[22]</td><td>汗、ため息などのエモーション３</td></tr>
+<tr><td>object[30]</td><td>日付</td></tr>
+</table>
+</div>
+
+<pre class="source">
+<span class="comment">// オブジェクト０番に背景画像 "BG001" を読み込み、表示します。</span>
+front.object[00].create(BG001, 1)
+
+背景を表示しました。r
+
+<span class="comment">// オブジェクト１０番にバストショット画像 "BS0101" を読み込み</span>
+<span class="comment">// 画面左 (x, y) = (-300, 0) に表示します。</span>
+front.object[10].create(BS0101, 1, -300, 0)
+
+バストショットを左に表示しました。r
+
+<span class="comment">// オブジェクト１０番にバストショット画像 "BS0201" を読み込み、表示します。</span>
+<span class="comment">// 画面右 (x, y) = (300, 0) に表示します。</span>
+front.object[11].create(BS0201, 1, 300, 0)
+
+バストショットを右に表示しました。r
+</pre>
+
+<p>オブジェクトに画像を読み込むには、create <font color="red">コマンド</font> を使います。
+オブジェクト０番に画像を読み込むには、front.object[0].create の用に指定します。
+</p>
+<p>"BG001" は読み込む画像のファイル名で、続く "1" は、「画像を表示する」ことを表します。
+コマンドの後ろに続く値を <font color="red">引数</font> と呼びます。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

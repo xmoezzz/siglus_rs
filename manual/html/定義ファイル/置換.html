@@ -1,0 +1,137 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../定義ファイル/定義ファイル.html">定義ファイル</a>　＞　<a href="../定義ファイル/置換.html">置換</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 置換</h1>
+
+<p>置換を使ってフラグなどに名前をつけると、スクリプトの見た目が分かりやすくなります。
+</p>
+<p>例えば、主人公の体力、賢さ、運のよさ、など多くのフラグが必要だとします。
+それぞれ a[0]、a[1]、a[2]… のようにフラグを割り当てますが、
+そのままスクリプトに記述した場合、見通しが悪いです。
+</p>
+<h4> 見通しの悪いスクリプトの例</h4>
+
+<pre class="source">
+a[0] += 5
+a[1] += 3
+a[2] += 7
+</pre>
+
+<p>そこで、定義ファイルを使って、フラグに名前をつけます。
+</p>
+<h5>定義ファイル</h5>
+
+<pre class="source">
+#define     @体力                  a[0]
+#define     @賢さ                  a[1]
+#define     @運のよさ              a[2]
+</pre>
+
+<h5>見通しの良くなったスクリプトの例</h5>
+
+<pre class="source">
+@体力 += 5
+@賢さ += 3
+@運のよさ += 7
+</pre>
+
+<p><font color="red">置換の先頭には、必ず @ をつけてください。</font>
+</p>
+<h4> 置換（define / replace）</h4>
+
+<p>文字列の置換を行います。
+</p>
+<h5> 定義ファイル</h5>
+
+<pre class="source">
+#define     @好感度                a[0]
+</pre>
+
+<h5> シーン０１.ss</h5>
+
+<pre class="source">
+@好感度 += 1
+</pre>
+
+<h5> シーン０１.ss（置換後）</h5>
+
+<pre class="result">
+a[0] = 1
+</pre>
+
+<h4> 多重展開</h4>
+
+<p>define による置換は、多重展開されます。
+</p>
+<h5> 定義ファイル</h5>
+
+<pre class="source">
+#define     @持ち物先頭            100
+#define     @持ち物１              s[@持ち物先頭 + 0]
+#define     @持ち物２              s[@持ち物先頭 + 1]
+#define     @持ち物３              s[@持ち物先頭 + 2]
+</pre>
+
+<h5> 置換の流れ</h5>
+
+<pre class="result">
+@持ち物１ = "やくそう"
+↓
+s[@好感度先頭 + 0] = "やくそう"
+↓
+s[100 + 0] = "やくそう"
+</pre>
+
+<h4> 多重展開のよる無限ループ</h4>
+
+<p>以下のような置換は失敗します。
+</p>
+<pre class="source">
+#define     月宮            ruby(月宮) つきみや ruby
+</pre>
+
+<h5> 置換の流れ</h5>
+
+<pre class="result">
+月宮
+↓
+ruby(月宮) つきみや ruby
+↓
+ruby(ruby(月宮) つきみや ruby) つきみや ruby
+↓
+（…以下、無限ループ）
+</pre>
+
+<p>置換の先頭に @ をつけていれば問題ありませんが、どうしてもつけたくない場合もあります。
+その場合は replace を使ってください。replace は多重展開されない置換です。
+</p>
+<h5> 定義ファイル</h5>
+
+<pre class="source">
+#replace     月宮            ruby(月宮) つきみや ruby
+</pre>
+
+<h5> 置換の流れ</h5>
+
+<pre class="result">
+月宮
+↓
+ruby(月宮) つきみや ruby
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/オブジェクトボタングループ/オブジェクトボタングループ.html">オブジェクトボタングループ</a>　＞　<a href="../../スクリプトマニュアル/オブジェクトボタングループ/オブジェクトボタングループを開始する.html">オブジェクトボタングループを開始する</a>
+<!-- ここまで自動挿入ヘッダ -->
+<h1> グループ（オブジェクトボタングループ）を開始する</h1>
+
+<h4> 選択を初期化する</h4>
+
+<pre class="exp">
+front.objbtngroup[0].init
+</pre>
+
+<p>グループの選択状態を初期化します。
+オブジェクトにボタン属性を持たせる前に、必ず初期化してください。
+</p>
+<p>グループは、一度選択すると「選択状態」になり、
+init で初期化を行うまで二度と選択できなくなります。
+</p>
+<h4> 選択を開始する（簡易版）</h4>
+
+<pre class="exp">
+a[0] = front.objbtngroup[0].sel
+a[0] = front.objbtngroup[0].sel_cancel
+a[0] = front.objbtngroup[0].sel_cancel($cancel_se_no)
+</pre>
+
+<p>このグループで選択を開始します。
+選択が終わるまでスクリプトは進みません。
+選択したオブジェクトのボタン番号が戻り値になります。
+</p>
+<p>sel_cancel の場合、右クリックで選択をキャンセルできます。
+キャンセルした場合、戻り値は -1 になります。
+$cancel_se_no には、キャンセルを行ったときの効果音番号を指定します。
+（ボタンを選択したときの効果音は、各ボタンごとに設定します。）
+</p>
+<h4> 選択を開始する（制御版）</h4>
+
+<pre class="exp">
+front.objbtngroup[0].start
+front.objbtngroup[0].start_cancel
+front.objbtngroup[0].start_cancel($cancel_se_no)
+</pre>
+
+<p>このグループで選択を開始します。
+選択中も、スクリプトは進み続けます。
+選択状態は、get_hit_no, get_pushed_no, get_decided_no で取得できます。
+</p>
+<p>start_cancel の場合、右クリックで選択をキャンセルできます。
+$cancel_se_no には、キャンセルを行ったときの効果音番号を指定します。
+（ボタンを選択したときの効果音は、各ボタンごとに設定します。）
+</p>
+<h4> 選択を終了する</h4>
+
+<pre class="exp">
+front.objbtngroup[0].end
+</pre>
+
+<p>start で開始した選択を終了します。
+普通は、決定またはキャンセルされた時点で終了するので、
+あまり使うことはないと思います。
+</p>
+<h4> マウスが当たっているボタンのボタン番号を取得する</h4>
+
+<pre class="exp">
+a[0] = front.objbtngroup[0].get_hit_no
+</pre>
+
+<p>選択中の場合、現在マウスが当たっているボタンのボタン番号を取得します。
+当たっていない場合、-1 になります。
+</p>
+<h4> 押されているボタンのボタン番号を取得する</h4>
+
+<pre class="exp">
+a[0] = front.objbtngroup[0].get_pushed_no
+</pre>
+
+<p>選択中の場合、現在押されているボタンのボタン番号を取得します。
+押されていない場合、-1 になります。
+</p>
+<h4> 決定されたボタンのボタン番号を取得する</h4>
+
+<pre class="exp">
+a[0] = front.objbtngroup[0].get_decided_no
+</pre>
+
+<p>選択中の場合、決定されたボタンのボタン番号を取得します。
+キャンセルされた場合は -1 になります。
+<font color="red">決定もキャンセルもされていない場合は -2 になります。</font>
+</p>
+<p>start コマンドの場合はキャンセル不可のため、-1 になることはありません。
+ただし、システムコマンドメニューの呼び出しが禁止されている場合は -1 になることがあります。
+</p>
+
+<h4> 選択されているボタンを取得する</h4>
+
+<p>制御版の選択肢コマンド start_cancel において、どのボタンで決定／キャンセルされたかを取得します。
+こちらを使用することでボタンの上で右クリックしたときの処理を作ることができます。
+※タッチスクリーンの場合、長押しすると右クリックしたことになるので、そのときの処理が追加できます。
+</p>
+<pre class="exp">
+a[0] = front.objbtngroup[0].get_result
+</pre>
+
+<p>選択肢の状態を取得します。
+	 0 : まだ選択中です。
+	 1 : 決定されました。
+	-1 : キャンセルされました。
+</p>
+<p>ほとんどの場合 get_result とセット使用します。
+</p>
+
+<pre class="exp">
+a[0] = front.objbtngroup[0].get_result_button_no
+</pre>
+
+<p>get_resultの値が 1 または -1 ときのみ正常な値を返しますので、あらかじめ get_result で値を取得しておいてください。
+</p>
+<p>get_result が 1 のときは、決定されたボタン番号が返ります。
+</p>
+<p>get_result が -1 のときは、キャンセルされたときにマウスが当たっていたボタンのボタン番号が返ります。
+もし、ボタンのないところでキャンセルしていた場合は -1 が返ります。
+</p>
+
+<pre>
+<p>■サンプル
+</p>
+<p>	// *************************************************************
+	// 新しいボタン選択肢の結果の取得
+	// =============================================================
+</p>
+<p>	syscom.set_syscom_menu_disable
+</p>
+<p>	front.object[0].create("unit00", 1, 100, 100)
+	front.object[0].set_button(0)
+	front.object[1].create("unit01", 1, 200, 100)
+	front.object[1].set_button(1)
+	front.objbtngroup[0].start_cancel
+</p>
+<p>	while (1)	{
+</p>
+<p>		L[0] = front.objbtngroup[0].get_result
+		if (L[0] == 1)	{
+			L[0] = front.objbtngroup[0].get_result_button_no
+			switch (L[0])	{
+			case (00)	"０番が選ばれました。"r
+			case (01)	"１番が選ばれました。"r
+			}
+		}
+		elseif (L[0] == -1)	{
+			L[0] = front.objbtngroup[0].get_result_button_no
+			switch (L[0])	{
+			case (00)	"０番の上でキャンセルされました。"r
+			case (01)	"１番の上でキャンセルされました。"r
+			case (-1)	"ボタンのないところでキャンセルされました。"r
+			}
+		}
+</p>
+<p>		disp
+	}
+</pre>
+</p>
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

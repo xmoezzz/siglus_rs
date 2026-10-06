@@ -1,0 +1,97 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../../スクリプトマニュアル\基本構文\ユーザコマンド\ユーザコマンド.html">ユーザコマンド</a>　＞　<a href="../../../スクリプトマニュアル\基本構文\ユーザコマンド\引数と戻り値.html">引数と戻り値</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ユーザコマンドの引数と戻り値</h1>
+
+<h4> 引数</h4>
+
+<p>ユーザコマンドに引数を持たせることができます。
+</p>
+<h5> _start.ss</h5>
+
+<pre class="source">
+$plus(10, 20)     <span class="comment">// コマンド $plus に引数 10, 20 を渡して呼び出します。</span>
+$plus(-30, 50)    <span class="comment">// コマンド $plus に引数 -30, 50 を渡して呼び出します。</span>
+
+owari             <span class="comment">// ゲームを終了します。</span>
+
+<span class="comment">// コマンド $plus の定義です。</span>
+command $plus(<font color="red">property $a : int, property $b : int</font>)
+{
+    print($a + $b)r   <span class="comment">// ２つの引数を足し算した結果を表示します。</span>
+}
+</pre>
+
+<h5> 実行結果</h5>
+
+<pre class="result">
+30
+20
+</pre>
+
+<p>型を省略した場合は、int 型になります。
+</p>
+<pre class="source">
+<span class="comment">// 上の例と同じコマンドです。</span>
+command $plus(<font color="red">property $a, property $b</font>)
+{
+    print($a + $b)r   <span class="comment">// ２つの引数を足し算した結果を表示します。</span>
+}
+</pre>
+
+
+<h4> 戻り値</h4>
+
+<p>ユーザコマンドが値を返すこともできます。
+</p>
+<h5> _start.ss</h5>
+
+<pre class="source">
+#z00
+
+a[0] = $plus(10, 20)     <span class="comment">// コマンド $plus に引数 10, 20 を渡して呼び出します。</span>
+                         <span class="comment">// 戻り値を a[0] フラグで受け取ります。</span>
+
+計算結果は print(a[0]) です。r    <span class="comment">// a[0] の値を表示します。</span>
+
+owari                    <span class="comment">// ゲームを終了します。r</span>
+
+<span class="comment">// コマンド $plus の定義です。</span>
+command $plus(property $a : int, property $b : int)<font color="red"> : int</font>
+{
+    <font color="red">return ($a + $b)</font>
+}
+</pre>
+
+<h5>実行結果</h5>
+
+<pre class="result">
+30
+20
+</pre>
+
+<p>型を省略した場合は、int 型になります。
+</p>
+<pre class="source">
+<span class="comment">// 上の例と同じコマンドです。</span>
+command $plus(property $a : int, property $b : int)
+{
+    <font color="red">return ($a + $b)</font>
+}
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

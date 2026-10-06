@@ -1,0 +1,154 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/エフェクト.html">エフェクト</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> エフェクト</h1>
+
+<p>画面に効果を与えます。
+画面を動かしたり、モノクロにしたりできます。
+イベントを使って、「１秒かけて画面をモノクロにする」などの演出もできます。
+</p>
+<p>画面全体に効果を与えるには screen.effect 使います。
+バック／フロント／ネクストのみに効果を与えることもできます（back.effect / front.effect / next.effect）。
+ワイプ制御をしたい場合はこちらを使って下さい。 
+</p>
+<p>デフォルトで４個あります（effect[0]～effect[3]）（少し処理が重いため、少なめです）。
+個数は Gameexe.ini で変更できます。
+</p>
+<h4> パラメータ</h4>
+
+<pre class="exp">
+screen.effect[0].x = 0
+screen.effect[0].y = 0
+screen.effect[0].z = 0
+screen.effect[0].mono = 0
+screen.effect[0].reverse = 0
+screen.effect[0].bright = 0
+screen.effect[0].dark = 0
+screen.effect[0].color_r = 0
+screen.effect[0].color_g = 0
+screen.effect[0].color_b = 0
+screen.effect[0].color_add_r = 0
+screen.effect[0].color_add_g = 0
+screen.effect[0].color_add_b = 0
+</pre>
+
+<p>パラメータ詳細については、 <a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a> などを参照して下さい。
+</p>
+<h4> イベント</h4>
+
+<pre class="exp">
+screen.effect[0].x_eve
+screen.effect[0].y_eve
+screen.effect[0].z_eve
+screen.effect[0].mono_eve
+screen.effect[0].reverse_eve
+screen.effect[0].bright_eve
+screen.effect[0].dark_eve
+screen.effect[0].color_r_eve
+screen.effect[0].color_g_eve
+screen.effect[0].color_b_eve
+screen.effect[0].color_rate_eve
+screen.effect[0].color_add_r_eve
+screen.effect[0].color_add_g_eve
+screen.effect[0].color_add_b_eve
+</pre>
+
+<p>イベントについては <a href="../../スクリプトマニュアル/演出/イベント.html">イベント</a> を参照して下さい。
+</p>
+<h4> エフェクトを初期化する</h4>
+
+<pre class="exp">
+screen.effect[0].init
+</pre>
+
+<h4> エフェクトの個数を取得／設定する</h4>
+
+<pre class="exp">
+screen.effect.resize($cnt)       // 個数を設定する
+a[0] = screen.effect.get_size    // 個数を取得する
+</pre>
+
+<p>コマンドはありますが、エフェクトの個数は変更できません。（エラーになります。）
+</p>
+<h4> オーダーを指定する（メッセージウィンドウにも効果を与えるなど）</h4>
+
+<pre class="exp">
+screen.effect[0].begin_order = 0
+screen.effect[0].end_order = 0
+</pre>
+
+<p>効果を適用するオーダーの範囲を指定できます。
+メッセージウィンドウにも効果を与えたい時などに使います。
+オーダーについては <a href="../../スクリプトマニュアル/ステージ／オーダー/オーダー.html">オーダー</a> を参照して下さい。
+省略すると オーダー 0 のみに効果を与えます。
+</p>
+<h4> レイヤーを指定する（細かく効果範囲を制御する）</h4>
+
+<pre class="exp">
+screen.effect[0].begin_layer = (int_min)
+screen.effect[0].end_layer = (int_max)
+</pre>
+
+<p>効果を適用するレイヤーの範囲を指定できます。
+背景以外のオブジェクトに効果を与えたい、など細かく範囲を制御するときに使って下さい。
+</p>
+<p>初期値は、レイヤーの最小値～最大値になっています。
+初期化するときは init コマンドを使って下さい。
+</p>
+<h4> ワイプコピーを行う</h4>
+
+<pre class="exp">
+screen.effect[0].wipe_copy = 0        // ワイプコピーフラグ
+screen.effect[0].wipe_erase = 0       // ワイプ消滅フラグ
+</pre>
+
+<p>ワイプコピーを行うこともできます。
+ワイプコピーについては <a href="../../スクリプトマニュアル/オブジェクト/ワイプコピー.html">ワイプコピー</a> を参照して下さい。
+</p>
+<h4> サンプル：ワイプして画面をモノクロにする</h4>
+
+<pre class="source">
+
+<span class="comment">// バックに背景を読み込みます。</span>
+back.object[0].create(BG001, 1)
+
+<span class="comment">// バックをモノクロにします。</span>
+back.effect[0].mono = 255
+
+<span class="comment">// ワイプします。</span>
+wipe
+</pre>
+
+<h4> サンプル：ワイプして画面をセピアにする</h4>
+
+<pre class="source">
+
+<span class="comment">// バックに背景を読み込みます。</span>
+back.object[0].create(BG001, 1)
+
+<span class="comment">// バックをセピアにします。</span>
+back.effect[0].mono = 255
+back.effect[0].color_add_r = 107
+back.effect[0].color_add_g = 74
+back.effect[0].color_add_b = 43
+
+<span class="comment">// ワイプします。</span>
+wipe
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

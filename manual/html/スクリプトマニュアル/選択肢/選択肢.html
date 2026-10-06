@@ -1,0 +1,91 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/選択肢/選択肢.html">選択肢</a>　＞　<a href="../../スクリプトマニュアル/選択肢/選択肢.html">選択肢</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>選択肢</h1>
+
+<p>選択肢を表示するには、sel コマンドを使います。
+</p>
+<p>選択は、デフォルトではメッセージウィンドウ１番が使われます。
+Gameexe.ini の以下の設定で変更できます。
+</p>
+<pre class="source">
+#MWND.DEFAULT_SEL_MWND_NO = 1   <span class="comment">// デフォルトのメッセージウィンドウ番号（選択肢用）</span>
+</pre>
+
+<h4>選択肢を表示する</h4>
+
+<pre class="exp">
+a[0] = sel(*, *, *, ...)
+a[0] = sel_cancel(*, *, *, ...)     // 右クリックでキャンセルできる
+
+(*) = $str
+(*) = $str, $state
+(*) = $str, $state, $color
+</pre>
+
+<p>$state, $color については <a href="../../スクリプトマニュアル/選択肢/選択肢の制御コード.html">選択肢の制御コード</a> を参照して下さい。
+</p>
+<h5>選択肢による分岐の例</h5>
+
+<pre class="source">
+l[0] = sel(
+    "かいにきた",         <span class="comment">// 選択肢０番</span>
+    "うりにきた",         <span class="comment">// 選択肢１番</span>
+    "やめる"              <span class="comment">// 選択肢２番</span>
+)
+switch (l[0])   {
+    case (00)   goto #kainikita
+    case (01)   goto #urinikita
+    case (02)   goto #yameru
+}
+</pre>
+
+<h5>戻り値</h5>
+
+<p>選ばれた選択肢によって、上から順に 0, 1, 2 ... が返ってきます。
+上の例では、選択によって #kainikita、#urinikita、#yameru にジャンプしています。
+</p>
+<h5>キャンセル</h5>
+
+<p>sel_cancel の場合、右クリックで選択をキャンセルできます。
+キャンセルした場合の戻り値は -1 です。
+選択中は右クリックでシステムコマンドメニューが呼び出せなくなるので、
+注意して使って下さい。
+</p>
+<h4>選択肢直前のメッセージ</h4>
+
+<pre class="source">
+選択してください。<font color="red">r</font>      <span class="comment">// ここの r 命令を色々置き換えてください。</span>
+
+l[0] = sel(～)
+
+print(l[0])番を選択しました。r
+</pre>
+
+<p>選択肢直前のメッセージには r 命令を入れてもいいですが、
+他の命令を入れてもいいです。
+</p>
+<div class="table-container">
+<table>
+<tr><td>clear</td><td>キー待ちを行わずに選択を行う</td></tr>
+<tr><td>r</td><td>キー待ち後に選択を行う</td></tr>
+<tr><td>r + close</td><td>キー待ち後、メッセージウィンドウを閉じてから選択を行う</td></tr>
+</table>
+</div>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

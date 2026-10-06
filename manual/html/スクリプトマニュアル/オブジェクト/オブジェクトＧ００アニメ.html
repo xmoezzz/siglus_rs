@@ -1,0 +1,59 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a>　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクトＧ００アニメ.html">オブジェクトＧ００アニメ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>オブジェクト g00 アニメ（gan）</h1>
+
+<p>gan データを使って、オブジェクトに gan を設定できます。
+</p>
+<h4> gan データを作成する</h4>
+
+<p>gan データは G00anm_edit.exe で作成できます。
+詳しくは G00anm_edit.exe のマニュアルを参照して下さい。
+できた gan データは、gan フォルダに入れて下さい。
+</p>
+<pre class="source">
+SampleGame
+  +- exe
+  |   +- <font color="red">gan</font>
+  |      +- <font color="red">sample00.gan</font>
+  |   +- SiglusEngine.exe
+  |
+  +- SiglusCompiler.exe
+</pre>
+
+<h4>gan ファイルを設定する</h4>
+
+<pre class="exp">
+front.object[0].load_gan($file_name)
+</pre>
+
+<p>オブジェクトに gan を設定します。
+</p>
+<h4>gan を開始する</h4>
+
+<pre class="exp">
+front.object[0].start_gan($set_no, $loop)
+</pre>
+
+<p>gan をスタートします。
+</p>
+<ul>
+<li> $set_no : gan ファイル内で作成したセット番号を指定します。</li>
+<li> $loop : 0=ループしない（ワンショット）、1=ループする</li>
+</ul>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,46 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　オブジェクトパラメータ　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトパラメータ\オブジェクトパラメータ（特殊）.html">オブジェクトパラメータ（特殊）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オブジェクトパラメータ（特殊）</h1>
+
+<h4> 使い方のヒントを設定／クリアする（高速化）</h4>
+
+<pre class="exp">
+front.object[0].clear_hints()            // ヒントを初期化する
+front.object[0].add_hints(no_event = 0)  // ヒントを追加する
+</pre>
+
+<p>「このオブジェクトはこんな風に使います」ということを予め教えておくことで、処理を高速化します。
+</p>
+<p>通常は使う必要ありません。
+ミニゲームなど、オブジェクトが千個単位で存在するような場合に、適切に設定して下さい。
+</p>
+<p><div class="chips">ヒントは子供オブジェクトにも影響するので、親に設定するのが手軽です。</div>
+</p>
+<h5> パラメータイベントを使わない</h5>
+
+<pre class="source">
+front.object[0].add_hints(no_event = 1)
+</pre>
+
+<p>オブジェクトのイベントを使わないことを教えます。
+このパラメータを設定した場合、各種パラメータイベントが使用できなくなります。
+</p>
+<p>オブジェクトは、存在するだけで、「各種パラメータイベントが設定されていないか」の判定を常に行います。
+その処理をスキップすることで、処理を高速化します。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

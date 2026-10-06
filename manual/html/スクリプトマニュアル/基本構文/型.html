@@ -1,0 +1,45 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/型.html">型</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 型</h1>
+
+<h4> 型</h4>
+
+<p>Siglus では、「型」の概念が非常に重要になります。
+全ての式やエレメントは、必ず「型」を持ちます。
+例えば、100 と言った整数や a[0] と言った整数を扱うフラグは、「int 型」という型になります。
+"abc" や s[0] と言った文字列は「str 型」になります。
+</p>
+<div class="table-container">
+<table>
+<tr><td>型</td><td>型の意味</td><td>例</td></tr>
+<tr><td>void</td><td>なし</td><td>print など、戻り値を持たないコマンド</td></tr>
+<tr><td>int</td><td>整数</td><td>100, -5, a[0], g[0], l[0]<br />3 + 5 などの式<br />mouse.get_x など、整数を返すコマンド</td></tr>
+<tr><td>intlist</td><td>整数の配列</td><td>a, g, l</td></tr>
+<tr><td>str</td><td>文字列</td><td>"abc", あいうえお, s[0], m[0], k[0]<br />get_title など、文字列を返すコマンド</td></tr>
+<tr><td>strlist</td><td>文字列の配列</td><td>s, m, k</td></tr>
+<tr><td>stage</td><td>ステージ</td><td>front, back</td></tr>
+<tr><td>object</td><td>オブジェクト</td><td>front.object[0]</td></tr>
+<tr><td>...</td><td></td><td></td></tr>
+</table>
+</div>
+
+<p>型の一覧については <a href="../../エレメント一覧/エレメント一覧.html">エレメント一覧</a> を参照して下さい。
+</p>
+<img src="型.png">
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

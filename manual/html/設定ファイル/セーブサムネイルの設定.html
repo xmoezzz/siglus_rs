@@ -1,0 +1,56 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/セーブサムネイルの設定.html">セーブサムネイルの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> セーブサムネイルの設定</h1>
+
+<p>セーブサムネイルに関する情報を設定します。
+セーブサムネイルを使うと、各セーブデータにサムネイルを持たせることができます。
+</p>
+<p>詳しくは <a href="../スクリプトマニュアル\システム制御\セーブ／ロード\セーブサムネイル.html">セーブサムネイル</a> を参照して下さい。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■セーブサムネイル</span>
+<span class="comment">// =============================================================</span>
+#SAVE_THUMB.USE = 1
+#SAVE_THUMB.SIZE = 320, 180
+#SAVE_THUMB.TYPE = 0
+</pre>
+
+<h5> #SAVE_THUMB.USE</h5>
+
+<p>セーブサムネイルを使うかどうかを設定します。0=使わない、1=使う
+</p>
+<h5> #SAVE_THUMB.SIZE</h5>
+
+<p>セーブサムネイルのサイズを設定します。
+</p>
+<h5> #SAVE_THUMB.TYPE</h5>
+
+<p>セーブサムネイルの形式を指定します。0=BMP、1=PNG
+</p>
+<p>通常は 0 にして下さい。
+PNG にすると、サムネイルの容量が小さくなりますが、セーブに少し時間がかかるようになります。
+</p>
+<p>セーブサムネイルが大きい（画面の半分を覆うなど）、かつセーブ数が多い（２００個など）など、
+セーブデータの容量が気になる場合は PNG にして下さい。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

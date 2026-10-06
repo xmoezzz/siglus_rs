@@ -1,0 +1,127 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/コール.html">コール</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> コール</h1>
+
+<h4> コールの注意点</h4>
+
+<p><font color="red">
+ラベルコールやシーンコールから戻るのに、goto や jump などを使ってはいけません！
+goto や jump で抜け出すと、後述する「コールフラグ」が残ったままになります。
+コールフラグがたまり続けると、「スタックオーバーフロー」という致命的なエラーになります。
+gosub を使った場合は、必ず return で戻ってください。
+</font>
+</p>
+<h4> ラベルコール</h4>
+
+<pre class="exp">
+gosub #label
+return
+</pre>
+
+<p>ラベルジャンプと似てますが、ラベルコールの場合は、return 文で呼び出し元に戻ることができます。
+</p>
+<h5> _start.ss</h5>
+
+<pre class="source">
+#z00
+
+ここからスタートします。r
+
+gosub #label_01
+
+ここが最後に実行されます。r
+
+owari
+
+#label_01
+
+ラベルコールされました。r
+
+return
+</pre>
+
+<h5> 実行結果</h5>
+
+<pre class="result">
+ここからスタートします。
+ラベルコールされました。
+ここが最後に実行されます。
+</pre>
+
+<h4> シーンコール</h4>
+
+<pre class="exp">
+farcall($scene_name)
+farcall($scene_name, $z_label_no)
+</pre>
+
+<p>シーンジャンプと似てますが、シーンコールの場合は、return 文で元のシーンに戻ることができます。
+</p>
+<h5> _start.ss</h5>
+
+<pre class="source">
+#z00
+
+ここからスタートします。r
+
+farcall("５月１４日")           <span class="comment">// ５月１４日.ss の #z00 をコールします。</span>
+farcall("５月１５日", 01)       <span class="comment">// ５月１５日.ss の #z01 をコールします。</span>
+
+ゲームを終了します。r
+
+owari
+
+</pre>
+
+<h5> ５月１４日.ss</h5>
+
+<pre class="source">
+#z00
+
+次にここが実行されます。r
+
+return                             <span class="comment">// 呼び出し元に戻ります。</span>
+</pre>
+
+<h5> ５月１５日.ss</h5>
+
+<pre class="source">
+#z00
+
+ここは実行されません。r
+
+return
+
+#z01
+
+最後にここが実行されます。r
+
+return                             <span class="comment">// 呼び出し元に戻ります。</span>
+</pre>
+
+<h5> 実行結果</h5>
+
+<pre class="result">
+ここからスタートします。
+次にここが実行されます。
+最後にここが実行されます。
+ゲームを終了します。
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

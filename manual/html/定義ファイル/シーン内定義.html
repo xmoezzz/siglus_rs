@@ -1,0 +1,37 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../定義ファイル/定義ファイル.html">定義ファイル</a>　＞　<a href="../定義ファイル/シーン内定義.html">シーン内定義</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> シーン内定義</h1>
+
+<h4> #inc_start / #inc_end</h4>
+
+<p>#inc_start / #inc_end を使うことで、シーン内で定義を行うことが出来ます。
+シーン内で定義された置換やマクロは、そのシーン内でのみ適用されます。
+</p>
+<h4> シーン０１.ss</h4>
+
+<pre class="source">
+#z00
+
+#inc_start
+    #replace    文字列                 文字列２
+    #define     @好感度                a[0]
+    #macro      @好感度アップ(@value)  @好感度 += (@value)
+#inc_end
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

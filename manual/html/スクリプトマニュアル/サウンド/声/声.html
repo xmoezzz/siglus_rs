@@ -1,0 +1,152 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\声\声.html">声</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\声\声.html">声</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 声</h1>
+
+<p>声を再生するには koe コマンドを使います。
+通常 koe コマンドは、台本ツール一式により自動的に挿入されます。
+直接このコマンドを触ることは少ないです。
+詳しくは台本ツールのマニュアルを参照して下さい。
+</p>
+<h4> koe の特徴</h4>
+
+<p>koe は特殊なコマンドです。以下のような特徴を持っています。
+</p>
+<ul>
+<li> 環境設定の「声」のボリュームに従う</li>
+<li> 環境設定の「キャラクタ音声」のボリュームに従う</li>
+<li> 環境設定の「音声モード」に影響される</li>
+<li> 時短再生に影響される</li>
+<li> セリフの前につけることで「声リプレイ」ボタンで再生できる</li>
+<li> メッセージバックに登録される</li>
+<li> 声が再生されているとき、ＢＧＭの音量が「ＢＧＭフェード」に従って小さくなる</li>
+</ul>
+
+<p>特殊なことをせずに単純に声を再生した場合は <a href="../../../スクリプトマニュアル\サウンド\声\ＥＸ声.html">ＥＸ声</a> を参照して下さい。
+</p>
+<h4> 声を再生する</h4>
+
+<pre class="exp">
+koe($koe_no)
+koe($koe_no, $chara_no)
+koe_play_wait($koe_no)                        // 再生終了待ち
+koe_play_wait($koe_no, $chara_no)             // 再生終了待ち
+a[0] = koe_play_wait_key($koe_no)             // 再生終了待ち（キーでスキップできる）
+a[0] = koe_play_wait_key($koe_no, $chara_no)  // 再生終了待ち（キーでスキップできる）
+</pre>
+
+<h5> 引数</h5>
+
+<ul>
+<li> $koe_no: 声番号</li>
+<li> $chara_no: キャラクター番号</li>
+</ul>
+
+<h5> 声番号</h5>
+
+<p>再生される声の番号です。
+</p>
+<h5> キャラクター番号</h5>
+
+<p>環境設定の「キャラクタ音声」などを制御します。
+「キャラクター１番の声のみをオフにする」と言ったことが可能になります。
+</p>
+<h5> 戻り値</h5>
+
+<p>koe_play_wait_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<h4> 声を停止する</h4>
+
+<pre class="exp">
+koe_stop
+</pre>
+
+<p>声を停止します。
+</p>
+<h4> 声の再生が終了するのを待つ</h4>
+
+<pre class="exp">
+koe_wait
+a[0] = koe_wait_key                               // キーでスキップできる
+</pre>
+
+<p>声の再生が終了するのを待ちます。
+</p>
+<p>koe_wait_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<div class="chips">
+環境設定で声をオフにしていた場合、声が再生されないため、声を待たずに次に進んでしまいます。
+</div>
+
+
+<h4> 声の再生状態を取得する</h4>
+
+<pre class="exp">
+a[0] = koe_check
+</pre>
+
+<p>声の再生状態を取得します。（0=停止中、1=再生中、2=フェードアウト中）
+</p>
+<pre class="exp">
+a[0] = koe_check_get_koe_no
+a[0] = koe_check_get_chara_no
+a[0] = koe_check_is_ex_koe
+</pre>
+
+<p>声が再生されている場合、その声の
+</p>
+<li> 声番号</li>
+<li> キャラクター番号</li>
+<li> ＥＸ声かどうか（0=通常の koe、1=exkoe）</li>
+
+<p>を取得します。
+</p>
+<p>声が再生されていない場合の値は不定です。
+必ず koe_check コマンドと合わせて使って下さい。
+</p>
+<h4> ボリュームを設定する</h4>
+
+<pre class="exp">
+koe_set_volume($volume)
+koe_set_volume($volume, $time)
+</pre>
+
+<p>声のボリュームを 0～255 の範囲で設定します。
+0 にすると無音になります。
+$time を指定すると、指定した時間をかけてボリュームを変化させます。
+</p>
+<h4> ボリュームを最大／最小にする</h4>
+
+<pre class="exp">
+koe_set_volume_max
+koe_set_volume_max($time)
+koe_set_volume_min
+koe_set_volume_min($time)
+</pre>
+
+<p>声のボリュームを最大／最小にします。
+$time を指定すると、指定した時間をかけてボリュームを変化させます。
+</p>
+<h4> ボリュームを取得する</h4>
+
+<pre class="exp">
+a[0] = koe_get_volume
+</pre>
+
+<p>声のボリュームを取得します。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

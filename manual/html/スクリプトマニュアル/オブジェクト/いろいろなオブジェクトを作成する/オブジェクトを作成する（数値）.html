@@ -1,0 +1,77 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　いろいろなオブジェクトを作成する　＞　<a href="../../../スクリプトマニュアル\オブジェクト\いろいろなオブジェクトを作成する\オブジェクトを作成する（数値）.html">オブジェクトを作成する（数値）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 数値オブジェクト</h1>
+
+<h4> 数値オブジェクト</h4>
+
+<p>数値を表示するオブジェクトです。
+「０１２３４５６７８９－＋±」の順に切り出された g00 画像を使います。
+「◇サンプル開発環境」の number.g00 を参照して下さい。
+</p>
+<h4> 数値オブジェクトを作成する</h4>
+
+<pre class="exp">
+front.object[0].create_number($file)
+front.object[0].create_number($file, $disp)
+front.object[0].create_number($file, $disp, $x, $y)
+</pre>
+
+<p>数値オブジェクトを作成します。
+自動的にオブジェクトは初期化されます。
+</p>
+<h4> 数値オブジェクトの数値を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].set_number($num)
+a[0] = front.object[0].get_number
+</pre>
+
+<h4> 数値オブジェクトのパラメータを設定する</h4>
+
+<pre class="exp">
+front.object[0].set_number_param($keta, $zero_mode, $sign_mode, $sign_pos_mode, $x_offset_mode, $x_offset)
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>$keta</td><td>桁数</td></tr>
+<tr><td>$zero_mode</td><td>桁数まで０で埋めるかどうか（0=埋めない、1=埋める）</td></tr>
+<tr><td>$sign_mode</td><td>＋、±をつけるかどうか（0=つけない、1=つける）</td></tr>
+<tr><td>$sign_pos_mode</td><td>$zero_mode が 0 のとき、符号と数値を詰めるかどうか（0=詰めない、1=詰める）</td></tr>
+<tr><td>$x_offset_mode</td><td>桁と桁の距離を画像サイズに合わせるかどうか（0=合わせる、1=合わせない）</td></tr>
+<tr><td>$x_offset</td><td>桁と桁の距離（$x_offset_mode が 0 のとき、この値に画像サイズが加算されます）</td></tr>
+</table>
+</div>
+
+<h4> サンプル：数値オブジェクトを表示する</h4>
+
+<pre class="source">
+<span class="comment">// ５桁で、符号あり（符号を詰める）で数値オブジェクトを表示する</span>
+front.object[0].create_number(number, 1)
+front.object[0].set_number_param(5, 0, 1, 1, 0, 0)
+front.object[0].set_number(123)
+
+<span class="comment">// メッセージ</span>
+数値オブジェクトを表示しました。r
+</pre>
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

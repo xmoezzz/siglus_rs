@@ -1,0 +1,78 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　その他のシステム　＞　<a href="../../../スクリプトマニュアル\システム制御\その他のシステム\ダミーファイル.html">ダミーファイル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ダミーファイル</h1>
+
+<h4>ダミーファイルをチェックする</h4>
+
+<pre class="exp">
+system.check_dummy_file_once($file_name, $key, $code)
+</pre>
+
+<ul>
+<li>$file_name: ダミーファイルのファイル名（拡張子は不要）</li>
+<li>$key: ダミーファイルに埋め込まれた「キー」</li>
+<li>$code: ダミーファイルに埋め込まれた「コード」</li>
+</ul>
+
+<h5>説明</h5>
+
+<p>ディスク内にダミーファイル入れることで、ディスク認証ができます。
+認証は、初回起動時に１度だけ行います。
+</p>
+<h5>ダミーファイルを使ってできること</h5>
+
+<ul>
+<li>ゲームの容量を大きくすることで、ゲームデータがネットワークに流れにくくなります。</li>
+<li>スクリプトでダミーファイルをチェックすることで、ディスク認証ができます。</li>
+</ul>
+
+<h5>ダミーファイルの作り方</h5>
+
+<p>開発環境の DummyMaker.exe を使います。詳しくは DummyMaker のマニュアルを参照して下さい。
+</p>
+<h5>認証ディスクの作り方</h5>
+
+<p>DummyMaker.exe で作られたダミーデータ、
+および認証ファイル（env ファイル、<a href="../../../設定ファイル/初期設定.html">初期設定</a> の #DISKMARK 参照）が入っていれば、
+正規ディスクとして認識されます。
+構成については開発環境の「◇セットアップ環境」を参考にして下さい。
+</p>
+<p>通常はゲームディスク＝認証ディスクになると思います。
+開発中、テスト用に認証ディスクを作りたい場合は、上記の２つを入れれば認証ディスクを作れます。
+<font color="red">env ファイルを入れ忘れると認識されませんので注意して下さい。</font>
+</p>
+
+<h5>使用例</h5>
+
+<pre class="source">
+system.check_dummy_file_once("dummy", 139, "tonapyon")
+</pre>
+
+<h5>設定ファイル</h5>
+
+<p>設定ファイルで認証ダイアログの文字列を設定する必要があります。
+<a href="../../../設定ファイル/ダミーファイルの設定.html">ダミーファイルの設定</a> を参照して下さい。
+</p>
+<h5>補足２</h5>
+
+<p>RealLive で必要だった初回起動チェックや認証中の文字の表示は必要なくなりました。
+</p>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

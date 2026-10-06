@@ -1,0 +1,45 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコマンド\システムコマンド.html">システムコマンド</a>　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコマンド\システムコマンドメニュー.html">システムコマンドメニュー</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> システムコマンドメニュー</h1>
+
+<h4> システムコマンドメニューを呼び出す</h4>
+
+<pre class="exp">
+syscom.call_syscom_menu                      // システムコマンドメニューを呼び出す
+</pre>
+
+<p>システムコマンドメニューを呼び出します。
+Gameexe.ini でキャンセルシーンが指定されている場合は、そのシーンを呼び出します。
+指定されていない場合は、ポップアップメニューを呼び出します。
+</p>
+<pre class="source">
+#CANCEL_SCENE = "_cancel"                    <span class="comment">// キャンセルシーン</span>
+</pre>
+
+<h4> システムコマンドメニューを禁止／解除する</h4>
+
+<pre class="exp">
+syscom.set_syscom_menu_disable               // システムコマンドを禁止する
+syscom.set_syscom_menu_enable                // システムコマンドの禁止を解除する
+</pre>
+
+<p>右クリックによる、システムコマンドメニューの呼び出しを禁止します。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

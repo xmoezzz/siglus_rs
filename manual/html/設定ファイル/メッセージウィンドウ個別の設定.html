@@ -1,0 +1,182 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/メッセージウィンドウ個別の設定.html">メッセージウィンドウ個別の設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージウィンドウ個別の設定</h1>
+
+<p>メッセージウィンドウ個別の設定を行います。
+</p>
+<p>メッセージウィンドウは、ウィンドウと枠を組み合わせて作ります。
+よく使われるのが以下の組み合わせです。
+</p>
+<div class="table-container">
+<table>
+<tr><td>固定ウィンドウ＋固定枠</td><td>デザインされた固定サイズのウィンドウ</td></tr>
+<tr><td>可変ウィンドウ＋可変枠</td><td>選択肢用のウィンドウなどの可変長のウィンドウ</td></tr>
+<tr><td>固定ウィンドウ＋可変枠</td><td>コマンドウィンドウなど、大きさの違う複数のウィンドウ</td></tr>
+</table>
+</div>
+
+<p>メッセージウィンドウの設定では、主に位置や文字サイズなど、メッセージに関する設定をします。
+背景色や顔グラ、ボタンなどの設定は、枠の設定で行います。
+<a href="../設定ファイル/メッセージウィンドウ枠の設定.html">メッセージウィンドウ枠の設定</a> を参照して下さい。
+</p>
+<h4> 名前ウィンドウについて</h4>
+
+<p>メッセージウィンドウごとに、名前ウィンドウの設定も行います。
+名前ウィンドウにも枠をつけることができます。
+位置や揃え位置などの設定が難しいですが、実際に試して見て下さい。
+</p>
+<h4> 開閉アニメについて</h4>
+
+<p>開きアニメ、閉じアニメを設定できます。
+<a href="../資料/メッセージウィンドウ開閉アニメタイプ一覧.html">メッセージウィンドウ開閉アニメタイプ一覧</a> を参照して下さい。
+</p>
+<h4> 固定ウィンドウのサンプル</h4>
+
+<h5> 設定ファイル</h5>
+
+<pre class="source">
+#MWND.000.EXTEND_TYPE = 0                      <span class="comment">// 0:固定サイズ、1:可変サイズ</span>
+#MWND.000.WINDOW_POS = 320, 520                <span class="comment">// ウィンドウの位置</span>
+#MWND.000.WINDOW_SIZE = 640, 160               <span class="comment">// ウィンドウのサイズ（固定サイズのみ）</span>
+#MWND.000.MESSAGE_POS = 32, 32                 <span class="comment">// メッセージの位置（固定サイズのみ）</span>
+#MWND.000.MESSAGE_MARGIN = 32, 32, 32, 32      <span class="comment">// メッセージの表示矩形（可変サイズのみ）</span>
+#MWND.000.MOJI_CNT = 23, 3                     <span class="comment">// 表示する文字数</span>
+#MWND.000.MOJI_SIZE = 24                       <span class="comment">// 文字のサイズ</span>
+#MWND.000.MOJI_SPACE = 0, 12                   <span class="comment">// 文字間のスペース</span>
+#MWND.000.RUBY_SIZE = 10                       <span class="comment">// ルビの文字サイズ</span>
+#MWND.000.RUBY_SPACE = 0                       <span class="comment">// ルビと文字の間のスペース</span>
+#MWND.000.WAKU_NO = 0                          <span class="comment">// 枠番号（-1: 枠なし）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#MWND.000.NAME_DISP_MODE = 0                   <span class="comment">// 名前の表示方法（0:名前ウィンドウに表示、1:メッセージの先頭に表示、2:表示しない）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#MWND.000.NAME_EXTEND_TYPE = 0                 <span class="comment">// （名前ウィンドウ）0=固定サイズ、1=可変サイズ</span>
+#MWND.000.NAME_WINDOW_ALIGN = 1                <span class="comment">// （名前ウィンドウ）揃え位置（0=左、1=中央、2=右）</span>
+#MWND.000.NAME_WINDOW_POS = 80, -60            <span class="comment">// （名前ウィンドウ）ウィンドウの位置</span>
+#MWND.000.NAME_WINDOW_SIZE = 160, 60           <span class="comment">// （名前ウィンドウ）ウィンドウのサイズ（固定サイズのみ）</span>
+#MWND.000.NAME_MESSAGE_POS = 0, 28             <span class="comment">// （名前ウィンドウ）メッセージの位置（固定サイズのみ）</span>
+#MWND.000.NAME_MESSAGE_POS_REP = 100, 0        <span class="comment">// （名前ウィンドウ）メッセージの修正位置（Ｘ、Ｙ）（固定サイズのみ）</span>
+#MWND.000.NAME_MESSAGE_MARGIN = 8, 8, 8, 8     <span class="comment">// （名前ウィンドウ）メッセージの表示矩形（可変サイズのみ）</span>
+#MWND.000.NAME_MOJI_CNT = 8                    <span class="comment">// （名前ウィンドウ）表示する文字数</span>
+#MWND.000.NAME_MOJI_SIZE = 24                  <span class="comment">// （名前ウィンドウ）文字のサイズ</span>
+#MWND.000.NAME_MOJI_SPACE = -1, 10             <span class="comment">// （名前ウィンドウ）文字間のスペース</span>
+#MWND.000.NAME_BRACKET = 0                     <span class="comment">// （名前ウィンドウ）名前を括弧で括る（0:括弧なし、1:【】）</span>
+#MWND.000.NAME_WAKU_NO = 10                    <span class="comment">// （名前ウィンドウ）枠番号（-1: 枠なし）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#MWND.000.NOVEL_MODE = 0                       <span class="comment">// 0:ＡＶＧモード、1:ノベルモード</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#MWND.000.FACE_HIDE_NAME = 0                   <span class="comment">// 顔グラを表示したとき名前を自動で隠す（0:隠さない、1:隠す）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#MWND.000.OPEN_ANIME_TYPE = 3                  <span class="comment">// 開きアニメ</span>
+#MWND.000.OPEN_ANIME_TIME = 500                <span class="comment">// 開きアニメの時間</span>
+#MWND.000.CLOSE_ANIME_TYPE = 3                 <span class="comment">// 閉じアニメ</span>
+#MWND.000.CLOSE_ANIME_TIME = 500               <span class="comment">// 閉じアニメの時間</span>
+</pre>
+
+<h5> メッセージウィンドウとメッセージの設定</h5>
+<div class="table-container">
+<table>
+<tr><td>EXTEND_TYPE</td><td>0:固定サイズ、1:可変サイズ</td></tr>
+<tr><td>WINDOW_POS</td><td>ウィンドウの位置（Ｘ、Ｙ）を指定します。</td></tr>
+<tr><td>WINDOW_SIZE</td><td>ウィンドウのサイズ（幅、高）を指定します。<br />固定サイズのときのみ設定してください。可変サイズの場合は自動で調整されます。</td></tr>
+<tr><td>MESSAGE_POS</td><td>メッセージを表示する位置（Ｘ、Ｙ）を指定します。<br />固定サイズのときのみ設定してください。可変サイズの場合は MESSAGE_MARGIN で指定されます。</td></tr>
+<tr><td>MESSAGE_MARGIN</td><td>ウィンドウとメッセージ間のマージン（左、上、右、下）を指定します。<br />可変サイズのときのみ設定してください。</td></tr>
+<tr><td>MOJI_CNT</td><td>メッセージの文字数（横、縦）を指定します。</td></tr>
+<tr><td>MOJI_SIZE</td><td>文字のサイズを指定します。</td></tr>
+<tr><td>MOJI_SPACE</td><td>文字間のスペース（横、縦）を指定します。ルビサイズより大きくするのが望ましいです。</td></tr>
+<tr><td>RUBY_SIZE</td><td>ルビの文字サイズを指定します。</td></tr>
+<tr><td>RUBY_SPACE</td><td>ルビと文字の間のスペースを指定します。</td></tr>
+<tr><td>WAKU_NO</td><td>枠番号を指定します。-1 で枠無しになります。</td></tr>
+</table>
+</div>
+
+<h5> 名前と名前ウィンドウの設定</h5>
+
+<div class="table-container">
+<table>
+<tr><td>NAME_DISP_MODE</td><td>名前の表示設定をします。<br />0: 名前ウィンドウに名前を表示します。<br />1: メッセージの先頭に名前を表示します。メッセージのオーバーフローに注意して下さい。<br />2: 名前を表示しません。ノベルモードなどに最適です。<br />名前を表示しない場合、メッセージバックやセーブメッセージにも名前は表示されません。</td></tr>
+<tr><td>NAME_EXTEND_TYPE</td><td>0:固定サイズ、1:可変サイズ</td></tr>
+<tr><td>NAME_WINDOW_ALIGN</td><td>名前ウィンドウの揃え位置を指定します。（0=左、1=中央、2=右）</td></tr>
+<tr><td>NAME_WINDOW_POS</td><td>名前ウィンドウの位置（Ｘ、Ｙ）を、ウィンドウの位置からの相対座標で指定します。</td></tr>
+<tr><td>NAME_WINDOW_SIZE</td><td>名前ウィンドウのサイズ（幅、高）を指定します。<br />固定サイズのときのみ設定してください。可変サイズの場合は自動で調整されます。</td></tr>
+<tr><td>NAME_MESSAGE_POS</td><td>名前を表示する位置（Ｘ、Ｙ）を指定します。<br />固定サイズのときのみ設定してください。可変サイズの場合は NAME_MESSAGE_MARGIN で指定されます。<br />左寄せの場合は右に、右寄せの場合は左に移動します。中央寄せの場合は NAME_MESSAGE_POS_REP を参照して下さい。</td></tr>
+<tr><td>NAME_MESSAGE_POS_REP</td><td>名前を表示する修正位置（Ｘ、Ｙ）を指定します。<br />左／中央／右寄せを行った後、この値が位置に加算されます。</td></tr>
+<tr><td>NAME_MESSAGE_MARGIN</td><td>名前ウィンドウと名前のマージン（左、上、右、下）を指定します。<br />可変サイズのときのみ設定してください。</td></tr>
+<tr><td>NAME_MOJI_CNT</td><td>名前の文字数（横、縦）を指定します。</td></tr>
+<tr><td>NAME_MOJI_SIZE</td><td>名前の文字サイズを指定します。</td></tr>
+<tr><td>NAME_MOJI_SPACE</td><td>名前の文字間のスペース（横、縦）を指定します。</td></tr>
+<tr><td>NAME_BRACKET</td><td>名前を括弧で括るかを設定します。0:括弧なし、1:【】で括る</td></tr>
+<tr><td>NAME_WAKU_NO</td><td>名前ウィンドウの枠番号を指定します。-1 で枠無しになります。</td></tr>
+</table>
+</div>
+
+<h5> ノベルモードの設定</h5>
+
+<div class="table-container">
+<table>
+<tr><td>NOVEL_MODE</td><td>1 にするとノベルモードになります。<a href="../スクリプトマニュアル\メッセージ\ノベルモード.html">ノベルモード</a> を参照して下さい。</td></tr>
+</table>
+</div>
+
+<h5> 顔グラフィックの設定</h5>
+
+<div class="table-container">
+<table>
+<tr><td>FACE_HIDE_NAME</td><td>顔グラを表示したときに、自動で名前を隠します。<br />ただし、メッセージバックやセーブメッセージには名前は残ります。名前がネタバレになる場合は、表示されなくても【？？？】などに設定して下さい。</td></tr>
+</table>
+</div>
+
+<h5> ウィンドウアニメの設定</h5>
+
+<div class="table-container">
+<table>
+<tr><td>OPEN_ANIME_TYPE</td><td>開きアニメのタイプを指定します。</td></tr>
+<tr><td>OPEN_ANIME_TIME</td><td>開きアニメにかける時間をﾐﾘ秒で指定します。</td></tr>
+<tr><td>CLOSE_ANIME_TYPE</td><td>閉じアニメのタイプを指定します。</td></tr>
+<tr><td>CLOSE_ANIME_TIME</td><td>閉じアニメにかける時間をﾐﾘ秒で指定します。</td></tr>
+</table>
+</div>
+
+
+<h4> 選択肢用の可変ウィンドウのサンプル</h4>
+
+<h5> 設定ファイル</h5>
+
+<pre class="source">
+#MWND.001.EXTEND_TYPE = 1                      <span class="comment">// 0:固定サイズ、1:可変サイズ</span>
+#MWND.001.WINDOW_POS = 720, 16                 <span class="comment">// ウィンドウの位置</span>
+#MWND.001.MESSAGE_MARGIN = 32, 32, 32, 32      <span class="comment">// メッセージの表示矩形（可変サイズのみ）</span>
+#MWND.001.MOJI_SIZE = 20                       <span class="comment">// 文字のサイズ</span>
+#MWND.001.MOJI_SPACE = 0, 8                    <span class="comment">// 文字間のスペース</span>
+#MWND.001.WAKU_NO = 3                          <span class="comment">// 枠番号（-1: 枠なし）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#MWND.001.OPEN_ANIME_TYPE = 5                  <span class="comment">// 開きアニメ</span>
+#MWND.001.OPEN_ANIME_TIME = 250                <span class="comment">// 開きアニメの時間</span>
+#MWND.001.CLOSE_ANIME_TYPE = 1                 <span class="comment">// 閉じアニメ</span>
+#MWND.001.CLOSE_ANIME_TIME = 250               <span class="comment">// 閉じアニメの時間</span>
+</pre>
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

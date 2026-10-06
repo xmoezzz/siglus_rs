@@ -1,0 +1,61 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../定義ファイル/定義ファイル.html">定義ファイル</a>　＞　<a href="../定義ファイル/定義ファイル.html">定義ファイル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 定義ファイル（*.inc）</h1>
+
+<p>文字列の置き換えを行ったり、フラグを作成したりすることが出来ます。
+</p>
+<h4> 定義ファイルを作る</h4>
+
+<p>ss フォルダの中に新規作成してください。拡張子は inc です。
+</p>
+<div class="table-container">
+<table>
+<tr><td>system.inc</td><td>システム関連の定義を行う</td></tr>
+<tr><td>flag.inc</td><td>ゲームで使用するフラグの定義を行う</td></tr>
+<caption>定義ファイルのファイル名の例</caption>
+</table>
+</div>
+
+<pre class="source">
+game
+  +- exe
+  |   +- SiglusEngine.exe
+  |
+  +- ss
+  |   +- _start.ss
+  |   +- _menu.ss
+  |   +- Gameexe.ini
+  |   +- <font color="red">flag.inc          <span class="comment">// 定義ファイル。新規作成してください。</font></span>
+  |
+  +- tmp
+  |
+  +- SiglusCompiler.exe
+</pre>
+
+<p>定義ファイルでは、全シーンで共通して使う「置換」、「マクロ」、「ユーザフラグ」などを定義できます。
+</p>
+<h5> 定義ファイルの例</h5>
+
+<pre class="source">
+#replace    文字列                 文字列２
+#define     @好感度                a[0]
+#macro      @好感度アップ(@value)  @好感度 += (@value)
+#property   $game_clear            : int
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

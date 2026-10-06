@@ -1,0 +1,97 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　マスク　＞　<a href="../../../スクリプトマニュアル\演出\マスク\マスク操作.html">マスク操作</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> マスク操作</h1>
+
+<p>マスクの操作一覧です。
+マスクについては <a href="../../../スクリプトマニュアル\演出\マスク\マスクについて.html">マスクについて</a> を参照して下さい。
+</p>
+<h4> マスク画像を初期化する</h4>
+
+<pre class="exp">
+mask[0].init
+</pre>
+
+<p>マスク画像を初期化します。
+</p>
+<h4> マスク画像を設定する</h4>
+
+<pre class="exp">
+mask[0].create($file_name)
+</pre>
+
+<p>マスクに画像を読み込みんで、マスク画像を設定します。
+</p>
+<h4> マスクの位置を設定する</h4>
+
+<pre class="exp">
+mask[0].x = 0
+mask[0].y = 0
+</pre>
+
+<h4> パラメータイベント</h4>
+
+<pre class="exp">
+mask[0].x_eve
+mask[0].y_eve
+</pre>
+
+<p>詳しくは <a href="../../../スクリプトマニュアル\演出\イベント.html">イベント</a> を参照して下さい。
+</p>
+<h4> オブジェクトにマスクをかける</h4>
+
+<p>オブジェクトにマスクをかけるには、mask_no プロパティにマスク番号を指定します。
+マスクをかけない場合は -1 を設定します。 
+</p>
+<pre class="source">
+<span class="comment">// マスク０番に _mask10 を読み込む</span>
+<span class="comment">// マスク１番に _mask11 を読み込む</span>
+mask[0].create(_mask10)
+mask[1].create(_mask11)
+マスクを準備しました。r
+
+<span class="comment">// オブジェクト０番に背景を読み込む</span>
+front.object[0].create(BG001, 1)
+オブジェクトに背景を読み込みました。r
+
+<span class="comment">// オブジェクト１番に画像を読み込む</span>
+front.object[1].create(cg_ev02_0801, 1)
+オブジェクトに画像を読み込みました。r
+
+<span class="comment">// オブジェクト１番にマスク０番を設定する</span>
+front.object[1].mask_no = 0
+オブジェクトにマスクをかけました。r
+
+<span class="comment">// オブジェクト１番にマスク１番を設定する</span>
+front.object[1].mask_no = 1
+オブジェクトにマスクをかけました。r
+
+<span class="comment">// オブジェクト１番のマスクを外す</span>
+front.object[1].mask_no = -1
+オブジェクトのマスクを外しました。r
+
+<span class="comment">// マスクを解放する</span>
+mask[0].init
+mask[1].init
+マスクを解放しました。r
+</pre>
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

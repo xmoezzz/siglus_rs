@@ -1,0 +1,105 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/Ｇ００先読みバッファ.html">Ｇ００先読みバッファ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> Ｇ００先読みバッファ</h1>
+
+<p>G00 画像を先読みする機能です。
+</p>
+<p>爆発エフェクトやアニメなど、複数の画像を使った演出を組むとします。
+画像を読み込むのは時間がかかるため、演出中に読み込んでいると、演出がカクついてしまいます。
+その場合は先読みバッファを使って、あらかじめ画像を読み込んでおきます。
+スムーズな演出が行えます。
+</p>
+<p>G00 先読みバッファを使うには、g00buf を使います。
+デフォルトで 16 個あります（g00buf[0]～g00buf[15]）。
+（設定ファイルで変更できます。<a href="../../設定ファイル/Ｇ００先読みバッファの設定.html">Ｇ００先読みバッファの設定</a> 参照）
+</p>
+
+<h4> サンプル</h4>
+
+<h5> G00 先読みバッファを使わない場合</h5>
+
+<pre class="source">
+<span class="comment">// メッセージを表示します。</span>
+Ｇ００先読みバッファのサンプルです。r
+
+<span class="comment">// ムービーを再生します。</span>
+front.object[1].create_movie_loop(aurora01, 1)
+<span class="comment">// 3000 ﾐﾘ秒待ちます。</span>
+timewait(3000)
+
+<span class="comment">// ★背景を読み込みます。</span>
+<span class="comment">// ここで時間がかかるため、ムービーがカクついてしまいます。</span>
+back.object[0].create(BG001, 1)
+<span class="comment">// ワイプして背景を表示します。</span>
+wipe(0, 3000)
+</pre>
+
+<h5> G00 先読みバッファを使う場合</h5>
+
+<pre class="source">
+<span class="comment">// G00 先読みバッファ０番に BG001.g00 をあらかじめ読み込んでおきます。</span>
+<font color="red">g00buf[0].load(BG001)</font>
+<span class="comment">// 次のメッセージ表示がカクつかないように、一度画面を更新しておきます。</span>
+<span class="comment">// disp の代わりに frame を使うこともできます。</span>
+disp
+
+<span class="comment">// メッセージを表示します。</span>
+Ｇ００先読みバッファのサンプルです。r
+
+<span class="comment">// ムービーを再生します。</span>
+front.object[1].create_movie_loop(aurora01, 1)
+<span class="comment">// 3000 ﾐﾘ秒待ちます。</span>
+timewait(3000)
+
+<span class="comment">// ★背景を読み込みます。</span>
+<span class="comment">// BG001 は先読みしているため、ムービーがカクつきません。</span>
+back.object[0].create(BG001, 1)
+<span class="comment">// ワイプして背景を表示します。</span>
+wipe(0, 3000)
+
+<span class="comment">// 先読みバッファはもう使わないので、忘れずに解放して下さい！</span>
+<span class="comment">// 複数ある場合は、g00buf.free_all を使うと簡単です。</span>
+<font color="red">g00buf[0].free</font>
+</pre>
+
+
+<h4> G00 バッファに画像を先読みする</h4>
+
+<pre class="exp">
+g00buf[0].load($file_name)
+</pre>
+
+<h4> G00 バッファを解放する</h4>
+
+<pre class="exp">
+g00buf[0].free
+</pre>
+
+<h4> G00 バッファを全て解放する</h4>
+
+<pre class="exp">
+g00buf.free_all
+</pre>
+
+<h4> G00 バッファの個数を取得する</h4>
+
+<pre class="exp">
+a[0] = g00buf.get_cnt
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

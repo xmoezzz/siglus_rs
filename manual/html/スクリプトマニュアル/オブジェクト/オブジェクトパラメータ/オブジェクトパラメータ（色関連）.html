@@ -1,0 +1,128 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　オブジェクトパラメータ　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトパラメータ\オブジェクトパラメータ（色関連）.html">オブジェクトパラメータ（色関連）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>オブジェクトパラメータ（色関連）</h1>
+
+<h4>不透明度を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].tr = 255
+</pre>
+
+<p>不透明度を 0～255 の範囲で設定／取得します。
+0 にすると完全な透明になります。
+</p>
+<h4>修正不透明度を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].tr_rep
+</pre>
+
+<p>修正不透明度は「整数配列」です。
+詳しい使い方は <a href="../../../スクリプトマニュアル\整数\整数配列.html">整数配列</a> を参照して下さい。
+</p>
+<p>修正不透明度を使うには、修正不透明度を確保する必要があります。
+</p>
+<p>修正不透明度のイベントを使うには注意が必要です。
+詳しくは <a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトイベント.html">オブジェクトイベント</a> を参照して下さい。
+</p>
+<p>修正不透明度は、255 を 100% として掛け算されます。
+例えば、tr = 128（50%）は半透明です。
+tr_rep[0] = 128、tr_rep[1] = 128 にすると、50% × 50% = 25%（半分の半分）の透明度になります。
+</p>
+<p>つまり、１つでも値が 0 なら、他が全て 255 でも完全な透明になってしまいます。
+注意して下さい。
+</p>
+<pre class="source">
+front.object[0].tr_rep.resize(2)    <span class="comment">// 修正不透明度を２個確保する</span>
+front.object[0].tr_rep[0] = 128     <span class="comment">// 修正不透明度の０番を１２８に設定</span>
+front.object[0].tr_rep[1] = 64      <span class="comment">// 修正不透明度の１番を６４に設定</span>
+
+disp     <span class="comment">// 50% * 25% = 12.5% の透明度になる</span>
+</pre>
+
+<h4>モノクロ度を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].mono = 0
+</pre>
+
+<p>モノクロ度を 0～255 の範囲で設定します。
+255 にすると完全なモノクロになります。
+</p>
+<h4>反転度を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].reverse = 0
+</pre>
+
+<p>色合いの反転度を 0～255 の範囲で設定します。
+255 にすると完全に反転します。128 にすると、完全にグレーになってしまいます。
+</p>
+<h4>明るさを設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].bright = 0
+front.object[0].dark = 0
+</pre>
+
+<p>明度／暗度を 0～255 の範囲で設定します。
+明度を 255 にすると真っ白になります。暗度を 255 にすると真っ黒になります。
+</p>
+<h4>色を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].color_r = 0
+front.object[0].color_g = 0
+front.object[0].color_b = 0
+front.object[0].color_rate = 0
+</pre>
+
+<p>color_r, color_g, color_b で指定した色に変化させます。
+color_rate=0 で変化なし、color_rate=255 で完全にその色になります。
+</p>
+<h4>色味を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].color_add_r = 0
+front.object[0].color_add_g = 0
+front.object[0].color_add_b = 0
+</pre>
+
+<p>画像の r, g, b 値に、指定した値を加算します。
+赤っぽくする、青っぽくする、などの演出に使います。
+</p>
+<h4>合成方法を指定する</h4>
+
+<pre class="exp">
+front.object[0].blend = 0
+</pre>
+
+<p>合成方法を指定します。
+加算合成を使うと、光のような効果を与えれます。炎の演出などに使って下さい。
+</p>
+<div class="table-container">
+<table>
+<tr><td>値</td><td>合成方法</td></tr>
+<tr><td>0</td><td>通常</td></tr>
+<tr><td>1</td><td>加算合成</td></tr>
+<tr><td>2</td><td>減算合成</td></tr>
+<tr><td>3</td><td>乗算合成</td></tr>
+</table>
+</div>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

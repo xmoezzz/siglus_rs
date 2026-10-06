@@ -1,0 +1,72 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a>　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>オブジェクト</h1>
+
+<h4>オブジェクトを初期化する</h4>
+
+<pre class="exp">
+front.object[0].init
+</pre>
+
+<p>オブジェクトを完全に初期化します。
+</p>
+<h4>オブジェクトのパラメータを初期化する</h4>
+
+<pre class="exp">
+front.object[0].init_param
+</pre>
+
+<p>オブジェクトのパラメータだけ（座標、不透明度など）を初期化します。読み込んだ画像などはそのままです。
+</p>
+<h5>初期化されるもの</h5>
+
+<ul>
+<li>表示フラグ、座標、不透明度、トーンカーブ番号などのパラメータ</li>
+<li>イベント、フレームアクション、ＧＡＮ、ボタン</li>
+</ul>
+
+<h5>初期化されないもの</h5>
+
+<ul>
+<li>画像ファイル名、文字列、フィルタ、数値、など各タイプ固有のもの</li>
+<li>ワイプコピーフラグ、ワイプ消去フラグ、子供</li>
+</ul>
+
+<h4>オブジェクトを解放する</h4>
+
+<pre class="exp">
+front.object[0].free
+</pre>
+
+<h5>初期化されるもの</h5>
+
+<ul>
+<li>画像、文字列、フィルタ、数値、など各タイプ固有のもの</li>
+</ul>
+
+<h5>初期化されないもの</h5>
+
+<ul>
+<li>表示フラグ、座標、不透明度、トーンカーブ番号などのパラメータ</li>
+<li>イベント、フレームアクション、ＧＡＮ、ボタン</li>
+<li>ワイプコピーフラグ、ワイプ消去フラグ、子供</li>
+</ul>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

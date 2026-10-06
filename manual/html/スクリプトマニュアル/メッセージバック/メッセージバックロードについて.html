@@ -1,0 +1,72 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージバック/メッセージバック.html">メッセージバック</a>　＞　<a href="../../スクリプトマニュアル/メッセージバック/メッセージバックロードについて.html">メッセージバックロードについて</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージバックロードについて</h1>
+
+<p>メッセージバックロードでは、デフォルトの確認ダイアログが表示されます。
+グラフィカルにダイアログを表示したい場合は、
+メッセージバックからロードが選ばれた場合に呼ばれるコマンドを設定して下さい。
+<a href="../../設定ファイル/メッセージバックの設定.html">メッセージバックの設定</a> を参照して下さい。
+</p>
+<p>以下のサンプルを参考にして下さい。
+</p>
+
+<h4> サンプル：メッセージバックからロードが選ばれた場合に呼ばれるコマンド</h4>
+
+<pre class="source">
+command $msgbk_btn_load
+{
+<p><span class="comment">// システムコールを準備します。</span>
+excall.alloc
+</p>
+<p>excall.front.object[0].create_rect(0, 0, 1280, 720, 0, 0, 0, 128, 1)
+excall.front.object[1].create_string("ロードする", 1, 500, 300)
+excall.front.object[1].set_string_param(48, 0, 0, 0, 0, 1, -1)
+excall.front.object[1].set_button(0, 0, 2, 0)
+excall.front.object[2].create_string("ロードしない", 1, 500, 400)
+excall.front.object[2].set_string_param(48, 0, 0, 0, 0, 1, -1)
+excall.front.object[2].set_button(1, 0, 2, 0)
+</p>
+<p>L[0] = excall.front.objbtngroup[0].sel
+switch (L[0])	{
+case (0)	syscom.msg_back_load(0, 1, 1)
+case (1)	<span class="comment">// 何もしない</span>
+}
+</p>
+<p><span class="comment">// システムコールを解放します。</span>
+excall.free
+}
+</pre>
+</p>
+<h4> 実際にメッセージバックロードを行うコマンド</h4>
+
+<pre class="exp">
+syscom.msg_back_load($warning, $se_play, $fade_out)
+</pre>
+
+<p>実際にメッセージバックロードを行うコマンドです。
+「メッセージバックからロードが選ばれた場合に呼ばれるコマンド」の中で、
+実際にロードを行うときに呼んで下さい。
+</p>
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

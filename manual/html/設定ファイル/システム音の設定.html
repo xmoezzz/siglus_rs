@@ -1,0 +1,65 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/システム音の設定.html">システム音の設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> システム音の設定</h1>
+
+<p><a href="../スクリプトマニュアル\サウンド\システム音\システム音.html">システム音</a> の設定を行います。
+</p>
+<p>必ず 8 個以上作成してください。
+0 - 7 番はシステムが予約しています。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■システム音の設定</span>
+<span class="comment">// =============================================================</span>
+#SE.CNT = 16         <span class="comment">// システム音の個数</span>
+
+#SE.000 = "_se10"    <span class="comment">// システム／選択</span>
+#SE.001 = "_se11"    <span class="comment">// システム／決定</span>
+#SE.002 = "_se12"    <span class="comment">// システム／キャンセル</span>
+#SE.003 = ""         <span class="comment">// システム／警告</span>
+#SE.004 = ""         <span class="comment">// システム／セーブ</span>
+#SE.005 = ""         <span class="comment">// システム／ロード</span>
+#SE.006 = ""         <span class="comment">// システム／タイトルに戻る</span>
+#SE.007 = ""         <span class="comment">// システム／前の選択肢に戻る</span>
+</pre>
+
+<h5> #SE.CNT</h5>
+
+<p>システム音の個数を設定します。
+</p>
+<h5> #SE.??? = [ファイル名]</h5>
+
+<p>０～７番はシステムが予約しています。
+</p>
+<div class="table-container">
+<table>
+<tr><td>0</td><td>システム／選択</td></tr>
+<tr><td>1</td><td>システム／決定</td></tr>
+<tr><td>2</td><td>システム／キャンセル</td></tr>
+<tr><td>3</td><td>システム／警告</td></tr>
+<tr><td>4</td><td>システム／セーブ</td></tr>
+<tr><td>5</td><td>システム／ロード</td></tr>
+<tr><td>6</td><td>システム／タイトルに戻る</td></tr>
+<tr><td>7</td><td>システム／前の選択肢に戻る</td></tr>
+</table>
+</div>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

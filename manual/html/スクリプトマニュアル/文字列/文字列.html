@@ -1,0 +1,89 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　文字列　＞　文字列
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 文字列</h1>
+
+<h4> 文字列を変換する</h4>
+
+<pre class="exp">
+s[1] = s[0].upper            文字列を大文字に変換する
+</pre>
+<pre class="exp">
+s[1] = s[0].lower            文字列を小文字に変換する
+</pre>
+
+<h4> 文字列の文字数／長さを取得する</h4>
+
+<pre class="exp">
+a[0] = s[0].cnt              文字列の文字数を取得する（半角=1、全角=1）
+</pre>
+<pre class="exp">
+a[0] = s[0].len              文字列の長さを取得する（半角=1、全角=2）
+</pre>
+
+<pre class="source">
+s[0] = "abcあいうABC"
+a[0] = s[0].cnt              <span class="comment">// 9 が返されます。</span>
+a[0] = s[0].len              <span class="comment">// 12 が返されます。</span>
+</pre>
+
+<h4> 文字列を取り出す</h4>
+
+<pre class="exp">
+s[1] = s[0].left($cnt)       文字列の左 $cnt 文字を取得する（半角=1、全角=1）
+s[1] = s[0].left_len($cnt)   文字列の左 $cnt 文字を取得する（半角=1、全角=2）
+</pre>
+
+<pre class="exp">
+s[1] = s[0].right($cnt)      文字列の右 $cnt 文字を取得する（半角=1、全角=1）
+s[1] = s[0].right_len($cnt)  文字列の右 $cnt 文字を取得する（半角=1、全角=2）
+</pre>
+
+<pre class="exp">
+s[1] = s[0].mid($pos)           文字列の $pos 文字目から最後までを取得する（半角=1、全角=1）
+s[1] = s[0].mid($pos, $cnt)     文字列の $pos 文字目から $cnt 文字を取得する（半角=1、全角=1）
+s[1] = s[0].mid_len($pos)       文字列の $pos 文字目から最後までを取得する（半角=1、全角=2）
+s[1] = s[0].mid_len($pos, $cnt) 文字列の $pos 文字目から $cnt 文字を取得する（半角=1、全角=2）
+</pre>
+
+<p>$pos は、0 が 1 文字目です。
+</p>
+<pre class="source">
+s[0] = "abcあいうABC"
+s[1] = s[0].mid(2, 5)       <span class="comment">// "cあいうA" が返されます。</span>
+s[1] = s[0].mid_len(2, 5)   <span class="comment">// "cあい" が返されます。</span>
+</pre>
+
+<h4> 文字列を検索する</h4>
+
+<pre class="exp">
+a[0] = s[0].search($str)         文字列の先頭から文字列を検索する
+a[0] = s[0].search_last($str)    文字列の末尾から文字列を検索する
+</pre>
+
+<p>文字列から文字列を検索します。見つかった場合はその位置を返します。１文字目が 0 なので注意してください。
+見つからなかった場合は -1 を返します。大文字、小文字を区別しません。
+</p>
+<pre class="source">
+s[0] = "abcあいうABC"
+a[0] = s[0].search("abc")       <span class="comment">// 0 が返されます。</span>
+a[0] = s[0].search_last("abc")  <span class="comment">// 6 が返されます。</span>
+a[0] = s[0].search_last("cba")  <span class="comment">// 見つからないので -1 が返されます。</span>
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

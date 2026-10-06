@@ -1,0 +1,46 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>　＞　<a href="../../スクリプトマニュアル/メッセージ/文字の位置を補正する.html">文字の位置を補正する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 文字の位置を補正する</h1>
+
+<h4> 文字の位置を補正する</h4>
+
+<pre class="exp">
+rep_pos($x, $y)      // 文字の位置を補正する
+rep_pos              // 文字の位置補正を初期設定に戻す
+</pre>
+
+<p>文字の位置を補正します。
+改行やオーバーフローには一切影響せず、単純にその文字の表示位置をずらすだけです。
+</p>
+<h4> サンプル：小さい文字を（縦位置で）中央寄せする</h4>
+
+<p>size コマンドで小さい文字を表示したときに、中央に表示します。
+</p>
+<pre class="source">
+普通の文字 size(10) 小さい文字 size 普通の文字（デフォルト）nl
+普通の文字 size(10) rep_pos(0, 8) 小さい文字 size rep_pos 普通の文字（縦に"8px"ずらしてみた）r
+</pre>
+
+<p><img src="rep_pos.png" />
+</p>
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,45 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/デバッグ設定.html">デバッグ設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> デバッグ設定</h1>
+
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■デバッグ設定</span>
+<span class="comment">// =============================================================</span>
+#DEBUG_ERROR_PATNO_OUT_OF_RANGE = 0     <span class="comment">// パターン番号エラー</span>
+</pre>
+
+<p><font color="red">これらはデバッグ用の設定です。リリース時は無視されます。</font>
+</p>
+<h5> #DEBUG_ERROR_PATNO_OUT_OF_RANGE</h5>
+
+<p>オブジェクトのパターン番号が不正なときのエラー表示方法を指定します。
+0=表示しない、1=エラーログに出力、2=エラーボックスを表示
+</p>
+<p>本来は、パターン番号の不正はエラーではありませんので、0 にして下さい。
+ゲームの仕様上、パターン番号が重要な場合に 1 もしくは 2 に設定して下さい。
+</p>
+<p>ボタンアクションなど一部の操作によっては、エラーが出ないこともあります。
+あくまで補助機能として使って下さい。
+</p>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

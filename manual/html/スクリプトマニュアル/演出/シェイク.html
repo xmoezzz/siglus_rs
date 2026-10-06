@@ -1,0 +1,50 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/シェイク.html">シェイク</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> シェイク</h1>
+
+<p>画面を簡単に揺らします。
+複雑なことをする場合は <a href="../../スクリプトマニュアル/演出/クエイク.html">クエイク</a> を使ってください。
+</p>
+<h4> 画面を揺らす</h4>
+
+<pre class="exp">
+screen.shake($shake_no)
+</pre>
+
+<p>$shake_no には、Gameexe.ini で指定したシェイク番号を指定します。
+</p>
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■シェイクの設定</span>
+<span class="comment">// =============================================================</span>
+#SHAKE.CNT = 32
+#SHAKE.000 = (0,8,64)(0,-8,64)(0,8,64)(0,-8,48)(0,8,32)
+#SHAKE.001 = (-32,32,64)(-32,-32,64)(32,-32,64)(32,32,64)(16,-16,64)(-8,-8,64)(-4,4,48)(2,2,32)
+</pre>
+
+<h5> 補足</h5>
+
+<ul>
+<li> 揺れが終わるまで待ちます。待たないバージョンはありません。</li>
+<li> 途中で止めることはできません。</li>
+<li> フロント／バックの概念はありません。</li>
+<li> オーダーを指定することはできません。</li>
+<li> バッファは１つしかありません。</li>
+</ul>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

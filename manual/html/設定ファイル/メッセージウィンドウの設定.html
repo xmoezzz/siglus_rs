@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/メッセージウィンドウの設定.html">メッセージウィンドウの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージウィンドウの設定</h1>
+
+<p><a href="../スクリプトマニュアル\メッセージウィンドウ\メッセージウィンドウ.html">メッセージウィンドウ</a> の設定をします。
+</p>
+<p>各メッセージウィンドウ個別の設定については <a href="../設定ファイル/メッセージウィンドウ個別の設定.html">メッセージウィンドウ個別の設定</a> を参照して下さい。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■メッセージウィンドウの設定</span>
+<span class="comment">// =============================================================</span>
+#MWND.CNT = 5                   <span class="comment">// メッセージウィンドウの個数</span>
+#MWND.DEFAULT_MWND_NO = 0       <span class="comment">// デフォルトのメッセージウィンドウ番号</span>
+#MWND.DEFAULT_SEL_MWND_NO = 1   <span class="comment">// デフォルトのメッセージウィンドウ番号（選択肢用）</span>
+#MWND.ORDER = 1                 <span class="comment">// メッセージウィンドウの表示オーダー</span>
+#MWND.FILTER_LAYER_REP = 0      <span class="comment">// フィルターのレイヤー値補正</span>
+#MWND.WAKU_LAYER_REP = 10       <span class="comment">// 枠のレイヤー値補正</span>
+#MWND.FACE_LAYER_REP = 20       <span class="comment">// 顔グラのレイヤー値補正</span>
+#MWND.SHADOW_LAYER_REP = 30     <span class="comment">// 文字の影のレイヤー値補正</span>
+#MWND.FUCHI_LAYER_REP = 40      <span class="comment">// 文字の縁のレイヤー値補正</span>
+#MWND.MOJI_LAYER_REP = 50       <span class="comment">// 文字のレイヤー値補正</span>
+#MWND.SHADOW_COLOR = 1          <span class="comment">// 影の色（カラーテーブルの番号で指定）</span>
+#MWND.FUCHI_COLOR = 1           <span class="comment">// 縁の色（カラーテーブルの番号で指定）</span>
+#MWND.MOJI_COLOR = 0            <span class="comment">// 文字の色（カラーテーブルの番号で指定）</span>
+</pre>
+
+<h5> #MWND.CNT</h5>
+
+<p>メッセージウィンドウの個数を指定します。
+</p>
+<p>メッセージウィンドウは非常に処理の重い機能です。
+使わない分は、なるべく個数を削ることをオススメします。
+</p>
+<h5> #MWND.DEFAULT_MWND_NO</h5>
+
+<p>デフォルトで使うメッセージウィンドウの番号を指定します。
+</p>
+<h5> #MWND.DEFAULT_SEL_MWND_NO</h5>
+
+<p>デフォルトで選択肢用に使うメッセージウィンドウの番号を指定します。
+</p>
+<h5> #MWND.ORDER</h5>
+
+<p>メッセージウィンドウのオーダーの値を指定します。通常はオーダー１です。
+</p>
+<h5> #MWND.FILTER_LAYER_REP</h5>
+
+<p>メッセージウィンドウのフィルター部分のレイヤー値を指定します。
+</p>
+<h5> #MWND.WAKU_LAYER_REP</h5>
+
+<p>メッセージウィンドウの枠部分のレイヤー値を指定します。
+</p>
+<h5> #MWND.FACE_LAYER_REP</h5>
+
+<p>メッセージウィンドウの顔グラフィック部分のレイヤー値を指定します。
+</p>
+<h5> #MWND.SHADOW_LAYER_REP</h5>
+
+<p>メッセージの影部分のレイヤー値を指定します。
+</p>
+<h5> #MWND.MOJI_LAYER_REP</h5>
+
+<p>メッセージの文字のレイヤー値を指定します。
+</p>
+<h5> #MWND.SHADOW_COLOR</h5>
+
+<p>メッセージの影の色を、カラーテーブルの番号で指定します。
+</p>
+<h5> #MWND.MOJI_COLOR</h5>
+
+<p>メッセージの文字の色を、カラーテーブルの番号で指定します。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

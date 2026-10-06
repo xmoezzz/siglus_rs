@@ -1,0 +1,63 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/選択肢/選択肢.html">選択肢</a>　＞　<a href="../../スクリプトマニュアル/選択肢/選択肢の制御コード.html">選択肢の制御コード</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>選択肢の制御コード</h1>
+
+<h4>制御コード</h4>
+
+<p>制御コードを使って、特定の選択肢を選べなくしたり、非表示にしたりできます。
+</p>
+<div class="table-container">
+<table>
+<tr><td rowspan="4">$state</td><td>0</td><td>非表示、空きを詰める</td></tr>
+<tr><td>1</td><td>表示、選択可</td></tr>
+<tr><td>2</td><td>表示、選択不可</td></tr>
+<tr><td>3</td><td>非表示、空きを詰めない</td></tr>
+<tr><td>$color</td><td colspan="2">Gameexe.ini で指定した色番号</td></tr>
+</table>
+</div>
+
+<h5>制御コードの使用例</h5>
+
+<pre class="source">
+l[0] = sel(
+    "選択肢１（選択可）",   1, 2,  <span class="comment">// 表示、選択可、色は２番</span>
+    "選択肢２",             0, 0,  <span class="comment">// 非表示、空きを詰める、色は０番</span>
+    "選択肢３（選択不可）", 2, 3,  <span class="comment">// 表示、選択不可、色は３番</span>
+    "選択肢４（非表示）",   3, 4,  <span class="comment">// 非表示、空きを詰めない、色は４番</span>
+    "選択肢５（選択可）",   1, 0   <span class="comment">// デフォルトの選択肢</span>
+)
+
+switch (l[0])	{
+    case (0)    選択肢１を選択しました。r
+    case (1)    選択肢２を選択しました。r
+    case (2)    選択肢３を選択しました。r
+    case (3)    選択肢４を選択しました。r
+    case (4)    選択肢５を選択しました。r
+}
+</pre>
+
+<pre class="result">
+<font color="red">選択肢１</font>        // state が 1 なので選択できます
+<font color="green">選択肢３</font>        // state が 2 なので選択できません
+                // state が 3 なので表示されません（選択もできません）
+選択肢５        // state が 1 なので通常の選択肢です。
+
+// 選択肢２は state が 0 なので表示されず、空きも詰められます。
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

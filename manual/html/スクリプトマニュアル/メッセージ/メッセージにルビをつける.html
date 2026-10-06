@@ -1,0 +1,57 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージにルビをつける.html">メッセージにルビをつける</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージにルビをつける</h1>
+
+<h4> メッセージにルビをつける</h4>
+
+<pre class="exp">
+ruby($str)       // ルビを開始する
+ruby             // ルビを終了する
+</pre>
+
+<p>ruby($str) と ruby で囲まれた文章にルビをつけます。
+</p>
+<h5> ルビの例</h5>
+
+<pre class="source">
+ruby("ぶんしょう") 文章 ruby に ruby("るび") ルビ ruby をつける ruby("てすと") テスト ruby です。
+</pre>
+
+<h5> 注意点</h5>
+
+<p>改行をまたぐ文章には、ルビをつけることができません。
+上手く調整してください。
+</p>
+<h5> 置換を使った例</h5>
+
+<p>定義ファイルの置換を使うと便利です。
+</p>
+<h6>定義ファイル</h6>
+
+<pre class="source">
+#define    @鈴    ruby("りん") 鈴 ruby
+#define    @理樹  ruby("りき") 理樹 ruby
+</pre>
+
+<h6使い方</h6>
+
+<pre class="source">
+@鈴 は @理樹 を…
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

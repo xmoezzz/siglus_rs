@@ -1,0 +1,83 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/シーンの設定.html">シーンの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> シーンの設定</h1>
+
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■シーンの設定</span>
+<span class="comment">// =============================================================</span>
+#START_SCENE = "_start", 00             <span class="comment">// スタートシーン</span>
+#MENU_SCENE = "_menu", 00               <span class="comment">// メニューシーン</span>
+#CANCEL_SCENE = "_cancel", 00           <span class="comment">// キャンセルシーン</span>
+#CONFIG_SCENE = "_config", 00           <span class="comment">// 環境設定シーン</span>
+#SAVE_SCENE = "_save", 00               <span class="comment">// セーブシーン</span>
+#LOAD_SCENE = "_load", 00               <span class="comment">// ロードシーン</span>
+</pre>
+
+<p>各種シーン名を設定します。
+</p>
+<h5> #START_SCENE</h5>
+
+<p>スタートシーンです。ゲーム開始時に一度だけ呼ばれます。
+シーン名とＺラベル番号を指定します。
+省略した場合、_start.ss がスタートシーンになります。
+</p>
+<h5> #MENU_SCENE</h5>
+
+<p>メニューシーンです。returnmenu コマンドや、システムコマンドメニューの「タイトルに戻る」から呼ばれます。
+シーン名とＺラベル番号を指定します。
+省略した場合、_menu.ss がスタートシーンになります。
+</p>
+<h5> #CANCEL_SCENE</h5>
+
+<p>キャンセルシーンです。ゲーム中に右クリックされたときに呼ばれます。
+シーン名とＺラベル番号を指定します。
+省略した場合、システムコマンドメニューが表示されます。
+</p>
+<h5> #CONFIG_SCENE</h5>
+
+<p>環境設定シーンです。システムコマンドメニューの「環境設定」などから呼ばれます。
+シーン名とＺラベル番号を指定します。
+省略した場合、環境設定ダイアログが表示されます。
+</p>
+<h5> #SAVE_SCENE</h5>
+
+<p>セーブシーンです。システムコマンドメニューの「セーブ」などから呼ばれます。
+シーン名とＺラベル番号を指定します。
+省略した場合、セーブダイアログが表示されます。
+</p>
+<h5> #LOAD_SCENE</h5>
+
+<p>ロードシーンです。システムコマンドメニューの「ロード」などから呼ばれます。
+シーン名とＺラベル番号を指定します。
+省略した場合、ロードダイアログが表示されます。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

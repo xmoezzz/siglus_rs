@@ -1,0 +1,42 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　その他のシステム　＞　<a href="../../../スクリプトマニュアル\システム制御\その他のシステム\ウェブページを開く.html">ウェブページを開く</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ウェブページをブラウザで開く</h1>
+
+<pre class="exp">
+system.shell_open_web($URL)      // ウェブページを開く
+</pre>
+
+<h5> 注意点１</h5>
+
+<p>ウェブページを開く際には注意が必要です。
+	フルスクリーンで起動している場合、ウェブページを開いても、ブラウザがゲームウィンドウに隠れてしまいます。
+一度ウィンドウモードに戻してあげると親切です。
+</p>
+<h5> 注意点２</h5>
+
+<p>URL を開くとき、&yen; は &yen;&yen; と表記することに注意して下さい。
+</p>
+<h5> ウェブページを開く</h5>
+
+<pre class="source">
+syscom.set_window_mode(0)                            <span class="comment">// ウィンドウモードに戻す</span>
+system.shell_open_web("http:<span class="comment">//www.product.co.jp")    // ウェブページを開く</span>
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

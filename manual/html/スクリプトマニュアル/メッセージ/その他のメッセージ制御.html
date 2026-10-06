@@ -1,0 +1,159 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>　＞　<a href="../../スクリプトマニュアル/メッセージ/その他のメッセージ制御.html">その他のメッセージ制御</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> その他のメッセージ制御</h1>
+
+<h4> 一時的にオートモードにする／解除する</h4>
+
+<pre class="exp">
+script.start_auto_mode                        // 一時的にオートモードにする
+script.end_auto_mode                          // 解除する
+script.set_auto_mode_moji_wait($time)         // 一時的なオートモードの文字待ち時間を設定する
+script.set_auto_mode_moji_wait_default($time) // 一時的なオートモードの文字待ち時間をデフォルトに設定する
+a[0] = script.get_auto_mode_moji_wait($time)  // 一時的なオートモードの文字待ち時間を取得する
+script.set_auto_mode_min_wait($time)          // 一時的なオートモードの最小待ち時間を設定する
+script.set_auto_mode_min_wait_default($time)  // 一時的なオートモードの最小待ち時間をデフォルトに設定する
+a[0] = script.get_auto_mode_min_wait($time)   // 一時的なオートモードの最小待ち時間を取得する
+</pre>
+
+<p>待ち時間 ＝ ( 表示した文字数 × 文字時間 ) ＋ 最小時間
+</p>
+<p>演出上、一時的にオートモードを使いたい場合に使って下さい。
+環境設定のオートモードを開始するには、syscom.set_auto_mode_onoff_flag を使って下さい。
+環境設定のオートモードを設定／取得するには、
+syscom.set_auto_mode_***_wait / syscom.get_auto_mode_***_wait を使って下さい。
+</p>
+<p>環境設定では 0-500 の間で設定しましたが、
+このコマンドではより大きな値を使うこともできます。
+</p>
+<p>この設定のデフォルト値は -1（環境設定に従う）です。
+初期化するときは必ず script.set_auto_mode_***_wait_default を使って下さい。
+</p>
+<h4> オートモードの待ち時間を個別に設定する（文字数で指定）</h4>
+
+<pre class="exp">
+script.set_auto_mode_moji_cnt($moji_cnt)     // 一時的にオートモードの文字数を設定する
+</pre>
+
+<p>オートモードの計算式
+</p>
+<p>待ち時間 ＝ ( 表示した文字数 × 文字時間 ) ＋ 最小時間
+</p>
+<p>のうち、「表示した文字数」を設定するコマンドです。
+</p>
+<p>文字をグラフィカルに表示して r 待ちを行った場合、
+オートモードだと「最小時間」だけ待ってすぐに次に進んでしまいます。
+このコマンドを使って「表示した文字数」を設定すると、オートモード時に適切に待ち時間が入ります。
+オートモード時以外はこのコマンドは無視されます。
+</p>
+<p>clear、r コマンドなどにより、この値は自動で初期化されます。
+</p>
+<pre class="source">
+<span class="comment">// これは普通の文章。</span>
+あいうえおかきくけこさしすせそ。r
+
+<span class="comment">// グラフィカルに文字を１０文字表示する</span>
+<span class="comment">// オートモードの文字数を設定し、r 待ちを行う</span>
+front.object[0].create("moji_length_10")		<span class="comment">// １０文字分の画像</span>
+script.set_auto_mode_moji_cnt(10)r
+</pre>
+
+<h4> 一時的にメッセージ速度を変更する</h4>
+
+<pre class="exp">
+script.set_message_speed($speed)    // 一時的にメッセージ速度を変更する（小さいほど速い）
+script.set_message_speed_default    // 一時的にメッセージ速度を変更するを解除する
+a[0] = script.get_message_speed     // 一時的に変更したメッセージ速度を取得する（小さいほど速い）
+</pre>
+
+<p>一時的にメッセージ速度を変更します。
+１文字表示するのにかかる時間をﾐﾘ秒単位で指定します。（例：1000 を指定した場合、１文字表示するのに１秒かかります。）
+環境設定を設定／取得する場合は、syscom.set_message_speed / get_message_speed を使って下さい。
+</p>
+<p>環境設定では 0-100 の間で設定しましたが、
+このコマンドではより大きな値を使うこともできます。（2010/9/8 Ver.1.0.1.6 より）
+</p>
+<p>この設定のデフォルト値は -1（環境設定に従う）です。
+初期化するときは必ず script.set_message_speed_default を使って下さい。
+</p>
+<h4> 一時的にメッセージをノーウェイトにする</h4>
+
+<pre class="exp">
+script.set_message_nowait_flag($onoff)    // 一時的にメッセージをノーウェイトにするフラグを設定する（0=解除する、1=ノーウェイトにする）
+a[0] = script.get_message_nowait_flag     // 一時的にメッセージをノーウェイトにするフラグを取得する（0=解除する、1=ノーウェイトにする）
+</pre>
+
+<p>一時的にメッセージをノーウェイトにします。
+環境設定を設定／取得する場合は、syscom.set_message_nowait / get_message_nowait を使って下さい。
+</p>
+<h4> 一時的に「クリックすると文章を最後まで表示する」機能を無効にする／解除する</h4>
+
+<pre class="exp">
+script.set_end_msg_by_key_disable   // 一時的に「クリックすると文章を最後まで表示する」を無効にする
+script.set_end_msg_by_key_enable    // 解除する
+</pre>
+
+<p>表示中の文章は、画面をクリックすると一括表示されます。その機能を無効にします。
+</p>
+<h4> 一時的にメッセージを非同期モードにする</h4>
+
+<pre class="exp">
+script.set_msg_async_mode_on        // 一時的にメッセージを非同期モードにする
+script.set_msg_async_mode_off       // 解除する
+</pre>
+
+<p>メッセージの表示を非同期モードにします。
+メッセージを表示しながら、演出を行うことが出来ます。
+</p>
+
+<h4> 一時的に「次の文章に進んでも声を止めない」機能をオンにする／オフにする／解除する</h4>
+
+<pre class="exp">
+script.set_koe_dont_stop_on_flag($onoff)         // 一時的に「次の文章に進んでも声を止めない」機能をオンにするフラグを設定する（0=解除する、1=設定する）
+a[0] = script.get_koe_dont_stop_on_flag($onoff)  // 一時的に「次の文章に進んでも声を止めない」機能をオンにするフラグを取得する（0=解除する、1=設定する）
+script.set_koe_dont_stop_off_flag($onoff)        // 一時的に「次の文章に進んでも声を止めない」機能をオフにするフラグを設定する（0=解除する、1=設定する）
+a[0] = script.get_koe_dont_stop_off_flag($onoff) // 一時的に「次の文章に進んでも声を止めない」機能をオフにするフラグを取得する（0=解除する、1=設定する）
+</pre>
+
+<p>環境設定の「次の文章に進んでも声を止めない」機能に関するコマンドです。
+このコマンドは、一時的に機能をオンにする／オフにする／解除するコマンドです。
+</p>
+<h5> set_koe_dont_stop_on_flag(1)</h5>
+
+<p>環境設定を無視して、強制的に「次の文章に進んでも声を止めない」機能をオンにします。
+set_koe_dont_stop_on_flag(0) で元に戻します。
+</p>
+<h5> set_koe_dont_stop_off_flag(1)</h5>
+
+<p>環境設定を無視して、強制的に「次の文章に進んでも声を止めない」機能をオフにします。
+set_koe_dont_stop_off_flag(0) で元に戻します。
+</p>
+<p>この２つは別々のフラグなので注意して下さい。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

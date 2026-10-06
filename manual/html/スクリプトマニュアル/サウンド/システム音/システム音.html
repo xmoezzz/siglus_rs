@@ -1,0 +1,107 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\システム音\システム音.html">システム音</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\システム音\システム音.html">システム音</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>システム音</h1>
+
+<p>Gameexe.ini で登録したシステム音を鳴らします。
+独自にメニュー画面を作成したときなどに使います。
+ゲーム中の演出には <a href="../../../スクリプトマニュアル\サウンド\効果音\効果音.html">効果音</a> や <a href="../../../スクリプトマニュアル\サウンド\効果音\効果音チャンネル.html">効果音チャンネル</a> を使ってください。
+</p>
+<h4>システム音の特徴</h4>
+
+<ul>
+<li>環境設定の「システム音」のボリュームに従う</li>
+<li>複数の音を同時に再生できる</li>
+<li>「ロード」「タイトルに戻る」などで再生を止めない<br />※止めると格好悪いので止めません。</li>
+</ul>
+
+<h4>システム音を再生する</h4>
+
+<pre class="exp">
+se.play($se_no)
+</pre>
+
+<p>システム音を演奏します。$se_no には、Gameexe.ini で登録したシステム音の番号を指定します。
+</p>
+<h4>色々なシステム音を再生する</h4>
+
+<pre class="exp">
+se.play_by_file_name($file_name)             // ファイル名を指定してシステム音を鳴らす
+se.play_by_koe_no($koe_no)                   // 声番号を指定してシステム音を鳴らす
+se.play_by_se_no($se_no)                     // システム音番号を指定してシステム音を鳴らす
+</pre>
+
+<p>se.play_by_se_no は、se.play と同じコマンドです。
+</p>
+<h4>システム音を停止する</h4>
+
+<pre class="exp">
+se.stop
+se.stop($fade_time)
+</pre>
+
+<p>システム音を停止します。$fade_time を指定すると、指定した時間でフェードアウトを行います。
+</p>
+<h4>システム音の再生が終了するのを待つ</h4>
+
+<pre class="exp">
+se.wait
+se.wait_key
+</pre>
+
+<p>全てのシステム音が終了するまで待ちます。
+</p>
+<h4>システム音の再生状態を取得する</h4>
+
+<pre class="exp">
+a[0] = se.check
+</pre>
+
+<p>システム音の再生状態を取得します。（0=停止中、1=再生中、2=フェードアウト中）
+</p>
+<h4>ボリュームを設定する</h4>
+
+<pre class="exp">
+se.set_volume($volume)
+se.set_volume($volume, $time)
+</pre>
+
+<p>システム音のボリュームを 0～255 の範囲で設定します。
+0 にすると無音になります。
+$time を指定すると、指定した時間をかけてボリュームを変化させます。
+</p>
+<h4>ボリュームを最大／最小に設定する</h4>
+
+<pre class="exp">
+se.set_volume_max
+se.set_volume_max($time)
+se.set_volume_min
+se.set_volume_min($time)
+</pre>
+
+<p>システム音のボリュームを最大／最小にします。
+$time を指定すると、指定した時間をかけてボリュームを変化させます。
+</p>
+<h4>ボリュームを取得する</h4>
+
+<pre class="exp">
+a[0] = se.get_volume
+</pre>
+
+<p>システム音のボリュームを取得します。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

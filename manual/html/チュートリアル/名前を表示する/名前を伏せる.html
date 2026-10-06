@@ -1,0 +1,62 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../../チュートリアル/名前を表示する/名前を表示する.html">名前を表示する</a>　＞　<a href="../../チュートリアル/名前を表示する/名前を伏せる.html">名前を伏せる</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 名前を伏せる</h1>
+
+<p>【？？】など、本来とは違う名前をつける場合は注意が必要です。
+名前は、声撮りや「キャラクターごとにメッセージの色を変える」機能などに必要です。
+ところが、【？？】では、誰の声か分からず、これらの機能が上手く働きません。
+</p>
+<p>解決するためには、設定ファイルに名前を登録する必要があります。
+</p>
+<h5> 設定ファイル</h5>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■【名前】の登録</span>
+<span class="comment">// =============================================================</span>
+#NAMAE = "？？＿小鳥", "？？"
+#NAMAE = "？？＿朱音", "？？"
+</pre>
+
+<h5> シーンファイル</h5>
+
+<pre class="source">
+【？？＿小鳥】「あ、なんかわかった気がするよ」r
+【？？＿朱音】「せっかくだから付き合ってあげなさい」r
+</pre>
+
+<pre class="result">
+？？
+「あ、なんかわかった気がするよ」
+
+？？
+「せっかくだから付き合ってあげなさい」
+</pre>
+
+<p>設定ファイルに &quot;？？＿小鳥&quot;、&quot;？？＿朱音&quot; を登録し、
+変換名を &quot;？？&quot; に設定します。
+</p>
+<p>どちらも「？？」と表示されますが、
+声撮りツールや「キャラクターごとにメッセージの色を変える」機能などが正常に働きます。
+</p>
+<p>名前の登録し忘れがあったら大変です。
+<a href="../../チュートリアル/名前を表示する/名前一覧を確認する.html">名前一覧を確認する</a> で、使われている名前、登録されている名前が確認できます。
+有効に使って下さい。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

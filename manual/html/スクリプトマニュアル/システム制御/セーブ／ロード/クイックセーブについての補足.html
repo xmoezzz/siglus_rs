@@ -1,0 +1,47 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　セーブ／ロード　＞　<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\クイックセーブについての補足.html">クイックセーブについての補足</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> クイックセーブについての補足</h1>
+
+<p>クイックセーブデータのセーブ番号は、設定ファイルの #SAVE_CNT の値です。
+仮に #SAVE_CNT=10 だとすると、０番～９番の１０個が通常のセーブデータの番号です。
+１０番がクイックセーブデータの番号になります。
+次の２つのコマンドは同じ意味になります。
+</p>
+<pre class="source">
+<span class="comment">// #SAVE.CNT = 10 の場合、</span>
+<span class="comment">// クイックセーブ０番はセーブ１０番に等しいため、</span>
+<span class="comment">// 次の２つのコマンドは同じ意味になります。</span>
+
+<span class="comment">// セーブデータ１０番が存在するかどうかを調べる</span>
+a[0] = syscom.get_save_exist(10)
+
+<span class="comment">// クイックセーブデータ０番が存在するかどうかを調べる</span>
+a[0] = syscom.get_quick_save_exist(0)
+
+
+<span class="comment">// これを利用すると、</span>
+<span class="comment">// 「セーブデータ０番とクイックセーブデータ０番を交換する」</span>
+<span class="comment">// といったことも可能です。</span>
+
+<span class="comment">// セーブデータ０番とクイックセーブデータ０番を交換する</span>
+syscom.change_save(0, 10)
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

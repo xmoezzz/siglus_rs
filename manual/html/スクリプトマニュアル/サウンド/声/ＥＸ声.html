@@ -1,0 +1,63 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\声\声.html">声</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\声\ＥＸ声.html">ＥＸ声</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＥＸ声</h1>
+
+<p>声を再生する場合、通常は koe コマンドを使います。
+単純に声を再生するには exkoe コマンドを使います。
+</p>
+<h4> exkoe の特徴</h4>
+
+<ul>
+<li> 環境設定の「声」のボリュームに従う</li>
+<li> 環境設定の「声」のチェックをオフにした場合も再生される</li>
+<li> 環境設定の「キャラクタ音声」のボリュームに従う</li>
+<li> 環境設定の「キャラクタ音声」をオフにした場合も再生される</li>
+<li> 環境設定の「音声なし」を選んでも再生される</li>
+<li> 時短再生を行わない</li>
+<li> 声リプレイに登録されない</li>
+<li> メッセージバックに登録されない</li>
+<li> <font color="red">ＢＧＭフェードは行われる</font></li>
+</ul>
+
+<h5> どういうときに使うの？</h5>
+
+<ul>
+<li> タイトル画面などでシステム音として声を再生するとき</li>
+<li> テキストを使わない声だけの演出を組むとき</li>
+</ul>
+
+<p>基本的には、「メッセージの表示されない声」に使うといいです。
+</p>
+<h4> ＥＸ声を再生する</h4>
+
+<pre class="exp">
+exkoe($koe_no)
+exkoe($koe_no, $chara_no)
+exkoe_play_wait($koe_no)                         // 再生終了待ち
+exkoe_play_wait($koe_no, $chara_no)              // 再生終了待ち
+a[0] = exkoe_play_wait_key($koe_no)              // 再生終了待ち（キーでスキップできる）
+a[0] = exkoe_play_wait_key($koe_no, $chara_no)   // 再生終了待ち（キーでスキップできる）
+</pre>
+
+<p>引数、戻り値については <a href="../../../スクリプトマニュアル\サウンド\声\声.html">声</a> の koe コマンドを参照して下さい。
+</p>
+<h4> ＥＸ声を停止する、待つ、…</h4>
+
+<p>koe_stop、koe_wait などが使えます。詳しくは <a href="../../../スクリプトマニュアル\サウンド\声\声.html">声</a> を参照して下さい。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

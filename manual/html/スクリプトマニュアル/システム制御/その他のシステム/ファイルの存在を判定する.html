@@ -1,0 +1,51 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　その他のシステム　＞　<a href="../../../スクリプトマニュアル\システム制御\その他のシステム\ファイルの存在を判定する.html">ファイルの存在を判定する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ファイルの存在を判定する</h1>
+
+<pre class="exp">
+a[0] = system.check_file_exist($path)    // ファイルの存在を判定する
+</pre>
+
+<p>ファイルが存在するかを判定します。0=存在しない、1=存在する
+</p>
+<p>ファイルのパスは、Siglus.exe からの相対パスで指定して下さい。
+</p>
+<h5> 注意点１</h5>
+
+<p>何らかのフォルダに入っているファイルしか判定できません。（sys フォルダ、manual フォルダなど）
+Siglus.exe と同じ階層にあるファイルの存在を判定することはできません。（最小セットアップ時に問題が起きます。）
+</p>
+<h5> 注意点２</h5>
+
+<p>ファイルパスについて、&yen; は &yen;&yen; と表記することに注意して下さい。
+</p>
+<h4> g00 画像 BG001.g00 が存在するかを判定する</h4>
+
+<pre class="source">
+l[0] = system.check_file_exist("g00\\BG001.g00")    <span class="comment">// g00\\BG001.g00 が存在するかを判定</span>
+if (l[0] == 1)  {
+    "BG001.g00 "は存在します。r
+}
+else   {
+    "BG001.g00 "は存在しません。r
+}
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

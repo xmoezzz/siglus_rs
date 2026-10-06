@@ -1,0 +1,48 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/イベントの一括操作.html">イベントの一括操作</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>イベントの一括操作</h1>
+
+<p>「全体イベント」を使って、複数のイベントを一括して扱います。
+</p>
+<h5>代表的な全体イベント</h5>
+
+<pre class="exp">
+front.object[0].all_eve    // オブジェクトの全てのイベント
+</pre>
+
+<h4>全体イベントのコマンド</h4>
+
+<pre class="exp">
+$all_eve.end              // イベントを終了する
+$all_eve.wait             // イベントが終了するのを待つ
+a[0] = $all_eve.check     // イベントを判定する（0=イベントなし、1=イベント中）
+</pre>
+
+<h5>オブジェクトの全てのイベントを停止する</h5>
+
+<pre class="source">
+front.object[0].all_eve.end
+</pre>
+
+<h5>オブジェクトの全てのイベントが終わるまで待つ</h5>
+
+<pre class="source">
+front.object[0].all_eve.wait
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

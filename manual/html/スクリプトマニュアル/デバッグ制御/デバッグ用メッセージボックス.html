@@ -1,0 +1,37 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　デバッグ制御　＞　<a href="../../スクリプトマニュアル/デバッグ制御/デバッグ用メッセージボックス.html">デバッグ用メッセージボックス</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> デバッグ用メッセージボックス</h1>
+
+<p>デバッグ時のみメッセージボックスを出す機能です。
+リリース時は何もしません。
+</p>
+<pre class="exp">
+a[0] = system.debug_messagebox_ok($num)          // 0=OK
+a[0] = system.debug_messagebox_ok($str)          // 0=OK
+a[0] = system.debug_messagebox_okcancel($num)    // 0=OK、1=CANCEL
+a[0] = system.debug_messagebox_okcancel($str)    // 0=OK、1=CANCEL
+a[0] = system.debug_messagebox_yesno($num)       // 0=YES、1=NO
+a[0] = system.debug_messagebox_yesno($str)       // 0=YES、1=NO
+a[0] = system.debug_messagebox_yesnocancel($num) // 0=YES、1=NO、2=CANCEL
+a[0] = system.debug_messagebox_yesnocancel($str) // 0=YES、1=NO、2=CANCEL
+</pre>
+
+<p>戻り値で、どのボタンを選んだかを取得できます。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

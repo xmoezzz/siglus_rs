@@ -1,0 +1,65 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージを整形する.html">メッセージを整形する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージを整形する</h1>
+
+<h4> メッセージを改行する</h4>
+
+<pre class="exp">
+nl
+nli
+</pre>
+
+<p>文章を改行します。
+nl はインデントを無視して改行します。
+通常は、インデント位置まで改行する nli を使ってください。
+</p>
+<h4> インデントを設定する</h4>
+
+<pre class="exp">
+indent
+</pre>
+
+<p>通常、インデントは自動的に設定されます。
+任意でインデントを設定したい場合にこのコマンドを使って下さい。
+</p>
+<h5> インデントの例</h5>
+
+<pre class="source">
+インデント：indent 文章作成ソフトウェアにおける、字下げ機能このこと。改行後の文字の開始位置を指定できる。
+</pre>
+
+<h5> 結果</h5>
+
+<pre class="result">
+インデント：文章作成ソフトウェアにおける、字下げ機
+　　　　　　能このこと。改行後の文字の開始位置を指
+　　　　　　定できる。
+
+↑インデントが適用された
+</pre>
+
+<h4> インデントをクリアする</h4>
+
+<pre class="exp">
+clear_indent
+</pre>
+
+<p>インデントの位置を初期化します。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

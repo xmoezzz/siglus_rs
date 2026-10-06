@@ -1,0 +1,68 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプ.html">ワイプ</a>　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプを止める／待つ／判定する.html">ワイプを止める／待つ／判定する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ワイプを止める／待つ／判定する</h1>
+
+<h4> ワイプを終了する</h4>
+
+<pre class="exp">
+wipe_end
+</pre>
+
+<p>ワイプを終了します。
+</p>
+<h4> ワイプが終了するのを待つ</h4>
+
+<pre class="exp">
+a[0] = wait_wipe
+
+名前つき引数 = {key_skip}
+</pre>
+
+<p>ワイプが終了するのを待ちます。
+環境設定で「画面暗転効果をマウスクリックで飛ばす。」がオンの場合、決定キーで処理をスキップできます。
+決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<p>環境設定を無視して「必ずキーで飛ばせるように、または飛ばせなく」するには、
+名前つき引数の key_skip を使って下さい。
+</p>
+<h5> key_skip</h5>
+
+<p>ワイプをマウスクリックで飛ばせるかを指定します。（0=飛ばせない、1=飛ばせる、-1=環境設定に従う）
+指定しない場合は環境設定に従います。
+</p>
+<p>key_skip=0 を指定すると、環境設定に関係なく、クリックで飛ばせなくなります。
+また、key_skip=1 を指定すると、環境設定に関係なく、クリックで飛ばせるようになります。
+</p>
+<pre class="source">
+<span class="comment">// ワイプが終了するのを待ちます。環境設定に関係なく、クリックで飛ばせません。</span>
+wait_wipe(key_skip=0)
+
+<span class="comment">// ワイプが終了するのを待ちます。環境設定に関係なく、クリックで飛ばせます。</span>
+wait_wipe(key_skip=1)
+</pre>
+
+
+<h4> ワイプ中かを判定する</h4>
+
+<pre class="exp">
+a[0] = check_wipe
+</pre>
+
+<p>ワイプ中かどうかを判定します。0=ワイプ中でない、1=ワイプ中
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,183 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/環境設定ダイアログの設定.html">環境設定ダイアログの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 環境設定のダイアログの設定</h1>
+
+<p>ダイアログの表示状態を設定するだけであり、各項目の機能が無効化されるわけではありません。
+ダイアログに項目が無くてもスクリプト命令から設定値を制御する事はできます。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// =============================================================</span>
+
+<span class="comment">// 環境設定ダイアログのタブの存在の有無</span>
+#DIALOG_TAB_EXIST.SCREEN = 1        <span class="comment">// 「画面」タブの存在の有無（0=無し 1=有り）</span>
+#DIALOG_TAB_EXIST.VOLUME = 1        <span class="comment">// 「音量」タブの存在の有無（0=無し 1=有り）</span>
+#DIALOG_TAB_EXIST.MESSAGE = 1       <span class="comment">// 「文章」タブの存在の有無（0=無し 1=有り）</span>
+#DIALOG_TAB_EXIST.MWNDBK = 1        <span class="comment">// 「背景色」タブの存在の有無（0=無し 1=有り）</span>
+#DIALOG_TAB_EXIST.KOE = 1           <span class="comment">// 「音声」タブの存在の有無（0=無し 1=有り）</span>
+#DIALOG_TAB_EXIST.AUTOMODE = 1      <span class="comment">// 「オートモード」タブの存在の有無（0=無し 1=有り）</span>
+#DIALOG_TAB_EXIST.JITAN = 1         <span class="comment">// 「時短再生」タブの存在の有無（0=無し 1=有り）</span>
+#DIALOG_TAB_EXIST.ELSE = 1          <span class="comment">// 「その他」タブの存在の有無（0=無し 1=有り）</span>
+#DIALOG_TAB_EXIST.SYSTEM = 1        <span class="comment">// 「システム」タブの存在の有無（0=無し 1=有り）</span>
+
+<span class="comment">// =============================================================</span>
+
+<span class="comment">// 「ＢＧＭ」項目の存在の有無（0=無し 1=有り）</span>
+#DIALOG_EXIST.BGM = 1       <span class="comment">// 「ＢＧＭ」項目の存在の有無（0=無し 1=有り）</span>
+
+<span class="comment">// 「音声」項目の存在の有無（0=無し 1=有り）</span>
+#DIALOG_EXIST.KOE = 1       <span class="comment">// 「音声」項目の存在の有無（0=無し 1=有り）</span>
+
+<span class="comment">// 「効果音」項目の存在の有無（0=無し 1=有り）</span>
+#DIALOG_EXIST.PCM = 1       <span class="comment">// 「効果音」項目の存在の有無（0=無し 1=有り）</span>
+
+<span class="comment">// 「システム音」項目の存在の有無（0=無し 1=有り）</span>
+#DIALOG_EXIST.SE = 1        <span class="comment">// 「システム音」項目の存在の有無（0=無し 1=有り）</span>
+
+<span class="comment">// 「ムービー」項目の存在の有無（0=無し 1=有り）</span>
+<span class="comment">// 「システム」タブの「ムービーの再生方法」の有無にも関わります。</span>
+#DIALOG_EXIST.MOVIE = 1     <span class="comment">// 「ムービー」項目の存在の有無（0=無し 1=有り）</span>
+
+<span class="comment">// =============================================================</span>
+
+<span class="comment">// 音量ダイアログのスタイル</span>
+#DIALOG_STYLE.VOLUME = 0    <span class="comment">// 音量ダイアログのスタイル（0=音量＆ＢＧＭフェード  1=音量のみ）</span>
+
+<span class="comment">// 音声ダイアログのスタイル</span>
+#DIALOG_STYLE.KOE = 0       <span class="comment">// 音声ダイアログのスタイル（0=音声モード＆キャラクター音声  1=音声モードのみ  2=キャラクター音声のみ）</span>
+
+<span class="comment">// =============================================================</span>
+
+<span class="comment">// 文章の色分け：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.MESSAGE_CHRCOLOR.EXIST = 1
+#DIALOG.MESSAGE_CHRCOLOR.STR = "文章を色分けする。"
+
+<span class="comment">// =============================================================</span>
+<span class="comment">// ※「オブジェクトの表示」は４個（000～003）あります。</span>
+
+<span class="comment">// オブジェクトの表示０番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.OBJECT_DISP.000.EXIST = 1
+#DIALOG.OBJECT_DISP.000.STR = "日付を表示する"
+
+<span class="comment">// オブジェクトの表示１番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.OBJECT_DISP.001.EXIST = 1
+#DIALOG.OBJECT_DISP.001.STR = "オブジェクト表示１番を表示する"
+
+<span class="comment">// オブジェクトの表示２番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.OBJECT_DISP.002.EXIST = 0
+#DIALOG.OBJECT_DISP.002.STR = "オブジェクト表示２番を表示する"
+
+<span class="comment">// オブジェクトの表示３番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.OBJECT_DISP.003.EXIST = 0
+#DIALOG.OBJECT_DISP.003.STR = "オブジェクト表示３番を表示する"
+
+<span class="comment">// =============================================================</span>
+<span class="comment">// ※グローバル汎用スイッチは４個（000～003）あります。</span>
+<span class="comment">// ※ローカル汎用スイッチはシステムコマンドメニューの設定にあります。</span>
+<span class="comment">// ※デフォルトのスイッチ状態は #CONFIG.GLOBAL_EXTRA_SWITCH. で設定できます。</span>
+
+<span class="comment">// グローバル汎用スイッチ０番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.GLOBAL_EXTRA_SWITCH.000.EXIST = 1
+#DIALOG.GLOBAL_EXTRA_SWITCH.000.STR = "グローバル汎用スイッチ０番を使用する。"
+
+<span class="comment">// グローバル汎用スイッチ１番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.GLOBAL_EXTRA_SWITCH.001.EXIST = 1
+#DIALOG.GLOBAL_EXTRA_SWITCH.001.STR = "グローバル汎用スイッチ１番を使用する。"
+
+<span class="comment">// グローバル汎用スイッチ２番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.GLOBAL_EXTRA_SWITCH.002.EXIST = 0
+#DIALOG.GLOBAL_EXTRA_SWITCH.002.STR = "グローバル汎用スイッチ２番を使用する。"
+
+<span class="comment">// グローバル汎用スイッチ３番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.GLOBAL_EXTRA_SWITCH.003.EXIST = 0
+#DIALOG.GLOBAL_EXTRA_SWITCH.003.STR = "グローバル汎用スイッチ３番を使用する。"
+
+<span class="comment">// =============================================================</span>
+<span class="comment">// ※グローバル汎用モードは４個（000～003）あります。</span>
+<span class="comment">// ※ローカル汎用モードはシステムコマンドメニューの設定にあります。</span>
+<span class="comment">// ※デフォルトのモード状態は #CONFIG.GLOBAL_EXTRA_MODE. で設定できます。</span>
+
+<span class="comment">// グローバル汎用モード０番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.GLOBAL_EXTRA_MODE.000.EXIST = 1
+#DIALOG.GLOBAL_EXTRA_MODE.000.STR = "グローバル汎用モード０番"
+#DIALOG.GLOBAL_EXTRA_MODE.000.ITEM_CNT = 3                        <span class="comment">// モードのアイテム数（項目数）は最大８個です。</span>
+#DIALOG.GLOBAL_EXTRA_MODE.000.ITEM.000.STR = "モード０"           <span class="comment">// アイテム（項目）の文字列</span>
+#DIALOG.GLOBAL_EXTRA_MODE.000.ITEM.001.STR = "モード１"           <span class="comment">// アイテム（項目）の文字列</span>
+#DIALOG.GLOBAL_EXTRA_MODE.000.ITEM.002.STR = "モード２"           <span class="comment">// アイテム（項目）の文字列</span>
+
+<span class="comment">// グローバル汎用モード１番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.GLOBAL_EXTRA_MODE.001.EXIST = 1
+#DIALOG.GLOBAL_EXTRA_MODE.001.STR = "グローバル汎用モード１番"
+#DIALOG.GLOBAL_EXTRA_MODE.001.ITEM_CNT = 3                        <span class="comment">// モードのアイテム数（項目数）は最大８個です。</span>
+#DIALOG.GLOBAL_EXTRA_MODE.001.ITEM.000.STR = "モード０"           <span class="comment">// アイテム（項目）の文字列</span>
+#DIALOG.GLOBAL_EXTRA_MODE.001.ITEM.001.STR = "モード１"           <span class="comment">// アイテム（項目）の文字列</span>
+#DIALOG.GLOBAL_EXTRA_MODE.001.ITEM.002.STR = "モード２"           <span class="comment">// アイテム（項目）の文字列</span>
+
+<span class="comment">// グローバル汎用モード２番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.GLOBAL_EXTRA_MODE.002.EXIST = 1
+#DIALOG.GLOBAL_EXTRA_MODE.002.STR = "グローバル汎用モード２番"
+#DIALOG.GLOBAL_EXTRA_MODE.002.ITEM_CNT = 1                        <span class="comment">// モードのアイテム数（項目数）は最大８個です。</span>
+#DIALOG.GLOBAL_EXTRA_MODE.002.ITEM.000.STR = "モード０"           <span class="comment">// アイテム（項目）の文字列</span>
+
+<span class="comment">// グローバル汎用モード３番：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.GLOBAL_EXTRA_MODE.003.EXIST = 1
+#DIALOG.GLOBAL_EXTRA_MODE.003.STR = "グローバル汎用モード３番"
+#DIALOG.GLOBAL_EXTRA_MODE.003.ITEM_CNT = 1                        <span class="comment">// モードのアイテム数（項目数）は最大８個です。</span>
+#DIALOG.GLOBAL_EXTRA_MODE.003.ITEM.000.STR = "モード０"           <span class="comment">// アイテム（項目）の文字列</span>
+
+<span class="comment">// =============================================================</span>
+
+<span class="comment">// 本プログラムの動作を遅くして、他のプログラムがスムーズに動作するようにする。：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.SLEEP.EXIST = 1
+#DIALOG.SLEEP.STR = "本プログラムの動作を遅くして、他のプログラムがスムーズに動作するようにする。"
+
+<span class="comment">// 画面暗転効果のアニメを無効にする。：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.NO_WIPE_ANIME.EXIST = 1
+#DIALOG.NO_WIPE_ANIME.STR = "画面暗転効果のアニメを無効にする。"
+
+<span class="comment">// 画面暗転効果をマウスクリックで飛ばす。：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.SKIP_WIPE_ANIME.EXIST = 1
+#DIALOG.SKIP_WIPE_ANIME.STR = "画面暗転効果をマウスクリックで飛ばす。"
+
+<span class="comment">// メッセージウィンドウの開閉時のアニメを無効にする。：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.NO_MWND_ANIME.EXIST = 1
+#DIALOG.NO_MWND_ANIME.STR = "メッセージウィンドウの開閉時のアニメを無効にする。"
+
+<span class="comment">// マウスのホイールボタンの下回しで文章を読み進める。：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.WHEEL_NEXT_MESSAGE.EXIST = 1
+#DIALOG.WHEEL_NEXT_MESSAGE.STR = "マウスのホイールボタンの下回しで文章を読み進める。"
+
+<span class="comment">// 声の再生中に次の文章に進んでも再生を続ける。：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.KOE_DONT_STOP.EXIST = 1
+#DIALOG.KOE_DONT_STOP.STR = "声の再生中に次の文章に進んでも再生を続ける。"
+
+<span class="comment">// 未読の文章も早送りできるようにする。：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.SKIP_UNREAD_MESSAGE.EXIST = 1
+#DIALOG.SKIP_UNREAD_MESSAGE.STR = "未読の文章も早送りできるようにする。"
+
+<span class="comment">// サウンド再生時に雑音が入る場合はチェックして下さい。：存在の有無（0=無し 1=有り）と項目の文字列</span>
+#DIALOG.PLAY_SILENT_SOUND.EXIST = 1
+#DIALOG.PLAY_SILENT_SOUND.STR = "サウンド再生時に雑音が入る場合はチェックして下さい。"
+</pre>
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

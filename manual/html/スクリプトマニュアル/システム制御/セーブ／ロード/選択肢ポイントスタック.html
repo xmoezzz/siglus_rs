@@ -1,0 +1,56 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　セーブ／ロード　＞　<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\選択肢ポイントスタック.html">選択肢ポイントスタック</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 選択肢ポイントスタック</h1>
+
+<p>専用コマンドです。あまり使うことはないと思います。
+</p>
+<p>選択肢ポイントを１つだけ記憶しておくことができます。
+</p>
+<pre class="exp">
+<p>stack_selpoint		// 選択肢ポイントを記憶しておく
+drop_selpoint		// 記憶した選択肢ポイントを降ろす
+</pre>
+</p>
+<p>通常、選択肢ポイントは次のように使います。
+<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\選択肢ポイント.html">選択肢ポイント</a> を参照して下さい。
+</p>
+<pre class="source">
+<p>savepoint
+</p>
+<p>/* グラフィカルな選択肢 */
+</p>
+<p>selpoint
+</pre>
+</p>
+<p>ところが、このグラフィカルな選択肢の部分で、
+メッセージ処理などセーブポイントが設定される処理を入れたいことがありました。
+この場合、選択肢ポイントを余分に記憶しておく必要があります。
+</p>
+<pre class="source">
+<p>savepoint
+stack_selpoint		<span class="comment">// 選択肢ポイントを作成し、積んでおく</span>
+</p>
+<p>/* グラフィカルな選択肢 */
+/* 途中でメッセージ処理なども行う */
+</p>
+<p>drop_selpoint		<span class="comment">// 積んである選択肢ポイントを降ろしてくる</span>
+</pre>
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

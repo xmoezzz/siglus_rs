@@ -1,0 +1,99 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/整数の演算.html">整数の演算</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 整数の演算</h1>
+
+<pre class="source">
+a[0] = a[0] + 10                  <span class="comment">// 好感度を１０あげる</span>
+a[1] *= 2                         <span class="comment">// 攻撃力を２倍にする</span>
+a[2] = ((b[0] * 2) - b[1]) / 4    <span class="comment">// ダメージを計算する</span>
+</pre>
+
+<h4> 基本演算</h4>
+
+<div class="table-container">
+<table>
+<tr><td>整数 + 整数</td><td>加算（足し算）</td></tr>
+<tr><td>整数 - 整数</td><td>減算（引き算）</td></tr>
+<tr><td>整数 * 整数</td><td>乗算（掛け算）</td></tr>
+<tr><td>整数 / 整数</td><td>除算（割り算）</td></tr>
+<tr><td>整数 % 整数</td><td>剰余算（余り）</td></tr>
+</table>
+</div>
+
+<h5> 例</h5>
+
+<pre class="source">
+print(10 + 3)r
+print(10 - 3)r
+print(10 * 3)r
+print(10 / 3)r
+print(10 % 3)r
+</pre>
+
+<h5> 実行結果</h5>
+
+<pre class="result">
+13       // 10＋3 = 13
+7        // 10－3 = 7
+30       // 10×3 = 30
+3        // 10÷3 = 3（余りは切り捨て）
+1        // 10÷3 の余りは 1
+</pre>
+
+<p>演算はつなげることもできます。"()" を使うこともできます。
+</p>
+<pre class="source">
+a[0] = ((b[0] * 2) - b[1]) / 4    <span class="comment">// ドラクエ風のダメージを計算する</span>
+</pre>
+
+<h4> 論理演算</h4>
+
+<p>上級者向けの演算です。普通は使わないと思います。ビット演算が分かる方は使って下さい。
+</p>
+<div class="table-container">
+<table>
+<tr><td>~ 整数</td><td>NOT 演算（論理否定）</td></tr>
+<tr><td>整数 &amp; 整数</td><td>AND 演算（論理積）</td></tr>
+<tr><td>整数 | 整数</td><td>OR 演算（論理和）</td></tr>
+<tr><td>整数 ^ 整数</td><td>XOR 演算（排他的論理和）</td></tr>
+<tr><td>整数 &lt;&lt; 整数</td><td>左シフト演算</td></tr>
+<tr><td>整数 &gt;&gt; 整数</td><td>右シフト演算（算術）</td></tr>
+<tr><td>整数 &gt;&gt;&gt; 整数</td><td>右シフト演算（論理）</td></tr>
+</table>
+</div>
+
+<p>通常の整数フラグでシフト演算を行った場合、左シフトは論理シフト、右シフトは算術シフトになります。
+<a href="../../スクリプトマニュアル/フラグ/ビットフラグ.html">ビットフラグ</a> の場合は負の数がないので、右シフトも論理シフトになります。
+</p>
+<p>「&gt;&gt;&gt;」を使った場合は、強制的に論理シフトになります。
+</p>
+<pre class="source">
+a[0] = 0b11011111111111111111111111111111
+a[1] = a[0] &lt;&lt; 2
+print(a[0])
+</pre>
+
+<p>a[1] は 0b01111111111111111111111111111100 となります。
+</p>
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

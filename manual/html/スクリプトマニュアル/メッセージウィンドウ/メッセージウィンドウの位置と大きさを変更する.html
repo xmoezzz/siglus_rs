@@ -1,0 +1,47 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウ.html">メッセージウィンドウ</a>　＞　<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウの位置と大きさを変更する.html">メッセージウィンドウの位置と大きさを変更する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージウィンドウの位置と大きさを変更する</h1>
+
+<pre class="exp">
+front.mwnd[0].set_window_pos($x, $y)        // 位置を変更する
+front.mwnd[0].set_window_size($x, $y)       // 大きさを変更する
+front.mwnd[0].set_window_moji_cnt($x, $y)   // 文字数を変更する
+
+a[0] = front.mwnd[0].get_window_pos_x       // 位置（Ｘ）を取得する
+a[0] = front.mwnd[0].get_window_pos_y       // 位置（Ｙ）を取得する
+a[0] = front.mwnd[0].get_window_size_x      // 大きさ（Ｘ）を取得する
+a[0] = front.mwnd[0].get_window_size_y      // 大きさ（Ｙ）を取得する
+a[0] = front.mwnd[0].get_window_moji_cnt_x  // 文字数（Ｘ）を取得する
+a[0] = front.mwnd[0].get_window_moji_cnt_y  // 文字数（Ｙ）を取得する
+
+front.mwnd[0].init_window_pos($x, $y)       // 位置を初期値に戻す
+front.mwnd[0].init_window_size($x, $y)      // 大きさを初期値に戻す
+front.mwnd[0].init_window_moji_cnt($x, $y)  // 文字数を初期値に戻す
+</pre>
+
+<p>メッセージウィンドウの位置や大きさ、文字数を取得／設定します。
+サンプルプロジェクトの「メッセージの位置や大きさを変更する」を参照して下さい。
+</p>
+<h4> 注意点</h4>
+
+<p>メッセージウィンドウの大きさを変えても、可変枠の場合に枠の大きさが変わるだけです。
+固定枠の場合の枠の大きさや、文字数などは変わりません。文字数を一緒に変えて下さい。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,91 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>　＞　<a href="../../スクリプトマニュアル/メッセージ/絵文字を表示する.html">絵文字を表示する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 絵文字を表示する</h1>
+
+<div align="center">
+<img src="emoji.jpg">
+</div>
+
+<p>独自の絵文字を表示することができます。
+</p>
+<h4> 絵文字ファイルを作る</h4>
+
+<p>絵文字は通常の g00 として作ります。
+１文字ごとにカットデータとして作って下さい。
+サンプルデータを参考にして下さい。
+</p>
+<div class="chips">
+RealLive では１枚の画像につなげて絵文字を書いていましたが、
+Siglus ではカットデータにする必要があります。
+</div>
+
+<h4> 絵文字を登録する</h4>
+
+<p>絵文字を使うには、絵文字を設定ファイルに登録します。
+</p>
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■絵文字の設定</span>
+<span class="comment">// =============================================================</span>
+#EMOJI.CNT = 4
+#EMOJI.000 = "_emoji00", 16
+#EMOJI.001 = "_emoji01", 24
+#EMOJI.002 = "_emoji02", 32
+#EMOJI.003 = "_emoji03", 48
+</pre>
+
+<p>（_emoji00.g00 ～ _emoji03.g00 の例を掲載予定）
+</p>
+<p>絵文字は文字サイズごとに登録します。
+上の例では、文字サイズ 16, 24, 32, 48 の４種類を登録しています。
+その時の文字サイズによって、適切なものが自動で使われます。
+具体的には、その時の文字サイズ以下で、より近いサイズの絵文字が使用されます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>文字のサイズ</td><td>使われる絵文字</td></tr>
+<tr><td>～23</td><td>登録０番</td></tr>
+<tr><td>24～31</td><td>登録１番</td></tr>
+<tr><td>32～47</td><td>登録２番</td></tr>
+<tr><td>48～</td><td>登録３番</td></tr>
+</table>
+</div>
+
+<h4> 絵文字を表示する</h4>
+
+<p>＃Ａ？？　絵文字をそのままの色で表示（？？＝カット番号）
+＃Ｂ？？　絵文字を文字色で表示（？？＝カット番号）
+</p>
+<pre class="source">
+絵文字タイプＡです。＃Ａ００＃Ａ０１＃Ａ０２＃Ａ０３r
+絵文字タイプＢです。＃Ｂ００＃Ｂ０１＃Ｂ０２＃Ｂ０３r
+</pre>
+
+<h5> 絵文字の後に数字を表示する</h5>
+
+<p>絵文字０番の後に、「１２３」と続けて表示したいとします。
+「＃Ａ００１２３」と書くと、絵文字１２３番が使われてしまいます。
+この場合は「"Ａ００"１２３」のように絵文字を "" で括って下さい。
+</p>
+<pre class="source">
+【名前】１２３&quot;＃Ａ００&quot;４５６&quot;＃Ａ００&quot;７８９r
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

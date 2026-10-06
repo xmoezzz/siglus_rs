@@ -1,0 +1,61 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　文字列　＞　<a href="../../スクリプトマニュアル/文字列/文字列配列.html">文字列配列</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 文字列配列</h1>
+
+<p>文字列配列についての説明です。
+s フラグなども文字列配列であることに注意して下さい。
+</p>
+<h4> 代表的な整数配列</h4>
+
+<ul>
+<li> s フラグ、m フラグ、k フラグなどの文字列フラグ</li>
+<li> strlist 型のユーザフラグ</li>
+</ul>
+
+<h4> 初期化する</h4>
+
+<pre class="exp">
+s.init                 // s フラグを初期化する
+</pre>
+
+<p>配列を初期化します。
+resize で個数を変更していた場合、個数も元に戻ることに注意して下さい。
+</p>
+<h4> 要素の個数を変更する</h4>
+
+<pre class="exp">
+k.resize($cnt)         // k フラグの個数を $cnt 個にする
+</pre>
+
+<p>コールフラグの個数の変更は、そのコール内でのみ有効です。
+</p>
+<div class="chips">
+このコマンドで s フラグ、m フラグなどの個数を変更することはできません。
+k フラグ、などの個数を変更することができます。
+</div>
+
+<h4> 要素の個数を取得する</h4>
+
+<pre class="exp">
+a[0] = k.get_size      // k フラグの個数を取得する
+</pre>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

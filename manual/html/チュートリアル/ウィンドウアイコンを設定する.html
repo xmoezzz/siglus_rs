@@ -1,0 +1,81 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../チュートリアル/ウィンドウアイコンを設定する.html">ウィンドウアイコンを設定する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ウィンドウアイコンを設定する</h1>
+
+<p>Siglus では、32bitカラー、半透明、フリーサイズのアイコンを扱えるようになりました。
+また、マルチプルアイコン（１つのアイコンファイルに複数のアイコンが入ってる形式）にも対応しました。
+Vista や 7 と新しいＯＳに備えて、出来る限り多色多サイズのアイコン作成をお勧めします。
+</p>
+<h4>お勧めのアイコンの組み合わせ</h4>
+
+<p>以下の４つの形式を含むアイコンがお勧めです。
+</p>
+<ul>
+<li>[ ※推奨 ] 256×256、32bitカラー（Vista / 7 の最大サイズです）</li>
+<li><font color="red">[ ※必須 ] </font>48×48、32bitカラー（Vista / 7 の標準サイズです）</li>
+<li><font color="red">[ ※必須 ] </font>32×32、32bitカラー（XP の「大きいアイコン」です。7 のタスクバーにも表示されます）</li>
+<li><font color="red">[ ※必須 ] </font>16×16、32bitカラー（XP の「小さいアイコン」です。ウィンドウの左上に表示されるのもこれです）</li>
+</ul>
+
+<p>マルチプルアイコンは、フリーソフトで作ることができます。私は「@icon変換」というフリーソフトを使っています。
+</p>
+<p>48×48 を入れ忘れないで下さい。XP を使っていると気づきにくいですが、Vista 以降だと非常に重要です。
+</p>
+<p>アイコンの並びは、小さいサイズのものから順に並べて下さい。
+</p>
+<p>異なる色数のアイコン（8bit と 32bit など）が混ざっていると、正常に表示されない場合があります。必ず 32bit で統一して下さい。
+</p>
+<h4>対応していないアイコン</h4>
+
+<ul>
+<li>ビットマップフォーマットのアイコン</li>
+</ul>
+
+<p>ビットマップの拡張子を .ico にしただけのファイルが、ビットマップフォーマットのアイコンです。
+バイナリエディタで開いた時に、先頭2バイトが 42 4D になっています。
+一方、通常のアイコンファイルは、先頭4バイトが 00 00 01 00 です。
+</p>
+<p>アイコンエディタで普通に作れば、正しいアイコンファイルが作られると思います。
+</p>
+<h4>アイコンの設定</h4>
+
+<p>ファイル名は好きに設定できます。
+</p>
+<p>SiglusEngine.exe の隣に置いて下さい。自動的にアイコンが設定されます。
+</p>
+<pre class="source">
+SampleGame
+  +- exe
+  |   +- SiglusEngine.exe
+  |   +- <font color="red">SampleGame.ico        <span class="comment">// 設定されるアイコンファイルです。ファイル名は好きに設定できます。</font></span>
+  |
+  +- ss
+  |   +- _start.ss
+  |   +- _menu.ss
+  |   +- Gameexe.ini
+  |
+  +- tmp
+  |
+  +- work
+  |   +- SiglusDebugger3.dll
+  |
+  +- SiglusCompiler.exe
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

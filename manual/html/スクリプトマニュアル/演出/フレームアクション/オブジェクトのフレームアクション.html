@@ -1,0 +1,134 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../../スクリプトマニュアル\演出\フレームアクション\フレームアクション.html">フレームアクション</a>　＞　<a href="../../../スクリプトマニュアル\演出\フレームアクション\オブジェクトのフレームアクション.html">オブジェクトのフレームアクション</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>オブジェクトのフレームアクション</h1>
+
+<pre class="exp">
+front.object[0].frame_action        // 汎用チャンネル
+front.object[0].frame_action_ch     // 専用チャンネル
+</pre>
+
+<p>オブジェクト単位のフレームアクションです。
+コマンドの作り方に注意が必要です。
+</p>
+<pre class="source">
+<span class="comment">// オブジェクトに BS0101 を読み込む</span>
+front.object[0].create(BS0101, 1, 100, 100)
+
+<span class="comment">// オブジェクト０番にフレームアクション $object_action_slide を設定する</span>
+<span class="comment">// 時間は1000ﾐﾘ秒、引数に 0, 255, 1000 を渡す</span>
+front.object[0].frame_action.start(1000, "$object_action_slide", 0, 255, 1000)
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// オブジェクトをスライドさせるアクション</span>
+<span class="comment">//   $start_x: スライド開始位置Ｘ</span>
+<span class="comment">//   $end_x:   スライド終了位置Ｘ</span>
+<span class="comment">//   $time:    スライドにかける時間</span>
+<span class="comment">// =============================================================</span>
+command $object_action_slide(
+    property $fa : frameaction, 
+    <font color="red">property $obj : object</font>, 
+    property $start_x, 
+    property $end_x, 
+    property $time)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    l[0] = $fa.counter.get
+    <span class="comment">// $time 秒かけて、値を $start_x から $end_x まで、減速で動かす</span>
+    l[1] = math.timetable(l[0], 0, $start_x, [0, $time, $end_x, 2])
+    <span class="comment">// オブジェクトのＸ座標を設定する</span>
+    <font color="red">$obj.x = l[1]</font>
+}
+</pre>
+
+<p>オブジェクトにフレームアクションを設定する場合、そのコマンドの２つ目の引数は object 型である必要があります。
+この引数には、フレームアクションを実行したオブジェクトが設定されています。
+この引数を操作することで、オブジェクトを操作することができます。
+</p>
+<p>上の例では、２つ目の引数 $obj は front.object[0] を指しています。
+$obj.x を設定することで、front.object[0].x が設定されることになります。
+</p>
+<h4> 専用チャンネルを使う</h4>
+
+<p>frame_action_ch は初期値で０個です。
+使う分だけ確保する必要があります。
+</p>
+<pre class="source">
+<span class="comment">// オブジェクトに BS0101 を読み込む</span>
+front.object[0].frame_action_ch.resize(2)      <span class="comment">// 専用チャンネルを２つ確保する</span>
+front.object[0].frame_action_ch[0].start(...)  <span class="comment">// 専用チャンネル０番を使う</span>
+front.object[0].frame_action_ch[1].start(...)  <span class="comment">// 専用チャンネル１番を使う</span>
+</pre>
+
+<h4>サンプル：オブジェクトをスライドさせる</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// オブジェクトをスライドさせるコマンド</span>
+<span class="comment">// =============================================================</span>
+command $object_slide_action(
+    property $fa : frameaction, 
+    property $obj : object, 
+    property $start_x, 
+    property $end_x, 
+    property $time)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    l[0] = $fa.counter.get
+    <span class="comment">// カウンタが 0～$time の間、オブジェクトのＸ座標を、$start_x～$end_x に、減速で変化させる</span>
+    $obj.x = math.timetable(l[0], 0, $start_x, [0, $time, $end_x, 2])
+}
+
+<span class="comment">// オブジェクト０番を、1000ﾐﾘ秒で、100～300までスライドさせる</span>
+front.object[0].create(UNIT00, 1, 100, 100)
+front.object[0].frame_action.start(1000, "$object_slide_action", 100, 300, 1000)
+
+<span class="comment">// オブジェクト１番を、3000ﾐﾘ秒で、0～640 までスライドさせる</span>
+front.object[1].create(UNIT01, 1, 300, 300)
+front.object[1].frame_action.start(3000, "$object_slide_action", 0, 640, 3000)
+
+オブジェクトを移動させました。r
+</pre>
+
+
+<h4>サンプル：オブジェクトを回転させ続ける</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// オブジェクトを回転させ続けるコマンド</span>
+<span class="comment">// =============================================================</span>
+command $object_rotate_action(
+    property $fa : frameaction, 
+    property $obj : object)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    <span class="comment">// 1000ﾐﾘ秒でループさせるため、1000 で割った余りを使います。</span>
+    l[0] = $fa.counter.get % 1000
+    <span class="comment">// 1000ﾐﾘ秒かけてオブジェクトを360度回転させる</span>
+    $obj.rotate_z = math.timetable(l[0], 0, 0, [0, 1000, 3600])
+}
+
+<span class="comment">// オブジェクト０番を回転させ続ける</span>
+front.object[0].create(UNIT00, 1, 100, 100)
+front.object[0].frame_action.start(-1, "$object_rotate_action")
+
+オブジェクトを回転させています。r
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

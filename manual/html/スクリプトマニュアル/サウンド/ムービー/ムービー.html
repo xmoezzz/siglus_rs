@@ -1,0 +1,58 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\ムービー\ムービー.html">ムービー</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\ムービー\ムービー.html">ムービー</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ムービー</h1>
+
+<h4> ムービーを再生する</h4>
+
+<pre class="exp">
+mov.play($file_name)            // ムービーを再生する
+mov.play_wait($file_name)       // ムービーを再生し、再生終了まで待つ
+a[0] = mov.play_wait_key($file_name)   // ムービーを再生し、再生終了まで待つ（キー入力でスキップできる）
+
+<div class="mada">
+mov.play($file_name, $x, $y, $w, $h)            // ムービーを再生する（サイズ指定）
+mov.play_wait($file_name, $x, $y, $w, $h)       // ムービーを再生し、再生終了まで待つ（サイズ指定）
+a[0] = mov.play_wait_key($file_name, $x, $y, $w, $h)   // ムービーを再生し、再生終了まで待つ（サイズ指定）（キー入力でスキップできる）
+</div>
+</pre>
+
+<p>play_wait_key の場合、キーでムービー待ちをスキップできます。
+決定キーまたはキャンセルキーでスキップした場合は 1 または -1 が返ります。最後まで再生した場合は 0 が返ります。 
+</p>
+<h5> ＯＰムービーを再生する</h5>
+
+<p>ＯＰムービーなどは、２回目以降はスキップできるようにすると親切です。
+</p>
+<pre class="source">
+if (g[0000] == 0)   {
+    mov.play_wait("OP00")
+    g[0000] = 1
+}
+else    {
+    mov.play_wait_key("OP00")
+}
+</pre>
+
+<h4> ムービーを停止する</h4>
+
+<pre class="exp">
+mov.stop
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

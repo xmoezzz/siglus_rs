@@ -1,0 +1,366 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコマンド\システムコマンド.html">システムコマンド</a>　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコマンド\システムコマンド.html">システムコマンド</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> システムコマンド</h1>
+
+<h4> 項目の状態について</h4>
+
+<h5> ON/OFF</h5>
+
+<p>一部の項目は、ON/OFF を設定できます。ON に設定すると、システムコマンドメニューの項目にチェックがつきます。
+ウィンドウボタンの場合、Gameexe.ini で登録したウィンドウボタンの「モード１」が使われます。
+</p>
+<h5> 許可／不許可</h5>
+
+<p>一部の項目は、許可／不許可を設定できます。不許可に設定すると、システムコマンドメニューの項目がグレー表示になり、その項目が使えなくなります。
+ウィンドウボタンの場合、Gameexe.ini で登録したボタンアクションの「DISABLE」の設定が使われます。
+</p>
+<h5> 表示／非表示</h5>
+
+<p>一部の項目は、表示／非表示を設定できます。非表示に設定すると、システムコマンドメニューの項目が非表示になります。
+ウィンドウボタンの場合、Gameexe.ini で登録したボタンアクションの「DISABLE」の設定が使われます。
+</p>
+<h5> 実際の表示</h5>
+
+<p>一部の項目は、不許可にしていなくても、グレー表示になることがあります。
+例えば、セーブポイントが立っていない場合は、「セーブ」の項目はグレー表示になります。
+この状態を判定するのが check_???_enable コマンドです。
+</p>
+<h4> 項目の状態を初期化する</h4>
+
+<pre class="exp">
+syscom.init_syscom_flag             // システムコマンドの項目を初期化
+</pre>
+
+<p>システムコマンドの項目の ON/OFF、許可／不許可、表示／非表示を初期化します。
+</p>
+<h4> 既読早送り</h4>
+
+<pre class="exp">
+syscom.set_read_skip_onoff_flag($onoff)     // 既読早送りの ON/OFF を設定する（0=OFF、1=ON）
+a[0] = syscom.get_read_skip_onoff_flag      // 既読早送りの ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_read_skip_enable_flag($enable)   // 既読早送りの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_read_skip_enable_flag     // 既読早送りの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_read_skip_exist_flag($exist)     // 既読早送りの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_read_skip_exist_flag      // 既読早送りの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_read_skip_enable        // 既読早送りが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<h5> 既読早送りが使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>既読早送りが非表示になっているとき（syscom.set_read_skip_exist_flag(0)）</li>
+<li>既読早送りが不許可になっているとき（syscom.set_read_skip_enable_flag(0)）</li>
+<li>一時的に早送りが禁止されているとき（script.set_skip_disable）</li>
+<li>未読の文章を読み進めているとき</li>
+</ul>
+
+<h4> 自動早送り</h4>
+
+<pre class="exp">
+syscom.set_auto_skip_onoff_flag($onoff)     // 自動早送りの ON/OFF を設定する（0=OFF、1=ON）
+a[0] = syscom.get_auto_skip_onoff_flag      // 自動早送りの ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_auto_skip_enable_flag($enable)   // 自動早送りの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_auto_skip_enable_flag     // 自動早送りの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_auto_skip_exist_flag($exist)     // 自動早送りの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_auto_skip_exist_flag      // 自動早送りの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_auto_skip_enable        // 自動早送りが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<h5> 自動早送りが使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>自動早送りが非表示になっているとき（syscom.set_auto_skip_exist_flag(0)）</li>
+<li>自動早送りが不許可になっているとき（syscom.set_auto_skip_enable_flag(0)）</li>
+</ul>
+
+<h4> オートモード</h4>
+
+<pre class="exp">
+syscom.set_auto_mode_onoff_flag($onoff)     // オートモードの ON/OFF を設定する（0=OFF、1=ON）
+a[0] = syscom.get_auto_mode_onoff_flag      // オートモードの ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_auto_mode_enable_flag($enable)   // オートモードの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_auto_mode_enable_flag     // オートモードの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_auto_mode_exist_flag($exist)     // オートモードの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_auto_mode_exist_flag      // オートモードの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_auto_mode_enable        // オートモードが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<h5> オートモードが使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>オートモードが非表示になっているとき（syscom.set_auto_mode_exist_flag(0)）</li>
+<li>オートモードが不許可になっているとき（syscom.set_auto_mode_enable_flag(0)）</li>
+</ul>
+
+<h4> ウィンドウを消す</h4>
+
+<pre class="exp">
+syscom.set_hide_mwnd_onoff_flag($onoff)     // 「ウィンドウを消す」の ON/OFF を設定する（0=OFF、1=ON）
+a[0] = syscom.get_hide_mwnd_onoff_flag      // 「ウィンドウを消す」の ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_hide_mwnd_enable_flag($enable)   // 「ウィンドウを消す」の許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_hide_mwnd_enable_flag     // 「ウィンドウを消す」の許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_hide_mwnd_exist_flag($exist)     // 「ウィンドウを消す」の表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_hide_mwnd_exist_flag      // 「ウィンドウを消す」の表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_hide_mwnd_enable        // 「ウィンドウを消す」が実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<h5> 「ウィンドウを消す」が使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>「ウィンドウを消す」が非表示になっているとき（syscom.set_hide_mwnd_exist_flag(0)）</li>
+<li>「ウィンドウを消す」が不許可になっているとき（syscom.set_hide_mwnd_enable_flag(0)）</li>
+</ul>
+
+<h4> メッセージバック</h4>
+
+<pre class="exp">
+syscom.open_msg_back                       // メッセージバックを開く
+syscom.set_msg_back_enable_flag($enable)   // 「メッセージバック」の許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_msg_back_enable_flag     // 「メッセージバック」の許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_msg_back_exist_flag($exist)     // 「メッセージバック」の表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_msg_back_exist_flag      // 「メッセージバック」の表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_msg_back_enable        // 「メッセージバック」が実際に使えるかを判定する（0=使えない、1=使える）
+a[0] = syscom.check_msg_back_open          // 「メッセージバック」が開いているかを判定する（0=開いていない、1=開いている）
+</pre>
+
+<h5> 「メッセージバック」が使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>「メッセージバック」が非表示になっているとき（syscom.set_msg_back_exist_flag(0)）</li>
+<li>「メッセージバック」が不許可になっているとき（syscom.set_msg_back_enable_flag(0)）</li>
+<li>一時的にメッセージバックが禁止されているとき（script.set_msg_back_disable）</li>
+<li>メッセージバックが空のとき</li>
+</ul>
+
+<h4> ローカル汎用スイッチ</h4>
+
+<pre class="exp">
+syscom.set_local_extra_switch_onoff_flag($switch_no, $onoff)     // ローカル汎用スイッチの ON/OFF を設定する（0=OFF、1=ON）
+a[0] = syscom.get_local_extra_switch_onoff_flag($switch_no)      // ローカル汎用スイッチの ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_local_extra_switch_enable_flag($switch_no, $enable)   // ローカル汎用スイッチの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_local_extra_switch_enable_flag($switch_no)     // ローカル汎用スイッチの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_local_extra_switch_exist_flag($switch_no, $exist)     // ローカル汎用スイッチの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_local_extra_switch_exist_flag($switch_no)      // ローカル汎用スイッチの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_local_extra_switch_enable($switch_no)        // ローカル汎用スイッチが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<h5> 「ローカル汎用スイッチ」が使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>「ローカル汎用スイッチ」が非表示になっているとき（syscom.set_local_extra_switch_exist_flag(0)）</li>
+<li>「ローカル汎用スイッチ」が不許可になっているとき（syscom.set_local_extra_switch_enable_flag(0)）</li>
+</ul>
+
+<h4> ローカル汎用モード</h4>
+
+<pre class="exp">
+syscom.set_local_extra_mode_value($mode_no, $value)          // ローカル汎用モードの値を設定する
+a[0] = syscom.get_local_extra_mode_value($mode_no)           // ローカル汎用モードの値を取得する
+syscom.set_local_extra_mode_enable_flag($mode_no, $enable)   // ローカル汎用モードの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_local_extra_mode_enable_flag($mode_no)     // ローカル汎用モードの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_local_extra_mode_exist_flag($mode_no, $exist)     // ローカル汎用モードの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_local_extra_mode_exist_flag($mode_no)      // ローカル汎用モードの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_local_extra_mode_enable($mode_no)        // ローカル汎用モードが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<h5> 「ローカル汎用モード」が使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>「ローカル汎用モード」が非表示になっているとき（syscom.set_local_extra_mode_exist_flag(0)）</li>
+<li>「ローカル汎用モード」が不許可になっているとき（syscom.set_local_extra_mode_enable_flag(0)）</li>
+</ul>
+
+<h4> セーブ／ロード</h4>
+
+<pre class="exp">
+syscom.call_save_menu                       // セーブメニューを呼び出す
+syscom.set_save_enable_flag($enable)        // セーブの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_save_enable_flag          // セーブの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_save_exist_flag($exist)          // セーブの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_save_exist_flag           // セーブの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_save_enable             // セーブが実際に使えるかを判定する（0=使えない、1=使える）
+
+syscom.call_load_menu                       // ロードメニューを呼び出す
+syscom.set_load_enable_flag($enable)        // ロードの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_load_enable_flag          // ロードの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_load_exist_flag($exist)          // ロードの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_load_exist_flag           // ロードの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_load_enable             // ロードが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<p>セーブ／ロードメニューを呼び出します。
+それぞれのメニューシーンが Gameexe.ini で指定してあればそのシーンを、
+指定されていなければダイアログが表示されます。
+</p>
+<pre class="source">
+#SAVE_SCENE = "_save"                   <span class="comment">// セーブシーン</span>
+#LOAD_SCENE = "_load"                   <span class="comment">// ロードシーン</span>
+</pre>
+
+<h5> セーブが使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>セーブが非表示になっているとき（syscom.set_save_exist_flag(0)）</li>
+<li>セーブが不許可になっているとき（syscom.set_save_enable_flag(0)）</li>
+<li>セーブポイントが立っていないとき</li>
+</ul>
+
+<h5> ロードが使用不可能な場合はどんなとき？</h5>
+
+<ul>
+<li>ロードが非表示になっているとき（syscom.set_load_exist_flag(0)）</li>
+<li>ロードが不許可になっているとき（syscom.set_load_enable_flag(0)）</li>
+</ul>
+
+<h4> セーブ／ロード／クイックセーブ／クイックロード（番号指定）</h4>
+
+<pre class="exp">
+a[0] = syscom.save($save_no, $warning, $se_play)                  // セーブする
+a[0] = syscom.quick_save($quick_save_no, $warning, $se_play)      // クイックセーブする
+a[0] = syscom.end_save($warning, $se_play)                        // エンドセーブする
+</pre>
+
+<pre class="exp">
+syscom.load($save_no, $warning, $se_play, $fade_out)              // ロードする
+syscom.quick_load($quick_save_no, $warning, $se_play, $fade_out)  // クイックロードする
+syscom.end_load($warning, $se_play, $fade_out)                    // エンドロードする
+</pre>
+
+<h5> 引数</h5>
+
+<p>$warning: 0=確認ダイアログなし、1=確認ダイアログあり<br />
+$se_play: 0=システム音を再生しない、1=システム音を再生する<br />
+$fade_out: 0=フェードアウトを行わない、1=フェードアウトを行う<br />
+</p>
+<h5> 戻り値</h5>
+
+<p>0=セーブしなかった、1=セーブした
+</p>
+<h5> エンドセーブについて</h5>
+
+<p><a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\エンドセーブ.html">エンドセーブ</a> を参照して下さい。
+</p>
+<h4> 「セーブロード時に警告を表示する。」</h4>
+
+<pre class="exp">
+syscom.set_saveload_alert_onoff($onoff)        // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_saveload_alert_onoff_default        // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_saveload_alert_onoff         // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+<h4> 前の選択肢に戻る</h4>
+
+<pre class="exp">
+syscom.return_to_sel($warning, $se_play, $fade_out)   // 前の選択肢に戻る
+syscom.set_return_to_sel_enable_flag($enable)         // 前の選択肢に戻るの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_return_to_sel_enable_flag           // 前の選択肢に戻るの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_return_to_sel_exist_flag($exist)           // 前の選択肢に戻るの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_return_to_sel_exist_flag            // 前の選択肢に戻るの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_return_to_sel_enable              // 前の選択肢に戻るが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<p>$warning: 0=確認ダイアログなし、1=確認ダイアログあり<br />
+$se_play: 0=システム音を再生しない、1=システム音を再生する<br />
+$fade_out: 0=フェードアウトを行わない、1=フェードアウトを行う<br />
+</p>
+<h4> 環境設定</h4>
+
+<pre class="exp">
+syscom.call_config_menu                // 環境設定メニューを呼び出す
+</pre>
+
+<p>環境設定メニューを呼び出します。
+メニューシーンが Gameexe.ini で指定してあればそのシーンを、
+指定されていなければ環境設定ダイアログが表示されます。
+</p>
+<pre class="source">
+#CONFIG_SCENE = "_config"               <span class="comment">// 環境設定シーン</span>
+</pre>
+
+<p>環境設定の個別の項目については、<a href="../../../スクリプトマニュアル\システム制御\環境設定\環境設定.html">環境設定</a> を参照して下さい。
+</p>
+<h4> メニューに戻る</h4>
+
+<pre class="exp">
+syscom.return_to_menu($warning, $se_play, $fade_out)  // メニューに戻る
+syscom.set_return_to_menu_enable_flag($enable)        // メニューに戻るの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_return_to_menu_enable_flag          // メニューに戻るの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_return_to_menu_exist_flag($exist)          // メニューに戻るの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_return_to_menu_exist_flag           // メニューに戻るの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_return_to_menu_enable             // メニューに戻るが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<p>$warning: 0=確認ダイアログなし、1=確認ダイアログあり<br />
+$se_play: 0=システム音を再生しない、1=システム音を再生する<br />
+$fade_out: 0=フェードアウトを行わない、1=フェードアウトを行う<br />
+</p>
+<p>syscom.return_to_menu(0, 0, 1) コマンドは returnmenu コマンドと同じ動作です。
+</p>
+<h4> ゲームを終了する</h4>
+
+<pre class="exp">
+syscom.end_game($warning, $se_play, $fade_out)        // ゲームを終了する
+syscom.set_end_game_enable_flag($enable)              // ゲームを終了するの許可／不許可を設定する（0=不許可、1=許可）
+a[0] = syscom.get_end_game_enable_flag                // ゲームを終了するの許可／不許可を取得する（0=不許可、1=許可）
+syscom.set_end_game_exist_flag($exist)                // ゲームを終了するの表示／非表示を設定する（0=非表示、1=表示）
+a[0] = syscom.get_end_game_exist_flag                 // ゲームを終了するの表示／非表示を取得する（0=非表示、1=表示）
+a[0] = syscom.check_end_game_enable                   // ゲームを終了するが実際に使えるかを判定する（0=使えない、1=使える）
+</pre>
+
+<p>$warning: 0=確認ダイアログなし、1=確認ダイアログあり<br />
+$se_play: 0=システム音を再生しない、1=システム音を再生する（※１）<br />
+$fade_out: 0=フェードアウトを行わない、1=フェードアウトを行う<br />
+</p>
+<p>syscom.end_game(0, 0, 0) コマンドは owari コマンドと同じ動作です。
+</p>
+<p>（※１）現在、ゲーム終了のためのシステム音は存在しません。
+$se_play には必ず 0 を指定して下さい。
+</p>
+<div class="chips">
+Ver.1.1.36.0 以前は引数は $warning だけでした。
+引数が３つに増えましたが、互換性のため引数１つでも動きます。（2013/7/1）
+</div>
+
+<h4> 最後に再生された声を再生する</h4>
+
+<pre class="exp">
+syscom.replay_koe                                     // 最後に再生された声を再生する
+syscom.clear_replay_koe                               // 最後に再生された声を初期化する
+a[0] = syscom.check_replay_koe                        // 最後に再生された声が存在するかを確認する（0=存在しない、1=存在する）
+a[0] = syscom.get_replay_koe_koe_no                   // 最後に再生された声の声番号を取得する
+a[0] = syscom.get_replay_koe_chara_no                 // 最後に再生された声をキャラクター番号を取得する
+</pre>
+
+<p>最後に再生された声を再生、取得します。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

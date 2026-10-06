@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　ムービーオブジェクト　＞　<a href="../../../スクリプトマニュアル\オブジェクト\ムービーオブジェクト\ムービーオブジェクトを操作する.html">ムービーオブジェクトを操作する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ムービーオブジェクトを操作する</h1>
+
+<h4> ムービーを一時停止する</h4>
+
+<pre class="exp">
+front.object[0].pause_movie
+</pre>
+
+<h4> ムービーの一時停止を解除する</h4>
+
+<pre class="exp">
+front.object[0].resume_movie
+</pre>
+
+<h4> ムービーの再生位置を設定する</h4>
+
+<pre class="exp">
+front.object[0].seek_movie($time)
+</pre>
+
+<p>ムービの再生位置をﾐﾘ秒で設定します。途中から始めたりしたい場合に使って下さい。
+</p>
+<h4> ムービーの再生位置を取得する</h4>
+
+<pre class="exp">
+a[0] = front.object[0].get_movie_seek_time
+</pre>
+
+<p>ムービーの再生位置をﾐﾘ秒で取得します。
+</p>
+<h4> ムービーが再生中かを判定する</h4>
+
+<pre class="exp">
+a[0] = front.object[0].check_movie
+</pre>
+
+<p>0=再生中でない、1=再生中
+</p>
+<h4> ムービーの再生終了を待つ</h4>
+
+<pre class="exp">
+front.object[0].wait_movie
+a[0] = front.object[0].wait_movie_key
+</pre>
+
+<p>wait_movie_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<h4> ムービーのループを終了させる</h4>
+
+<pre class="exp">
+front.object[0].end_movie_loop
+</pre>
+
+<p>ムービーのループを終了します。
+次にムービーが最後まで来たときに解放されます。
+</p>
+<h4> ムービーの自動解放フラグを設定する</h4>
+
+<pre class="exp">
+front.object[0].set_movie_auto_free($flag)   // 0=自動解放しない、1=自動解放する
+</pre>
+
+<p>ムービーが最後まで来た場合、自動解放するかどうかを設定します。
+自動解放しない場合、最後のフレームが表示されたままになります。
+</p>
+<p>ループ再生の場合は、このフラグは無視されます。
+</p>
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

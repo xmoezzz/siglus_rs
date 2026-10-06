@@ -1,0 +1,44 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/シーン制御/シーン制御.html">シーン制御</a>　＞　<a href="../../スクリプトマニュアル/シーン制御/シーンタイトル.html">シーンタイトル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> シーンタイトル</h1>
+
+<p>シーンごとにサブタイトルをつける機能です。
+シーンタイトルはウィンドウキャプションやセーブダイアログに表示されます。
+また、セーブデータごとに保存され、syscom.get_save_title コマンドで取り出すこともできます。
+非常に重要な機能です。設定することをお勧めします。
+</p>
+<div class="table-container">
+<table>
+<caption>シーンタイトルの例</caption>
+<tr><td>set_title(５月１４日)</td></tr>
+<tr><td>set_title(メリッサの憂鬱)</td></tr>
+<tr><td>set_title(タイトルメニュー)</td></tr>
+<tr><td>set_title(姫歌エンディング)</td></tr>
+</table>
+</div>
+
+<h4> シーンタイトルを設定／取得する</h4>
+
+<pre class="exp">
+set_title($title)
+s[0] = get_title
+</pre>
+
+<p>シーンタイトルを設定／取得します。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

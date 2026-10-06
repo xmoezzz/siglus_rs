@@ -1,0 +1,162 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/メッセージバックの設定.html">メッセージバックの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージバックの設定</h1>
+
+<div align="center">
+<img src="msgbk.png">
+</div>
+
+<p>メッセージバックを表示するウィンドウの設定をします。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// ウィンドウの設定</span>
+#MSGBK.WINDOW_POS = 160, 20                 <span class="comment">// ウィンドウの位置（Ｘ、Ｙ）（普通は 0, 0 でいいと思います）</span>
+#MSGBK.WINDOW_SIZE = 960, 680               <span class="comment">// ウィンドウのサイズ（幅、高）</span>
+#MSGBK.DISP_MARGIN = 0, 20, 0, 20           <span class="comment">// メッセージなどを表示する矩形（ウィンドウからのマージンで指定）（左、上、右、下）</span>
+#MSGBK.MESSAGE_POS = 160                    <span class="comment">// メッセージを表示する位置（Ｘ）</span>
+#MSGBK.MOJI_CNT = 25, 12                    <span class="comment">// 表示する文字数（横、縦）</span>
+#MSGBK.MOJI_SIZE = 25                       <span class="comment">// 文字のサイズ</span>
+#MSGBK.MOJI_SPACE = 0, 10                   <span class="comment">// 文字間のスペース（横、縦）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// 背景の設定</span>
+#MSGBK.BACK_FILE = "_fmsgbk_back_yoko"      <span class="comment">// 背景ファイル（必要ない場合は ""）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// フィルターの設定</span>
+#MSGBK.FILTER_FILE = ""                     <span class="comment">// フィルターファイル</span>
+#MSGBK.FILTER_MARGIN = 0, 0, 0, 0           <span class="comment">// フィルター矩形（ウィンドウからのマージンで指定）（左、上、右、下）</span>
+#MSGBK.FILTER_COLOR = 0, 0, 0, 255          <span class="comment">// フィルター色（Ｒ、Ｇ、Ｂ、Ａ）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// 閉じるボタン</span>
+#MSGBK_ITEM.CLOSE_BTN.FILE = "_fmsgbk_btn_close"
+#MSGBK_ITEM.CLOSE_BTN.POS = 887, 12         <span class="comment">// ボタンの位置（ウィンドウからの位置で指定）</span>
+#MSGBK_ITEM.CLOSE_BTN.ACTION = 1            <span class="comment">// ボタンアクション番号</span>
+#MSGBK_ITEM.CLOSE_BTN.SE = -1               <span class="comment">// ボタン効果音番号</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// スライダー</span>
+#MSGBK_ITEM.SLIDER.FILE = "_fmsgbk_slider"
+#MSGBK_ITEM.SLIDER.POS = 888, 80, 633       <span class="comment">// ボタンの位置（ウィンドウからの座標で指定）</span>
+#MSGBK_ITEM.SLIDER.ACTION = 1               <span class="comment">// ボタンアクション番号</span>
+#MSGBK_ITEM.SLIDER.SE = -1                  <span class="comment">// ボタン効果音番号</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// ↑ボタン</span>
+#MSGBK_ITEM.MSG_UP_BTN.FILE = "_fmsgbk_btn_msg_up"
+#MSGBK_ITEM.MSG_UP_BTN.POS = 887, 46        <span class="comment">// ボタンの位置（ウィンドウからの座標で指定）</span>
+#MSGBK_ITEM.MSG_UP_BTN.ACTION = 1           <span class="comment">// ボタンアクション番号</span>
+#MSGBK_ITEM.MSG_UP_BTN.SE = -1              <span class="comment">// ボタン効果音番号</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// ↓ボタン</span>
+#MSGBK_ITEM.MSG_DOWN_BTN.FILE = "_fmsgbk_btn_msg_down"
+#MSGBK_ITEM.MSG_DOWN_BTN.POS = 887, 641     <span class="comment">// ボタンの位置（ウィンドウからの座標で指定）</span>
+#MSGBK_ITEM.MSG_DOWN_BTN.ACTION = 1         <span class="comment">// ボタンアクション番号</span>
+#MSGBK_ITEM.MSG_DOWN_BTN.SE = -1            <span class="comment">// ボタン効果音番号</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// 声ボタン</span>
+#MSGBK_ITEM.KOE_BTN.FILE = "_fmsgbk_btn_koe"
+#MSGBK_ITEM.KOE_BTN.POS = -40, 0            <span class="comment">// ボタンの位置（メッセージからの座標で指定）</span>
+#MSGBK_ITEM.KOE_BTN.ACTION = 0              <span class="comment">// ボタンアクション番号</span>
+#MSGBK_ITEM.KOE_BTN.SE = -1                 <span class="comment">// ボタン効果音番号</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// ロードボタン</span>
+#MSGBK_ITEM.LOAD_BTN.FILE = "_fmsgbk_btn_load"
+#MSGBK_ITEM.LOAD_BTN.POS = -140, 0          <span class="comment">// ボタンの位置（メッセージからの座標で指定）</span>
+#MSGBK_ITEM.LOAD_BTN.ACTION = 1             <span class="comment">// ボタンアクション番号</span>
+#MSGBK_ITEM.LOAD_BTN.SE = -1                <span class="comment">// ボタン効果音番号</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// ロードコール</span>
+#MSGBK.LOAD_CALL = "_system", "$msgbk_btn_load"               <span class="comment">// ボタンのコール先の設定</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// セパレーター</span>
+#MSGBK.SEPARATOR_FILE = "_fmsgbk_separator"                   <span class="comment">// セパレーターの画像</span>
+#MSGBK.SEPARATOR_TOP_FILE = "_fmsgbk_separator_top"           <span class="comment">// セパレーターの画像（先頭）</span>
+#MSGBK.SEPARATOR_BOTTOM_FILE = "_fmsgbk_separator_bottom"     <span class="comment">// セパレーターの画像（末尾）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+<span class="comment">// その他の設定</span>
+#MSGBK.MSG_CLICK_ACTION = 2                 <span class="comment">// メッセージをクリックしたときの動作（0=無し、1=声を再生、2=ロード）</span>
+</pre>
+
+<h4> メッセージウィンドウの位置と大きさ</h4>
+
+<div align="center">
+<img src="msgbk_btn.png">
+</div>
+
+<p>メッセージウィンドウのウィンドウの位置と大きさを指定します。
+ボタンやスライダーの位置は、メッセージバックのウィンドウの左上を基点に位置を指定します。
+</p>
+<h4> メッセージなどを表示する矩形</h4>
+
+<p>メッセージや声アイコンなどを表示できる範囲です。この範囲で文字や画像は切り取られます。
+ウィンドウからのマージンで指定します。
+</p>
+<h4> フィルター</h4>
+
+<p>「ファイルで指定する方法」と「矩形と色で指定する方法」があります。
+詳しくは <a href="../設定ファイル/メッセージウィンドウ枠個別の設定.html">メッセージウィンドウ枠個別の設定</a> を参考にして下さい。
+</p>
+<h4> ボタンのアクション番号と効果音番号</h4>
+
+<p>それぞれ <a href="../設定ファイル/ボタンアクションの設定.html">ボタンアクションの設定</a>、<a href="../設定ファイル/ボタン効果音の設定.html">ボタン効果音の設定</a> を参照して下さい。
+</p>
+<h4> スライダーの動く範囲</h4>
+
+<div align="center">
+<img src="msgbk_slider.png">
+</div>
+
+<p>スライダーの範囲は、Ｘ座標および、Ｙ座標の上端と下端を指定します。
+スライダーの画像がその範囲に納まるように動きます。
+</p>
+<h4> セパレーター</h4>
+
+<div align="center">
+<img src="msgbk_separator.png">
+</div>
+
+<p>セパレーターを画像で指定できます。
+セパレーターを指定した場合、文と文の間はその画像の大きさになります。
+セパレーターを指定しなかった場合、文字サイズ分だけ自動で空けられます。
+</p>
+<h4> ターゲットの文字色</h4>
+
+<p>中央付近にあるメッセージは黄色になっていますが、<font color="red">デバッグ時のみです。</font>
+'P' キーを押したときにコピーされるメッセージは、黄色くなっているこのメッセージです。
+この色を変えることはできません。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

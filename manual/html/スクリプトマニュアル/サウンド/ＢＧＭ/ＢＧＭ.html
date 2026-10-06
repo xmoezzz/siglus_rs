@@ -1,0 +1,127 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭ.html">ＢＧＭ</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭ.html">ＢＧＭ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＢＧＭ</h1>
+
+<h4> ＢＧＭを再生する</h4>
+
+<pre class="exp">
+bgm.play($name)
+bgm.play($name, $fade_in_time)
+bgm.play($name, $fade_in_time, $fade_out_time)
+bgm.play_oneshot($name)
+bgm.play_oneshot($name, $fade_in_time)
+bgm.play_oneshot($name, $fade_in_time, $fade_out_time)
+bgm.play_wait($name)
+bgm.play_wait($name, $fade_in_time)
+bgm.play_wait($name, $fade_in_time, $fade_out_time)
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>play</td><td>音楽をループ演奏します。</td></tr>
+<tr><td>play_oneshot</td><td>音楽をワンショット演奏します。</td></tr>
+<tr><td>play_wait</td><td>音楽をワンショット演奏し、音楽が終了するまで待ちます。</td></tr>
+</table>
+</div>
+
+<p>$name には、Gameexe.ini で登録した bgm の名前を入れます。
+$fade_in_time を指定すると、フェードインを行います。
+また、$fade_out_time を指定すると、クロスフェードを行います。指定した時間で、現在演奏中の曲がフェードアウトします。
+</p>
+<h4> ＢＧＭを停止する</h4>
+
+<pre class="exp">
+bgm.stop
+bgm.stop($fade_out_time)
+</pre>
+
+<p>演奏中の曲を停止します。$fade_out_time を指定すると、指定した時間でフェードアウトを行います。
+</p>
+<h4> ＢＧＭが終了するのを待つ</h4>
+
+<pre class="exp">
+bgm.wait
+a[0] = bgm.wait_key
+</pre>
+
+<p>演奏中の曲が終了するのを待ちます。ループ再生を行っている時に、このコマンドを使っては行けません。（無限ループになってしまいます！）
+</p>
+<p>wait_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<h4> ＢＧＭのフェードアウトが終了するのを待つ</h4>
+
+<pre class="exp">
+bgm.wait_fade
+a[0] = bgm.wait_fade_key
+</pre>
+
+<p>フェードアウト中に使うと、曲のフェードアウトが完了するのを待ちます。
+</p>
+<p>wait_fade_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<h4> ＢＧＭの再生状態を取得する</h4>
+
+<pre class="exp">
+a[0] = bgm.check
+</pre>
+
+<p>演奏状態を取得します。（0=停止中、1=再生中、2=フェードアウト中）
+</p>
+<h4> 再生中のＢＧＭの登録名を取得する</h4>
+
+<pre class="exp">
+s[0] = bgm.get_regist_name
+</pre>
+
+<p>再生中のＢＧＭの登録名を取得します。ファイル名ではなく、Gameexe.ini で設定した登録名なことに注意して下さい。
+</p>
+<h4> ボリュームを設定する</h4>
+
+<pre class="exp">
+bgm.set_volume($volume)
+bgm.set_volume($volume, $time)
+</pre>
+
+<p>曲のボリュームを 0～255 の範囲で設定します。
+0 にすると無音になります。
+$time を指定すると、指定した時間をかけてボリュームを変化させます。
+</p>
+<p>※実際の再生される音量は、環境設定で設定された音量と、この命令で設定された音量を掛け合わせたものになります。
+つまり、環境を設定を128、こちらを128にした場合、最大音量の25％程度の音量で再生されます。
+</p>
+<h4> ボリュームを最大／最小にする</h4>
+
+<pre class="exp">
+bgm.set_volume_max
+bgm.set_volume_max($time)
+bgm.set_volume_min
+bgm.set_volume_min($time)
+</pre>
+
+<p>曲のボリュームを最大／最小にします。
+$time を指定すると、指定した時間をかけてボリュームを変化させます。
+</p>
+<h4> ボリュームを取得する</h4>
+
+<pre class="exp">
+a[0] = bgm.get_volume
+</pre>
+
+<p>曲のボリュームを取得します。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

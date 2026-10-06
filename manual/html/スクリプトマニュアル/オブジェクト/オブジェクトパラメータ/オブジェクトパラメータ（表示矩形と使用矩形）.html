@@ -1,0 +1,136 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　オブジェクトパラメータ　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトパラメータ\オブジェクトパラメータ（表示矩形と使用矩形）.html">オブジェクトパラメータ（表示矩形と使用矩形）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 表示矩形と使用矩形</h1>
+
+<div class="chips">
+オブジェクトに表示矩形／使用矩形を設定した場合、ボタンの当たり判定も表示矩形内に収まるようになりました。（2012/3/13 Ver.1.0.13.7 より）
+</div>
+
+<h4> 画面上での表示矩形を設定する</h4>
+
+<pre class="exp">
+front.object[0].clip_use = 0
+front.object[0].clip_left = 0
+front.object[0].clip_top = 0
+front.object[0].clip_right = 0
+front.object[0].clip_bottom = 0
+front.object[0].set_clip($use, $left, $top, $right, $bottom)
+</pre>
+
+<p>指定された矩形の中のみにオブジェクトを表示します。
+オブジェクト自身の範囲ではありません。画面上の範囲で指定します。
+例えば left = 320, top = 180, right = 960, bottom = 540 とした場合、
+画面上の (320, 180) - (960, 540) の範囲にのみオブジェクトが表示されます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>clip_use</td><td>1=表示矩形を使う、0=使わない</td></tr>
+<tr><td>clip_left</td><td>left（左端）</td></tr>
+<tr><td>clip_top</td><td>top（上端）</td></tr>
+<tr><td>clip_right</td><td>right（右端）</td></tr>
+<tr><td>clip_bottom</td><td>bottom（下端）</td></tr>
+</table>
+</div>
+
+<h5> 注意１</h5>
+
+<p>右端と下端の値に注意して下さい。
+例えば 800×600 の画面全体に表示する場合、RealLive では (0,0,799,599) と指定していました。
+Siglus では (0,0,800,600) と指定する必要があります。１ピクセルずれているので注意して下さい。
+</p>
+<h5> 注意２</h5>
+
+<p>RealLive と違い、左端と右端、もしくは上端と下端が入れ替わった場合、何も表示されなくなります。
+</p>
+<h4> オブジェクト自体の使用矩形を設定する</h4>
+
+<pre class="exp">
+front.object[0].src_clip_use = 0
+front.object[0].src_clip_left = 0
+front.object[0].src_clip_top = 0
+front.object[0].src_clip_right = 0
+front.object[0].src_clip_bottom = 0
+front.object[0].set_src_clip($use, $left, $top, $right, $bottom)
+</pre>
+
+<p>clip と違い、オブジェクト自体の使用矩形を設定します。
+</p>
+<p>例えば下の 200×200 の画像の場合、中央部分（6 7 10 11）を表示するには、次のように指定します。
+</p>
+<p><b>left = 50, top = 50, right = 150, bottom = 150</b>
+</p>
+<div class="table-container">
+<table>
+<tr>
+<td style="border: none;"><img src="clip_00.png" /></td>
+<td style="border: none; vertical-align: middle;">→</td>
+<td style="border: none;"><img src="clip_03.png" /></td>
+</tr>
+</table>
+</div>
+
+<p>下のように、使用矩形を設定したまま拡縮、回転させることもできます。
+</p>
+<div class="table-container">
+<table>
+<tr>
+<td style="border: none;"><img src="clip_03.png" /></td>
+<td style="border: none; vertical-align: middle;">→</td>
+<td style="border: none;"><img src="clip_05.png" /></td>
+</tr>
+</table>
+</div>
+
+<h5> 中心座標について</h5>
+
+<p>中心座標が設定されている場合、使用矩形もそれに合わせて設定する必要があります。
+</p>
+<p>上の例で、(100,100) に中心座標が設定されている場合、次のように指定しなければいけません。
+</p>
+<p><b>left = -50, top = -50, right = 50, bottom = 50</b>
+</p>
+<h5> 拡大時の端の色について</h5>
+
+<p><font color="red">使用矩形をカット番号のように使ってはいけません。</font>
+</p>
+<p>使用矩形を設定した画像を拡大したとき、端部分に、矩形外の色がはみでることがあります。詳しくは下の図を参照して下さい。
+これは DirectX の仕様となります。カット番号のように使ってしまうと、他のカットの色がはみ出てしまいます。
+</p>
+<p>これを理解した上で、端に色を置かないように画像を作れば、カット番号のように使うこともできます。ただし、お勧めはしません。
+</p>
+<div class="table-container">
+<table>
+<tr>
+<td><img src="clip_00.png" /></td>
+<td><img src="clip_03.png" /></td>
+<td><img src="clip_01.png" /></td>
+<td><img src="clip_02.png" /></td>
+</tr>
+<tr>
+<td>元画像です。サイズは 200×200 です。</td>
+<td>使用矩形を中央 100×100 に限定しました。</td>
+<td>scale_x = 2000, scale_y = 2000 とし、２倍に拡大しました。</td>
+<td>端に、矩形外の色がはみ出ているのが分かると思います。</td>
+</tr>
+</table>
+</div>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

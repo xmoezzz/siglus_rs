@@ -1,0 +1,57 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/クエイクを止める／待つ／判定する.html">クエイクを止める／待つ／判定する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> クエイクを止める／待つ／判定する</h1>
+
+<h4> クエイクを停止する</h4>
+
+<pre class="exp">
+screen.quake[0].end
+screen.quake[0].end($time)
+</pre>
+
+<p>クエイクを停止します。
+time を指定すると、time ﾐﾘ秒かけて停止します。
+</p>
+<h4> クエイクが終了するのを待つ</h4>
+
+<pre class="exp">
+screen.quake[0].wait
+screen.quake[0].wait_key    // 決定キーでスキップできる
+</pre>
+
+<p>クエイクをが終了するのを待ちます。
+</p>
+<h4> クエイクの状態を取得する</h4>
+
+<pre class="exp">
+a[0] = screen.quake[0].check
+</pre>
+
+<p>クエイクの状態を取得します。
+0=クエイク中でない、1=クエイク中、2=終了中
+</p>
+<h5> 終了中とは？</h5>
+
+<p>end コマンドで時間を指定して終了したとき、
+実際に終了するまでの間が「終了中」です。
+（check の結果は 2 になります）
+</p>
+<p>start コマンドでの end_cnt で指定した揺れは「終了中」には含まれません。
+（check の結果は 1 になります）
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/データベース/データベース.html">データベース</a>　＞　<a href="../../スクリプトマニュアル/データベース/データベース.html">データベース</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> データベース</h1>
+
+<pre class="exp">
+a[0] = database[$database_no].get_num($item_no, $column_no)   
+s[0] = database[$database_no].get_str($item_no, $column_no)
+
+a[0] = database[$database_no].check_item($item_no)
+    // データベースにアイテムがあるかを調べる（0=存在しない、1=存在する）
+
+a[0] = database[$database_no].check_column($column_no)
+    // データベースにコラムがあるかを調べる（0=存在しない、1=整数コラム、2=文字列コラム）
+
+a[0] = database[$database_no].find_num($column_no, $num)
+    // アイテムを整数データから検索する
+
+a[0] = database[$database_no].find_str($column_no, $str)
+    // アイテムを文字列データから検索する（大文字小文字を区別しない）
+
+a[0] = database[$database_no].find_str_real($column_no, $str)
+    // アイテムを文字列データから検索する（大文字小文字を区別する）
+</pre>
+
+<p>データベースについては <a href="../../スクリプトマニュアル/データベース/データベースについて.html">データベースについて</a> を参照して下さい。
+</p>
+<h5> 引数</h5>
+
+<div class="table-container">
+<table><tr>
+<tr><td>$database_no</td><td>Gameexe.ini に登録したデータベース番号</td></tr>
+<tr><td>$item_no</td><td>データベースのアイテム番号（行）</td></tr>
+<tr><td>$column_no</td><td>データベースのコラム番号（列）</td></tr>
+</tr></table>
+</div>
+
+<h5> find_str_real 補足</h5>
+
+<p>find_str_real は、アルファベットの半角全角を区別します。
+find_str_real を使う場合は、文字列を常にダブルコーテーションで括る必要があります。
+</p>
+<pre class="source">
+a[0] = database[0].find_str_real(0, "AbCdE")
+</pre>
+
+<pre class="source">
+s[0] = "AbCdE"
+a[0] = database[0].find_str_real(0, s[0])
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

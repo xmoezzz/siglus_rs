@@ -1,0 +1,211 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../../スクリプトマニュアル\演出\フレームアクション\フレームアクション.html">フレームアクション</a>　＞　<a href="../../../スクリプトマニュアル\演出\フレームアクション\フレームアクション.html">フレームアクション</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> フレームアクション</h1>
+
+<p>フレームアクションを使うと、指定したコマンドを常に呼び続けることができます。
+次のような処理を実装するときに使って下さい。
+</p>
+<ul>
+<li> あるフラグを常に監視し、値によってメッセージウィンドウボタンのパターンを変更する</li>
+<li> カウンタを常に監視し、定期的に効果音などの演出を行う<</li>
+<li> オブジェクトなどを動きを細かく制御する</li>
+</ul>
+
+<div class="chips">
+正確には、フレームアクションは画面描画の度に呼び出されます。
+</div>
+
+<h4> フレームアクションを開始／終了する</h4>
+
+<pre class="exp">
+frame_action.start($end_time, $command_name)                   // フレームアクションを開始する
+frame_action.start_real($end_time, $command_name)              // フレームアクションを開始する（実時間）
+frame_action.start($end_time, $command_name, $param, ...)      // フレームアクションを開始する
+frame_action.start_real($end_time, $command_name, $param, ...) // フレームアクションを開始する（実時間）
+frame_action.end                                               // フレームアクションを終了する
+</pre>
+
+<h5> 引数</h5>
+
+<div class="table-container">
+<table>
+<tr><td>$end_time</td><td>フレームアクションの終了時間です。後述のエンドアクションに関係します。<br />-1 を指定すると、止めるまで呼び続けます。</td></tr>
+<tr><td>$command_name</td><td>呼び続けるコマンドの名前を指定します。</td></tr>
+<tr><td>$param</td><td>コマンドに渡す引数です。</td></tr>
+</table>
+</div>
+
+<h4> 簡単なフレームアクションの例</h4>
+
+<p>フレームアクションはコマンドを呼び出し続ける機能ですので、コマンドを作る必要があります。
+</p>
+<pre class="source">
+<span class="comment">// フレームアクションを開始する</span>
+<span class="comment">// 呼び出すコマンドは $screen_action_red</span>
+<span class="comment">// 1000ﾐﾘ秒間呼び出し続ける</span>
+frame_action.start(1000, "$screen_action_red")
+
+画面を赤くしています。r
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// 画面を赤くするフレームアクション用のコマンド</span>
+<span class="comment">// １つ目の引数は必ず frameaction 型である必要があります。</span>
+<span class="comment">// =============================================================</span>
+command $screen_action_red(property $fa : frameaction)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    l[0] = $fa.counter.get
+    <span class="comment">// カウンタが 0～1000 の間、ゲーム画面の「色加算：赤」を 0～255 に変化させる</span>
+    screen.color_add_r = math.timetable(l[0], 0, 0, [0, 1000, 255])
+}
+</pre>
+
+<p>$screen_action_red というコマンドを作成し、フレームアクションに設定しています。
+フレームアクションがクリアされるまで、$screen_action_red が呼び出され続けます。
+</p>
+<p><font color="red">フレームアクションとして設定するコマンドの１つ目の引数は、
+必ず frameaction 型でなければいけません。</font>
+</p>
+<p>フレームアクションの中では、画面全体に赤味を設定しています。
+１つ目の引数 $fa のカウンタ（$fa.counter）はフレームアクション専用のカウンタで、
+フレームアクションを開始と同時に開始されます。
+詳しくは <a href="../../../スクリプトマニュアル\時間制御\カウンタ.html">カウンタ</a> を参照して下さい。
+</p>
+<h4> 実時間</h4>
+
+<p>_real のつくコマンドは、カウンタを実時間で進めます。
+早送りなどの制御を受け付けません。
+音楽と同期を取るときなどに使って下さい。
+</p>
+<h4> フレームアクションの引数</h4>
+
+<p>フレームアクション用のコマンドに、引数を渡すこともできます。
+</p>
+<pre class="source">
+<span class="comment">// フレームアクションを開始する</span>
+<span class="comment">// 呼び出すコマンドは $screen_action_red</span>
+<span class="comment">// 1000ﾐﾘ秒間呼び出し続ける</span>
+<span class="comment">// 引数に 128 を渡す</span>
+frame_action.start(1000, "$screen_action_red", 128)
+
+画面を赤くしています。r
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// 画面を赤くするフレームアクション用のコマンド</span>
+<span class="comment">// ２つ目の引数を $value で受け取っています。</span>
+<span class="comment">// =============================================================</span>
+command $screen_action_red(property $fa : frameaction, property $value)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    l[0] = $fa.counter.get
+
+    <span class="comment">// カウンタが 0～1000 の間、ゲーム画面の「色加算：赤」を 0～$value に変化させる</span>
+    screen.color_add_r = math.timetable(l[0], 0, 0, [0, 1000, $value])
+}
+</pre>
+
+<p>引数 $value を用意し、赤味を呼び出し側で設定できるようにしています。
+上の例では、赤味を 128 に設定しています。
+</p>
+<h4> エンドアクション</h4>
+
+<p>上の例で、赤味が例えば 50 まで移動したところで、別のフレームアクションを設定したらどうなるでしょう。
+別のフレームアクションを設定すると、現在設定されているフレームアクションは上書きされます。
+赤味が 50 で止まったまま次の演出に進んでしまいます。
+この問題を解決するのがエンドアクションです。
+</p>
+<p>フレームアクションが何らかの理由で消された場合、
+フレームアクションのカウンタが $end_time まで進み、
+その後、フレームアクションが１度だけ呼ばれます。
+これをエンドアクションと呼びます。
+</p>
+<h5> フレームアクションが消されるのはいつ？</h5>
+
+<ul>
+<li> フレームアクションが初期化されたとき</li>
+<li> 別のフレームアクションで上書きしたとき</li>
+<li> ...</li>
+</ul>
+
+
+<pre class="source">
+<span class="comment">// フレームアクション $screen_action_red を開始する</span>
+frame_action.start(1000, "$screen_action_red")
+
+画面を赤くしています。r
+
+<font color="red"><span class="comment">// フレームアクション $screen_action_blue を開始する</font></span>
+<font color="red"><span class="comment">// 同時に、$screen_action_red のエンドアクションが呼ばれる</font></span>
+frame_action.start(1000, "$screen_action_blue")
+
+画面を青くしています。r
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// 画面を徐々に赤くするフレームアクション</span>
+<span class="comment">// =============================================================</span>
+command $screen_action_red(property $fa : frameaction)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    l[0] = $fa.counter.get
+    <span class="comment">// カウンタが 0～1000 の間、ゲーム画面の「色加算：赤」を 0～255 に変化させる</span>
+    screen.color_add_r = math.timetable(l[0], 0, 0, [0, 1000, 255])
+}
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// 画面を徐々に青くするフレームアクション</span>
+<span class="comment">// =============================================================</span>
+command $screen_action_blue(property $fa : frameaction)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    l[0] = $fa.counter.get
+    <span class="comment">// カウンタが 0～1000 の間、ゲーム画面の「色加算：青」を 0～255 に変化させる</span>
+    screen.color_add_b = math.timetable(l[0], 0, 0, [0, 1000, 255])
+}
+</pre>
+
+
+<h4> ループフレームアクション</h4>
+
+<p>$end_time に -1 を指定すると、フレームアクションは無限に動き続けます。
+この場合も、フレームアクションを初期化した場合はエンドアクションは実行されますが、
+カウンタは $end_time ではなく 0 で呼び出されます。
+</p>
+<pre class="source">
+<span class="comment">// フレームアクション $screen_action_red_loop を開始する</span>
+<span class="comment">// ループフレームアクションになので、時間を -1 にする</span>
+frame_action.start(-1, "$screen_action_red_loop")
+
+画面を赤く明滅させています。r
+
+<span class="comment">// *************************************************************</span>
+<span class="comment">// 画面を赤く明滅させるフレームアクション</span>
+<span class="comment">// =============================================================</span>
+command $screen_action_red_loop(property $fa : frameaction)
+{
+    <span class="comment">// フレームアクション専用のカウンタから現在の値を取得</span>
+    <span class="comment">// 2000ﾐﾘ秒でループさせるため、2000 で割った余りを使います。</span>
+    l[0] = $fa.counter.get % 2000 
+    <span class="comment">// カウンタが 0～2000 の間、ゲーム画面の「色加算：赤」を 0→255→0 に変化させる</span>
+    screen.color_add_r = math.timetable(l[0], 0, 0, [0, 1000, 255], [1000, 2000, 0])
+}
+</pre>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

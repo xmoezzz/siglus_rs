@@ -1,0 +1,103 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a>　＞　<a href="../../スクリプトマニュアル/オブジェクト/ワイプコピー.html">ワイプコピー</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ワイプコピー</h1>
+
+<pre class="exp">
+front.object[0].wipe_copy = 0        // ワイプコピーフラグ
+front.object[0].wipe_erase = 0       // ワイプ消滅フラグ
+</pre>
+
+<h4>ワイプコピー／ワイプ消滅フラグ（特定のオブジェクトをワイプさせない）</h4>
+
+<p>ワイプ時に、フロントを自動的にバックにコピーする機能です。
+「特定のオブジェクトをワイプさせない」ことができます。
+非常に便利な機能です。
+</p>
+<p>フロントのワイプコピーフラグがオンになっていると、そのオブジェクトは wipe コマンドでワイプされません。
+ただし、以下の条件のどれかに該当した場合、ワイプされます。
+</p>
+<ul>
+<li> フロントのワイプコピーをオフにした</li>
+<li> バックのオブジェクトに画像が読み込まれた</li>
+<li> バックのオブジェクトのワイプ消滅フラグをオンにした</li>
+</ul>
+
+<p>ワイプされると、ワイプコピーフラグはオフに戻ります。
+</p>
+<h5>ワイプコピーフラグを使わない場合</h5>
+
+<pre class="source">
+<span class="comment">// オブジェクト０番に背景を読み込んでいます。</span>
+back.object[0].create(BG001, 1)
+
+<span class="comment">// ワイプします。</span>
+wipe(0)
+
+<span class="comment">// オブジェクト０番に背景を読み込んでいます。</span>
+<span class="comment">// オブジェクト１番にバストショットを読み込んでいます。</span>
+back.object[0].create(BG001, 1)
+back.object[1].create(BST001, 1)
+
+<span class="comment">// ワイプします。</span>
+wipe(0)
+</pre>
+
+<p>このように、ワイプするたびに画像を全て読み直す必要がありました。
+</p>
+<h5>ワイプコピーフラグを使う場合</h5>
+
+<pre class="source">
+<span class="comment">// オブジェクト０番に背景Ａを読み込んでいます。</span>
+<span class="comment">// ワイプコピーフラグを立てています。</span>
+back.object[0].create(BG001, 1)
+back.object[0].wipe_copy = 1
+
+<span class="comment">// ワイプします。フロントオブジェクト０番のワイプコピーがオンになります。</span>
+wipe(0)
+
+<span class="comment">// オブジェクト１番にバストショットを読み込んでいます。</span>
+back.object[1].create(BST001, 1)
+
+<span class="comment">// ワイプします。</span>
+<span class="comment">// 背景はワイプコピーがオンなので、ワイプされません！</span>
+<span class="comment">// つまり、背景が残ったまま、バストショットだけがワイプされます。</span>
+wipe(0)
+
+<span class="comment">// オブジェクト０番に背景Ｂを読み込んでいます。</span>
+back.object[0].create(BST002, 1)
+back.object[0].wipe_copy = 1
+
+<span class="comment">// ワイプします。</span>
+<span class="comment">// オブジェクトに画像が読み込まれたのでワイプされます！</span>
+<span class="comment">// ワイプコピーフラグをオンにしなおさないといけません。</span>
+wipe(0)
+
+<span class="comment">// ワイプ消滅フラグをオンにします。</span>
+back.object[0].wipe_erase = 1
+
+<span class="comment">// ワイプします。</span>
+<span class="comment">// ワイプ消滅フラグがオンなので、ワイプされます！</span>
+wipe(0)
+
+<span class="comment">// ワイプするには、フロントのワイプコピーフラグをオフにする方法もあります。</span>
+<span class="comment">// front.object[0].wipe_copy = 0</span>
+<span class="comment">//</span>
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

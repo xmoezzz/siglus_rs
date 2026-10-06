@@ -1,0 +1,52 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭ.html">ＢＧＭ</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭフェードをかけっぱなしにする.html">ＢＧＭフェードをかけっぱなしにする</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＢＧＭフェードをかけっぱなしにする</h1>
+
+<p>自動で文章が進んで行く演出を組んだとします。
+自動で声が流れますが、声を再生するタイミングによっては、
+ＢＧＭフェードによりＢＧＭの音量がころころと上下し、邪魔になることがあります。
+</p>
+<p>ＢＧＭフェードを切るのも手ですが、
+ＢＧＭの音量自体は下げたい場合、ＢＧＭフェードをかけっぱなしにするという手もあります。
+</p>
+<pre class="exp">
+script.start_bgmfade       // ＢＧＭフェードかけっぱなしを開始する
+script.end_bgmfade         // 終了する
+</pre>
+
+<h4> サンプル：自動演出中にＢＧＭフェードをかけっぱなしにする</h4>
+
+<pre class="source">
+<span class="comment">// ＢＧＭフェードをかけっぱなしにする</span>
+script.start_bgmfade
+
+<span class="comment">// 声が自動で流れる演出（文章がないので exkoe を使うのが望ましい）</span>
+<span class="comment">// ＢＧＭフェードのかけっぱなしがなければ、ＢＧＭの音量が上下しまくりで格好悪い</span>
+exkoe(100000001,001)    koe_wait    timewait(2000)
+exkoe(100000002,001)    koe_wait    timewait(2000)
+exkoe(100000003,001)    koe_wait    timewait(2000)
+exkoe(100000004,001)    koe_wait    timewait(2000)
+exkoe(100000005,001)    koe_wait    timewait(2000)
+
+<span class="comment">// ＢＧＭフェードのかけっぱなしを終了する</span>
+script.end_bgmfade
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

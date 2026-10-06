@@ -1,0 +1,102 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/コールの引数と戻り値.html">コールの引数と戻り値</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> コールの引数と戻り値</h1>
+
+<h4> コールの引数</h4>
+
+<p>ラベルコールやシーンコールは、引数を持つことも出来ます。
+</p>
+<pre class="exp">
+gosub(100, "abc") #label
+farcall("５月１４日", 0, 100, "abc")
+</pre>
+
+<p>引数は、コールフラグを使って受け取ります。
+渡された順に、整数なら l フラグ、文字列なら k フラグが受け取ります。
+</p>
+<h5> 整数を渡す</h5>
+
+<pre class="source">
+gosub(100, 200, 300) #label
+
+#label
+
+    <span class="comment">// l[0] = 100</span>
+    <span class="comment">// l[1] = 200</span>
+    <span class="comment">// l[2] = 300</span>
+
+    return
+</pre>
+
+<h5> 文字列を渡す</h5>
+
+<pre class="source">
+gosub("abc", "def") #label
+
+#label
+
+    <span class="comment">// k[0] = "abc"</span>
+    <span class="comment">// k[1] = "def"</span>
+
+    return
+</pre>
+
+<h5> 整数と文字列を混ぜて渡す</h5>
+
+<pre class="source">
+gosub(100, 200, "abc", 300, "def") #label
+
+#label
+
+    <span class="comment">// l[0] = 100</span>
+    <span class="comment">// l[1] = 200</span>
+    <span class="comment">// k[0] = "abc"</span>
+    <span class="comment">// l[2] = 300</span>
+    <span class="comment">// k[1] = "def"</span>
+
+    return
+</pre>
+
+<h4> コールの戻り値</h4>
+
+<p>ラベルコールやシーンコールは、戻り値を受け取ることもできます。
+</p>
+<pre class="source">
+a[0] = gosub(100, 200) #plus
+print(a[0])
+owari
+
+#plus
+
+    <span class="comment">// l[0] = 100</span>
+    <span class="comment">// l[1] = 200</span>
+
+    return(l[0] + l[1])
+</pre>
+
+<pre class="result">
+300
+</pre>
+
+<p>return に引数をつけると、その結果を gosub / farcall は受け取ります。
+</p>
+<p>例では、gosub は #plus に 100, 200 を渡しています。
+#plus は、100 + 200、つまり 300 を返します。
+gosub は 300 を受け取り、a[0] に代入されます。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

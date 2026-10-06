@@ -1,0 +1,64 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/ＢＧＭの設定.html">ＢＧＭの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＢＧＭの設定</h1>
+
+<p><a href="../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭ.html">ＢＧＭ</a> の設定を行います。
+</p>
+<p>※ＣＤ－ＤＡの設定は削除されました。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■ＢＧＭの設定</span>
+<span class="comment">// =============================================================</span>
+#BGM.CNT = 4         <span class="comment">// ＢＧＭの個数</span>
+#BGM.001 = "朝",    "BGM001", 0, -1, 00000000
+#BGM.002 = "学校１","BGM002", 0, -1, 00420518
+</pre>
+
+<h5> #BGM.CNT</h5>
+
+<p>ＢＧＭの個数を設定します。
+</p>
+<h5> #BGM.??? = [登録名], [ファイル名], [開始位置], [終了位置], [リピート位置]</h5>
+
+<p>※RealLive とは順番が違うので注意してください。
+</p>
+<div class="table-container">
+<table>
+<tr><td>登録名</td><td>スクリプトから呼び出すときの名前を指定します。</td></tr>
+<tr><td>ファイル名</td><td>音ファイルのファイル名を指定します。</td></tr>
+<tr><td>開始位置</td><td>再生開始位置をサンプル位置で指定します。</td></tr>
+<tr><td>終了位置</td><td>再生終了位置をサンプル位置で指定します。-1 で最後まで再生します。</td></tr>
+<tr><td>リピート位置</td><td>リピート開始位置をサンプル位置で指定します。</td></tr>
+</table>
+</div>
+
+<h4> ＢＧＭの再生</h4>
+
+<p>登録名で呼び出します。
+</p>
+<pre class="source">
+bgm.play("朝")
+</pre>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

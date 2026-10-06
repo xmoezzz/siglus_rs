@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　<a href="../../スクリプトマニュアル/システム制御/早送り制御.html">早送り制御</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 早送り制御</h1>
+
+<h4> 一時的に早送りを禁止する／解除する</h4>
+
+<pre class="exp">
+script.set_skip_disable             // 一時的に早送りを禁止する
+script.set_skip_enable              // 解除する
+script.set_ctrl_skip_disable        // 一時的に早送りを禁止する（Ctrl キーを含む）
+script.set_ctrl_skip_enable         // 解除する
+
+// フラグで制御する場合
+script.set_skip_disable_flag($onoff)
+a[0] = script.set_skip_disable_flag
+script.set_ctrl_skip_disable_flag($onoff)
+a[0] = script.set_ctrl_skip_disable_flag
+</pre>
+
+<p>一時的に早送りを禁止します。
+</p>
+<h5> 早送りについて</h5>
+
+<p>早送りには、「Ctrl キーによる早送り」と、システムコマンドによる「既読早送り」があります。
+script.set_skip_disable の場合は「既読早送り」だけが禁止されます。
+script.set_ctrl_skip_disable の場合は「Ctrl キーによる早送り」「既読早送り」の両方が禁止されます。
+</p>
+<p>日の変わりの演出などは、「既読早送り」時は飛ばさないほうが親切だと思います。（好みによりますが…）
+この場合は script.set_skip_disable を使ってください。
+</p>
+<p>エンドロールなど、音楽と同期をとる演出は、早送りすると崩れてしまいます。
+また、ゲーム開始時の注意書きなどは、早送りされると困ります。
+こういった場合は、script.set_ctrl_skip_disable を使ってください。
+</p>
+<h4> 早送りを判定する</h4>
+
+<pre class="exp">
+a[0] = script.check_skip            // 早送りを判定する
+</pre>
+
+<p>Ctrl スキップ、既読早送り、などの理由で早送り中かどうかを判定します。0=早送り中でない、1=早送り中
+</p>
+<h4> 一時的に「クリックで早送りを止める機能」を無効にする／解除する</h4>
+
+<pre class="exp">
+script.set_stop_skip_by_key_disable             // 一時的に「キーで早送りを止める機能」を無効にする
+script.set_stop_skip_by_key_enable              // 解除する
+</pre>
+
+<p>早送りは、キーを押すことで止まります。
+</p>
+<p>メニュー操作中など、キーを押しても早送りを止めたくない場合があります。
+その場合はこのコマンドで、「キーで早送りを止める機能」を無効にして下さい。
+メニュー処理が終わったら解除するのを忘れないで下さい。
+</p>
+
+<h4> 一時的に「未読でも早送り可能にする」機能を設定／取得する</h4>
+
+<pre class="exp">
+script.set_skip_unread_message_flag($onoff)		// 0=オフ、1=オン
+a[0] = script.get_skip_unread_message_flag		// 0=オフ、1=オン
+</pre>
+
+<p>未読文章は普通は早送りできませんが、
+この機能を使うことで早送りできるようになります。
+</p>
+<p>あまり使うことのない機能だと思います。
+メッセージウィンドウの「既読早送り」ボタンを強制的に有効にしたいことがあったので実装しました。
+</p>
+<p>ボタンを強制的に無効にする場合は、<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウボタン制御.html">メッセージウィンドウボタン制御</a> を使って下さい。
+</p>
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

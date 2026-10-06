@@ -1,0 +1,59 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/名前フラグ/名前フラグ.html">名前フラグ</a>　＞　<a href="../../スクリプトマニュアル/名前フラグ/名前フラグを表示する.html">名前フラグを表示する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 名前フラグを表示する</h1>
+
+<p>名前フラグは、文章中に記述すると自動的に展開されます。
+</p>
+<h4> 文章中に使う</h4>
+
+<pre class="source">
+【<font color="red">＊Ａ</font>】「僕の名前は<font color="red">＊Ａ</font>だよ！」r
+</pre>
+
+<pre class="result">
+【<font color="red">太郎</font>】僕の名前は<font color="red">太郎</font>だよ！
+</pre>
+
+<h4> 選択肢で使う</h4>
+
+<p>sel などの選択肢、selbtn などのボタン選択肢にも使えます。
+</p>
+<pre class="source">
+l[0] = sel(<font color="red">＊Ａ</font>, <font color="red">＊Ｂ</font>)
+</pre>
+
+<pre class="result">
+　<font color="red">太郎</font>
+　<font color="red">次郎</font>
+</pre>
+
+<h4> print 文で使用する</h4>
+
+<p>print 文で使うこともできます。文字列を高度に扱うときに使って下さい。
+</p>
+<pre class="source">
+s[0] = <font color="red">"＊Ａ"</font>
+<font color="red">print(s[0])</font>のレベルが上がった！r
+</pre>
+
+<pre class="result">
+<font color="red">太郎</font>のレベルが上がった！
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

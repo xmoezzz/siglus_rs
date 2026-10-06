@@ -1,0 +1,88 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　いろいろなオブジェクトを作成する　＞　<a href="../../../スクリプトマニュアル\オブジェクト\いろいろなオブジェクトを作成する\オブジェクトを作成する（文字列）.html">オブジェクトを作成する（文字列）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 文字列オブジェクト</h1>
+
+<h4> 文字列オブジェクトを作成する</h4>
+
+<pre class="exp">
+front.object[0].create_string($string)
+front.object[0].create_string($string, $disp)
+front.object[0].create_string($string, $disp, $x, $y)
+</pre>
+
+<p>文字列オブジェクトを作成します。
+自動的にオブジェクトは初期化されます。
+</p>
+<h4> 文字列オブジェクトの文字列を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].set_string($string)
+s[0] = front.object[0].get_string
+</pre>
+
+<h4> 文字列オブジェクトのパラメータを設定する</h4>
+
+<pre class="exp">
+front.object[0].set_string_param($size, $space_x, $space_y, $moji_cnt, $moji_color, $shadow_color, $shdow_mode)
+front.object[0].set_string_param($size, $space_x, $space_y, $moji_cnt, $moji_color, $shadow_color, $shdow_mode, $fuchi_color)
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>$size</td><td>文字サイズ</td></tr>
+<tr><td>$space_x</td><td>文字間の幅（通常は 0）</td></tr>
+<tr><td>$space_y</td><td>行間の高さ（通常は 0）</td></tr>
+<tr><td>$moji_cnt</td><td>文字数（全角文字数で指定）（自動改行のため。0=改行なし）</td></tr>
+<tr><td>$moji_color</td><td>文字の色（カラーテーブルの番号で指定）</td></tr>
+<tr><td>$shadow_color</td><td>影の色（カラーテーブルの番号で指定）</td></tr>
+<tr><td>$shadow_mode</td><td>影の種類（-1=フォントの設定に従う、0=影なし、1=影あり、2=縁取り）</td></tr>
+<tr><td>$fuchi_color</td><td>縁の色（カラーテーブルの番号で指定）</td></tr>
+</table>
+</div>
+
+<h4> 制御文字列</h4>
+
+<p>以下の文字列は制御コマンドとして扱われます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>#D</td><td>改行する</td></tr>
+<tr><td>#??S</td><td>文字サイズを ?? に変更する</td></tr>
+<tr><td>#??C</td><td>文字の色を ?? に変更する（カラーテーブルの番号で指定）</td></tr>
+<tr><td>#??X</td><td>現在のＸ座標を ?? に移動する</td></tr>
+<tr><td>#??Y</td><td>現在のＹ座標を ?? に移動する</td></tr>
+<tr><td>#??RX</td><td>現在のＸ座標に ?? を加算する</td></tr>
+<tr><td>#??RY</td><td>現在のＹ座標に ?? を加算する</td></tr>
+<tr><td>##</td><td>'#' を表示する</td></tr>
+</table>
+</div>
+
+<h5> 制御文字列の例</h5>
+
+<div class="table-container">
+<table>
+<tr>
+<td>&quot;あいう#24Sえおか#2Cきくけ#Dこさし##すせそ&quot;</td>
+<td>あいう<font size="4">えおか<font color="red">きくけ<br />こさし#すせそ<font></font></td>
+</tr>
+</table>
+</div>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/基本構文/整数.html">整数</a>　＞　<a href="../../スクリプトマニュアル/整数/整数配列.html">整数配列</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 整数配列</h1>
+
+<p>整数配列についての説明です。
+通常の a～f と言ったフラグも整数配列であることに注意して下さい。
+</p>
+<h4> 代表的な整数配列</h4>
+
+<ul>
+<li> a フラグ、g フラグ、l フラグなどのフラグ</li>
+<li> intlist 型のユーザフラグ</li>
+<li> オブジェクトの修正座標</li>
+</ul>
+
+<h4> 初期化する</h4>
+
+<pre class="exp">
+a.init                 // a フラグを初期化する
+</pre>
+
+<p>配列を初期化します。
+resize で個数を変更していた場合、個数も元に戻ることに注意して下さい。
+</p>
+<h4> 要素の個数を変更する</h4>
+
+<pre class="exp">
+l.resize($cnt)         // l フラグの個数を $cnt 個にする
+</pre>
+
+<p>コールフラグの個数の変更は、そのコール内でのみ有効です。
+</p>
+<div class="chips">
+このコマンドで a フラグ、g フラグなどの個数を変更することはできません。
+l フラグ、オブジェクトの修正座標、などの個数を変更することができます。
+</div>
+
+<h4> 要素の個数を取得する</h4>
+
+<pre class="exp">
+a[0] = l.get_size      // l フラグの個数を取得する
+</pre>
+
+<h4> 値を一括で設定する</h4>
+
+<pre class="exp">
+a.sets($top, $value, $value, ...)
+</pre>
+
+<p>配列の $top から、値を順に設定します。
+</p>
+<h5>使い方の例</h5>
+
+<pre class="source">
+a.sets(0, 10, 11, 12)      <span class="comment">// a[0] = 10  a[1] = 11  a[2] = 12</span>
+a.sets(100, 0, 1, 2, 3)    <span class="comment">// a[100] = 0  a[101] = 1  a[102] = 2  a[103] = 3</span>
+</pre>
+
+<h4> 値を一括でクリアする</h4>
+
+<pre class="exp">
+a.clear($start_index, $end_index)
+a.clear($start_index, $end_index, $value)
+</pre>
+
+<p>値を $value でクリアします。$value を省略すると 0 でクリアします。
+</p>
+<h5>使い方の例</h5>
+
+<pre class="source">
+a.clear(0, 3)      <span class="comment">// a[0] = 0  a[1] = 0  a[2] = 0  a[3] = 0</span>
+a.clear(2, 5, 100) <span class="comment">// a[2] = 100  a[3] = 100  a[4] = 100  a[5] = 100</span>
+</pre>
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/メッセージウィンドウ枠個別の設定.html">メッセージウィンドウ枠個別の設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージウィンドウ枠個別の設定</h1>
+
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+#WAKU.000.EXTEND_TYPE = 0                      <span class="comment">// 0=固定サイズ、1=可変サイズ</span>
+#WAKU.000.WAKU_FILE = "_mwaku00"               <span class="comment">// 枠用の画像ファイル</span>
+#WAKU.000.FILTER_FILE = "_mfilter02"           <span class="comment">// フィルターのファイル</span>
+#WAKU.000.FILTER_MARGIN = 0, 0, 0, 0           <span class="comment">// フィルターをかける部分の矩形（左、上、右、下）（マージン指定）</span>
+#WAKU.000.FILTER_COLOR = 0, 0, 0, 255          <span class="comment">// フィルターの色を指定します。（ＲＧＢＡ）</span>
+#WAKU.000.FILTER_CONFIG_COLOR = 1              <span class="comment">// フィルターの色に環境設定の値を加算します。</span>
+#WAKU.000.FILTER_CONFIG_TR = 1                 <span class="comment">// フィルターの透明度に環境設定の値を合成します。</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#WAKU.000.ICON_NO = 0                          <span class="comment">// キー待ちアイコンの番号</span>
+#WAKU.000.PAGE_ICON_NO = 1                     <span class="comment">// ページ待ちアイコンの番号</span>
+#WAKU.000.ICON_POS_TYPE = 1                    <span class="comment">// キー／ページ待ちアイコンの位置タイプ（0:固定（ICON_POS で指定）、1:文末）</span>
+#WAKU.000.ICON_POS = 3, 0, 0                   <span class="comment">// キー／ページ待ちアイコンの位置（0:左上、1:右上、2:左下、3:右下）</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#WAKU.000.FACE.000.POS = 24, 24                <span class="comment">// 顔グラ０番の位置</span>
+<span class="comment">// -------------------------------------------------------------</span>
+#WAKU.000.BTN.000.TYPE = "close_mwnd"          <span class="comment">// ボタンの種類（メッセージウィンドウを閉じる）</span>
+#WAKU.000.BTN.000.FILE = "_mbtn00"             <span class="comment">// ボタンのファイル名</span>
+#WAKU.000.BTN.000.CUT_NO = 0                   <span class="comment">// ボタンのカット番号</span>
+#WAKU.000.BTN.000.POS = 1, 20, 0               <span class="comment">// ボタンの初期位置（0:左上、1:右上、2:左下、3:右下）</span>
+#WAKU.000.BTN.000.ACTION = 0                   <span class="comment">// ボタンのボタンアクションの設定</span>
+#WAKU.000.BTN.000.SE = -1                      <span class="comment">// ボタンのボタン効果音の設定</span>
+#WAKU.000.BTN.000.CALL = "", ""                <span class="comment">// ボタンのコール先の設定</span>
+</pre>
+
+<h4> 固定枠と可変枠</h4>
+
+<p>固定枠は、画像なし、またはカット１枚の画像が使えます。
+可変枠は、カット１２枚の画像が使えます。
+</p>
+<h4> フィルター</h4>
+
+<p>フィルターは、メッセージウィンドウの下地にあたります。画像または矩形を使うことができます。
+</p>
+<p>画像を使う場合は、ファイルを指定してください。
+</p>
+<pre class="source">
+#WAKU.000.FILTER_FILE = "_mfilter00"           <span class="comment">// フィルターファイル</span>
+</pre>
+
+<p>矩形を使う場合は、マージンと色を指定してください。
+</p>
+<pre class="source">
+#WAKU.000.FILTER_MARGIN = 0, 0, 0, 0           <span class="comment">// フィルターをかける部分の矩形（左、上、右、下）（マージン指定）</span>
+#WAKU.000.FILTER_COLOR = 0, 0, 0, 255          <span class="comment">// フィルターの色（ＲＧＢＡ）</span>
+</pre>
+
+<h4> 実際のフィルター色について</h4>
+
+<p>実際に表示されるフィルター色は、画像または矩形色に加えて、環境設定の「背景色」の色が加算されます。
+</p>
+<p>例：FILTER_COLOR の値を 0, 0, 255, 255 にして青いフィルターを作成した
+ ＋ 環境設定で背景色の緑を 255 に設定した
+ ＝ 水色のフィルターが表示されます。
+</p>
+<div class="chips">
+たとえば青いウィンドウを作りたい場合でも、フィルターは黒で作成し、
+環境設定の初期値を青に設定するべきです。
+ユーザは環境設定を触ることで、黒～白のフィルタを選ぶことができます。
+青で作成してしまうと、ユーザは青～白のフィルタしか選ぶことができません。
+</div>
+
+<pre class="source">
+#WAKU.000.FILTER_CONFIG_COLOR = 1              <span class="comment">// フィルターの色に環境設定の値を加算します。</span>
+#WAKU.000.FILTER_CONFIG_TR = 1                 <span class="comment">// フィルターの透明度に環境設定の値を合成します。</span>
+</pre>
+
+<p>フィルターに、環境設定の「背景色」を適用するかどうかを設定します。
+色と透明度で別々に設定することができます。デフォルト値は 1 です。
+「透明度は変更してもいいけど、色は変えて欲しくない…」と言った場合に使うことができます。
+</p>
+<h4> キー待ちアイコン</h4>
+
+<p>メッセージのキー待ち中に表示されるアイコンです。
+PAGE_ICON_NO は、<a href="../スクリプトマニュアル\メッセージ\ノベルモード.html">ノベルモード</a> でページ待ちの場合に表示されるアイコンです。
+詳しくは<a href="../設定ファイル/アイコンの設定.html">アイコンの設定</a> を参照して下さい。
+</p>
+<p>ICON_POS_TYPE を 1 にした場合、アイコンは文末につきます。
+0 にした場合、アイコン位置は固定となり、ICON_POS で位置を指定します。
+</p>
+<h4> 顔グラフィック（顔グラ）</h4>
+
+<p>顔グラは標準で１個だけ設定できます。増やしたい場合は #WAKU.FACE_CNT を設定してください。
+</p>
+<h4> ウィンドウボタン</h4>
+
+<p>ボタンは標準で８個までつけることができます。増やしたい場合は #WAKU.BTN_CNT を設定してください。
+</p>
+<h5> ボタンタイプ</h5>
+
+<p>ボタンの種類を指定します。
+</p>
+<div class="table-container">
+<table>
+<tr><td>TYPE = "none"</td><td>何もしないボタン</td></tr>
+<tr><td>TYPE = "save"</td><td>セーブボタン</td></tr>
+<tr><td>TYPE = "load"</td><td>ロードボタン</td></tr>
+<tr><td>TYPE = "qsave", 0</td><td>クイックセーブ（番号の指定が必要です。）</td></tr>
+<tr><td>TYPE = "qload", 0</td><td>クイックロード（番号の指定が必要です。）</td></tr>
+<tr><td>TYPE = "read_skip", 0</td><td>既読早送りボタン（モードの指定が必要です。）</td></tr>
+<tr><td>TYPE = "auto_mode", 0</td><td>オートモードボタン（モードの指定が必要です。）</td></tr>
+<tr><td>TYPE = "return_sel"</td><td>前の選択肢に戻るボタン</td></tr>
+<tr><td>TYPE = "koe_play"</td><td>声再生ボタン</td></tr>
+<tr><td>TYPE = "msg_log"</td><td>メッセージログを開く</td></tr>
+<tr><td>TYPE = "close_mwnd"</td><td>メッセージウィンドウを閉じる</td></tr>
+<tr><td>TYPE = "local_switch", 0, 0</td><td>ローカル汎用スイッチ（番号とモードの指定が必要です。）</td></tr>
+<tr><td>TYPE = "local_mode", 0, 0</td><td>ローカル汎用モード（番号とモードの指定が必要です。）</td></tr>
+<tr><td>TYPE = "global_switch", 0, 0</td><td>グローバル汎用スイッチ（番号とモードの指定が必要です。）</td></tr>
+<tr><td>TYPE = "global_mode", 0, 0</td><td>グローバル汎用モード（番号とモードの指定が必要です。）</td></tr>
+</table>
+</div>
+
+<h5> 何もしないボタン</h5>
+
+<p>何もしませんが、
+SE で指定した音を鳴らす、CALL で指定したシーンをコールする、などの機能は働きます。
+</p>
+<h5> ボタンモード</h5>
+
+<p>「既読早送り」や「オートモード」、「ローカル汎用スイッチ」などは、
+モードがＯＮ／ＯＦＦの２種類のボタンが必要です。
+また、「ローカル汎用モード」は、モードの数だけボタンが必要です。
+</p>
+<pre class="source">
+#WAKU.000.BTN.000.TYPE = "read_skip", 0    <span class="comment">// ボタン０番：既読早送りのモード０（ＯＦＦの状態）</span>
+#WAKU.000.BTN.001.TYPE = "read_skip", 1    <span class="comment">// ボタン１番：既読早送りのモード１（ＯＮの状態）</span>
+#WAKU.000.BTN.002.TYPE = "switch", 0, 0    <span class="comment">// ボタン２番：スイッチ０番のモード０（ＯＦＦの状態）</span>
+#WAKU.000.BTN.003.TYPE = "switch", 0, 1    <span class="comment">// ボタン３番：スイッチ０番のモード１（ＯＮの状態）</span>
+</pre>
+
+<h5> 既読早送りボタンのモード</h5>
+
+<ul>
+<li> モード０：早送りがＯＦＦのときに使われるボタン（押すとＯＮになる）</li>
+<li> モード１：早送りがＯＮのときに使われるボタン（押すとＯＦＦになる）</li>
+</ul>
+
+<h5> オートモードボタンのモード</h5>
+
+<ul>
+<li> モード０：オートモードがＯＦＦのときに使われるボタン（押すとＯＮになる）</li>
+<li> モード１：オートモードがＯＮのときに使われるボタン（押すとＯＦＦになる）</li>
+</ul>
+
+<h5> ローカル汎用スイッチのモード</h5>
+
+<ul>
+<li> モード０：スイッチがＯＦＦのときに使われるボタン（押すとＯＮになる）</li>
+<li> モード１：スイッチがＯＮのときに使われるボタン（押すとＯＦＦになる）</li>
+</ul>
+
+<h5> ローカル汎用モードのモード</h5>
+
+<ul>
+<li> モード０：モードの値が０のときに使われるボタン（押すと値が１になる）</li>
+<li> モード１：モードの値が１のときに使われるボタン（押すと値が２になる）</li>
+<li> モード２：モードの値が２のときに使われるボタン（押すと値が３になる）</li>
+<li> …</li>
+</ul>
+
+<h5> ボタンアクション</h5>
+
+<p>ボタンアクションの番号を指定します。<a href="../設定ファイル/ボタンアクションの設定.html">ボタンアクションの設定</a> を参照して下さい。
+</p>
+<h5> ボタン効果音</h5>
+
+<p>ボタン効果音の番号を指定します。<a href="../設定ファイル/ボタン効果音の設定.html">ボタン効果音の設定</a> を参照して下さい。
+</p>
+<h5> コール</h5>
+
+<p>ボタンを押したときに、特定のシーンまたはコマンドをコールすることができます。
+</p>
+<pre class="source">
+#WAKU.000.BTN.000.CALL = "_system", 0        <span class="comment">// _system.ss の #z00 をコールする</span>
+#WAKU.000.BTN.000.CALL = "_system", "$sys00" <span class="comment">// _system.ss のコマンド "$sys00" をコールする</span>
+</pre>
+
+<h5> 注意点</h5>
+
+<p>コールを指定した場合、ボタンを押したときのデフォルトの動作は無効化されます。
+例えば、セーブボタンを押してもセーブ画面は開きません。
+状況に応じて、コール先で syscom.call_save_menu などの処理が必要です。
+</p>
+<p>ではタイプを指定する意味はないのかと言うと、そうではありません。
+例えばセーブボタンに設定すると、セーブが無効化されているときはそのボタンは押せません。
+（ボタンアクションの「無効」の状態になります。）
+</p>
+<h4> オブジェクト</h4>
+
+<p>メッセージウィンドウにオブジェクトをつけることができます。
+オブジェクトは標準では１個だけつけることができます。増やしたい場合は #WAKU.OBJECT_CNT を設定してください。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

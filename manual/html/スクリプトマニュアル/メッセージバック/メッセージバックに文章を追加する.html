@@ -1,0 +1,76 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージバック/メッセージバック.html">メッセージバック</a>　＞　<a href="../../スクリプトマニュアル/メッセージバック/メッセージバックに文章を追加する.html">メッセージバックに文章を追加する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージバックに文章を追加する</h1>
+
+<h4> メッセージバックに文章を追加する</h4>
+
+<pre class="exp">
+// 簡易版
+msgbk.insert_msg($msg)              // メッセージを１つ進めてメッセージを追加
+
+// 詳細版
+msgbk.go_next_msg                   // メッセージを１つ進める
+msgbk.add_koe($koe_no, $chara_no)   // 声を設定
+msgbk.add_namae($name)              // 名前を設定
+msgbk.add_msg($msg)                 // メッセージを設定
+</pre>
+
+<p>メッセージバックに文章を追加することができます。
+文章をグラフィカルに演出した後、バックログでも読み返せるといいなってときに使うと効果的です。
+</p>
+<h4> サンプル：声、名前、メッセージを設定したメッセージバックを１つ追加する</h4>
+
+<pre class="source">
+msgbk.go_next_msg                   <span class="comment">// メッセージを１つ進める</span>
+msgbk.add_koe(101900033,004)        <span class="comment">// 声を設定</span>
+msgbk.add_namae(静流)               <span class="comment">// 名前を設定</span>
+msgbk.add_msg(じむの間違いでは)     <span class="comment">// メッセージを追加</span>
+msgbk.add_msg(なかったのか…！)     <span class="comment">// メッセージを追加</span>
+</pre>
+
+<p>go_next_msg を忘れないようにして下さい。
+</p>
+<h4> 名前付き引数</h4>
+
+<p>デバッグモード時、メッセージバック中に 'O' キーを押すと、該当のシーンがエディタで開きます。
+開くシーン名と行番号は自動的に決まりますが、指定することもできます。
+</p>
+<pre class="source">
+<span class="comment">// 簡易版</span>
+msgbk.insert_msg("sample.ss の100行目を開きます。", debug_scene = "sample", debug_line = 100)
+
+<span class="comment">// 詳細版</span>
+msgbk.go_next_msg
+msgbk.add_koe(0, 0, debug_scene = "sample", debug_line = 100)
+msgbk.add_namae("なまえ", debug_scene = "sample", debug_line = 100)
+msgbk.add_msg("sample.ss の100行目を開きます。", debug_scene = "sample", debug_line = 100)
+</pre>
+
+<p>詳細版の場合は、最後に指定したシーン名と行番号が適用されます。
+</p>
+<p>debug_line を省略するか 0 を指定すると、現在の行が開きます。
+</p>
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

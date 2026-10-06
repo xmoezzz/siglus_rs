@@ -1,0 +1,73 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../チュートリアル/ワイプを行う.html">ワイプを行う</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ワイプを行う</h1>
+
+<h4> ワイプを行う</h4>
+
+<p>「現在表示されている画面」を、<font color="red">フロントステージ</font> と言います。
+フロントステージは front で表します。
+前章では front.object に画像を読み込んでいたので、すぐに表示されていました。
+</p>
+<p>徐々に画面を切り替えるには、<font color="red">バックステージ</font> に画像を読み込み、ワイプを行う必要があります。
+バックステージは back で表します。
+</p>
+<p>ワイプを行うと、バックステージのデータはフロントステージにコピーされ、
+バックステージは初期化されます。
+</p>
+<pre class="source">
+<span class="comment">// バックステージに画像 BG001 を準備する</span>
+<span class="comment">// ここではまだ画面には表示されません。</span>
+back.object[00].create(BG001, 1)
+
+背景を準備しました。r
+
+<span class="comment">// 1000ﾐﾘ秒かけてワイプを行う</span>
+<span class="comment">// ワイプの種類は０番（クロスフェード）</span>
+<span class="comment">// オブジェクトはフロントステージにコピーされ、</span>
+<span class="comment">// バックステージは初期化されます。</span>
+wipe(0, 1000)
+
+ワイプを使って背景を表示しました。r
+
+<span class="comment">// バックステージに画像 BG001、BS0101 を準備する</span>
+back.object[00].create(BG001, 1)
+back.object[10].create(BS0101, 1)
+
+背景とバストショットを準備しました。r
+
+<span class="comment">// 1000ﾐﾘ秒かけてワイプを行う</span>
+<span class="comment">// ワイプの種類は０番（クロスフェード）</span>
+wipe(0, 1000)
+
+ワイプを使って背景とバストショットを表示しました。r
+</pre>
+
+<p>ワイプを行うには、wipe コマンドを使います。
+１つ目の引数にはワイプ番号を指定します。0 を指定すると「クロスフェード」になります。
+２つ目の引数にはワイプ時間をﾐﾘ秒で指定します。1000 を指定すると、1000ﾐﾘ秒 = 1秒 でワイプが行われます。
+</p>
+<p>ワイプ番号については、サンプルの「ワイプライブラリ」を参照して下さい。
+</p>
+<h5> ワイプ時間についての補足</h5>
+
+<p>このサンプルでは、分かりやすくするためにワイプ時間を 1000ﾐﾘ秒 にしています。
+実際は、250ﾐﾘ秒 くらいが丁度いいと思います。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

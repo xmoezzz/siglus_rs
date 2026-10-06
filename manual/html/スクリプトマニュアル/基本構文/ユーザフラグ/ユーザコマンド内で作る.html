@@ -1,0 +1,48 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../../スクリプトマニュアル\基本構文\ユーザフラグ\ユーザフラグ.html">ユーザフラグ</a>　＞　<a href="../../../スクリプトマニュアル\基本構文\ユーザフラグ\ユーザコマンド内で作る.html">ユーザコマンド内で作る</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ユーザコマンド内でユーザフラグを作る</h1>
+
+<h5> ５月１４日.ss</h5>
+
+<pre class="source">
+#z00
+
+$hello
+
+owari
+
+command $hello
+{
+    property $i
+
+    for ($i = 0, $i < 3, $i += 1){
+        こんにちは！r
+    }
+}
+</pre>
+
+<h5> 実行結果</h5>
+
+<pre class="result">
+こんにちは！
+こんにちは！
+こんにちは！
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

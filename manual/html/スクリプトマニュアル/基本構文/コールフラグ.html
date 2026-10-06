@@ -1,0 +1,51 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　コールフラグ
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> コールフラグ</h1>
+
+<p>ラベルコールやシーンコールが行われると、コールフラグ（l フラグ、k フラグ）が作られます。
+コールフラグは、コールが行われる度に新たに作られ、return などで戻ると自動的に消滅します。
+</p>
+<pre class="source">
+#z00
+
+    l[0] = 100
+    "l[0] " の値は print(l[0]) です。r
+    gosub #label
+    "l[0] " の値は print(l[0]) です。r
+
+    owari
+
+#label
+
+    l[0] = 200
+    "l[0] " の値は print(l[0]) です。r
+
+    return
+</pre>
+
+<h5> 実行結果</h5>
+
+<pre class="result">
+100
+200
+100
+</pre>
+
+<p>コール内で一時的にしか使わない場合は、積極的にコールフラグを使ってください。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

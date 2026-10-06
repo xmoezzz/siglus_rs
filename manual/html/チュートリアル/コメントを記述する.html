@@ -1,0 +1,54 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../チュートリアル/コメントを記述する.html">コメントを記述する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> コメント</h1>
+
+<h4> コメント</h4>
+
+<p>シーン内にコメントを記述できます。
+コメントはゲームには影響しません。
+スクリプトを分かりやすくするために記述して下さい。
+</p>
+<div class="table-container">
+<table>
+<tr><td>//</td><td>行コメント</td></tr>
+<tr><td>/* ～ */</td><td>ブロックコメント</td></tr>
+</table>
+</div>
+
+<h4> コメントの例</h4>
+
+<pre class="source">
+ここはコメントではありません。 <span class="comment">// ここはコメントです。</span>
+<span class="comment">/* 
+ここはコメントです。
+ */</span>
+</pre>
+
+<p>上のスクリプトで、緑色の部分はコメントとなり、無視されます。
+</p>
+<pre class="source">
+<span class="comment">/*
+ここはコメントではありません。 /* ここはコメントです。 */</span>
+ここはコメントではありません。（コメントは入れ子にはできない）
+ */
+</pre>
+
+<p>ブロックコメントは入れ子にはできません。
+上の例は、最後の */ の部分でコンパイルエラーになります。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

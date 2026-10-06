@@ -1,0 +1,46 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/エレメント.html">エレメント</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> エレメント</h1>
+
+<h4> エレメント</h4>
+
+<p>Siglus は、いろいろなエレメントを持っています。
+絵を表示するためには、「オブジェクト（object）」というエレメントを使います。
+時間を計測するためには、「カウンタ（counter）」というエレメントを使います。
+</p>
+<p>エレメントには「コマンド」と「プロパティ」があります。
+r、owari、returnmenu など、エンジンに命令を行うエレメントを「コマンド」と言います。
+対して a[0] といったフラグ、object、counter などは「プロパティ」と言います。
+</p>
+<h4> エレメントの子エレメント</h4>
+
+<p>エレメントは、さらに子エレメントを持つことがあります。
+例えば、オブジェクトというエレメントには、位置を表すプロパティ（x, y）、画像を読み込むコマンド（create）などを持っています。
+</p>
+<pre class="source">
+<span class="comment">// フロントステージのオブジェクト０番のプロパティ x に 100 を代入する</span>
+front.object[0].x = 100
+
+<span class="comment">// フロントステージのオブジェクト０番に "BG001" という画像を読みこむ</span>
+front.object[0].create(BG001, 1)
+
+<span class="comment">// バックステージのオブジェクト１０番のプロパティ y をフラグ a[0] に代入する</span>
+a[0] = back.object[10].y
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

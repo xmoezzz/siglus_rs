@@ -1,0 +1,178 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/システムコマンドメニューの設定.html">システムコマンドメニューの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> システムコマンドメニューの設定</h1>
+
+<p>右クリックで呼び出されるシステムコマンドメニューの設定を行います。
+</p>
+<h4> システムコマンドメニューの設定（基本項目）</h4>
+
+<h5> 設定ファイル</h5>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■システムコマンドメニュー（右クリックメニュー）の設定</span>
+<span class="comment">// =============================================================</span>
+#SYSCOMMENU.READ_SKIP   = 1, 1, "既読文章を早送り"    <span class="comment">// 一度読んだ文章の早送りを開始します。</span>
+#SYSCOMMENU.UNREAD_SKIP = 1, 1, "文章を早送り"        <span class="comment">// 未読の文章でも早送りを開始します。</span>
+#SYSCOMMENU.AUTO_SKIP   = 1, 1, "自動早送り"          <span class="comment">// 自動早送り機能をＯＮ／ＯＦＦします。</span>
+#SYSCOMMENU.AUTO_MODE   = 1, 1, "オートモード"        <span class="comment">// オートモードを開始します。</span>
+#SYSCOMMENU.HIDE_MWND   = 1, 1, "ウィンドウを消す"    <span class="comment">// メッセージウィンドウを一時的に消去します。</span>
+<span class="comment">// =============================================================</span>
+#SYSCOMMENU.SAVE        = 1, 1, "セーブ"              <span class="comment">// セーブを呼び出します。</span>
+#SYSCOMMENU.LOAD        = 1, 1, "ロード"              <span class="comment">// ロードを呼び出します。</span>
+#SYSCOMMENU.RETURN_SEL  = 1, 1, "前の選択肢に戻る"    <span class="comment">// 前の選択肢に戻ります。</span>
+<span class="comment">// =============================================================</span>
+#SYSCOMMENU.CONFIG      = 1, 1, "環境設定"            <span class="comment">// 環境設定を呼び出します。</span>
+#SYSCOMMENU.MANUAL      = 1, 1, "マニュアルを開く"    <span class="comment">// マニュアルを表示します。</span>
+#SYSCOMMENU.VERSION     = 1, 1, "バージョン情報"      <span class="comment">// バージョン情報を表示します。</span>
+<span class="comment">// =============================================================</span>
+#SYSCOMMENU.RETURN_MENU = 1, 1, "タイトルに戻る"      <span class="comment">// タイトルメニューに戻ります。</span>
+#SYSCOMMENU.GAME_END    = 1, 1, "ゲームを終了する"    <span class="comment">// ゲームを終了します。</span>
+#SYSCOMMENU.CANCEL      = 1, 1, "キャンセル"          <span class="comment">// システムコマンドメニューをキャンセルします。</span>
+</pre>
+
+<h5> #SYSCOMMENU.??? = [無し／有り], [無効／有効], [文字列]</h5>
+
+<p>無し／有り：0=無し 1=有り（存在の有無）<br />
+ゲームの起動時、及びタイトルメニューに戻った際の初期状態です。スクリプト命令で変更可能です。
+</p>
+<p>無効／有効：0=無効 1=有効（グレー表示）<br />
+ゲームの起動時、及びタイトルメニューに戻った際の初期状態です。スクリプト命令で変更可能です。
+</p>
+<p>文字列：項目の文字列
+</p>
+<h5> #SYSCOMMENU.READ_SKIP</h5>
+
+<p>環境設定の「未読の文章も早送りできるようにする。」が無効の場合に表示されます。
+</p>
+<h5> #SYSCOMMENU.UNREAD_SKIP</h5>
+
+<p>環境設定の「未読の文章も早送りできるようにする。」が有効の場合に表示されます。
+</p>
+<h5> #SYSCOMMENU.SAVE</h5>
+
+<p>#SAVE_SCENE が設定されている場合は、そのシーンを呼び出します。設定されていない場合は、セーブダイアログを表示します。
+</p>
+<h5> #SYSCOMMENU.LOAD</h5>
+
+<p>#LOAD_SCENE が設定されている場合は、そのシーンを呼び出します。設定されていない場合は、セーブダイアログを表示します。
+</p>
+<h5> #SYSCOMMENU.CONFIG</h5>
+
+<p>#CONFIG_SCENE が設定されている場合は、そのシーンを呼び出します。設定されていない場合は、セーブダイアログを表示します。
+</p>
+<h5> #SYSCOMMENU.MANUAL</h5>
+
+<p>マニュアルへのパスは #MANUAL_PATH で設定して下さい。
+</p>
+<h5> #SYSCOMMENU.VERSION</h5>
+
+<p>バージョン情報は #GAMEVERSION で設定して下さい。
+</p>
+<h4> システムコマンドメニューの設定（ローカル汎用スイッチ）</h4>
+
+<h5> 設定ファイル</h5>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■システムコマンドメニュー（右クリックメニュー）のローカル汎用スイッチの設定</span>
+<span class="comment">// =============================================================</span>
+#SYSCOMMENU.LOCAL_EXTRA_SWITCH.000 = 1, 1, 1, "ローカル汎用スイッチ０番"   <span class="comment">// ローカル汎用スイッチ０番</span>
+#SYSCOMMENU.LOCAL_EXTRA_SWITCH.001 = 1, 1, 1, "ローカル汎用スイッチ１番"   <span class="comment">// ローカル汎用スイッチ１番</span>
+#SYSCOMMENU.LOCAL_EXTRA_SWITCH.002 = 0, 1, 1, "ローカル汎用スイッチ２番"   <span class="comment">// ローカル汎用スイッチ２番</span>
+#SYSCOMMENU.LOCAL_EXTRA_SWITCH.003 = 0, 1, 1, "ローカル汎用スイッチ３番"   <span class="comment">// ローカル汎用スイッチ３番</span>
+</pre>
+
+<p>グローバル汎用スイッチは環境設定の設定にあります。
+</p>
+<h5> #SYSCOMMENU.LOCAL_EXTRA_SWITCH.??? = [無し／有り], [無効／有効], [初期状態], [文字列]</h5>
+
+<p>無し／有り：0=無し 1=有り（存在の有無）
+ゲームの起動時、及びタイトルメニューに戻った際の初期状態です。スクリプト命令で変更可能です。
+</p>
+<p>無効／有効：0=無効 1=有効（グレー表示）
+ゲームの起動時、及びタイトルメニューに戻った際の初期状態です。スクリプト命令で変更可能です。
+</p>
+<p>初期状態：0=OFF 1=ON（チェック状態）
+ゲームの起動時、及びタイトルメニューに戻った際の初期状態です。スクリプト命令で変更可能です。
+</p>
+<p>文字列：項目の文字列
+</p>
+<p>ローカル汎用スイッチは４個（000～003）あります。
+</p>
+<h4> システムコマンドメニューの設定（ローカル汎用モード）</h4>
+
+<h5> 設定ファイル</h5>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■システムコマンドメニュー（右クリックメニュー）のローカル汎用モードの設定</span>
+<span class="comment">// =============================================================</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.000 = 1, 1, 0, "ローカル汎用モード０番"   <span class="comment">// ローカル汎用モード０番</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.000.ITEM_CNT = 3                          <span class="comment">// モードのアイテム数（項目数）は最大８個です。</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.000.ITEM.000.STR = "モード０"             <span class="comment">// アイテム（項目）の文字列</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.000.ITEM.001.STR = "モード１"             <span class="comment">// アイテム（項目）の文字列</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.000.ITEM.002.STR = "モード２"             <span class="comment">// アイテム（項目）の文字列</span>
+
+#SYSCOMMENU.LOCAL_EXTRA_MODE.001 = 1, 1, 0, "ローカル汎用モード１番"   <span class="comment">// ローカル汎用モード１番</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.001.ITEM_CNT = 3                          <span class="comment">// モードのアイテム数（項目数）は最大８個です。</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.001.ITEM.000.STR = "モード０"             <span class="comment">// アイテム（項目）の文字列</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.001.ITEM.001.STR = "モード１"             <span class="comment">// アイテム（項目）の文字列</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.001.ITEM.002.STR = "モード２"             <span class="comment">// アイテム（項目）の文字列</span>
+
+#SYSCOMMENU.LOCAL_EXTRA_MODE.002 = 0, 1, 0, "ローカル汎用モード２番"   <span class="comment">// ローカル汎用モード２番</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.002.ITEM_CNT = 3                          <span class="comment">// モードのアイテム数（項目数）は最大８個です。</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.002.ITEM.000.STR = "モード０"             <span class="comment">// アイテム（項目）の文字列</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.002.ITEM.001.STR = "モード１"             <span class="comment">// アイテム（項目）の文字列</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.002.ITEM.002.STR = "モード２"             <span class="comment">// アイテム（項目）の文字列</span>
+
+#SYSCOMMENU.LOCAL_EXTRA_MODE.003 = 0, 1, 0, "ローカル汎用モード３番"   <span class="comment">// ローカル汎用モード３番</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.003.ITEM_CNT = 3                          <span class="comment">// モードのアイテム数（項目数）は最大８個です。</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.003.ITEM.000.STR = "モード０"             <span class="comment">// アイテム（項目）の文字列</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.003.ITEM.001.STR = "モード１"             <span class="comment">// アイテム（項目）の文字列</span>
+#SYSCOMMENU.LOCAL_EXTRA_MODE.003.ITEM.002.STR = "モード２"             <span class="comment">// アイテム（項目）の文字列</span>
+</pre>
+
+<p>グローバル汎用モードは環境設定の設定にあります。
+</p>
+<h5> #SYSCOMMENU.LOCAL_EXTRA_MODE.??? = [無し／有り], [無効／有効], [初期状態], [文字列]</h5>
+
+<p>ローカル汎用モードは４個（000～003）あります。
+</p>
+<p>無し／有り：0=無し 1=有り（存在の有無）<br />
+ゲームの起動時、及びタイトルメニューに戻った際の初期状態です。スクリプト命令で変更可能です。
+</p>
+<p>無効／有効：0=無効 1=有効（グレー表示）<br />
+ゲームの起動時、及びタイトルメニューに戻った際の初期状態です。スクリプト命令で変更可能です。
+</p>
+<p>初期モード：0 ～ 7（選択状態）<br />
+ゲームの起動時、及びタイトルメニューに戻った際の初期状態です。スクリプト命令で変更可能です。
+</p>
+<p>文字列：項目の文字列
+</p>
+<h5> #SYSCOMMENU.LOCAL_EXTRA_MODE.003.ITEM_CNT</h5>
+
+<p>各モードのアイテム数は８個までです。
+</p>
+<h5> #SYSCOMMENU.LOCAL_EXTRA_MODE.003.ITEM_CNT.???.STR</h5>
+
+<p>モードに表示される文字列を指定します。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

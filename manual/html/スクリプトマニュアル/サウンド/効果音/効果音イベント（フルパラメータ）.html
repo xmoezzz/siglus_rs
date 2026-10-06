@@ -1,0 +1,109 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音.html">効果音</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音イベント（フルパラメータ）.html">効果音イベント（フルパラメータ）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 効果音イベント（フルパラメータ）</h1>
+
+<p>効果音イベントも、<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音チャンネル（フルパラメータ）.html">効果音チャンネル（フルパラメータ）</a> に似た名前つき引数が使えます。
+</p>
+<pre class="exp">
+pcmevent[0].start_oneshot($pcm_buf_no, [*], [*], ...)
+    [*] = [$file_name, $wait_time]
+    [*] = [$file_name, $min_wait_time, $max_wait_time]
+
+pcmevent[0].start_loop($pcm_buf_no, [*], [*], ...)
+    [*] = [$file_name, $wait_time]
+    [*] = [$file_name, $min_wait_time, $max_wait_time]
+
+pcmevent[0].start_random($pcm_buf_no, [*], [*], ...)
+    [*] = [$file_name, $probability, $wait_time]
+    [*] = [$file_name, $probability, $min_wait_time, $max_wait_time]
+
+名前つき引数 = {volume_type, bgm_fade_target}
+</pre>
+
+<p>※名前つき引数を使う場合は、必ず専用バッファを使って下さい。
+$pcm_buf_no に -1 を指定して汎用バッファを使う場合は、名前つき引数は無視されます。
+</p>
+<h4> サンプル：ボリュームを BGM に合わせた効果音を順番に鳴らす</h4>
+
+<pre class="source">
+pcmevent[0].start_loop(
+<p>0,                     <span class="comment">// 必須です。専用バッファを使う必要があります。</span>
+volume_type = 0,       <span class="comment">// ボリュームを BGM に合わせます。</span>
+bgm_fade_target = 1,   <span class="comment">// BGM フェードのターゲットになります。</span>
+["punch", 1000],
+["knock001", 1000], 
+["neko_damage", 1000]
+</pre>
+</p>
+<h4> 名前つき引数</h4>
+
+<h5> volume_type（初期値=2）</h5>
+
+<p>-1=全体、0=BGM、1=KOE（音声）、2=PCM（効果音）、3=SE（システム音）、4=MOV（ムービー）、16～31（汎用ボリューム）
+</p>
+<p>デフォルト値は 2 です。詳しくは <a href="../../../スクリプトマニュアル\サウンド\効果音\効果音チャンネル（フルパラメータ）.html">効果音チャンネル（フルパラメータ）</a> を参照して下さい。
+</p>
+<h5> chara_no（初期値=-1）</h5>
+
+<p>キャラクター番号を指定します。
+設定すると、該当するキャラクター音声のボリュームに従います。
+</p>
+<h5> bgm_fade_source（初期値=0）</h5>
+
+<p>1 を指定した場合、BGM フェードのソースとなります。
+この音が再生されている間、BGM フェードの設定に従って、BGM のボリュームが小さくなります。
+</p>
+<h5> bgm_fade_target（初期値=0）</h5>
+
+<p>1 を指定した場合、BGM フェードのターゲットとなります。
+声が再生されている間、BGM フェードの設定に従ってこの音のボリュームが小さくなります。
+</p>
+<h5> bgm_fade2_target（初期値=0）</h5>
+
+<p>1 を指定した場合、BGM フェードのターゲットとなります。
+声が再生されている間、無音になります。
+※ほとんどBGV用の設定となります。
+</p>
+<h5> wait_type（初期値=0）</h5>
+
+<p>wait_type = 0 の場合、待ち時間は「再生を開始してから、次の再生が始まるまでの待ち時間」です。
+最小値と最大値を指定した場合は、その範囲でランダムに待ち時間が決定されます。
+</p>
+<p>wait_type = 1 とした場合、待ち時間は、「再生が終わってから次の再生が始まるまでの待ち時間」になります。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

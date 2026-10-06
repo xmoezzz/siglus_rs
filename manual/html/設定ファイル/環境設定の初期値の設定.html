@@ -1,0 +1,106 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/環境設定の初期値の設定.html">環境設定の初期値の設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 環境設定の初期値の設定</h1>
+
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// 画面モード</span>
+#CONFIG.WINDOW_MODE = 0                      <span class="comment">// 画面モード（0=標準ウィンドウ 1=フルスクリーン）</span>
+
+<span class="comment">// 音量</span>
+#CONFIG.VOLUME.ALL = 255                     <span class="comment">// 音量：全体の音量（0～255）</span>
+#CONFIG.VOLUME.BGM = 255                     <span class="comment">// 音量：ＢＧＭの音量（0～255）</span>
+#CONFIG.VOLUME.KOE = 255                     <span class="comment">// 音量：音声の音量（0～255）</span>
+#CONFIG.VOLUME.PCM = 255                     <span class="comment">// 音量：効果音の音量（0～255）</span>
+#CONFIG.VOLUME.SE = 255                      <span class="comment">// 音量：システム音の音量（0～255）</span>
+#CONFIG.VOLUME.MOV = 255                     <span class="comment">// 音量：ムービーの音量（0～255）</span>
+
+<span class="comment">// ＢＧＭフェード（音声再生時にＢＧＭの音量を調整する機能）</span>
+#CONFIG.BGMFADE_VOLUME = 192                 <span class="comment">// ＢＧＭフェード：ＢＧＭの音量の下げ率（0～255 : 0=無音 192=標準 255=変化しない）</span>
+#CONFIG.BGMFADE_ONOFF = 1                    <span class="comment">// ＢＧＭフェード：機能の ON/OFF の初期状態（0=OFF 1=ON）</span>
+
+<span class="comment">// メッセージウィンドウの背景色</span>
+#CONFIG.FILTER_COLOR = 000, 000, 255, 100    <span class="comment">// メッセージウィンドウの背景色（ＲＧＢＡ）</span>
+
+<span class="comment">// フォント</span>
+#CONFIG.FONT.TYPE = 0                        <span class="comment">// フォント：種類（0=ＭＳゴシック 1=ＭＳ明朝）</span>
+#CONFIG.FONT.FUTOKU = 0                      <span class="comment">// フォント：太くする（0=OFF 1=ON）</span>
+#CONFIG.FONT.SHADOW = 2                      <span class="comment">// フォント：影モード（0=影なし 1=影あり 2=縁取る）</span>
+
+<span class="comment">// メッセージ速度</span>
+#CONFIG.MESSAGE_SPEED = 100                  <span class="comment">// メッセージ速度（0-100、小さいほど速い）</span>
+#CONFIG.MESSAGE_SPEED_NOWAIT.ONOFF = 0       <span class="comment">// メッセージ速度：ノーウェイト（0=OFF 1=ON）</span>
+
+<span class="comment">// メッセージ：キャラごとに色分けする</span>
+#CONFIG.MESSAGE_CHRCOLOR.ONOFF = 1           <span class="comment">// メッセージをキャラごとに色分けする（0=OFF 1=ON）</span>
+
+<span class="comment">// マウスカーソルを自動で隠す</span>
+#CONFIG.MOUSE_CURSOR_HIDE_ONOFF = 0          <span class="comment">// マウスカーソルを自動で隠す</span>
+#CONFIG.MOUSE_CURSOR_HIDE_TIME = 5000        <span class="comment">// マウスカーソルを自動で隠す時間</span>
+
+<span class="comment">// オブジェクトの表示（※環境設定用ダイアログを変更するには #DIALOG.OBJECT_DISP. を設定して下さい。）</span>
+#CONFIG.OBJECT_DISP.000.ONOFF = 1            <span class="comment">// オブジェクトの表示０番：ＯＮ／ＯＦＦ（0=OFF 1=ON）</span>
+#CONFIG.OBJECT_DISP.001.ONOFF = 1            <span class="comment">// オブジェクトの表示１番：ＯＮ／ＯＦＦ（0=OFF 1=ON）</span>
+#CONFIG.OBJECT_DISP.002.ONOFF = 1            <span class="comment">// オブジェクトの表示２番：ＯＮ／ＯＦＦ（0=OFF 1=ON）</span>
+#CONFIG.OBJECT_DISP.003.ONOFF = 1            <span class="comment">// オブジェクトの表示３番：ＯＮ／ＯＦＦ（0=OFF 1=ON）</span>
+
+<span class="comment">// グローバル汎用スイッチ（※環境設定用ダイアログを変更するには #DIALOG.GLOBAL_EXTRA_SWITCH. を設定して下さい。）</span>
+#CONFIG.GLOBAL_EXTRA_SWITCH.000.ONOFF = 1    <span class="comment">// グローバル汎用スイッチ０番：ＯＮ／ＯＦＦ（0=OFF 1=ON）</span>
+#CONFIG.GLOBAL_EXTRA_SWITCH.001.ONOFF = 1    <span class="comment">// グローバル汎用スイッチ１番：ＯＮ／ＯＦＦ（0=OFF 1=ON）</span>
+#CONFIG.GLOBAL_EXTRA_SWITCH.002.ONOFF = 1    <span class="comment">// グローバル汎用スイッチ２番：ＯＮ／ＯＦＦ（0=OFF 1=ON）</span>
+#CONFIG.GLOBAL_EXTRA_SWITCH.003.ONOFF = 1    <span class="comment">// グローバル汎用スイッチ３番：ＯＮ／ＯＦＦ（0=OFF 1=ON）</span>
+
+<span class="comment">// グローバル汎用モード（※環境設定用ダイアログを変更するには #DIALOG.GLOBAL_EXTRA_MODE. を設定して下さい。）</span>
+#CONFIG.GLOBAL_EXTRA_MODE.000.MODE = 0       <span class="comment">// グローバル汎用モード０番：モード値</span>
+#CONFIG.GLOBAL_EXTRA_MODE.001.MODE = 0       <span class="comment">// グローバル汎用モード１番：モード値</span>
+#CONFIG.GLOBAL_EXTRA_MODE.002.MODE = 0       <span class="comment">// グローバル汎用モード２番：モード値</span>
+#CONFIG.GLOBAL_EXTRA_MODE.003.MODE = 0       <span class="comment">// グローバル汎用モード３番：モード値</span>
+
+<span class="comment">// =============================================================</span>
+
+<span class="comment">// 本プログラムの動作を遅くして、他のプログラムがスムーズに動作するようにする。：初期値</span>
+#CONFIG.SLEEP.ONOFF = 0
+
+<span class="comment">// 画面暗転効果のアニメを無効にする。：初期値</span>
+#CONFIG.NO_WIPE_ANIME.ONOFF = 0
+
+<span class="comment">// 画面暗転効果をマウスクリックで飛ばす。：初期値</span>
+#CONFIG.SKIP_WIPE_ANIME.ONOFF = 1
+
+<span class="comment">// メッセージウィンドウの開閉時のアニメを無効にする。：初期値</span>
+#CONFIG.NO_MWND_ANIME.ONOFF = 0
+
+<span class="comment">// マウスのホイールボタンの下回しで文章を読み進める。：初期値</span>
+#CONFIG.WHEEL_NEXT_MESSAGE.ONOFF = 1
+
+<span class="comment">// 声の再生中に次の文章に進んでも再生を続ける。：初期値</span>
+#CONFIG.KOE_DONT_STOP.ONOFF = 0
+
+<span class="comment">// 未読の文章も早送りできるようにする。：初期値</span>
+#CONFIG.SKIP_UNREAD_MESSAGE.ONOFF = 0
+
+<span class="comment">// サウンド再生時に雑音が入る場合はチェックして下さい。：初期値</span>
+#CONFIG.PLAY_SILENT_SOUND.ONOFF = 0
+</pre>
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

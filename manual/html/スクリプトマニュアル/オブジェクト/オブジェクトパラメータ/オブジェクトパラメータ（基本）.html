@@ -1,0 +1,61 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　オブジェクトパラメータ　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトパラメータ\オブジェクトパラメータ（基本）.html">オブジェクトパラメータ（基本）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オブジェクトパラメータ（基本）</h1>
+
+<h4>オブジェクトを表示する／非表示にする</h4>
+
+<pre class="exp">
+front.object[0].disp = 1    // オブジェクトを表示する
+front.object[0].disp = 0    // オブジェクトを非表示にする
+</pre>
+
+<p>表示状態を設定／取得します。0=表示しない、1=表示する
+</p>
+<h4>オブジェクトのパターン番号を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].patno = 0
+</pre>
+
+<p>パターン番号を設定／取得します。
+パターン番号は、g00 に含まれるカットデータの番号です。
+</p>
+<div class="mada">
+
+<h4>ワールドを設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].world = 0
+</pre>
+
+<p>所属するワールド番号を設定／取得します。
+３Ｄの演出に使用します。
+</p>
+</div>
+
+<h4>レイヤーを設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].layer = 0
+</pre>
+
+<p>レイヤー値を設定／取得します。値が大きいほど前面に表示されます。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

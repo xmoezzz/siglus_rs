@@ -1,0 +1,92 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/文字.html">文字</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 文字</h1>
+
+<h4> 文字コード</h4>
+
+<p>あまり使わないと思います。
+文字を ''（シングルコーテーション）で囲むことで、その文字の文字コードを取得できます。
+全角文字も扱えます。
+文字列の先頭がアルファベットの場合は…などの処理に使います。
+</p>
+<div class="table-container">
+<table>
+<tr><td>表記</td><td>値</td><td>意味</td></tr>
+<tr><td>'a'</td><td>97</td><td>a（小文字）</td></tr>
+<tr><td>'A'</td><td>65</td><td>A（大文字）</td></tr>
+<tr><td>'Ａ'</td><td>65313</td><td>Ａ（全角）</td></tr>
+<tr><td>'ｱ'</td><td>65393</td><td>ｱ（半角カタカナ）</td></tr>
+<tr><td>'あ'</td><td>12354</td><td>あ（全角ひらがな）</td></tr>
+<tr><td><font color="red">'\\'</font></td><td>92</td><td>\（円記号）</td></tr>
+<tr><td><font color="red">'\''</font></td><td>39</td><td>'（シングルコーテーション）</td></tr>
+<tr><td>'&quot;'</td><td>34</td><td>&quot;（ダブルコーテーション）</td></tr>
+</table>
+</div>
+
+<p>文字コードは int 型です。次の２つの処理は全く同じ意味になります。
+</p>
+<pre class="source">
+if (a[0] == 'A') { /* 何か処理 */ }
+if (a[0] == 65)  { /* 何か処理 */ }
+</pre>
+
+<p>Siglus では、Unicode（UTF-16）を採用しています。
+文字コード一覧については、インターネット上で「Unicode 文字一覧表」などで検索して下さい。
+</p>
+<h4> 先頭がアルファベットかどうかを調べる</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// 文字列 s[0] の１文字目がアルファベットかどうかを調べるサンプル</span>
+<span class="comment">// =============================================================</span>
+
+<span class="comment">// s[0] に "abc" を代入する</span>
+s[0] = "abc"
+
+<span class="comment">// s[0] の１文字目の文字コードを取得する</span>
+a[0] = s[0].get_code(0)
+
+<span class="comment">// 文字コードを比較し、アルファベットかどうかを調べる</span>
+if (('A' <= a[0] && a[0] <= 'Z') || ('a' <= a[0] && a[0] <= 'z'))    {
+    「print(s[0])」の１文字目はアルファベットです。r
+}
+else    {
+    「print(s[0])」の１文字目はアルファベットではありません。r
+}
+
+<span class="comment">// s[0] に "あいうえお" を代入する</span>
+s[0] = "あいうえお"
+
+<span class="comment">// s[0] の１文字目の文字コードを取得する</span>
+a[0] = s[0].get_code(0)
+
+<span class="comment">// 文字コードを比較し、アルファベットかどうかを調べる</span>
+if (('A' <= a[0] && a[0] <= 'Z') || ('a' <= a[0] && a[0] <= 'z'))    {
+    「print(s[0])」の１文字目はアルファベットです。r
+}
+else    {
+    「print(s[0])」の１文字目はアルファベットではありません。r
+}
+</pre>
+
+<pre class="result">
+「abc」の１文字目はアルファベットです。r
+「あいうえお」の１文字目はアルファベットではありません。r
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

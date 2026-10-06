@@ -1,0 +1,62 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージ/メッセージ.html">メッセージ</a>　＞　<a href="../../スクリプトマニュアル/メッセージ/ノベルモード.html">ノベルモード</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ノベルモード</h1>
+
+<div align="center">
+<img src="novel.png" />
+</div>
+
+<p>メッセージをノベルモードにすることができます。
+ノベルモードにするには、メッセージウィンドウの設定を行います。
+</p>
+<pre class="source">
+#MWND.000.NOVEL_MODE = 0      <span class="comment">// 0:ＡＶＧモード、1:ノベルモード</span>
+#MWND.000.NAME_DISP_MODE = 0  <span class="comment">// 0:名前ウィンドウに表示、1:メッセージの先頭に表示、2:表示しない</span>
+</pre>
+
+<p>詳しくは <a href="../../設定ファイル/メッセージウィンドウ個別の設定.html">メッセージウィンドウ個別の設定</a> を参照して下さい。
+</p>
+<h4> ノベルモード</h4>
+
+<p>通常、r コマンドを実行すると、メッセージがクリアされていました。
+ノベルモードでは r コマンドではメッセージはクリアされません。
+クリアするには page コマンドを使います。
+</p>
+<div class="chips">
+(2010/10/26) ノベルモードでの文章送りを、pp nl などで行ってはいけません。
+必ず r コマンドを使って下さい。古いサンプルでは行っていましたが、間違いです。
+セーブポイントの設置、メッセージバック、既読フラグなどが正常に働かなくなります。
+</div>
+
+<h4> ノベルモードのサンプル</h4>
+
+<pre class="source">
+KOE(101900064,002)【ちはや】「あはは、瑚太朗はばかですねー」R
+【瑚太朗】「………」R
+KOE(101900068,002)【ちはや】「な、何ですかその目はっ」R
+【瑚太朗】「馬鹿にばかって言われてもなんだか逆に可哀想にしか…」R
+KOE(101900072,002)【ちはや】「な、何ですかそれっ！？　ばかっていうやつのほうがばかなんですっ！」<font color="red">PAGE</font>
+</pre>
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

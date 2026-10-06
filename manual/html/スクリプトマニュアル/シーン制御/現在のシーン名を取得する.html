@@ -1,0 +1,45 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/シーン制御/シーン制御.html">シーン制御</a>　＞　<a href="../../スクリプトマニュアル/シーン制御/現在のシーン名を取得する.html">現在のシーン名を取得する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 現在のシーン名を取得する</h1>
+
+<pre class="exp">
+s[0] = get_scene_name
+</pre>
+
+<p>現在実行中の、ss ファイルの名前を取得します。
+例えば test.ss を実行している場合、"test" が返ってきます。
+シーンタイトルと間違わないようにして下さい。
+</p>
+<p>マクロ内で使っても、inc ファイルの名前を取得できるわけではありません。
+そのマクロを呼び出した ss ファイルの名前が取得できます。
+</p>
+<p>デバッグ以外であまり使うことはないと思います。
+</p>
+<pre class="exp">
+l[0] = get_line_no
+</pre>
+
+<p>現在実行中の、ss ファイルの行番号を取得します。
+</p>
+<p>マクロ内で使っても、そのマクロが使われた行番号が取得されます。
+</p>
+<p>デバッグ以外であまり使うことはないと思います。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

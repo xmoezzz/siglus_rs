@@ -1,0 +1,68 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/カラーテーブルの設定.html">カラーテーブルの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> カラーテーブルの設定</h1>
+
+<p>カラーテーブルの設定をします。
+</p>
+<p>ここで設定した色は、メッセージの色などに使われます。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■カラーテーブルの設定</span>
+<span class="comment">// =============================================================</span>
+#COLOR_TABLE.CNT = 256
+
+#COLOR_TABLE.000 = 255, 255, 255	<span class="comment">// 白（文字色）</span>
+#COLOR_TABLE.001 =   0,   0,   0	<span class="comment">// 黒（文字影）</span>
+#COLOR_TABLE.002 = 255,   0,   0	<span class="comment">// 赤</span>
+#COLOR_TABLE.003 =   0, 255,   0	<span class="comment">// 緑</span>
+#COLOR_TABLE.004 =   0,   0, 255	<span class="comment">// 青</span>
+#COLOR_TABLE.005 = 255, 255,   0	<span class="comment">// 黄</span>
+#COLOR_TABLE.006 = 255,   0, 255	<span class="comment">// 紫</span>
+
+#COLOR_TABLE.100 = 192, 192,   0    <span class="comment">// 小鳥</span>
+#COLOR_TABLE.101 = 255, 128, 128    <span class="comment">// ちはや</span>
+#COLOR_TABLE.102 = 255, 128, 255    <span class="comment">// 朱音</span>
+#COLOR_TABLE.103 = 255, 255,   0    <span class="comment">// 静流</span>
+#COLOR_TABLE.104 = 192, 192, 255    <span class="comment">// ルチア</span>
+
+#COLOR_TABLE.200 = 128, 128, 128	<span class="comment">// グレー</span>
+#COLOR_TABLE.201 = 255, 128, 128	<span class="comment">// 薄赤</span>
+</pre>
+
+<p>０～９番はシステム色として予約されています。
+</p>
+<div class="table-container">
+<table>
+<tr><td>０番</td><td>メッセージの文字の色</td></tr>
+<tr><td>１番</td><td>メッセージの影の色</td></tr>
+</table>
+</div>
+
+<h5> #COLOR_TABLE.CNT</h5>
+
+<p>色の個数を設定します。
+</p>
+<h5> #COLOR_TABLE.??? = [R], [G], [B]</h5>
+
+<p>色を設定します。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

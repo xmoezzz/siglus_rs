@@ -1,0 +1,397 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　<a href="../../../スクリプトマニュアル\システム制御\環境設定\環境設定.html">環境設定</a>　＞　<a href="../../../スクリプトマニュアル\システム制御\環境設定\環境設定.html">環境設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 環境設定</h1>
+
+<h4>画面モード</h4>
+
+<pre class="exp">
+syscom.set_window_mode($mode)                       // ウィンドウモードを設定する（0=標準ウィンドウ、1=フルスクリーン）
+syscom.set_window_mode_default                      // ウィンドウモードをデフォルトに設定する
+a[0] = syscom.get_window_mode                       // ウィンドウモードを取得する（0=標準ウィンドウ、1=フルスクリーン）
+syscom.set_window_mode_size($size)                  // 標準ウィンドウのサイズを比率で指定する（等倍=100）
+syscom.set_window_mode_size_default                 // 標準ウィンドウのサイズをデフォルトに設定する
+a[0] = syscom.get_window_mode_size                  // 標準ウィンドウのサイズを比率で取得する（等倍=100）
+a[0] = syscom.check_window_mode_size_enable($size)  // 標準ウィンドウのサイズが使えるかを比率で判定する（等倍=100）
+
+syscom.call_config_window_mode_menu    // 画面モードの設定ダイアログを呼び出す
+</pre>
+
+<p>標準ウィンドウ／フルスクリーンを切り替えます。
+標準ウィンドウについては、サイズを％で指定できます（100=等倍）。
+通常は 50, 75, 100, 150, 200 などを指定します。
+</p>
+<p>syscom.call_window_mode_menu で、画面モード設定ダイアログを呼び出します。
+ダイアログでしか設定できないメニューが多くありますので、
+環境設定画面を自分で作る場合は、必ず呼び出す方法を提供してください。
+</p>
+<h4>音量設定</h4>
+
+<pre class="exp">
+syscom.set_all_volume($volume)        // 全体の音量を設定する（0-255）
+syscom.set_all_volume_default         // 全体の音量をデフォルトに設定する
+a[0] = syscom.get_all_volume          // 全体の音量を取得する（0-255）
+syscom.set_bgm_volume($volume)        // BGM の音量を設定する（0-255）
+syscom.set_bgm_volume_default         // BGM の音量をデフォルトに設定する
+a[0] = syscom.get_bgm_volume          // BGM の音量を取得する（0-255）
+syscom.set_koe_volume($volume)        // 声の音量を設定する（0-255）
+syscom.set_koe_volume_default         // 声の音量をデフォルトに設定する
+a[0] = syscom.get_koe_volume          // 声の音量を取得する（0-255）
+syscom.set_pcm_volume($volume)        // 効果音の音量を設定する（0-255）
+syscom.set_pcm_volume_default         // 効果音の音量をデフォルトに設定する
+a[0] = syscom.get_pcm_volume          // 効果音の音量を取得する（0-255）
+syscom.set_se_volume($volume)         // システム音の音量を設定する（0-255）
+syscom.set_se_volume_default          // システム音の音量をデフォルトに設定する
+a[0] = syscom.get_se_volume           // システム音の音量を取得する（0-255）
+syscom.set_mov_volume($volume)        // ムービーの音量を設定する（0-255）
+syscom.set_mov_volume_default         // ムービーの音量をデフォルトに設定する
+a[0] = syscom.get_mov_volume          // ムービーの音量を取得する（0-255）
+
+syscom.set_sound_volume($no, $volume)   // 汎用ボリュームの音量を設定する（0-255）
+syscom.set_sound_volume_default($no)    // 汎用ボリュームの音量をデフォルトに設定する
+a[0] = syscom.get_sound_volume($no)     // 汎用ボリュームの音量を取得する（0-255）
+
+syscom.set_all_onoff($onoff)          // 全体の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_all_onoff_default          // 全体の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_all_onoff           // 全体の ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_bgm_onoff($onoff)          // BGM の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_bgm_onoff_default          // BGM の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_bgm_onoff           // BGM の ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_koe_onoff($onoff)          // 声の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_koe_onoff_default          // 声の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_koe_onoff           // 声の ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_pcm_onoff($onoff)          // 効果音の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_pcm_onoff_default          // 効果音の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_pcm_onoff           // 効果音の ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_se_onoff($onoff)           // システム音の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_se_onoff_default           // システム音の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_se_onoff            // システム音の ON/OFF を取得する（0=OFF、1=ON）
+syscom.set_mov_onoff($onoff)          // ムービーの ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_mov_onoff_default          // ムービーの ON/OFF をデフォルトに設定する
+a[0] = syscom.get_mov_onoff           // ムービーの ON/OFF を取得する（0=OFF、1=ON）
+
+syscom.set_sound_onoff($no, $onoff)     // 汎用ボリュームの ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_sound_onoff_default($no)     // 汎用ボリュームの ON/OFF をデフォルトに設定する
+a[0] = syscom.get_sound_onoff($no)      // 汎用ボリュームの ON/OFF を取得する（0=OFF、1=ON）
+ 
+syscom.call_config_volume_menu        // 音量設定の設定ダイアログを呼び出す
+</pre>
+
+<p>汎用ボリュームについては <a href="../../../スクリプトマニュアル\サウンド\汎用ボリューム\汎用ボリューム.html">汎用ボリューム</a> を参照して下さい。
+</p>
+<h4>ＢＧＭフェード</h4>
+
+<pre class="exp">
+syscom.set_bgmfade_volume($volume)    // ＢＧＭフェードの値を設定する（0-255）
+syscom.set_bgmfade_volume_default     // ＢＧＭフェードの値をデフォルトに設定する
+a[0] = syscom.get_bgmfade_volume      // ＢＧＭフェードの値を取得する（0-255）
+syscom.set_bgmfade_onoff($onoff)      // ＢＧＭフェードの ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_bgmfade_onoff_default      // ＢＧＭフェードの ON/OFF をデフォルトに設定する
+a[0] = syscom.get_bgmfade_onoff       // ＢＧＭフェードの ON/OFF を取得する（0=OFF、1=ON）
+syscom.call_config_bgmfade_menu       // ＢＧＭフェードの設定ダイアログを呼び出す
+</pre>
+
+<p>ＢＧＭフェードは、音声を再生しているときに自動的にＢＧＭの音量を下げる機能です。
+デフォルトで有効になっています。
+</p>
+<h4>音声設定</h4>
+
+<pre class="exp">
+syscom.set_koemode($mode)             // 音声設定を設定する（0=音声あり、1=音声なし、2=音声のみ）
+syscom.set_koemode_default            // 音声設定をデフォルトに設定する
+a[0] = syscom.get_koemode             // 音声設定を取得する（0=音声あり、1=音声なし、2=音声のみ）
+syscom.call_config_koemode_menu       // 音声設定の設定ダイアログを呼び出す
+</pre>
+
+
+<h4>キャラクタ音声</h4>
+
+<pre class="exp">
+syscom.set_charakoe_onoff($regist_no, $onoff)    // キャラクタ音声の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_charakoe_onoff_default($regist_no)    // キャラクタ音声の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_charakoe_onoff($regist_no)     // キャラクタ音声の ON/OFF を取得する（0=OFF、1=ON）
+
+syscom.set_charakoe_volume($regist_no, $volume)  // キャラクタ音声のボリュームを設定する（0～255）
+syscom.set_charakoe_volume_default($regist_no)   // キャラクタ音声のボリュームをデフォルトに設定する
+a[0] = syscom.get_charakoe_volume($regist_no)    // キャラクタ音声のボリュームを取得する（0～255）
+
+syscom.call_config_chakoe_menu($regist_no)       // キャラクタ音声の設定ダイアログを呼び出す
+</pre>
+
+<p>キャラクターごとの音声の ON/OFF、ボリュームを設定／取得します。
+</p>
+<p>$regist_no は Gameexe.ini の<font color="red">登録番号</font>で指定します。
+KOE コマンドの２つ目の引数を<font color="blue">キャラクター番号</font>といいますが、別物です。間違えないでください。
+以下の例では、<font color="red">赤字</font> が登録番号、<font color="blue">青字</font> がキャラクター番号です。
+</p>
+<pre class="source">
+#CHRKOE.<font color="red">000</font> = "姫歌",   1,     "",         (<font color="blue">00</font>)
+#CHRKOE.<font color="red">001</font> = "小春",   1,     "",         (<font color="blue">01</font>)
+#CHRKOE.<font color="red">002</font> = "綾子",   1,     "",         (<font color="blue">02</font>)
+#CHRKOE.<font color="red">010</font> = "女の子全て", 1, "",         (<font color="blue">00</font>, <font color="blue">01</font>, <font color="blue">02</font>)
+
+KOE(200100364,<font color="blue">001</font>)【小春】「ふんふんふんふんふ～～～～ん♪」r
+</pre>
+
+
+<div class="mada">
+<h4>キャラクタ音声の名前を取得する</h4>
+
+<pre class="exp">
+syscom.set_charakoe_look($regist_no, $look)              // キャラクタ音声の見た見てないを設定する（0=見てない、1=見た）
+a[0] = syscom.get_charakoe_look($regist_no)              // キャラクタ音声の見た見てないを取得する（0=見てない、1=見た）
+s[0] = syscom.get_charakoe_name($regist_no)              // キャラクタ音声の名前を取得する
+s[0] = syscom.get_charakoe_name_default                  // キャラクタ音声のデフォルトの名前を取得する
+</pre>
+
+<p>get_charakoe_name：
+そのキャラクタが登場した場合は、名前が返ります。
+登場していない場合は、「？？？」が返ります。
+この文字列は Gameexe.ini で設定できます。
+</p>
+<p>get_charakoe_name_default：
+「？？？」が返ります。
+この文字列は Gameexe.ini で設定できます。
+</p>
+<pre class="source">
+<span class="comment">//            表示名,  モード, チェック名, 制御番号</span>
+#CHRKOE.CNT = 64						<span class="comment">// バッファの個数</span>
+#CHRKOE.NOT_LOOK_NAME_STR = "？？？"	<span class="comment">// 伏字用の文字列</span>
+<span class="comment">//            表示名,  モード, チェック名, 制御番号</span>
+#CHRKOE.000 = "なまはむ",   1,         "", (00)
+#CHRKOE.001 = "鈴",         1,         "", (01)
+#CHRKOE.002 = "生ハム",     1,         "", (02)
+#CHRKOE.003 = "生波夢",     1,         "", (03, 04)
+#CHRKOE.004 = "生破無",     1,         "", (05, 06, 07)
+
+#CHRKOE.010 = "女の子全て", 1,         "", (01)
+</pre>
+</div>
+
+<h4>時短再生</h4>
+
+<pre class="exp">
+syscom.set_jitan_speed($speed)                // 時短再生の速度を設定する（100-300、100=等速）
+syscom.set_jitan_speed_default                // 時短再生の速度をデフォルトに設定する
+a[0] = syscom.get_jitan_speed                 // 時短再生の速度を取得する
+syscom.set_jitan_normal_onoff($onoff)         // 通常時の時短再生の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_jitan_normal_onoff_default         // 通常時の時短再生の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_jitan_normal_onoff          // 通常時の時短再生の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_jitan_auto_mode_onoff($onoff)      // オートモード時の時短再生の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_jitan_auto_mode_onoff_default      // オートモード時の時短再生の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_jitan_auto_mode_onoff       // オートモード時の時短再生の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_jitan_koe_replay_onoff($onoff)     // 声リプレイ時の時短再生の ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_jitan_koe_replay_onoff_default     // 声リプレイ時の時短再生の ON/OFF をデフォルトに設定する
+a[0] = syscom.get_jitan_koe_replay_onoff      // 声リプレイ時の時短再生の ON/OFF を設定する（0=OFF、1=ON）
+syscom.call_config_jitan_menu                 // 時短再生の設定ダイアログを呼び出す
+</pre>
+
+<h4>メッセージ速度</h4>
+
+<pre class="exp">
+syscom.set_message_speed($speed)              // メッセージ速度を設定する（0-100、小さいほど速い）
+syscom.set_message_speed_default              // メッセージ速度をデフォルトに設定する
+a[0] = syscom.get_message_speed               // メッセージ速度を取得する
+syscom.set_message_nowait($speed)             // メッセージ速度の「ノーウェイト」を設定する（0=OFF、1=ON）
+syscom.set_message_nowait_default             // メッセージ速度の「ノーウェイト」をデフォルトに設定する
+a[0] = syscom.get_message_nowait              // メッセージ速度の「ノーウェイト」を取得する（0=OFF、1=ON）
+syscom.call_config_message_speed_menu         // メッセージ速度の設定ダイアログを呼び出す
+</pre>
+
+<h4>オートモード</h4>
+
+<pre class="exp">
+syscom.set_auto_mode_moji_wait($time)         // オートモードの文字時間を設定する（0-500）
+syscom.set_auto_mode_moji_wait_default        // オートモードの文字時間をデフォルトに設定する
+a[0] = syscom.get_auto_mode_moji_wait         // オートモードの文字時間を取得する（0-500）
+syscom.set_auto_mode_min_wait($time)          // オートモードの最小時間を設定する（0-5000）
+syscom.set_auto_mode_min_wait_default         // オートモードの最小時間をデフォルトに設定する
+a[0] = syscom.get_auto_mode_min_wait          // オートモードの最小時間を取得する（0-5000）
+syscom.call_config_auto_mode_menu             // オートモードの設定ダイアログを呼び出す
+</pre>
+
+<p>待ち時間 ＝ ( 表示した文字数 × 文字時間 ) ＋ 最小時間
+</p>
+<h4>自動でマウスカーソルを隠す</h4>
+
+<pre class="exp">
+syscom.set_mouse_cursor_hide_onoff($onoff)    // 自動でマウスカーソルを隠す機能のオンオフを設定する
+syscom.set_mouse_cursor_hide_onoff_default    // 自動でマウスカーソルを隠す機能のオンオフを初期化する
+a[0] = syscom.get_mouse_cursor_hide_onoff     // 自動でマウスカーソルを隠す機能のオンオフを取得する
+syscom.set_mouse_cursor_hide_time($time)      // 自動でマウスカーソルを隠す時間を設定する
+syscom.set_mouse_cursor_hide_time_default     // 自動でマウスカーソルを隠す時間を初期化する
+a[0] = syscom.get_mouse_cursor_hide_time      // 自動でマウスカーソルを隠す時間を取得する
+</pre>
+
+<h4>フォントの設定</h4>
+
+<pre class="exp">
+syscom.set_font_name($name)                   // フォント名を設定する
+syscom.set_font_name_default                  // フォント名を初期設定に戻す
+s[0] = syscom.get_font_name                   // フォント名を取得する
+a[0] = syscom.is_font_exist($name)            // フォントが存在するかを判定する（0=存在しない、1=存在する）
+syscom.set_font_bold($bold)                   // フォントの太さを指定する（0=標準、1=太くする）
+syscom.set_font_bold_default($bold)           // フォントの太さを初期設定に戻す
+a[0] = syscom.get_font_bold($bold)            // フォントの太さを取得する（0=標準、1=太くする）
+syscom.set_font_decoration($bold)             // フォントの装飾を指定する（0=なし、1=影、2=縁取る、3=縁+影）
+syscom.set_font_decoration_default($bold)     // フォントの装飾を初期設定に戻す
+a[0] = syscom.get_font_decoration($bold)      // フォントの装飾を取得する（0=なし、1=影、2=縁取る、3=縁+影）
+syscom.call_config_font_menu                  // フォントの設定ダイアログを呼び出す
+</pre>
+
+<p>フォント名、およびフォントの「太くする」「影を付ける」などの設定を取得／設定します。
+</p>
+<p>通常は使わないコマンドです。
+必ず syscom.call_config_font_menu でフォント設定ダイアログを呼び出して下さい。
+（ダイアログでしか設定できないメニューが多くあります。）
+</p>
+<p>set_font_name、is_font_exist で指定するのはフォントファイル名ではなく「フォント名」な点に注意して下さい。
+</p>
+<h4>ウィンドウ背景</h4>
+
+<pre class="exp">
+syscom.set_filter_color_r($r)                 // フィルタカラー（赤）を設定する（0-255）
+syscom.set_filter_color_r_default             // フィルタカラー（赤）をデフォルトに設定する
+a[0] = syscom.get_filter_color_r              // フィルタカラー（赤）を取得する（0-255）
+syscom.set_filter_color_g($g)                 // フィルタカラー（緑）を設定する（0-255）
+syscom.set_filter_color_g_default             // フィルタカラー（緑）をデフォルトに設定する
+a[0] = syscom.get_filter_color_g              // フィルタカラー（緑）を取得する（0-255）
+syscom.set_filter_color_b($b)                 // フィルタカラー（青）を設定する（0-255）
+syscom.set_filter_color_b_default             // フィルタカラー（青）をデフォルトに設定する
+a[0] = syscom.get_filter_color_b              // フィルタカラー（青）を取得する（0-255）
+syscom.set_filter_color_a($a)                 // フィルタカラー（不透明度）を設定する（0-255）
+syscom.set_filter_color_a_default             // フィルタカラー（不透明度）をデフォルトに設定する
+a[0] = syscom.get_filter_color_a              // フィルタカラー（不透明度）を取得する（0-255）
+syscom.call_config_filter_color_menu          // フィルターカラーの設定ダイアログを呼び出す
+</pre>
+
+<h4> オブジェクトの表示</h4>
+
+<pre class="exp">
+syscom.set_object_disp_onoff($switch_no, $onoff)          // 「オブジェクトの表示」を設定する（0/1)
+syscom.set_object_disp_onoff_default($switch_no)          // 「オブジェクトの表示」をデフォルトに設定する
+a[0] = syscom.get_object_disp_onoff($switch_no)           // 「オブジェクトの表示」を取得する（0/1)
+</pre>
+
+<p>「オブジェクトの表示」は０番～３番まであります。値は 0 または 1 です。
+詳しくは Gameexe.ini の #DIALOG.OBJECT_DISP を参照して下さい。
+初期値については、Gameexe.ini の #CONFIG.OBJECT_DISP を参照して下さい。
+</p>
+<h4>グローバル汎用スイッチ</h4>
+
+<pre class="exp">
+syscom.set_global_extra_switch_onoff($switch_no, $onoff)    // グローバル汎用スイッチの値を設定する（0/1）
+syscom.set_global_extra_switch_onoff_default($switch_no)    // グローバル汎用スイッチの値をデフォルトに設定する
+a[0] = syscom.get_global_extra_switch_onoff($switch_no)     // グローバル汎用スイッチの値を取得する（0/1）
+</pre>
+
+<p>グローバル汎用スイッチは０番～３番まであります。値は 0 または 1 です。
+詳しくは Gameexe.ini の #DIALOG.GLOBAL_EXTRA_SWITCH を参照して下さい。
+初期値については、Gameexe.ini の #CONFIG.GLOBAL_EXTRA_SWITCH を参照して下さい。
+</p>
+<h4>グローバル汎用モード</h4>
+
+<pre class="exp">
+syscom.set_global_extra_mode_value($mode_no, $value)        // グローバル汎用モードの値を設定する
+syscom.set_global_extra_mode_value_default($mode_no)        // グローバル汎用モードの値をデフォルトに設定する
+a[0] = syscom.get_global_extra_mode_value($mode_no)         // グローバル汎用モードの値を取得する
+</pre>
+
+<p>グローバル汎用モードは０番～３番まであります。それぞれ８個まで項目を作ることができます。
+値は、たとえば項目が８個の場合、0～7 です。
+詳しくは Gameexe.ini の #DIALOG.GLOBAL_EXTRA_MODE を参照して下さい。
+初期値については、Gameexe.ini の #CONFIG.GLOBAL_EXTRA_MODE を参照して下さい。
+</p>
+<h4>ムービーの設定</h4>
+
+<pre class="exp">
+syscom.call_config_movie_menu                 // ムービーの設定ダイアログを呼び出す
+</pre>
+
+<h4>システム設定</h4>
+
+<pre class="exp">
+syscom.call_config_system_menu                // システム設定の設定ダイアログを呼び出す
+</pre>
+
+<h5>「本プログラムの動作を遅くして、他のプログラムがスムーズに動作するようにする。」</h5>
+
+<pre class="exp">
+syscom.set_sleep_onoff($onoff)                // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_sleep_onoff_default                // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_sleep_onoff                 // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+<h5>「画面暗転効果のアニメを無効にする。」</h5>
+
+<pre class="exp">
+syscom.set_no_wipe_anime_onoff($onoff)        // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_no_wipe_anime_onoff_default        // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_no_wipe_anime_onoff         // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+<h5>「画面暗転効果をマウスクリックで飛ばす。」</h5>
+
+<pre class="exp">
+syscom.set_skip_wipe_anime_onoff($onoff)      // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_skip_wipe_anime_onoff_default      // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_skip_wipe_anime_onoff       // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+<h5>「メッセージウィンドウの開閉時のアニメを無効にする。」</h5>
+
+<pre class="exp">
+syscom.set_no_mwnd_anime_onoff($onoff)        // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_no_mwnd_anime_onoff_default        // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_no_mwnd_anime_onoff         // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+<h5>「マウスのホイールボタンの下回しで文章を読み進める。」</h5>
+
+<pre class="exp">
+syscom.set_wheel_next_message_onoff($onoff)   // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_wheel_next_message_onoff_default   // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_wheel_next_message_onoff    // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+<h5>「声の再生中に次の文章に進んでも再生を続ける。」</h5>
+
+<pre class="exp">
+syscom.set_koe_dont_stop_onoff($onoff)        // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_koe_dont_stop_onoff_default        // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_koe_dont_stop_onoff         // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+<h5>「未読の文章も早送りできるようにする。」</h5>
+
+<pre class="exp">
+syscom.set_skip_unread_message_onoff($onoff)  // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_skip_unread_message_onoff_default  // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_skip_unread_message_onoff   // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+<h5>「サウンド再生時に雑音が入る場合はチェックして下さい。」</h5>
+
+<pre class="exp">
+syscom.set_play_silent_sound_onoff($onoff)    // ON/OFF を設定する（0=OFF、1=ON）
+syscom.set_play_silent_sound_onoff_default    // ON/OFF をデフォルトに設定する
+a[0] = syscom.get_play_silent_sound_onoff     // ON/OFF を取得する（0=OFF、1=ON）
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

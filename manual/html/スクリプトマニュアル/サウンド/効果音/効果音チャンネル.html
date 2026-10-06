@@ -1,0 +1,117 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音.html">効果音</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音チャンネル.html">効果音チャンネル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 効果音チャンネル</h1>
+
+<p>効果音を鳴らします。
+RealLive の専用バッファにあたります。
+ループ再生など高度な処理を行うことが出来ますが、
+１つのチャンネルにつき、同時に１つまでしか効果音を鳴らすことが出来ません。
+単純な効果音を鳴らすだけの場合は、pcm（<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音.html">効果音</a>）を使ってください。
+</p>
+<h4> 効果音を再生する</h4>
+
+<pre class="exp">
+pcmch[0].play($name)
+pcmch[0].play($name, $fade_in_time)
+pcmch[0].play_wait($name)
+pcmch[0].play_wait($name, $fade_in_time)
+pcmch[0].play_loop($name)
+pcmch[0].play_loop($name, $fade_in_time)
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>play</td><td>効果音を鳴らします。</td></tr>
+<tr><td>play_wait</td><td>効果音を鳴らし、鳴り終えるまで待ちます。</td></tr>
+<tr><td>play_loop</td><td>効果音をループさせます。</td></tr>
+</table>
+</div>
+
+<p>$fade_in_time を指定すると、フェードインを行います。
+</p>
+<h4> 効果音を停止する</h4>
+
+<pre class="exp">
+pcmch[0].stop
+pcmch[0].stop($fade_time)
+</pre>
+
+<p>効果音を停止します。$fade_time を指定すると、指定した時間でフェードアウトを行います。
+</p>
+<h4> 効果音が終了するのを待つ</h4>
+
+<pre class="exp">
+pcmch[0].wait
+a[0] = pcmch[0].wait_key         // 決定キーでスキップできる
+</pre>
+
+<p>効果音が終了するのを待ちます。ループ再生を行っている時に、このコマンドを使っては行けません。（無限ループになってしまいます！）
+</p>
+<p>wait_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<h4> 効果音のフェードアウトが終了するのを待つ</h4>
+
+<pre class="exp">
+pcmch[0].wait_fade
+a[0] = pcmch[0].wait_fade_key    // 決定キーでスキップできる
+</pre>
+
+<p>フェードアウト中に使うと、効果音のフェードアウトが完了するのを待ちます。
+</p>
+<p>wait_fade_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<h4> 効果音の再生状態を取得する</h4>
+
+<pre class="exp">
+a[0] = pcmch[0].check
+</pre>
+
+<p>演奏状態を取得します。（0=停止中、1=再生中、2=フェードアウト中）
+</p>
+<h4> ボリュームを設定する</h4>
+
+<pre class="exp">
+pcmch[0].set_volume($volume)
+pcmch[0].set_volume($volume, $time)
+</pre>
+
+<p>効果音のボリュームを 0～255 の範囲で設定します。
+0 にすると無音になります。
+$time を指定すると、指定した時間をかけてボリュームを変化させます。
+</p>
+<h4> ボリュームを最大／最小に設定する</h4>
+
+<pre class="exp">
+pcmch[0].set_volume_max
+pcmch[0].set_volume_max($time)
+pcmch[0].set_volume_min
+pcmch[0].set_volume_min($time)
+</pre>
+
+<p>効果音のボリュームを最大／最小にします。
+$time を指定すると、指定した時間をかけてボリュームを変化させます。
+</p>
+<h4> ボリュームを取得する</h4>
+
+<pre class="exp">
+a[0] = pcmch[0].get_volume
+</pre>
+
+<p>効果音のボリュームを取得します。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

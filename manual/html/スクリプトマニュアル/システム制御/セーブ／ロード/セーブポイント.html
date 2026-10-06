@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　セーブ／ロード　＞　<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\セーブポイント.html">セーブポイント</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> セーブポイント</h1>
+
+<h4>セーブポイントとは？</h4>
+
+<p>セーブを行ったとき、ファイルに保存されるのは「現在の状態」ではありません。
+「セーブポイントを立てたときの状態」です。
+</p>
+<pre class="source">
+savepoint              <span class="comment">// [1] ここでセーブポイントを立てます。</span>
+
+/* 処理 */
+
+/* ここでセーブする */ <span class="comment">// [2] ここでセーブします。[1] の時点での状態がセーブされます。</span>
+                       <span class="comment">// このデータをロードした場合、[1] の位置から処理が再開されます。</span>
+/* 処理 */
+</pre>
+
+<p>セーブポイントが設定されていないとセーブを行うことはできません。
+</p>
+<p>セーブポイントは通常、メッセージや選択肢の先頭で自動的に設定されるため、意識する必要はありません。
+スクリプトで選択肢を組んだ時などに必要になります。
+</p>
+
+<h4> セーブポイントを設定する</h4>
+
+<pre class="exp">
+a[0] = savepoint
+</pre>
+
+<p>セーブポイントを設定します。
+</p>
+<p>セーブポイントはメッセージや選択肢の先頭で自動的に設定されるので、
+このコマンドを使う機会はあまりありません。
+どんな時に使うかと言いますと、自力で選択肢などを作る時に使います。
+</p>
+<div class="chips">
+セーブポイントの戻り値については、<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\ロード直後を判定する.html">ロード直後を判定する</a> を参照して下さい。
+</div>
+
+<pre class="source">
+<span class="comment">// メッセージを表示すると、自動でセーブポイントが設定されます。</span>
+メッセージを表示します。r
+
+<span class="comment">// 自力で選択肢を作成します。</span>
+<span class="comment">// この場合は savepoint コマンドでセーブポイントを設定します。</span>
+<font color="red"><b>savepoint</b></font>
+
+<span class="comment">//</span>
+<span class="comment">// ここに自分で作った選択肢を入れます</span>
+<span class="comment">//</span>
+
+<span class="comment">// メッセージを表示すると、自動でセーブポイントが設定されます。</span>
+メッセージを表示します。r
+</pre>
+
+<p>実際は、選択肢ポイントも設定する必要があります。<a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\選択肢ポイント.html">選択肢ポイント</a> を参照して下さい。
+</p>
+<h4> セーブポイントをクリアする</h4>
+
+<pre class="exp">
+clear_savepoint
+</pre>
+
+<h4> セーブポイントが立っているかを判定する</h4>
+
+<pre class="exp">
+a[0] = check_savepoint
+</pre>
+
+<p>0=立っていない、1=立っている
+</p>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

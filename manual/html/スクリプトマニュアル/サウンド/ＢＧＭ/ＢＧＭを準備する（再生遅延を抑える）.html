@@ -1,0 +1,97 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭ.html">ＢＧＭ</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭを準備する（再生遅延を抑える）.html">ＢＧＭを準備する（再生遅延を抑える）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＢＧＭを準備する（再生遅延を抑える）</h1>
+
+<p>上級者向けのコマンドです。
+</p>
+<p>ＢＧＭをあらかじめ準備しておくことで、再生遅延を少なくすることができます。
+画面演出と合わせるなど、１フレームのずれを気にする場合に使って下さい。
+</p>
+<h4> ＢＧＭを準備する</h4>
+
+<pre class="exp">
+bgm.ready($name)
+bgm.ready($name, $fade_out_time)
+bgm.ready_oneshot($name)
+bgm.ready_oneshot($name, $fade_out_time)
+
+bgm.ready({名前つき引数})
+bgm.ready($name, {名前つき引数})
+bgm.ready($name, $fade_out_time, {名前つき引数})
+
+名前つき引数 = {name, loop, start_pos, fade_out_time}
+</pre>
+
+<p>使い方は play コマンドと同じです。
+ただし play_wait および引数の wait、fade_in_time はありません。
+次の resume コマンドを参照して下さい。
+</p>
+<p><font color="red">※２番目の引数が $fade_in_time ではなく $fade_out_time になっていることに注意して下さい。</font>
+</p>
+<h4> 準備したＢＧＭを再生する</h4>
+
+<pre class="exp">
+bgm.resume
+bgm.resume($fade_in_time)
+bgm.resume_wait
+bgm.resume_wait($fade_in_time)
+</pre>
+
+<p>ready コマンドで準備したＢＧＭを再生します。
+</p>
+<h4> サンプル：ＢＧＭを準備する</h4>
+
+<p>ＯＭＶムービーとＢＧＭを準備し、同時に再生するサンプルです。
+</p>
+<pre class="source">
+<span class="comment">// ＯＭＶムービーとＢＧＭを準備します。</span>
+front.object[0].create_movie(mareop, 0, ready_only = 1, real_time = 1)
+<font color="red">bgm.ready_oneshot(mareop)</font>
+準備しました。クリックで再生します。r close
+
+<span class="comment">// ＯＭＶムービーとＢＧＭを開始します。</span>
+front.object[0].disp = 1
+front.object[0].resume_movie
+<font color="red">bgm.resume</font>
+
+<span class="comment">// ＢＧＭの終了を待ちます。</span>
+bgm.wait_key
+
+<span class="comment">// ＯＭＶムービーとＢＧＭを解放します。</span>
+bgm.stop
+front.object[0].init
+</pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

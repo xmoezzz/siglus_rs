@@ -1,0 +1,57 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　入力制御　＞　<a href="../../スクリプトマニュアル/入力制御/キーボード.html">キーボード</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> キーボード</h1>
+
+<p>キーボードの情報を取得します。
+</p>
+<p>キーボードのみの情報を使うことは滅多にありません。
+通常は、「決定キー」「キャンセルキー」などを使います。
+詳しくは <a href="../../スクリプトマニュアル/入力制御/決定キーとキャンセルキー.html">決定キーとキャンセルキー</a> を参照して下さい。
+</p>
+<h4> キーボードの持つキー</h4>
+
+<pre class="source">
+key[$key_code]   <span class="comment">// $key_code: キーコード</span>
+</pre>
+
+<p>キーコードについては、<a href="../../資料/キーコード.html">キーコード</a> を参照して下さい。
+</p>
+<h5> 例</h5>
+
+<ul>
+<li> key[13]: キーボードの Enter キー</li>
+<li> key['A']: キーボードの A キー</li>
+</ul>
+
+<h5> キーボードの状態のみをクリアする</h5>
+
+<pre class="exp">
+key.clear
+</pre>
+
+<p>キーボードの状態のみをクリアします。通常は input.clear を使います。
+</p>
+<h4> キーボードの状態のみを更新する</h4>
+
+<pre class="exp">
+key.next
+</pre>
+
+<p>キーボードの状態のみを更新します。通常は input.next を使います。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\メッセージウィンドウ\メッセージウィンドウ.html">メッセージウィンドウ</a>　＞　<a href="../../../スクリプトマニュアル\メッセージウィンドウ\顔グラフィック\顔グラフィック.html">顔グラフィック</a>　＞　<a href="../../../スクリプトマニュアル\メッセージウィンドウ\顔グラフィック\顔グラフィック（詳細）.html">顔グラフィック（詳細）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 顔グラ（詳細）</h1>
+
+<p>顔グラを簡単に扱うには <a href="../../../スクリプトマニュアル\メッセージウィンドウ\顔グラフィック\顔グラフィック.html">顔グラフィック</a> を参照して下さい。
+</p>
+<p>顔グラは、オブジェクトの一種です。
+オブジェクトと同様に扱うことができます。
+詳しくは <a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a> を参照して下さい。
+</p>
+<pre class="exp">
+front.mwnd[0].face[0]
+</pre>
+
+<h4> サンプル：顔グラを設定し、半透明にする</h4>
+
+<pre class="source">
+set_face(FC001)                        <span class="comment">// 顔グラフィックを読み込む</span>
+front.mwnd[0].face[0].tr = 128         <span class="comment">// 顔グラフィックの不透明度を設定する</span>
+</pre>
+
+<h4> サンプル：顔グラを設定し、トーンカーブをかける</h4>
+
+<pre class="source">
+set_face(FC001)                        <span class="comment">// 顔グラフィックを読み込む</span>
+front.mwnd[0].face[0].tonecurve_no = 0 <span class="comment">// 顔グラフィックにトーンカーブを設定する</span>
+</pre>
+
+<p>トーンカーブについては <a href="../../../スクリプトマニュアル\演出\トーンカーブ.html">トーンカーブ</a> を参照して下さい。
+</p>
+<h4> サンプル：顔グラを設定し、位置を動かす</h4>
+
+<pre class="source">
+set_face(FC001)                        <span class="comment">// 顔グラフィックを読み込む</span>
+front.mwnd[0].face[0].x_rep.resize(1)  <span class="comment">// 修正座標Ｘを１つ作る</span>
+front.mwnd[0].face[0].x_rep[0] = 100   <span class="comment">// 修正座標Ｘを 100 にする</span>
+</pre>
+
+<p><font color="red">顔グラのＸ座標、Ｙ座標はシステムに予約されています。</font>
+座標を動かすには、修正座標を使って下さい。
+修正座標については <a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトパラメータ\オブジェクトパラメータ（座標関連）.html">オブジェクトパラメータ（座標関連）</a> を参照して下さい。
+</p>
+<h4> サンプル：顔グラを設定し、イベント位置を動かす</h4>
+
+<pre class="source">
+set_face(FC001)                        <span class="comment">// 顔グラフィックを読み込む</span>
+front.mwnd[0].face[0].x_rep.resize(1)  <span class="comment">// 修正座標Ｘを１つ作る</span>
+front.mwnd[0].face[0].x_rep_eve[0].set(0, 1000, 0, 2, start=20)
+                <span class="comment">// 修正座標Ｘのイベントで、-20～0 に、1000ﾐﾘ秒かけて移動する</span>
+</pre>
+
+<p>オブジェクトなので、イベントなども使えます。
+イベントについては <a href="../../../スクリプトマニュアル\演出\イベント.html">イベント</a> を参照して下さい。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

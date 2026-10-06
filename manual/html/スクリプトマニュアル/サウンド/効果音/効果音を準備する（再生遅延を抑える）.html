@@ -1,0 +1,92 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音.html">効果音</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音を準備する（再生遅延を抑える）.html">効果音を準備する（再生遅延を抑える）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 効果音を準備する（再生遅延を抑える）</h1>
+
+<p>上級者向けのコマンドです。
+</p>
+<p>効果音をあらかじめ準備しておくことで、再生遅延を少なくすることができます。
+画面演出と合わせるなど、１フレームのずれを気にする場合に使って下さい。
+</p>
+<h4> 効果音を準備する</h4>
+
+<pre class="exp">
+pcmch[0].ready($name)
+pcmch[0].ready_loop($name)
+
+pcmch[0].ready({名前つき引数})
+pcmch[0].ready($file_name, {名前つき引数})
+
+名前つき引数 = {file_name, koe_no, se_no, loop, volume_type, chara_no, bgm_fade_target}
+</pre>
+
+<p>使い方は play コマンドと同じです。
+ただし play_wait および引数の wait、fade はありません。
+次の resume コマンドを参照して下さい。
+</p>
+<h4> 準備した効果音を再生する</h4>
+
+<pre class="exp">
+pcmch[0].resume
+pcmch[0].resume($fade_in_time)
+pcmch[0].resume_wait
+pcmch[0].resume_wait($fade_in_time)
+</pre>
+
+<p>ready コマンドで準備した効果音を再生します。
+</p>
+<h4> サンプル：効果音を準備する</h4>
+
+<p>ＯＭＶムービーと効果音を準備し、同時に再生するサンプルです。
+</p>
+<pre class="source">
+<span class="comment">// ＯＭＶムービーと効果音を準備します。</span>
+front.object[0].create_movie(magic_wind01, 0, ready_only = 1, real_time = 1)
+<font color="red">pcmch[0].ready(punch)</font>
+準備しました。クリックで再生します。r close
+
+<span class="comment">// ＯＭＶムービーと効果音を開始します。</span>
+front.object[0].disp = 1
+front.object[0].resume_movie
+<font color="red">pcmch[0].resume</font>
+
+<span class="comment">// 効果音の終了を待ちます。</span>
+pcmch[0].wait_key
+
+<span class="comment">// ＯＭＶムービーと効果音を解放します。</span>
+pcmch[0].stop
+front.object[0].init
+</pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

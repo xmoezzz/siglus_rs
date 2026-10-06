@@ -1,0 +1,39 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプ.html">ワイプ</a>　＞　<a href="../../スクリプトマニュアル/ワイプ/マスクワイプ.html">マスクワイプ</a>
+<!-- ここまで自動挿入ヘッダ -->
+<h1>マスクワイプ</h1>
+
+<p>マスク用の画像を作ることで、オリジナルのワイプパターンを作ることができます。
+</p>
+<p>ワイプ番号には 900 番台以降を指定してください。（900=マスクワイプ、901=マスク拡大ワイプ）
+</p>
+<pre class="exp">
+mask_wipe($mask_file)
+mask_wipe($mask_file, $type)
+mask_wipe($mask_file, $type, $time)
+mask_wipe($mask_file, $type, $time, $speed_mode)
+mask_wipe($mask_file, $type, $time, $speed_mode, [$opt00, $opt01, ...])
+</pre>
+
+<h4>マスク画像の作り方</h4>
+
+<p>マスク画像は、通常の画像と同じ 32bit カラーで作ります。このうち、Ｒ値がマスクとして使われます。
+</p>
+<h4>高度な設定</h4>
+
+<p>より高度な設定については <a href="../../スクリプトマニュアル/ワイプ/ワイプの高度な設定.html">ワイプの高度な設定</a> を参照して下さい。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,66 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../../スクリプトマニュアル\基本構文\ユーザコマンド\ユーザコマンド.html">ユーザコマンド</a>　＞　<a href="../../../スクリプトマニュアル\基本構文\ユーザコマンド\全てのシーンで使えるコマンド.html">全てのシーンで使えるコマンド</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 全てのシーンで使えるユーザコマンド</h1>
+
+<p>ユーザコマンドを作っただけでは、そのユーザコマンドはそのシーン内でしか呼び出せません。
+</p>
+<p>全てのシーンで呼び出せるユーザコマンドを作るには、
+ユーザコマンドを<font color="red">シーンファイルで作成し、定義ファイルで宣言する</font>必要があります。
+</p>
+<h5> 定義ファイル</h5>
+
+<pre class="source">
+#command    $hello
+#command    $plus(int, int) : int
+</pre>
+
+<h5> command.ss</h5>
+
+<pre class="source">
+<span class="comment">// コマンドをまとめたシーンファイルです。</span>
+
+command $hello
+{
+    こんにちは。r
+}
+
+command $plus(property $a : int, property $b : int) : int
+{
+    return ($a + $b)
+}
+</pre>
+
+<h5> シナリオ１.ss</h5>
+
+<pre class="source">
+<span class="comment">// シナリオ１です。</span>
+
+$hello                <span class="comment">// 定義ファイルで宣言しているコマンドは、他のシーンからも呼び出せます。</span>
+
+a[0] = $plus(10, 20)  <span class="comment">// 定義ファイルで宣言しているコマンドは、他のシーンからも呼び出せます。</span>
+</pre>
+
+<h4> 注意点</h4>
+
+<ul>
+<li> command の前に &quot;#&quot; が必要です。</li>
+<li> 引数がないコマンドの場合は、() は必要ありません。</li>
+<li> 引数の型は、int 型であっても省略できません。</li>
+</ul>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

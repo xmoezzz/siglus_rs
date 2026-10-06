@@ -1,0 +1,129 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　演出　＞　<a href="../../スクリプトマニュアル/演出/クエイク.html">クエイク</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> クエイク</h1>
+
+<p>画面を揺らすには quake を使います。
+</p>
+<p>画面全体を揺らしたい場合は screen.quake 使います。
+バック／フロント／ネクストのみを揺らすこともできます（back.quake / front.quake / next.quake）。
+ワイプ制御をしたい場合はこちらを使って下さい。 
+</p>
+<p>デフォルトで１６個あります（quake[0]～quake[15]）。
+（設定ファイルで変更できます。<a href="../../設定ファイル/クエイクの設定.html">クエイクの設定</a> 参照）
+</p>
+
+<h4> クエイクを開始する</h4>
+
+<pre class="exp">
+screen.quake[0].start($type, $time, $cnt, [$opt1, $opt2, ...])
+screen.quake[0].start($type, $time, $cnt, $end_cnt, [$opt1, $opt2, ...])
+screen.quake[0].start($type, $time, $cnt, $end_cnt, $begin_order, $end_order, [$opt1, $opt2, ...])
+
+screen.quake[0].start_wait($type, $time, $cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_wait($type, $time, $cnt, $end_cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_wait($type, $time, $cnt, $end_cnt, $begin_order, $end_order, [$opt1, $opt2, ...])
+
+screen.quake[0].start_wait_key($type, $time, $cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_wait_key($type, $time, $cnt, $end_cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_wait_key($type, $time, $cnt, $end_cnt, $begin_order, $end_order, [$opt1, $opt2, ...])
+
+screen.quake[0].start_nowait($type, $time, $cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_nowait($type, $time, $cnt, $end_cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_nowait($type, $time, $cnt, $end_cnt, $begin_order, $end_order, [$opt1, $opt2, ...])
+</pre>
+
+
+<h5> 引数</h5>
+
+<div class="table-container">
+<table>
+<tr><td>引数</td><td>意味</td></tr>
+<tr><td>$type</td><td>タイプを指定します。</td></tr>
+<tr><td>$time</td><td>クエイクにかける時間を指定します。1000 = 1秒</td></tr>
+<tr><td>$cnt</td><td>揺らす回数を指定します。0 にすると止めるまで揺らし続けます。</td></tr>
+<tr><td>$end_cnt</td><td>揺れがだんだん小さくなる回数を指定します。</td></tr>
+<tr><td>[$opt1, ...]</td><td>オプションです。タイプによって意味が異なります。</td></tr>
+</table>
+</div>
+
+<h5> タイプ</h5>
+
+<div class="table-container">
+<table>
+<tr><td>値</td><td>効果</td></tr>
+<tr><td>0</td><td>片方向に揺らします。（例：上→現在位置→上→現在位置→…）<br />$opt1 = 揺れ幅<br />$opt2 = 揺れ方向（0=上、1=右上、2=右、3=右下、4=下、5=左下、6=左、7=左上）</td></tr>
+<tr><td>1</td><td>両方向に揺らします。（例：上→現在位置→下→現在位置→…）<br />$opt1 = 揺れ幅<br />$opt2 = 揺れ開始方向（0=上、1=右上、2=右、3=右下、4=下、5=左下、6=左、7=左上）</td></tr>
+<tr><td>2</td><td>ズームします。<br />$opt1 = 拡大率（0 - 255）（128 で２倍）<br />$opt2 = 中心Ｘ<br />$opt3 = 中心Ｙ</td></tr>
+</table>
+</div>
+
+<h5> 揺れる時間</h5>
+
+<p>$time には「１回の揺れにかける時間」を指定します。
+例えば $time が 1000 で５回揺らすと、合計で 5000 ﾐﾘ秒揺れ続けます。
+</p>
+<h5> 揺れる回数</h5>
+
+<p>$end_cnt を指定することで、揺れをだんだん小さくできます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>$cnt, $end_cnt</td><td></td></tr>
+<tr><td>3, 0</td><td>普通に３回揺れます。</td></tr>
+<tr><td>1, 5</td><td>普通に１回揺れて、だんだんと揺れが小さくなりながら５回揺れます。合計６回揺れます。</td></tr>
+<tr><td>0, 0</td><td>揺れ続けます。止めるには quake[0].end を使って下さい。</td></tr>
+</table>
+</div>
+
+<h5> 両方向に揺れるタイプの注意</h5>
+
+<p>タイプ = 1 で両方向に揺らした場合、原点からのずれはタイプ 0 の半分になります。
+例えば揺れ開始方向 = 上、揺れ幅 = 100 とすると、上に 50、下に 50 の幅で揺れます。
+</p>
+<h5> wait, wait_key, nowait</h5>
+
+<p>_wait がつくコマンドは、揺れが終了するまで待ちます。
+_wait_key がつくコマンドは、揺れが終了するまで待ちますが、キーを押すと揺れを停止します。
+_nowait がつくコマンドは、揺れが終了するのを待たずに次に進みます。
+</p>
+<h5> オーダーを指定する（メッセージウィンドウごと揺らすなど）</h5>
+
+<p>揺らす対象を、オーダーで指定することもできます（$begin_order, $end_order）。
+メッセージウィンドウごと揺らしたい時などに使います。
+オーダーについては <a href="../../スクリプトマニュアル/ステージ／オーダー/オーダー.html">オーダー</a> を参照して下さい。
+省略すると オーダー 0 のみを揺らします。
+</p>
+<p>コマンドに _all をつけると、全てのオーダーを揺らします。
+</p>
+<pre class="exp">
+screen.quake[0].start_all($type, $time, $cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_all($type, $time, $cnt, $end_cnt, [$opt1, $opt2, ...])
+
+screen.quake[0].start_all_wait($type, $time, $cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_all_wait($type, $time, $cnt, $end_cnt, [$opt1, $opt2, ...])
+
+screen.quake[0].start_all_wait_key($type, $time, $cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_all_wait_key($type, $time, $cnt, $end_cnt, [$opt1, $opt2, ...])
+
+screen.quake[0].start_all_nowait($type, $time, $cnt, [$opt1, $opt2, ...])
+screen.quake[0].start_all_nowait($type, $time, $cnt, $end_cnt, [$opt1, $opt2, ...])
+</pre>
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

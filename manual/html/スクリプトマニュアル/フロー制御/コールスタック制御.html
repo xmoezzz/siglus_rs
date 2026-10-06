@@ -1,0 +1,97 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　フロー制御　＞　<a href="../../スクリプトマニュアル/フロー制御/コールスタック制御.html">コールスタック制御</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> コールスタック制御</h1>
+
+<pre class="exp">
+init_call_stack                  // コールスタックを初期化
+del_call_stack($cnt)             // コールスタックを $cnt 個減らす
+set_call_stack_cnt($cnt)         // コールスタックの個数を $cnt に設定（増やすことはできません）
+a[0] = get_call_stack_cnt($cnt)  // コールスタックの個数を取得
+</pre>
+
+<p>かなり上級者向けのコマンドです。
+</p>
+<p>コールスタックの個数を増やしたり減らしたりします。
+非常に危険なコマンドですので、よく理解した上で使って下さい。
+</p>
+<h4>コールスタックの初期値</h4>
+
+<p>コールスタックの初期値は、<font color="red">０ではなく１です</font>。最初から１つ、コールを持っていると考えて下さい。
+また、１未満に減らすことはできません。
+</p>
+<h4>使い道</h4>
+
+<p>深い階層から一気に戻るときに使います。
+解放処理などを忘れないように気を付けて下さい。
+</p>
+<h4>コールフラグについて</h4>
+
+<p>コールスタックを減らした時点で、Ｌフラグ、Ｋフラグなどのコールフラグは消滅します。
+このコマンド以降にコールフラグを使用してはいけません。
+</p>
+<h4>注意点</h4>
+
+<p>例えば次のようなコードがあります。
+</p>
+<pre class="source">
+#z01
+
+<p><span class="comment">// システムコマンドを禁止する</span>
+syscom.set_syscom_menu_disable
+</p>
+<p><span class="comment">// メイン処理を行う</span>
+gosub #z02
+</p>
+<p><span class="comment">// システムコマンドを許可する</span>
+syscom.set_syscom_menu_enable
+</p>
+<p><span class="comment">// 戻る</span>
+return
+</pre>
+</p>
+<p>１行目でシステムコマンドの呼び出しを禁止しています。
+ただし、#z02 の中でどのような処理が行われても、
+必ず３行目でシステムコマンドの呼び出しが元に戻ります。
+安全なコードと言えます。
+</p>
+<p>コールスタックを自力で制御した場合、このフロー制御すら破壊される可能性があります。
+</p>
+<p>デバッグ作業が困難になります。
+しかし、うまく使えば非常に便利なコマンドです。
+理解した上で使用して下さい。
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

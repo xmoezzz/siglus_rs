@@ -1,0 +1,127 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../チュートリアル/ゲーム作成の流れ.html">ゲーム作成の流れ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ゲーム作成の流れ</h1>
+
+<h4> プロジェクトを作る</h4>
+
+<p>まずは、以下のようなフォルダ構成のプロジェクトを作って下さい。
+</p>
+<pre class="source">
+<font color="red">SampleGame</font> <span class="comment">// プロジェクト名（好きな名前を入れて下さい）</span>
+  +- <font color="red">exe</font>   <span class="comment">// 実際のゲームデータが全て入ります。</span>
+  +- <font color="red">ss</font>    <span class="comment">// スクリプトファイルなどが入ります。</span>
+  +- <font color="red">tmp</font>   <span class="comment">// スクリプトファイルをコンパイルするための中間ファイルが入ります。</span>
+  +- <font color="red">work</font>  <span class="comment">// 作業フォルダです。セーブデータなどが保存されます。</span>
+</pre>
+
+<p>次に、以下のようにファイルを配置してください。
+</p>
+<pre class="source">
+SampleGame
+  +- exe
+  |   +- <font color="red">SiglusEngine.exe</font>     <span class="comment">// 実行ファイル本体です。サンプルからコピーして下さい。</span>
+  |
+  +- ss
+  |   +- <font color="red">_start.ss</font>            <span class="comment">// スタートシーンのスクリプトファイル。新規作成して下さい。</span>
+  |   +- <font color="red">_menu.ss</font>             <span class="comment">// メニューシーンのスクリプトファイル。新規作成して下さい。</span>
+  |
+  +- tmp
+  |
+  +- work
+  |   +- <font color="red">SiglusDebugger3.dll</font>   <span class="comment">// デバッグを行うためのライブラリです。サンプルからコピーして下さい。</span>
+  |
+  +- <font color="red">SiglusCompiler.exe</font>       <span class="comment">// コンパイラです。サンプルからコピーして下さい。</span>
+</pre>
+
+<h4> シーンファイル（*.ss）を作る</h4>
+
+<p>ゲームのメインとなるシーンファイルを作ります。
+ゲームのシナリオや流れは、全てシーンファイルに書くことになります。
+非常に重要なファイルです。
+</p>
+<p>ss フォルダ内に新規作成してください。
+拡張子は ss です。ファイル名は自由に設定できます。
+各 ss のことをシーンと呼びます。各シーンにはスクリプトを記述します。ss はシーンスクリプトの略です。
+</p>
+<p>ゲームは、"_start" というシーンから始まります。
+まずは、"_start.ss" を作りましょう。
+"_start.ss" をテキストエディタで開き、以下のように書き込みます。
+</p>
+<pre class="source">
+#z00
+
+こんにちは。r
+
+owari
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>#z00</td><td>スクリプトの最初に必ず記述します。RealLive にあった #IN、#OUT は必要なくなりました。</td></tr>
+<tr><td>こんにちは。</td><td>シナリオです。ゲーム画面に表示されます。</td></tr>
+<tr><td>r</td><td>キーが入力されるまで待つ<font color="red">コマンド</font>です。</td></tr>
+<tr><td>owari</td><td>ウィンドウを閉じ、ゲームを終了する<font color="red">コマンド</font>。</td></tr>
+</table>
+</div>
+
+<p>スクリプトでは、大文字と小文字は区別されません。
+owari と OWARI は同じ意味となります。
+</p>
+<p>スクリプトは、単語や "" の最中でない限り、好きな箇所で改行を行うことができます。
+</p>
+<p>スクリプトは、基本的に「シナリオ」と「コマンド」から成ります。
+これらを組み合わせることで、ゲームを作っていきます。
+全コマンドについては、<a href="../エレメント一覧/エレメント一覧.html">エレメント一覧</a> を参照して下さい。
+（エレメントについては後述します。）
+</p>
+<h4> コンパイルを行う</h4>
+
+<p>SiglusCompiler.exe を起動し、「新規プロジェクト」から以下の設定をします。
+</p>
+<div class="table-container">
+<table>
+<tr><td></td><td></td><td>例</td></tr>
+<tr><td>プロジェクト名</td><td>好きな名前を設定して下さい。</td><td>サンプルゲーム</td></tr>
+<tr><td>ss フォルダ</td><td>作成した ss フォルダを指定して下さい。</td><td>C:\SampleGame\ss</td></tr>
+<tr><td>tmp フォルダ</td><td>作成した tmp フォルダを指定して下さい。</td><td>C:\SampleGame\tmp</td></tr>
+<tr><td>出力フォルダ</td><td>作成した exe フォルダを指定して下さい。</td><td>C:\SampleGame\exe</td></tr>
+<tr><td>実行ファイル</td><td>exe フォルダ内の SiglusEngine.exe を指定してください。</td><td>C:\SampleGame\exe\SiglusEngine.exe</td></tr>
+<tr><td>作業フォルダ</td><td>作業フォルダを指定して下さい。</td><td>C:\SampleGame\work</td></tr>
+<tr><td>エディタ</td><td>テキスト編集用のプログラムを指定して下さい。</td><td>C:\Program Files\sakura\sakura.exe</td></tr>
+</table>
+</div>
+
+<p>自動設定を使うと便利です。（★ここに～ の欄に C:\SampleGame をドラッグ＆ドロップ）
+</p>
+<p>設定が終わったら「OK」ボタンを押し、設定ウィンドウを閉じます。
+</p>
+<p>左下の 「ss」リストに、_start.ss が表示されています。
+（されていない場合は、「再検索」ボタンを押して下さい。）
+</p>
+<p>「自動選択」ボタンを押します。先ほど作った「_start.ss」が選択されます。
+次に、「コンパイル」を押します。「全ての処理が正常に成功しました。」と表示されればコンパイル成功です。
+エラーが出た場合は、スクリプトを見直して下さい。
+</p>
+<p>コンパイルに成功した場合、exe フォルダに Gameexe.dat、Scene.pck というファイルが出来上がります。
+</p>
+<h4> ゲームを起動する</h4>
+
+<p>「実行」というボタンを押すとゲームが起動します。
+「こんにちは。」と表示され、キーを押すとゲームが終了します。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

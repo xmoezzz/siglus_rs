@@ -1,0 +1,71 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコール.html">システムコール</a>　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコール.html">システムコール</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> システムコール</h1>
+
+<p>システムコールは、システムが呼び出すコールです。
+分かりやすい例では、ゲーム中に画面を右クリックすると、キャンセルコールが行われます。
+システムコールで呼び出されるシーンを設定すると、オリジナルのメニューなどが作れます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>キャンセルコール</td><td>画面を右クリックで呼び出される</td></tr>
+<tr><td>セーブコール</td><td>システムコマンドメニューやウィンドウボタンの「セーブ」を選ぶと呼び出される</td></tr>
+<tr><td>ロードコール</td><td>システムコマンドメニューやウィンドウボタンの「ロード」を選ぶと呼び出される</td></tr>
+<tr><td>環境設定コール</td><td>システムコマンドメニューやウィンドウボタンの「環境設定」を選ぶと呼び出される</td></tr>
+</table>
+</div>
+
+<p>システムコール時に、いくつかの状態は自動的に設定されます。
+例えば、マウスカーソルは自動的に表示状態になります。
+これらの状態は、システムコールから戻るときに、自動的に元に戻されます。
+</p>
+<h4> 自動的に元に設定される／元に戻るもの</h4>
+
+<ul>
+<li> 既読早送りを止める</li>
+<li> オートモードを止める</li>
+<li> マウスカーソルを表示する</li>
+<li> ...</li>
+</ul>
+
+<p>フラグやオブジェクトなどは元に戻りません。
+システムコール中に、これらの情報を破壊しないように注意してください。
+</p>
+<p>システムコール専用のパラメータについては <a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコールパラメータ.html">システムコールパラメータ</a> を参照して下さい。
+</p>
+<h4> システムコールで呼び出されるシーンを設定する</h4>
+
+<p>Gameexe.ini で設定することが出来ます。
+</p>
+<pre class="source">
+#CANCEL_SCENE = "_cancel"               <span class="comment">// キャンセルシーン</span>
+#SAVE_SCENE = "_save"                   <span class="comment">// セーブシーン</span>
+#LOAD_SCENE = "_load"                   <span class="comment">// ロードシーン</span>
+#CONFIG_SCENE = "_config"               <span class="comment">// 環境設定シーン</span>
+</pre>
+
+<h4> システムコールから戻る</h4>
+
+<p>通常のコールと同じように、return コマンドで戻ることが出来ます。
+</p>
+<h4> コールフラグ</h4>
+
+<p>通常のコールと同じように、l フラグなどが確保されます。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

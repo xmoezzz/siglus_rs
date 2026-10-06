@@ -1,0 +1,66 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/フラグ/フラグ.html">フラグ</a>　＞　<a href="../../スクリプトマニュアル/フラグ/ビットフラグ.html">ビットフラグ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ビットフラグ</h1>
+
+<p>フラグをビットに分解する機能です。
+通常のフラグは１つにつき 32bit 使い、-2147483648 ～ 2147483647 の整数を扱うことができます。
+これを細かく分解して使うことで、少ない容量で多くのフラグを扱うことができます。
+ただし、扱える数字も小さくなってしまいます。
+</p>
+<p>上級者向けの機能です。フラグが足りない場合に使って下さい。
+</p>
+<p>ローカルフラグはもちろん、グローバルフラグやコールフラグ、
+intlist 型のユーザフラグも対応しています。
+</p>
+<p>フラグの個数は、デフォルト（1000個）を基準に計算しています。
+フラグの個数が変更されるとビットフラグの個数も変更されます。
+</p>
+<h5>１ビット分解（値：0 or 1）</h5>
+
+<pre class="exp">
+a.bit[00000] ～ a.bit[31999]
+</pre>
+
+<h5>２ビット分解（値：0 ～ 3）</h5>
+
+<pre class="exp">
+a.bit2[00000] ～ a.bit2[15999]
+</pre>
+
+<h5>４ビット分解（値：0 ～ 15）</h5>
+
+<pre class="exp">
+a.bit4[00000] ～ a.bit4[07999]
+</pre>
+
+<h5>８ビット分解（値：0 ～ 255）</h5>
+
+<pre class="exp">
+a.bit8[00000] ～ a.bit8[03999]
+</pre>
+
+<h5>１６ビット分解（値：0 ～ 65535）</h5>
+
+<pre class="exp">
+a.bit16[00000] ～ a.bit16[01999]
+</pre>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

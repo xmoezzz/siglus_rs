@@ -1,0 +1,132 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音.html">効果音</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音イベント.html">効果音イベント</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 効果音イベント</h1>
+
+<p>指定したイベント通りに効果音を再生する機能です。
+非同期で再生するので、再生を続けたまま次の処理に進むことが出来ます。
+</p>
+<p>効果音イベントは、初期値で１６個あります。<span class="mada">（Gameexe.ini で変更できます。）</span>
+</p>
+<h4> 効果音イベントを開始する</h4>
+
+<pre class="exp">
+pcmevent[0].start_oneshot([*], [*], ...)
+pcmevent[0].start_oneshot($pcm_buf_no, [*], [*], ...)
+    [*] = [$file_name, $wait_time]
+    [*] = [$file_name, $min_wait_time, $max_wait_time]
+
+pcmevent[0].start_loop([*], [*], ...)
+pcmevent[0].start_loop($pcm_buf_no, [*], [*], ...)
+    [*] = [$file_name, $wait_time]
+    [*] = [$file_name, $min_wait_time, $max_wait_time]
+
+pcmevent[0].start_random([*], [*], ...)
+pcmevent[0].start_random($pcm_buf_no, [*], [*], ...)
+    [*] = [$file_name, $probability, $wait_time]
+    [*] = [$file_name, $probability, $min_wait_time, $max_wait_time]
+</pre>
+
+<h5> 使用例</h5>
+
+<pre class="source">
+pcmevent[0].start_oneshot(
+    [sound00, 1000],               <span class="comment">// sound00 を再生して、１秒待つ</span>
+    [sound01, 1000],               <span class="comment">// sound01 を再生して、１秒待つ</span>
+    [sound02, 5000]                <span class="comment">// sound02 を再生して、５秒待つ</span>
+)
+
+pcmevent[0].start_random(
+    0,                             <span class="comment">// 効果音バッファ０番を使う</span>
+    [sound00, 40, 1000, 2000],     <span class="comment">// sound00 を再生して、１～２秒の間ランダムで待つ（確率=40）</span>
+    [sound01, 40, 1000, 2000],     <span class="comment">// sound01 を再生して、１～２秒の間ランダムで待つ（確率=40）</span>
+    [sound02, 20, 5000, 6000]      <span class="comment">// sound02 を再生して、５～６秒の間ランダムで待つ（確率=20）</span>
+)
+</pre>
+
+<h5> 引数</h5>
+
+<div class="table-container">
+<table>
+<tr><td>$pcm_buf_no</td><td>使用する効果音バッファ番号（省略すると、汎用バッファを使用）</td></tr>
+<tr><td>$file_name</td><td>ファイル名</td></tr>
+<tr><td>$probability</td><td>再生確率</td></tr>
+<tr><td>$min_wait_time</td><td>待ち時間（最小値）（ﾐﾘ秒）</td></tr>
+<tr><td>$max_wait_time</td><td>待ち時間（最大値）（ﾐﾘ秒）</td></tr>
+</table>
+</div>
+
+<h5> oneshot, loop, random</h5>
+
+<p>start_oneshot は、指定された効果音を、上から順に再生します。
+<br />start_loop は、指定された効果音を、上から順に繰り返し再生します。
+<br />start_random は、指定された効果音を、ランダムに繰り返し再生します。
+</p>
+<h5> バッファ番号</h5>
+
+<p>バッファ番号を指定すると、指定した効果音バッファで効果音を再生します。
+省略すると、汎用バッファで再生します。
+</p>
+<h5> 待ち時間</h5>
+
+<p>待ち時間は、「再生を開始してから、次の再生が始まるまでの待ち時間」です。
+最小値と最大値を指定した場合は、その範囲でランダムに待ち時間が決定されます。
+</p>
+<p>「再生が終わってから次の再生が始まるまでの待ち時間」を指定したい場合は、
+<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音イベント（フルパラメータ）.html">効果音イベント（フルパラメータ）</a> を参照して下さい。
+</p>
+<h5> 再生確率</h5>
+
+<p>start_random は、効果音ごとに再生確率を設定することが出来ます。
+ランダムで効果音が選ばれるとき、再生確率が大きいほど、選ばれる確率が高くなります。
+</p>
+<h4> 効果音イベントを停止する</h4>
+
+<pre class="exp">
+pcmevent[0].stop($pcm_stop)
+</pre>
+
+<p>効果音イベントを停止します。ただし、既に再生されている効果音は止まりません。
+$pcm_stop に 1 を指定すると、効果音ごと止めます。
+</p>
+<div class="chips">
+oneshot 再生において stop(1) を使う場合は、最後の待ち時間を、効果音の長さよりも長く設定して下さい。
+短くすると、音が終わる前にイベントが終わってしまうことがあります。
+この場合、stop(1) を実行しても、効果音が止まりません。
+<br /><br />ループ再生やランダム再生、またはフルパラメータ版で wait_type = 1 としている場合はこの問題は起きません。
+</div>
+
+<h4> 効果音イベントを待つ</h4>
+
+<pre class="exp">
+pcmevent[0].wait
+a[0] = pcmevent[0].wait_key
+</pre>
+
+<p>効果音イベントが終了するまで待ちます。
+wait_key の場合、決定キーで処理をスキップできます。決定キーでスキップした場合は 1 が返ります。それ以外の場合は 0 が返ります。
+</p>
+<h4> 効果音イベントが再生中かどうかを調べる</h4>
+
+<pre class="exp">
+a[0] = pcmevent[0].check
+</pre>
+
+<p>効果音イベントが再生中かどうかを判定します。0=再生中でない、1=再生中
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

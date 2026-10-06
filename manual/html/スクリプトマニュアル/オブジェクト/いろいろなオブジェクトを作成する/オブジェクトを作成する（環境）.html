@@ -1,0 +1,257 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　いろいろなオブジェクトを作成する　＞　<a href="../../../スクリプトマニュアル\オブジェクト\いろいろなオブジェクトを作成する\オブジェクトを作成する（環境）.html">オブジェクトを作成する（環境）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 環境オブジェクト</h1>
+
+<p>雪を降らしたり、花びらを散らしたりできます。
+</p>
+<div align="center">
+<img src="snow320.jpg">
+</div>
+
+<h4> 環境オブジェクトを作成する</h4>
+
+<pre class="exp">
+front.object[0].create_weather($file)
+front.object[0].create_weather($file, $disp)
+</pre>
+
+<p>create_weather だけでは環境は表示されません。
+set_weather_param_type_A などを使い、パラメータ詳細を設定して下さい。
+</p>
+<h4> 環境オブジェクトのタイプを設定する（タイプＡ）</h4>
+
+<pre class="exp">
+front.object[0].set_weather_param_type_A(
+<p>$cnt,
+$pat_mode, $pat_no_1, $pat_no_2, $pat_time,
+$move_time_x, $move_time_y,
+$sin_time_x, $sin_power_x, $sin_time_y, $sin_power_y,
+$scale_x, $scale_y, 
+$real_time
+)
+</pre>
+</p>
+<p>このコマンドは名前つき引数のみ対応しています。
+</p>
+<h5> 名前つき引数を使った例</h5>
+
+<pre class="source">
+<p>front.object[0].set_weather_param_type_A(
+	cnt = 200,
+	move_time_x = 5000,
+	move_time_y = 2000,
+	pat_mode = 0,
+	pat_no_1 = 6,
+	sin_time_x = 2000,
+	sin_power_x = 20
+	)
+</pre>
+</p>
+<p>見やすいように途中で改行していますが、改行は無くてもいいです。
+</p>
+<h5> パラメータ詳細</h5>
+
+<div style="table-container">
+<table>
+<tr><td>cnt</td><td>粒の個数を指定します。<br />特に制限はありませんが、多すぎると処理が重たくなります。スペックの低いマシンで動かして見て下さい。</td></tr>
+<td>pat_mode, pat_no_1, pat_no_2, pat_time</td><td>
+パターンモード<br />
+0 = 固定（pat_no_1 のみが使われます）<br />
+1 = ループ（pat_no_1 ～ pat_no_2 の範囲でループします。ループタイムは pat_time で指定します。）<br />
+2 = ランダム（pat_no_1 ～ pat_no_2 の範囲でランダムで表示します。）</td></tr>
+<tr><td>move_time_x, move_time_y</td><td>x, y に対して、1000 ピクセル動くのにかかる時間をﾐﾘ秒で指定します。マイナスを指定すると逆方向に動きます。</td></tr>
+<tr><td>sin_time_x, sin_power_x</td><td>横に揺れるのにかかる時間をﾐﾘ秒で、揺れ幅をピクセルで指定します。</td></tr>
+<tr><td>sin_time_y, sin_power_y</td><td>縦に揺れるのにかかる時間をﾐﾘ秒で、揺れ幅をピクセルで指定します。</td></tr>
+<tr><td>scale_x, scale_y</td><td>１粒１粒を拡大します（1000=等倍）。</td></tr>
+<tr><td>real_time</td><td>実時間フラグ（0=ゲーム時間、1=実時間）<br />実時間で再生すると、Ctrl キーなどで早送りできなくなります。デフォルトではゲーム時間で再生されます。</td></tr>
+</table>
+</div>
+
+<h5> RealLive とのパラメータの違い</h5>
+
+<ul>
+<li> pat_mode について、3（固定、２つ表示）がなくなりました。</li>
+<li> move について、縦横が別々に指定できるようになりました。</li>
+<li> sin について、縦横が別々に指定できるようになりました。</li>
+<li> sin_power の計算式が変更されました。大きいほど揺れが大きくなります。（RealLive と逆）</li>
+<li> wind の指定がなくなりました。</li>
+</ul>
+
+<h5> 途中でパラメータを変更する</h5>
+
+<p>途中で粒の量を変えたり、速度を変えたりする場合は、set_weather_param_type_A を続けて使って下さい。
+自然な感じでタイプが切り替わりますが、およそ３秒ほどかかります。
+実際に使って確認して下さい。
+</p>
+<h5> 色んな大きさの粒を同時に表示する</h5>
+
+<p>複数のオブジェクトを使って重ねて下さい。
+雪などの効果を作る場合は、大きい粒ほど手前に表示し、個数を減らすと効果的です。
+</p>
+<h5> サンプル：雪を降らす</h5>
+
+<pre class="source">
+<span class="comment">// 背景とバストショットを準備する</span>
+back.object[0].create(BG001, 1)
+back.object[1].create(CGM_KT10, 1, 640, 0)
+back.object[1].layer = 20
+
+<span class="comment">// 雪（奥）</span>
+back.object[10].create_weather(snow, 1)
+back.object[10].layer = 10                  <span class="comment">// バストショットより奥</span>
+back.object[10].set_weather_param_type_A(   <span class="comment">// 小さめの粒をたくさん降らす</span>
+<p>cnt = 300,
+move_time_x = 30000,
+move_time_y = 10000,
+pat_mode = 0,
+pat_no_1 = 0,
+sin_time_x = 2000,
+sin_power_x = 5
+)
+</p>
+<span class="comment">// 雪（手前）</span>
+back.object[11].create_weather(snow, 1)
+back.object[11].layer = 30                  <span class="comment">// バストショットより手前</span>
+back.object[11].set_weather_param_type_A(   <span class="comment">// 大きめの粒を少しだけ降らす</span>
+<p>cnt = 10,
+move_time_x = 5000,
+move_time_y = 2000,
+pat_mode = 0,
+pat_no_1 = 6,
+sin_time_x = 2000,
+sin_power_x = 20
+)
+</p>
+<span class="comment">// ワイプして表示する</span>
+wipe
+</pre>
+
+
+<h4> 環境オブジェクトのタイプを設定する（タイプＢ）</h4>
+
+<pre class="exp">
+front.object[0].set_weather_param_type_B(
+<p>$cnt,
+$pat_mode, $pat_no_1, $pat_no_2, $pat_time,
+$center_x, $center_y, $appear_range,
+$move_time,
+$sin_time_x, $sin_power_x, $sin_time_y, $sin_power_y,
+$center_rotate,
+$zoom_x, $zoom_y,
+$real_time
+)
+</pre>
+</p>
+<p>見上げたような効果が得られます。実際にサンプルを動かして見て下さい。
+タイプＡと同様、名前つき引数のみ対応しています。
+</p>
+<h5> 名前つき引数を使った例</h5>
+
+<pre class="source">
+<p>front.object[0].set_weather_param_type_B(
+	cnt = 1000,
+	pat_mode = 0,
+	pat_no_1 = 6,
+	center_x = 100,
+	center_y = 100,
+	appear_range = 70,
+	move_time = 5000,
+	sin_time_x = 2000,
+	sin_power_x = 10,
+	zoom_min = 0,
+	zoom_max = 2000
+	)
+</pre>
+</p>
+<p>見やすいように途中で改行していますが、改行は無くてもいいです。
+</p>
+<h5> パラメータ詳細</h5>
+
+<div style="table-container">
+<table>
+<tr><td>cnt</td><td>粒の個数を指定します。<br />特に制限はありませんが、多すぎると処理が重たくなります。スペックの低いマシンで動かして見て下さい。</td></tr>
+<td>pat_mode, pat_no_1, pat_no_2, pat_time</td><td>
+パターンモード<br />
+0 = 固定（pat_no_1 のみが使われます）<br />
+1 = ループ（pat_no_1 ～ pat_no_2 の範囲でループします。ループタイムは pat_time で指定します。）<br />
+2 = ランダム（pat_no_1 ～ pat_no_2 の範囲でランダムで表示します。）</td></tr>
+<tr><td>center_x, center_y</td><td>降り始めの中心を指定します。</td></tr>
+<tr><td>appear_range</td><td>出現する範囲をパーセントで指定します。70 くらいがちょうどいいと思います。</td></tr>
+<tr><td>move_time</td><td>1000 ピクセル動くのにかかる時間をﾐﾘ秒で指定します。マイナスを指定すると逆方向に動きます。</td></tr>
+<tr><td>sin_time_x, sin_power_x</td><td>進行方向に垂直に揺れるのにかかる時間をﾐﾘ秒で、揺れ幅をピクセルで指定します。</td></tr>
+<tr><td>sin_time_y, sin_power_y</td><td>進行方向に揺れるのにかかる時間をﾐﾘ秒で、揺れ幅をピクセルで指定します。</td></tr>
+<tr><td>center_rotate</td><td>center_x, center_y で指定した中心を基準に回転します。1000px 進んだときの回転角を指定します。（3600=360°）</td></tr>
+<tr><td>zoom_min, zoom_max</td><td>中心にいるときと、端にいるときの拡大率を指定します。（1000=当倍）</td></tr>
+<tr><td>real_time</td><td>実時間フラグ（0=ゲーム時間、1=実時間）<br />実時間で再生すると、Ctrl キーなどで早送りできなくなります。デフォルトではゲーム時間で再生されます。</td></tr>
+</table>
+</div>
+
+<h5> RealLive とのパラメータの違い</h5>
+
+<ul>
+<li> pat_mode について、3（固定、２つ表示）がなくなりました。</li>
+<li> sin について、縦横が別々に指定できるようになりました。</li>
+<li> sin_power の計算式が変更されました。大きいほど揺れが大きくなります。（RealLive と逆）</li>
+<li> center_rotate が追加されました。</li>
+</ul>
+
+<h5> 途中でパラメータを変更する</h5>
+
+<p>途中で粒の量を変えたり、速度を変えたりする場合は、set_weather_param_type_B を続けて使って下さい。
+自然な感じでタイプが切り替わりますが、およそ３秒ほどかかります。
+実際に使って確認して下さい。
+</p>
+<h5> 色んな大きさの粒を同時に表示する</h5>
+
+<p>複数のオブジェクトを使って重ねて下さい。
+雪などの効果を作る場合は、大きい粒ほど手前に表示し、個数を減らすと効果的です。
+</p>
+<h5> サンプル：見上げるような雪を降らす</h5>
+
+<pre class="source">
+<span class="comment">// 背景を準備する</span>
+front.object[0].create(BG001, 1)
+
+front.object[10].create_weather(snow, 1)
+front.object[10].set_weather_param_type_B(
+<p>cnt = 200,
+pat_mode = 0,
+pat_no_1 = 6,
+center_x = 300,
+center_y = 100,
+move_time = 5000,
+sin_time_x = 2000,
+sin_power_x = 20,
+zoom_min = 0,
+zoom_max = 1000
+)
+</pre>
+</p>
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

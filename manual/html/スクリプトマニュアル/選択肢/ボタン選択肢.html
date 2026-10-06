@@ -1,0 +1,43 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/選択肢/選択肢.html">選択肢</a>　＞　<a href="../../スクリプトマニュアル/選択肢/ボタン選択肢.html">ボタン選択肢</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ボタン選択肢</h1>
+
+<p>画像を使ったボタンで選択を行います。
+設定ファイルで <a href="../../設定ファイル/ボタン選択肢の設定.html">ボタン選択肢の設定</a> をする必要があります。
+</p>
+<h4> ボタン選択肢を表示する</h4>
+
+<pre class="exp">
+a[0] = selbtn(*, *, *, ...)
+a[0] = selbtn($selbtn_no, *, *, *, ...)
+a[0] = selbtn_cancel(*, *, *, ...)
+a[0] = selbtn_cancel($selbtn_no, *, *, *, ...)
+
+(*) = $str
+(*) = $str, $state
+(*) = $str, $state, $color
+</pre>
+
+<p>$selbtn_no で ini の登録番号を指定します。
+省略すると登録番号０番が使われます。
+</p>
+<p>$state, $color については <a href="../../スクリプトマニュアル/選択肢/選択肢の制御コード.html">選択肢の制御コード</a> を参照して下さい。
+</p>
+<p>その他の使い方については sel コマンドと同じです。<a href="../../スクリプトマニュアル/選択肢/選択肢.html">選択肢</a> を参照して下さい。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

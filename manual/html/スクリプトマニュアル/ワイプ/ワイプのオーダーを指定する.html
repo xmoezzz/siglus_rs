@@ -1,0 +1,60 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプ.html">ワイプ</a>　＞　<a href="../../スクリプトマニュアル/ワイプ/ワイプのオーダーを指定する.html">ワイプのオーダーを指定する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オーダーを指定する</h1>
+
+<p>ワイプする範囲を指定します。
+</p>
+<p>wipe コマンドは、デフォルトではオーダー０のみがワイプされます。
+オーダーを指定することで、メッセージウィンドウごとワイプしたりできます。
+</p>
+<p>オーダーについては <a href="../../スクリプトマニュアル/ステージ／オーダー/オーダー.html">オーダー</a> を参照して下さい。
+</p>
+<p>オーダーは <a href="../../スクリプトマニュアル/ワイプ/ワイプの高度な設定.html">ワイプの高度な設定</a> で指定します。
+</p>
+<p>全てのオーダーをワイプするコマンドもあります。
+</p>
+<p><a href="../../スクリプトマニュアル/オブジェクト/ワイプコピー.html">ワイプコピー</a> も参照して下さい。
+</p>
+<h4> ワイプされる条件</h4>
+
+<p>ワイプされる条件は少しややこしいです。
+以下のいずれかが満たされていた場合、ワイプされます。
+</p>
+<ul>
+<li> フロントのオーダーが、ワイプで指定したオーダー内にある</li>
+<li> バックが準備されている（create されている、または子供を持っている）</li>
+</ul>
+
+<h4> 全てのオーダーをワイプする</h4>
+
+<pre class="exp">
+wipe_all
+wipe_all($type)
+wipe_all($type, $time)
+wipe_all($type, $time, $speed_mode)
+wipe_all($type, $time, $speed_mode, [$opt00, $opt01, ...])
+
+mask_wipe_all($mask_file)
+mask_wipe_all($mask_file, $type)
+mask_wipe_all($mask_file, $type, $time)
+mask_wipe_all($mask_file, $type, $time, $speed_mode)
+mask_wipe_all($mask_file, $type, $time, $speed_mode, [$opt00, $opt01, ...])
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

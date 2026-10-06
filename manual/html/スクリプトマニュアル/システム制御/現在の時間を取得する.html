@@ -1,0 +1,53 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　現在の時間を取得する
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 現在の時間を取得する</h1>
+
+<h4> 現在の日付と時間を取得する</h4>
+
+<pre class="exp">
+system.get_calendar($year, $month, $day, $weekday, $hour, $minute, $second, $millsecond)
+</pre>
+
+<p>現在の日付と時間を取得します。
+</p>
+<div class="table-container">
+<table>
+<tr><td>$year</td><td>年（西暦）</td></tr>
+<tr><td>$month</td><td>月（1～12）</td></tr>
+<tr><td>$day</td><td>日（1～31）</td></tr>
+<tr><td>$weekday</td><td>曜日（0=日、1=月、2=火、3=水、4=木、5=金、6=土）</td></tr>
+<tr><td>$hour</td><td>時間（0～23）</td></tr>
+<tr><td>$minute</td><td>分（0～59）</td></tr>
+<tr><td>$second</td><td>秒（0～59）</td></tr>
+<tr><td>$millsecond</td><td>ﾐﾘ秒（0～999）</td></tr>
+</table>
+</div>
+
+<h4> 現在の時間を unix 標準時刻で取得する</h4>
+
+<pre class="exp">
+a[0] = system.get_unix_time
+</pre>
+
+<p>現在の時間（秒）を、unix 時間（1970年1月1日からの経過時間）で取得します。
+</p>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

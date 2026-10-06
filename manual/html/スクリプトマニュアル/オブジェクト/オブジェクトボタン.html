@@ -1,0 +1,122 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a>　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクトボタン.html">オブジェクトボタン</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オブジェクトボタン</h1>
+
+<p>オブジェクトをボタンにすることができます。
+</p>
+<h4>オブジェクトをボタンにする／解除する</h4>
+
+<pre class="exp">
+front.object[0].set_button($button_no)
+front.object[0].set_button($button_no, $group_no)
+front.object[0].set_button($button_no, $group_no, $action_no, $se_no)
+front.object[0].clear_button
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>$button_no</td><td>ボタン番号。</td></tr>
+<tr><td>$group_no</td><td>選択肢のグループ番号を指定します。省略するとグループ０番が使われます。</td></tr>
+<tr><td>$action_no</td><td>Gameexe.ini で作成したボタンアクションの番号を指定します。省略すると０番が使われます。</td></tr>
+<tr><td>$se_no</td><td>Gameexe.ini で作成したボタン効果音の番号を指定します。省略すると０番が使われます。</td></tr>
+</table>
+</div>
+
+<p>オブジェクトにボタン属性を持たせます。
+詳細は <a href="../../スクリプトマニュアル/オブジェクトボタングループ/オブジェクトボタングループ.html">オブジェクトボタングループ</a> を参照して下さい。
+</p>
+<h4>ボタンコールを指定する／解除する</h4>
+
+<pre class="exp">
+front.object[0].set_button_call($cmd_name)
+front.object[0].clear_button_call
+</pre>
+
+<p>ボタンを押したときに呼ばれるコマンドを指定します。
+</p>
+<h4>ボタンの状態を取得／設定する</h4>
+
+<pre class="exp">
+front.object[0].set_button_state_normal    // ボタンの状態を「通常」にする
+front.object[0].set_button_state_select    // ボタンの状態を「選択されている」にする
+front.object[0].set_button_state_disable   // ボタンの状態を「無効」にする
+a[0] = front.object[0].get_button_state        // ボタンの状態を取得する
+a[0] = front.object[0].get_button_real_state   // ボタンの実際の状態を取得する
+a[0] = front.object[0].get_button_hit_state    // ボタンの当たり状態を取得する
+</pre>
+
+<h5> ボタンの状態について</h5>
+
+<ul>
+<li> normal 状態：マウスを当てると hit （当たっている）状態に、マウスを押すと push （押している）状態になります。</li>
+<li> select 状態：マウスを当てても状態は変更されません。</li>
+<li> disable 状態：マウスを当てても状態は変更されません。</li>
+</ul>
+
+<p>Gameexe.ini の <a href="../../設定ファイル/ボタンアクションの設定.html">ボタンアクションの設定</a> では、
+normal / hit / push / select / disable の５つの状態について動きを設定できます。
+</p>
+<h5> get_button_state</h5>
+
+<p>set_button_state でボタンに与えた状態を取得します。
+</p>
+<div class="table-container">
+<table>
+<tr><td>値</td><td>状態</td></tr>
+<tr><td>0</td><td>normal</td></tr>
+<tr><td>1</td><td>select（選択されている）</td></tr>
+<tr><td>2</td><td>disable（無効）</td></tr>
+</table>
+</div>
+
+<h5> get_button_real_state</h5>
+
+<p>normal（通常）状態のボタンは、
+マウスを当てると hit （当たっている）状態に、マウスを押すと push （押している）状態になります。
+それらを含んだ最終的な値を取得したい場合は、get_button_real_state を使って下さい。
+</p>
+<div class="table-container">
+<table>
+<tr><td>値</td><td>状態</td></tr>
+<tr><td>0</td><td>normal</td></tr>
+<tr><td>1</td><td>hit（当たっている）</td></tr>
+<tr><td>2</td><td>push（押している）</td></tr>
+<tr><td>3</td><td>select（選択されている）</td></tr>
+<tr><td>4</td><td>disable（無効）</td></tr>
+</table>
+</div>
+
+<h5> get_button_hit_state</h5>
+
+<p>button_state が select や disable であった場合、マウスを当てても状態は変更されません。
+ところが、disable であってもマウスが当たっている情報を取得したい場合があります。
+その場合は get_button_hit_state を使って下さい。
+</p>
+<div class="table-container">
+<table>
+<tr><td>値</td><td>状態</td></tr>
+<tr><td>0</td><td>normal</td></tr>
+<tr><td>1</td><td>hit（当たっている）</td></tr>
+<tr><td>2</td><td>push（押している）</td></tr>
+</table>
+</div>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

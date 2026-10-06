@@ -1,0 +1,79 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="Flag.ini.html">Flag.ini</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> Flag.ini</h1>
+
+<div align="center">
+<img src="Flag.ini.jpg">
+</div>
+
+<p>デバッグ中、よく使うフラグを登録しておくと、
+ゲーム実行中にフラグの変化をリアルタイムで見ることができます。
+また、<font color="red">ゲームを実行しながら、フラグの値を書き換えることもできます。</font>
+</p>
+<p>フラグは２０個のグループに分けて登録できます。
+例：グループ０は好感度、グループ１は分岐に関わる重要なフラグ、…。
+</p>
+<p>使いこなすと、デバッグが非常に楽になります。上手く使って下さい。
+</p>
+<h4> Flag.ini を作成する</h4>
+
+<p>作業フォルダ（設定していない場合は SiglusEngine.exe のあるフォルダ）に、
+Flag.ini というテキストファイルを新規作成して下さい。
+</p>
+<h4> Flag.ini のサンプル</h4>
+
+<pre class="source">
+#TITLE_FLAG00 = サンプル０番
+
+G[0000] : 0 : シーン回想中
+G[0010] : 0 : シーン１を見た
+G[0011] : 0 : シーン２を見た
+G[0012] : 0 : シーン３を見た
+G[0100] : 0 : ハイスコア
+
+#TITLE_FLAG01 = サンプル１番
+
+F[0000] : 1 : Ｆフラグ
+L[0000] : 1 : Ｌフラグ
+S[0000] : 1 : Ｓフラグ
+F.bit[0000] : 1 : ビットフラグ
+</pre>
+
+<h4> グループのタイトル</h4>
+
+<p>#TITLE_FLAG00 ～ #TITLE_FLAG19 まで設定できます。
+</p>
+<p>例：好感度、分岐フラグ、…。
+</p>
+<h4> フラグの登録</h4>
+
+フラグ : グループ番号 : コメント
+
+<ul>
+<li> フラグ：フラグ名を設定します。</li>
+<li> グループ番号：グループ番号を設定します。</li>
+<li> コメント：任意で設定でき、ダイアログに表示されます。</li>
+</ul>
+
+<h4> フラグの編集</h4>
+
+<p>フラグの値の欄をダブルクリックして下さい。
+小さなエディットボックスが現れ、値を編集することができます。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

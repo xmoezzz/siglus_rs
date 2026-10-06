@@ -1,0 +1,47 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　その他のシステム　＞　<a href="../../../スクリプトマニュアル\システム制御\その他のシステム\ウィンドウがアクティブかを判定する.html">ウィンドウがアクティブかを判定する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ウィンドウがアクティブかどうかを判定する</h1>
+
+<pre class="exp">
+a[0] = system.check_active           // 0=アクティブでない、1=アクティブ
+</pre>
+
+<h5> 使い方</h5>
+
+<p>独自にメニューを組んだとします。
+この時、ウィンドウがアクティブでない場合はボタンに反応して欲しくない、という場合に使います。
+</p>
+<pre class="source">
+input.clear
+while (1) {
+    if (system.check_active && 100 <= mouse.pos_x && mouse.pos_x <= 200)  {
+        <span class="comment">// ボタンにマウスが当たったときの処理</span>
+    }
+    input.next
+    disp
+}
+</pre>
+
+<h5> 注意点</h5>
+
+<ul>
+<li> 例外として、デバッグウィンドウがアクティブなときも 1 になります。</li>
+<li> 環境設定ウィンドウ（フォントの設定など）などがアクティブなときは 0 になります。</li>
+</ul>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

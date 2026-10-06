@@ -1,0 +1,141 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a>　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクトの情報.html">オブジェクトの情報</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オブジェクトの情報を設定／取得する</h1>
+
+<h4> オブジェクトが存在するかを判定する</h4>
+
+<pre class="exp">
+a[0] = front.object[0].exist_type             // オブジェクトが存在するかを判定する
+</pre>
+
+<p>オブジェクトが存在するかを判定します。
+</p>
+<p>create、create_string など、"create～" で始まるコマンドでオブジェクトを作成した場合、
+オブジェクトが存在することになります。
+</p>
+<p>子供を持っていても、オブジェクトが存在することにはなりません。
+front.object[0].child.get_size などを合わせて利用して下さい。
+</p>
+<pre class="source">
+<p>front.object[0].init
+front.object[0].create("unit00", 1, 100, 100)
+a[0] = front.object[0].exist_type
+</p>
+<p>print(a[0])r
+</p>
+<p>front.object[0].init
+front.object[0].child.resize(10)
+a[0] = front.object[0].exist_type
+</p>
+<p>print(a[0])r
+</pre>
+</p>
+<pre class="result">
+1
+0
+</pre>
+
+
+<h4> オブジェクトの個数を取得／設定する</h4>
+
+<pre class="exp">
+front.object.resize($cnt)             // オブジェクトの個数を変更する（動きません！）
+a[0] = front.object.get_size($cnt)    // オブジェクトの個数を取得する
+</pre>
+
+<p><font color="red"><b>オブジェクトの個数は変更できません。</b></font>
+なぜ変更するコマンドがあるかと言いますと、子供オブジェクトのためです。
+（子供オブジェクトの個数は変更できます。）
+</p>
+<h5> 子供オブジェクトの個数を変更する</h5>
+
+<pre class="source">
+<p>front.object[0].child.resize(100)    <span class="comment">// オブジェクト０番に子供オブジェクトを 100 個作る</span>
+</pre>
+</p>
+<h4> オブジェクトに読み込んだファイル名を取得する</h4>
+
+<pre class="exp">
+s[0] = front.object[0].get_file_name
+</pre>
+
+<p>オブジェクトに読み込んだファイル名を取得します。
+</p>
+<h4> オブジェクトに読み込んだファイルを変更する</h4>
+
+<pre class="exp">
+front.object[0].change_file($file_name)
+</pre>
+
+<p>オブジェクトに読み込んだファイルを変更します。
+</p>
+<h4> オブジェクトのサイズを取得する</h4>
+
+<pre class="exp">
+a[0] = front.object[0].get_size_x
+a[0] = front.object[0].get_size_x($cut_no)
+a[0] = front.object[0].get_size_y
+a[0] = front.object[0].get_size_y($cut_no)
+a[0] = front.object[0].get_size_z
+a[0] = front.object[0].get_size_z($cut_no)
+</pre>
+
+<p>オブジェクトに読み込んだ画像の大きさを取得します。
+画像自体の大きさなので、拡縮などを行っても値は変わりません。
+</p>
+<h4> オブジェクトのピクセルの色を取得する</h4>
+
+<pre class="exp">
+a[0] = front.object[0].get_pixel_color_r($x, $y)
+a[0] = front.object[0].get_pixel_color_r($x, $y, $cut_no)
+a[0] = front.object[0].get_pixel_color_g($x, $y)
+a[0] = front.object[0].get_pixel_color_g($x, $y, $cut_no)
+a[0] = front.object[0].get_pixel_color_b($x, $y)
+a[0] = front.object[0].get_pixel_color_b($x, $y, $cut_no)
+a[0] = front.object[0].get_pixel_color_a($x, $y)
+a[0] = front.object[0].get_pixel_color_a($x, $y, $cut_no)
+</pre>
+
+<p>オブジェクトに読み込んだ画像のピクセルの色を取得します。
+</p>
+<h4> オブジェクトのパターン数を取得する</h4>
+
+<pre class="exp">
+a[0] = front.object[0].get_pat_cnt
+</pre>
+
+<p>オブジェクトに読み込んだ画像のパターン数を取得します。
+</p>
+<ul>
+<li> 単純な画像オブジェクトにのみ有効です。</li>
+<li> 矩形オブジェクトや環境オブジェクトその他には対応していません。現状では 0 を返しますが、今後変更されるかも知れません。</li>
+<li> 初期状態（画像を読み込んでいない場合）では 0 を返します。</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,88 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../定義ファイル/定義ファイル.html">定義ファイル</a>　＞　<a href="../定義ファイル/マクロ.html">マクロ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> マクロ</h1>
+
+<p>引数を使った置換です。
+</p>
+<h5> 定義ファイル</h5>
+
+<pre class="source">
+#define     @好感度                a[0]
+#macro      @好感度アップ(@value)  @好感度 += (@value)
+#macro      @好感度最大            @好感度 = 100
+</pre>
+
+<h5> 置換の流れ</h5>
+
+<pre class="result">
+@好感度アップ(10)
+↓
+@好感度 += (10)
+↓
+a[0] += (10)
+</pre>
+
+<p>引数のないマクロの場合は、() はあってもなくても大丈夫です。
+</p>
+<pre class="result">
+@好感度最大
+↓
+@好感度 = 100
+↓
+a[0] = 100
+</pre>
+
+<pre class="result">
+@好感度最大()
+↓
+@好感度 = 100
+↓
+a[0] = 100
+</pre>
+
+<h4> デフォルト引数</h4>
+
+<p>デフォルト引数を設定することで、引数を省略することが出来ます。
+</p>
+<h5> 定義ファイル</h5>
+
+<pre class="source">
+#define     @好感度                   a[0]
+#macro      @好感度アップ(@value<font color="red">(1)</font>)  @好感度 += (@value)
+</pre>
+
+<h5> 置換の流れ</h5>
+
+<pre class="result">
+@好感度アップ
+↓
+@好感度 += (1)    // ←引数を省略したので、デフォルト引数の 1 が使われます。
+↓
+a[0] += (1)
+</pre>
+
+<pre class="result">
+@好感度アップ(10)
+↓
+@好感度 += (10)   // ←引数をつけたので、デフォルト引数は無視されます。
+↓
+a[0] += (10)
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

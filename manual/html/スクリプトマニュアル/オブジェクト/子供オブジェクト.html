@@ -1,0 +1,81 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a>　＞　<a href="../../スクリプトマニュアル/オブジェクト/子供オブジェクト.html">子供オブジェクト</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 子供オブジェクト</h1>
+
+<p>オブジェクトに子供を作ることができます。
+</p>
+<p>子供オブジェクトは、親のパラメータを引き継いで動きます。
+例えば親の座標を動かすと、子供もそれに連れて動きます。
+</p>
+<p>子供オブジェクトは object 型です。
+つまり、通常のオブジェクトと同じように使うことができます。
+</p>
+<h5>RealLive との違い</h5>
+
+<p>RealLive では、子供を持てるのは「子持ちオブジェクト」だけでした。
+Siglus では、例えば文字オブジェクトが子供を持つこともできます。
+また、子供オブジェクトもセーブ／ロードの対象になります。
+</p>
+<h4>子供オブジェクトを作る</h4>
+
+<pre class="exp">
+front.object[0].child.resize($child_cnt)
+</pre>
+
+<p><font color="red"><b>
+親オブジェクトは別に初期化する必要があることに注意してください。
+親が必要ない場合は以下のように作成してください。
+</b></font>
+</p>
+<pre class="source">
+front.object[0].init               <span class="comment">// オブジェクト０番を初期化します。（必須！）</span>
+front.object[0].disp = 1           <span class="comment">// オブジェクト０番を表示します。（これを忘れると子供も表示されません！）</span>
+front.object[0].child.resize(10)   <span class="comment">// オブジェクト０番に子供を１０個作成します。</span>
+</pre>
+
+<h4>子供オブジェクトを使う</h4>
+
+<p>子供オブジェクトは、通常のオブジェクトと同じように使うことが出来ます。
+</p>
+<pre class="source">
+front.object[0].child[0].create(BG001, 1, 0, 0)       <span class="comment">// 子供オブジェクトに画像を読み込む</span>
+front.object[0].child[0].tr = 128                     <span class="comment">// 子供オブジェクトの不透明度を設定する</span>
+front.object[0].child[0].child.resize(10)             <span class="comment">// 子供オブジェクトに子供を作る（孫！）</span>
+</pre>
+
+<h4>パラメータの引継ぎ</h4>
+
+<p>子供オブジェクトは、親のパラメータを引き継ぎます。
+<br />例：親のＸ座標が 100、子のＸ座標が 200 のとき、子は合計で 300 の位置に表示されます。
+<br />例：親の不透明度が 128、子の不透明度が 128 のとき、子は合計で 64 の不透明度で表示されます。
+</p>
+<h5>親に影響されるパラメータ</h5>
+
+<p>表示フラグ、ワイプコピーフラグ、ワイプ消去フラグ、表示順位、表示位置、表示矩形、不透明度、モノクロ度、反転度、明度、暗度、色加算、合成方法
+</p>
+<h5>影響されないパラメータ</h5>
+
+<p>パターン番号、ワールド
+</p>
+<h5>未実装</h5>
+
+<p>中心座標、拡縮、回転、色変化
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

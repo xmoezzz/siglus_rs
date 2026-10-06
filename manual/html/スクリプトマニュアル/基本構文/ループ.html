@@ -1,0 +1,169 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/ループ.html">ループ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ループ</h1>
+
+<h4> while</h4>
+
+<p>while 文を使って処理を繰り返すことができます。
+</p>
+<pre class="exp">
+while (条件式)  {
+    // ...
+}
+</pre>
+
+<h5> 処理を１０回繰り返す</h5>
+
+<pre class="source">
+<span class="comment">// フラグを初期化します。</span>
+a[0] = 0
+
+<span class="comment">// a[0] が 10 より小さい間、{ } の中を実行し続けます。</span>
+<font color="red">while (a[0] < 10)   {</font>
+
+    print(a[0])回目です。r
+
+    <span class="comment">// a[0] の値を１増やします。</span>
+    a[0] += 1
+<font color="red">}</font>
+</pre>
+
+<pre class="result">
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+</pre>
+
+<p>※for 文を使った方が綺麗に書けます。
+</p>
+<h5> 無限ループ</h5>
+
+<pre class="source">
+<font color="red">while (1)  {</font>
+    この処理は無限に繰り返されます。r
+<font color="red">}</font>
+</pre>
+
+<p>必ず break 文などでループを抜け出すようにして下さい。
+</p>
+
+<h4> for</h4>
+
+<p>for 文を使って処理を繰り返すことができます。
+</p>
+<pre class="exp">
+for (初期化文, 条件式, ループ文)  {
+    // ...
+}
+</pre>
+
+<ul>
+<li> １．初期化文が実行されます。</li>
+<li> ２．条件式が真の場合、{ } の中身が実行されます。</li>
+<li> ３．ループ文が実行されます。</li>
+<li> ４．２に戻ります。</li>
+</ul>
+
+<h5> 処理を１００回繰り返す</h5>
+
+<pre class="source">
+<font color="red">for (a[0] = 0, a[0] < 100, a[0] += 1)   {</font>
+    print(a[0])回目です。r
+<font color="red">}</font>
+</pre>
+
+<pre class="result">
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+</pre>
+
+<h5> オブジェクトの１０番～１９番を表示する</h5>
+
+<pre class="source">
+<font color="red">for (a[0] = 10, a[0] < 20, a[0] += 1)   {</font>
+
+    <span class="comment">// オブジェクト a[0] 番を表示する</span>
+    front.object[ a[0] ].disp = 1
+<font color="red">}</font>
+</pre>
+
+<h4> break</h4>
+
+<p>ループ文を脱出します。
+</p>
+<h5> 効果音を再生し、１０秒たてば次へ進む</h5>
+
+<pre class="source">
+<span class="comment">// 効果音を再生します。</span>
+pcm.play(fanfare)
+
+<span class="comment">// カウンタをスタートさせます。</span>
+counter[0].start
+
+<span class="comment">// 無限ループに入ります。</span>
+while (1)  {
+
+    <span class="comment">// カウンタの値を取得し、１０秒（10000ﾐﾘ秒）を超えたらループを脱出します。</span>
+    if (counter[0].get > 10000)  {
+        <font color="red">break</font>
+    }
+
+    <span class="comment">// 画面を更新します。</span>
+    disp
+}
+</pre>
+
+<p>※timewait コマンドを使うと簡単です。⇒<a href="../../スクリプトマニュアル/時間制御/時間待ち.html">時間待ち</a>
+</p>
+<h4> continue</h4>
+
+<p>次のループに入ります。
+</p>
+<h5> 表示されているオブジェクトに対して不透明度を半分に設定する</h5>
+
+
+<pre class="source">
+<span class="comment">// オブジェクト０番～９番まで処理</span>
+for (a[0] = 0, a[0] < 10, a[0] += 1)  {
+
+    <span class="comment">// オブジェクトが表示されていない場合は次のループへ</span>
+    if (front.object[ a[0] ].disp == 0)   {
+       <font color="red">continue</font>
+    }
+
+    <span class="comment">// オブジェクト a[0] 番の不透明度を設定する</span>
+    front.object[ a[0] ].tr = 128
+}
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

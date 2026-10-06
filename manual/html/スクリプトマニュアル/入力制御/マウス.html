@@ -1,0 +1,112 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　入力制御　＞　<a href="../../スクリプトマニュアル/入力制御/マウス.html">マウス</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> マウス</h1>
+
+<p>マウスの情報を取得します。
+</p>
+<h4> マウスの持つキー</h4>
+
+<pre class="source">
+mouse.left
+mouse.right
+</pre>
+
+<p>マウスのキー情報を使うことは滅多にありません。
+通常は、「決定キー」「キャンセルキー」などを使います。
+詳しくは <a href="../../スクリプトマニュアル/入力制御/決定キーとキャンセルキー.html">決定キーとキャンセルキー</a> を参照して下さい。
+</p>
+<h4> マウスの位置を取得する</h4>
+
+<pre class="exp">
+a[0] = mouse.get_pos_x     // Ｘ座標を取得
+a[1] = mouse.get_pos_y     // Ｙ座標を取得
+mouse.get_pos($x, $y)      // 一度に取得
+</pre>
+
+<div class="chips">
+mouse.pos_x、mouse.pos_y でも座標を取得できます。
+</div>
+
+<h5> サンプル：マウスの座標を取得する</h5>
+
+<pre class="source">
+mouse.get_pos(a[0], a[1])
+</pre>
+
+<h4> マウスの位置を設定する</h4>
+
+<pre class="exp">
+mouse.set_pos($x, $y)      // 一度に設定
+</pre>
+
+<p>メニューを出したときに、メニューの先頭に自動的にマウスを動かしたい場合があると思います。
+そのときに使って下さい。
+ただし、自動で移動するのを好まないユーザもいます。
+メニューを閉じたときに元の位置に戻す、もしくは
+自動で動かす機能を ON/OFF できる、などの配慮が必要かも知れません。
+</p>
+<h4> ホイールの値を取得する</h4>
+
+<pre class="exp">
+a[0] = mouse.wheel
+</pre>
+
+<p>マウスのホイールの回転数を取得するコマンドです。（マイナス=上方向、プラス=下方向）
+</p>
+<p>ホイールの値を取得するには、キーと同様、clear や next と組み合わせて使う必要があります。
+</p>
+<pre class="source">
+mouse.clear
+while (1)  {
+
+    if (mouse.wheel > 0)  {
+        <span class="comment">// ホイールを下方向に回したときの処理</span>
+    }
+    if (mouse.wheel < 0)  {
+        <span class="comment">// ホイールを上方向に回したときの処理</span>
+    }
+
+    mouse.next
+    disp
+}
+</pre>
+
+<h4> マウスの状態のみをクリアする</h4>
+
+<pre class="exp">
+mouse.clear
+</pre>
+
+<p>マウスの状態のみをクリアします。通常は input.clear を使います。
+</p>
+<h4> マウスの状態のみを更新する</h4>
+
+<pre class="exp">
+mouse.next
+</pre>
+
+<p>マウスの状態のみを更新します。通常は input.next を使います。
+</p>
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

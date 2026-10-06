@@ -1,0 +1,72 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウ.html">メッセージウィンドウ</a>　＞　<a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウ開閉アニメ.html">メッセージウィンドウ開閉アニメ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> メッセージウィンドウ開閉アニメ</h1>
+
+<h4> メッセージウィンドウが開閉するときのアニメを変更する</h4>
+
+<pre class="exp">
+front.mwnd[0].init_open_anime_type                  // 開くアニメのタイプを初期化する
+front.mwnd[0].set_open_anime_type($type)            // 開くアニメのタイプを設定する
+a[0] = front.mwnd[0].get_open_anime_type            // 開くアニメのタイプを取得する
+a[0] = front.mwnd[0].get_default_open_anime_type    // 開くアニメのデフォルトのタイプを取得する
+
+front.mwnd[0].init_open_anime_time                  // 開くアニメの時間を初期化する
+front.mwnd[0].set_open_anime_time($time)            // 開くアニメの時間を設定する
+a[0] = front.mwnd[0].get_open_anime_time            // 開くアニメの時間を取得する
+a[0] = front.mwnd[0].get_default_open_anime_time    // 開くアニメのデフォルトの時間を取得する
+
+front.mwnd[0].init_close_anime_type                 // 閉じるアニメのタイプを初期化する
+front.mwnd[0].set_close_anime_type($type)           // 閉じるアニメのタイプを設定する
+a[0] = front.mwnd[0].get_close_anime_type           // 閉じるアニメのタイプを取得する
+a[0] = front.mwnd[0].get_default_close_anime_type   // 閉じるアニメのデフォルトのタイプを取得する
+
+front.mwnd[0].init_close_anime_time                 // 閉じるアニメの時間を初期化する
+front.mwnd[0].set_close_anime_time($time)           // 閉じるアニメの時間を設定する
+a[0] = front.mwnd[0].get_close_anime_time           // 閉じるアニメの時間を取得する
+a[0] = front.mwnd[0].get_default_close_anime_time   // 閉じるアニメのデフォルトの時間を取得する
+</pre>
+
+<p>デフォルトを取得：Gameexe.ini の設定を取得します。
+</p>
+<p>アニメタイプについては <a href="../../資料/メッセージウィンドウ開閉アニメタイプ一覧.html">メッセージウィンドウ開閉アニメタイプ一覧</a> を参照して下さい。
+</p>
+<h4> 一時的にメッセージウィンドウのアニメをオンにする／オフにする／解除する</h4>
+
+<pre class="exp">
+script.set_mwnd_anime_on_flag($onoff)         // 一時的にアニメを行うフラグを設定する（0=解除する、1=設定する）
+a[0] = script.get_mwnd_anime_on_flag($onoff)  // 一時的にアニメを行うフラグを取得する（0=解除する、1=設定する）
+script.set_mwnd_anime_off_flag($onoff)        // 一時的にアニメを行わないフラグを設定する（0=解除する、1=設定する）
+a[0] = script.get_mwnd_anime_off_flag($onoff) // 一時的にアニメを行わないフラグを取得する（0=解除する、1=設定する）
+</pre>
+
+<p>環境設定の「メッセージウィンドウのアニメを無効にする」機能に関するコマンドです。
+このコマンドは、一時的に機能をオンにする／オフにする／解除するコマンドです。
+</p>
+<h5> set_mwnd_anime_on_flag(1)</h5>
+
+<p>環境設定を無視して、強制的にメッセージウィンドウのアニメを行うようにします。
+set_mwnd_anime_on_flag(0) で元に戻します。
+</p>
+<h5> set_mwnd_anime_off_flag(1)</h5>
+
+<p>環境設定を無視して、強制的にメッセージウィンドウのアニメを行わないようにします。
+set_mwnd_anime_off_flag(0) で元に戻します。
+</p>
+<p>この２つは別々のフラグなので注意して下さい。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

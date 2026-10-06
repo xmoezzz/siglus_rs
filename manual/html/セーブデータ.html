@@ -1,0 +1,46 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="セーブデータ.html">セーブデータ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> セーブデータについて</h1>
+
+<h4> セーブデータについて</h4>
+
+<p>ゲームを起動すると、自動的にセーブデータが作成されます。
+セーブデータは [exe] フォルダの [savedata] フォルダに作成されます。
+ただし、作業フォルダを指定している場合は作業フォルダに、
+セットアップされている場合はマイドキュメント（ドキュメント）に保存されます。
+</p>
+<div class="table-container">
+<table>
+<tr><td>config.sav</td><td>環境設定データ</td></tr>
+<tr><td>read.sav</td><td>既読データ</td></tr>
+<tr><td>setting.ini</td><td>ウィンドウの設定</td></tr>
+<tr><td>movie.ini</td><td>ムービーの設定</td></tr>
+<tr><td>global.sav</td><td>グローバルデータ</td></tr>
+<tr><td>????.sav（数字４桁）</td><td>ローカルデータ</td></tr>
+<tr><td>????.bmp（数字４桁）</td><td>サムネイルデータ</td></tr>
+</table>
+</div>
+
+<p>以下のようなことをすると、セーブデータが使えなくなります。
+一度 savedata フォルダを消してから起動しなおしてください。
+</p>
+<ul>
+<li> Gameexe.ini でエレメントの個数を変える（#FLAG.CNT、#OBJECT.CNT、等）</li>
+</ul>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

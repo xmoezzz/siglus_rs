@@ -1,0 +1,57 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　入力制御　＞　<a href="../../スクリプトマニュアル/入力制御/特定のキー操作を無効にする.html">特定のキー操作を無効にする</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 特定のキー操作を無効にする</h1>
+
+<h4> 一時的に特定のキーを無効にする／解除する</h4>
+
+<pre class="exp">
+script.set_key_disable($key_code)
+script.set_key_enable($key_code)
+</pre>
+
+<p>一時的に、特定のキー操作によるシステム操作を無効にします。
+</p>
+<p>たとえば、タイピングゲームを作ったとします。
+この場合、「'O' キーを押すと ss ファイルを開く」機能などは邪魔になります。
+このコマンドを使って、キーのシステム機能を個別にオフにすることができます。
+</p>
+<p>キーコードについては <a href="../../資料/キーコード.html">キーコード</a> を参照して下さい。
+</p>
+<h4> サンプル：'O' キーを押すと次に進む処理を作る</h4>
+
+<pre class="source">
+input.clear
+
+<span class="comment">// 'O' キーの機能をオフにする</span>
+<span class="comment">// 'O' キーのキーコードは 79</span>
+script.set_key_disable(79)
+while (1)	{
+
+<p>/* 何らかの処理… */
+</p>
+<p><span class="comment">// 'O' キーを押すとループを抜ける</span>
+l[0] = key[79].on_down
+if (l[0] == 1)	{break}
+</p>
+<p>input.next
+disp
+}
+</pre>
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

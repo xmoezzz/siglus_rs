@@ -1,0 +1,65 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコール.html">システムコール</a>　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコールを行う.html">システムコールを行う</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> システムコールを行う</h1>
+
+<p><a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコール.html">システムコール</a> で説明したとおり、システムコールは自動的に行われます。
+それとは別に、スクリプトから呼び出す方法もあります。
+</p>
+<h4> キャンセルシーンを呼ぶ</h4>
+
+<pre class="exp">
+syscom.call_syscom_menu
+</pre>
+
+<p>設定ファイルで指定したキャンセルシーン（#CANCEL_SCENE）を呼びます。
+キャンセルシーンを指定していないときは、システムコマンドメニューが呼び出されます。
+<a href="../../../スクリプトマニュアル\システム制御\システムコマンド\システムコマンド.html">システムコマンド</a> も参照して下さい。
+</p>
+<h4> セーブ／ロードシーンを呼ぶ</h4>
+
+<pre class="exp">
+syscom.call_save_menu
+syscom.call_load_menu
+</pre>
+
+<p>設定ファイルで指定したセーブ／ロードシーン（#SAVE_SCENE／#LOAD_SCENE）を呼びます。
+セーブ／ロードシーンを指定していないときは、セーブ／ロードダイアログが呼び出されます。
+<a href="../../../スクリプトマニュアル\システム制御\システムコマンド\システムコマンド.html">システムコマンド</a> も参照して下さい。
+</p>
+<h4> 環境設定シーンを呼ぶ</h4>
+
+<pre class="exp">
+syscom.call_config_menu
+</pre>
+
+<p>設定ファイルで指定した環境設定シーン（#CONFIG_SCENE）を呼びます。
+環境設定シーンを指定していないときは、環境設定ダイアログが呼び出されます。
+<a href="../../../スクリプトマニュアル\システム制御\システムコマンド\システムコマンド.html">システムコマンド</a> も参照して下さい。
+</p>
+<h4> その他のシーンを呼ぶ</h4>
+
+<pre class="exp">
+syscom.call_ex($scene_name)
+syscom.call_ex($scene_name, $z_label_no)
+</pre>
+
+<p>任意のシーンをシステムコールとして呼び出します。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

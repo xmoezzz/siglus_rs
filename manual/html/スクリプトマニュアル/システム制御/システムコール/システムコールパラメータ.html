@@ -1,0 +1,89 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　システム制御　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコール.html">システムコール</a>　＞　<a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコールパラメータ.html">システムコールパラメータ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> システムコールパラメータ</h1>
+
+<h4> システムコールパラメータを準備する</h4>
+
+<pre class="exp">
+excall.alloc          // システムコールパラメータを準備する
+excall.free           // システムコールパラメータを解放する
+</pre>
+
+<p>システムコールパラメータが使えるようになります。
+使い終わったら excall.free で解放するのを忘れないで下さい。
+</p>
+<h4> システムコールパラメータが準備されているかを判定する</h4>
+
+<pre class="exp">
+a[0] = excall.check_alloc  // パラメータが準備されているかを判定する
+                           // （0=準備されていない、1=準備されている）
+</pre>
+
+<p>excall.is_excall とは別のコマンドです。
+<a href="../../../スクリプトマニュアル\システム制御\システムコール\システムコール中を判定する.html">システムコール中を判定する</a> を参照して下さい。
+</p>
+<h4> システムコールパラメータ</h4>
+
+<pre class="exp">
+excall.F
+excall.counter
+excall.frame_action
+excall.frame_action_ch
+excall.stage
+excall.back
+excall.front
+excall.next
+</pre>
+
+<p>システムコール専用のフラグ、カウンタ、フレームアクション、ステージです。
+ステージにはオブジェクトやグループも含まれます。
+excall.alloc 時に、Gameexe.ini で設定された個数だけ確保されます。
+また、l フラグなど通常のコールパラメータも使うことができます。
+</p>
+<p>システムコールパラメータのオブジェクトは、通常のオブジェクトより前面に表示されます。
+</p>
+<h5> ワイプについて</h5>
+
+<p>システムコール中にワイプを行うと、システムコールオブジェクトのみがワイプされます。
+通常のオブジェクトはワイプされません。
+</p>
+<h4> 簡単なアクセス</h4>
+
+<p>excall[0] / excall[1] でも、
+例えば通常のオブジェクトやシステムコールのオブジェクトにアクセスできます。
+</p>
+<pre class="source">
+front.object            <span class="comment">// 通常のフロントオブジェクト</span>
+excall.front.object     <span class="comment">// システムコールのフロントオブジェクト</span>
+
+excall[0].front.object  <span class="comment">// 通常のフロントオブジェクト</span>
+excall[1].front.object  <span class="comment">// システムコールのフロントオブジェクト</span>
+</pre>
+
+<p>stage[0] / stage[1] / stage[2] で、back / front / next にもアクセスできることも覚えておくと、より便利です。
+</p>
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

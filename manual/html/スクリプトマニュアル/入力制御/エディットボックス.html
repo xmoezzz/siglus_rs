@@ -1,0 +1,68 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　入力制御　＞　<a href="../../スクリプトマニュアル/入力制御/エディットボックス.html">エディットボックス</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> エディットボックス</h1>
+
+<p>エディットボックスを使って、名前などを入力させることができます。
+</p>
+<p>エディットボックスは初期設定で４つあります（editbox[0]～editbox[3]）。
+個数は設定ファイルで変更できます。詳しくは <a href="../../設定ファイル/エディットボックスの設定.html">エディットボックスの設定</a> を参照して下さい。
+</p>
+<pre class="exp">
+editbox[0].create($x, $y, $w, $h, $moji_size)    // エディットボックスを作成する
+editbox[0].destroy            // エディットボックスを破壊する
+editbox[0].set_text($str)     // エディットボックスのテキストを設定する
+s[0] = editbox[0].get_text    // エディットボックスのテキストを取得する
+editbox[0].set_focus          // エディットボックスにフォーカスを設定する
+editbox[0].check_decided      // Enter キーによる決定を取得する（0=決定されていない、1=決定された）
+editbox[0].check_canceled     // ESC キーによるキャンセルを取得する（0=キャンセルされていない、1=キャンセルされた）
+editbox[0].clear_input        // エディットボックスの決定／キャンセルを初期化する
+</pre>
+
+<h4> Tab キーでのフォーカスの移動について</h4>
+
+<p>Tab キーでフォーカス（入力カーソル）を切り替えられます。
+切り替わる順は、editbox[0], editbox[1], ... の順です（最後まで行くと 0 に戻ります）。
+エディットボックスを複数並べるときは、必ず Tab キーでの移動テストをして下さい。
+</p>
+<h4> フォーカスの設定</h4>
+
+<p>エディットボックスを複数作った場合、
+必ず、適切なエディットボックスにフォーカスを設定して下さい。
+</p>
+<h4> Enter キー、ESC キーの取得</h4>
+
+<p>それぞれ、check_decided、check_canceled コマンドで取得できます。
+１度キーを押すと、これらの値は１になったままになります。
+０に戻すには clear_input コマンドを使って下さい。
+</p>
+<div class="chips">
+(2010/10/5) Enter キーや ESC キーを押したとき、Windows の警告音が鳴っていましたが、
+Ver.1.0.2.6 以降では鳴らなくなりました。
+音を鳴らしたい場合は se.play コマンドなどで自分で鳴らして下さい。
+</div>
+
+<h4> サンプルについて</h4>
+
+<p>「エディットボックスを使った名前の入力」に、複数のエディットボックスを使ったサンプルがあります。
+また、セーブ／ロード画面にも、メモ機能としてエディットボックスを使っています。
+</p>
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

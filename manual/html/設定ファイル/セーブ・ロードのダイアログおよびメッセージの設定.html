@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/セーブ・ロードのダイアログおよびメッセージの設定.html">セーブ・ロードのダイアログおよびメッセージの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> セーブ・ロードのダイアログおよびメッセージの設定</h1>
+
+<p>セーブ・ロードの表記が保存、読込、栞を挟む、栞を開くなどに変更したい場合に設定して下さい。
+</p>
+<h4> 設定ファイル</h4>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■セーブ・ロードのダイアログ及び確認ウィンドウの文字列の設定</span>
+<span class="comment">// =============================================================</span>
+#SAVELOAD_DIALOG.DATA_CNT_PAR_PAGE = 10
+#SAVE.NO_DATA_STR = "データがありません。"
+<span class="comment">// =============================================================</span>
+#SAVEINFO.DLGWND_CAPTION_TITLE_STR="セーブ"
+#SAVEINFO.DLGWND_DESIDE_BUTTON_STR="セーブする"
+#SAVEINFO.DLGWND_DATALIST_NAMEHEADER_STR="セーブ"
+#SAVEINFO.DLGWND_WARNING_CHKBOX_STR="セーブする前に上書きの確認メッセージを表示する。"
+#SAVEINFO.DLGWND_DBLCLICK_CHKBOX_STR="リストをダブルクリックでセーブする。"
+#SAVEINFO.WARNING_STR="セーブしてもよろしいですか？"
+#SAVEINFO.QUICK_WARNING_STR="クイックセーブしてもよろしいですか？"
+<span class="comment">// =============================================================</span>
+#LOADINFO.DLGWND_CAPTION_TITLE_STR="ロード"
+#LOADINFO.DLGWND_DESIDE_BUTTON_STR="ロードする"
+#LOADINFO.DLGWND_DATALIST_NAMEHEADER_STR="ロード"
+#LOADINFO.DLGWND_WARNING_CHKBOX_STR="ロードする前に確認メッセージを表示する。"
+#LOADINFO.DLGWND_DBLCLICK_CHKBOX_STR="リストをダブルクリックでロードする。"
+#LOADINFO.WARNING_STR="ロードしてもよろしいですか？"
+#LOADINFO.QUICK_WARNING_STR="クイックロードしてもよろしいですか？"
+</pre>
+
+<h5> #SAVELOAD_DIALOG.DATA_CNT_PAR_PAGE</h5>
+
+<p>セーブ・ロードダイアログの１ページ（１タブ）あたりのデータ数を設定します。
+</p>
+<h5> #SAVE.NO_DATA_STR</h5>
+
+<p>存在しないセーブデータの文字列を設定します。
+</p>
+<h5> #SAVEINFO.DLGWND_CAPTION_TITLE_STR</h5>
+<h5> #LOADINFO.DLGWND_CAPTION_TITLE_STR</h5>
+
+<p>セーブ・ロードダイアログのキャプションタイトルの文字列を設定します。
+</p>
+<h5> #SAVEINFO.DLGWND_DESIDE_BUTTON_STR</h5>
+<h5> #LOADINFO.DLGWND_DESIDE_BUTTON_STR</h5>
+
+<p>セーブ・ロードダイアログの決定ボタンの文字列を設定します。
+</p>
+<h5> #SAVEINFO.DLGWND_DATALIST_NAMEHEADER_STR</h5>
+<h5> #LOADINFO.DLGWND_DATALIST_NAMEHEADER_STR</h5>
+
+<p>セーブ・ロードダイアログのデータリストの先頭文字列を設定します。
+</p>
+<h5> #SAVEINFO.DLGWND_WARNING_CHKBOX_STR</h5>
+<h5> #LOADINFO.DLGWND_WARNING_CHKBOX_STR</h5>
+
+<p>セーブ・ロードダイアログの確認チェックボックスの文字列を設定します。
+</p>
+<h5> #SAVEINFO.DLGWND_DBLCLICK_CHKBOX_STR</h5>
+<h5> #LOADINFO.DLGWND_DBLCLICK_CHKBOX_STR</h5>
+
+<p>セーブ・ロードダイアログのダブルクリックチェックボックスの文字列を設定します。
+</p>
+<h5> #SAVEINFO.WARNING_STR</h5>
+<h5> #LOADINFO.WARNING_STR</h5>
+
+<p>セーブ・ロード確認ウィンドウの確認文章の文字列を設定します。
+</p>
+<h5> #SAVEINFO.QUICK_WARNING_STR</h5>
+<h5> #LOADINFO.QUICK_WARNING_STR</h5>
+
+<p>クイックセーブ・クイックロード確認ウィンドウの確認文章の文字列を設定します。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

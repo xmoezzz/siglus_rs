@@ -1,0 +1,118 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　基本構文　＞　<a href="../../スクリプトマニュアル/基本構文/ジャンプ.html">ジャンプ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ラベルとラベルジャンプ</h1>
+
+<h4> #label / goto</h4>
+
+<pre class="exp">
+#label
+goto #label
+</pre>
+
+<p>ラベルを作成することで、その場所にジャンプすることができます。
+</p>
+<h5> _start.ss</h5>
+
+<pre class="source">
+#z00
+
+ここからスタートします。r
+                            <span class="comment">//</span>
+goto #label_01              <span class="comment">// ─┐</span>
+                            <span class="comment">//   │</span>
+ここは実行されません。r     <span class="comment">//   │  ラベルまでジャンプする</span>
+                            <span class="comment">//   │</span>
+#label_01                   <span class="comment">// ←┘</span>
+                            <span class="comment">//</span>
+ここが実行されます。r
+
+owari
+</pre>
+
+<h5> 実行結果</h5>
+
+<pre class="result">
+ここからスタートします。
+ここが実行されます。
+</pre>
+
+<h1> Ｚラベルとシーンジャンプ</h1>
+
+<h4> jump</h4>
+
+<pre class="exp">
+jump($scene_name)
+jump($scene_name, $z_label_no)
+</pre>
+
+<p>jump を使うことで、別のシーンにジャンプすることができます。
+正確には、シーンの #z00 がある位置にジャンプします。
+</p>
+<h5> _start.ss</h5>
+
+<pre class="source">
+#z00
+
+ここからスタートします。r
+
+jump("５月１４日")
+</pre>
+
+<h5> ５月１４日.ss</h5>
+
+<pre class="source">
+#z00
+
+次にここが実行されます。r
+
+owari
+</pre>
+
+<h4> Ｚラベル</h4>
+
+<p>Ｚラベルを使うと、シーンの途中にジャンプすることができます。
+Ｚラベルは、#z00 ～ #z999 の合計1000個作ることができます。
+</p>
+<div class="chips">
+(2012/04/13) 使えるZラベルが999まで増えました。今までは99まででした。
+</div>
+
+<h5> ５月１４日.ss</h5>
+
+<pre class="source">
+#z00
+
+jump("５月１５日", 01)       <span class="comment">// ５月１５日.ss の #z01 にジャンプします。</span>
+</pre>
+
+<h5> ５月１５日.ss</h5>
+
+<pre class="source">
+#z00
+
+ここは実行されません。r
+
+#z01
+
+最後にここが実行されます。r
+
+owari
+</pre>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

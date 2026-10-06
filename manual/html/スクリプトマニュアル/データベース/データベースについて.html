@@ -1,0 +1,83 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/データベース/データベース.html">データベース</a>　＞　<a href="../../スクリプトマニュアル/データベース/データベースについて.html">データベースについて</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> データベースについて</h1>
+
+<p>文字通りデータベースを作る機能です。
+アイテムやモンスターなどの情報をデータベース化して利用します。
+Microsoft Excel を使って作成できます。
+</p>
+<h4> データベースの作り方</h4>
+
+<ul>
+<li> Excel を使ってデータベースを作成する</li>
+<li> csv 形式で保存する</li>
+<li> CSV2DBS.exe を使って csv → dbs にコンバートする</li>
+<li> Gameexe.ini に dbs を登録する</li>
+</ul>
+
+<h4> ステップ１：データベースを作成する</h4>
+
+<p>データベースは Excel を使って作成します。
+以下の説明は、サンプルを見ながら読むと分かりやすいと思います。
+（→ ◇02_ツール\◇04_データ作成\CSV2DBS_データベース作成\サンプルデータ）
+</p>
+<h5> アイテム番号とコラム番号</h5>
+
+<p>データベースには、アイテム番号とコラム番号が必要です。
+「Ａ」の列にある数値がアイテム番号です。
+「#DATANO」と書いてあるの行にある数値がコラム番号です。
+スクリプトではこれらの番号を指定することでデータを呼び出します。
+（例：「ともよ」を取り出すには、アイテム番号 = 4、コラム番号 = 1 を指定します。）
+番号は 0～2147483647 の範囲の整数です。
+アイテム番号がない行やコラム番号がない列のデータは取り出すことができません。
+逆に言えば、それらの行や列には、何を書いても構いません。コメントなどを書き込んで下さい。
+サンプルの「★プレイヤー」「名前」などは、アイテム番号がないため、コメントとして扱われます。
+</p>
+<h5> データタイプ</h5>
+
+<p>データには、整数データと文字列データがあります。
+整数データは A,B,C,D,E,F,G,H,I,J,L,Z フラグに、
+文字列データは、RealLive の S,M,K フラグに読み込むことができます。
+コマンド「#DATATYPE」の行にある文字がデータタイプを表します。
+データタイプに V を指定したコラムのデータは整数データに、
+S を指定したコラムのデータは文字列データになります。
+</p>
+<img src="database_pic.png">
+
+<h4> ステップ２：csv 形式で保存</h4>
+
+<p>Excel で「ファイル」→「名前をつけて保存」→
+ファイルの種類を「CSV (カンマ区切り) (*.cvs)」を選んで保存すると、
+csv 形式でファイルを保存できます。
+</p>
+<h4> ステップ３：コンバート</h4>
+
+<p>CSV2DBS を使って、csv ファイルを dbs ファイルにコンバートします。
+</p>
+<h4> ステップ４：Gameexe.ini に登録</h4>
+
+<p>Gameexe.ini の #DATABASE_FILENAME に、dbs ファイルを登録します。
+</p>
+<pre class="source">
+#DATABASE.CNT = 2
+#DATABASE.000 = "database000.dbs"
+#DATABASE.001 = "database001.dbs"
+...
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

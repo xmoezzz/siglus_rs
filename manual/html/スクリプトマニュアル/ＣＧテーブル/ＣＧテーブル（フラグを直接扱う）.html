@@ -1,0 +1,80 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/ＣＧテーブル/ＣＧテーブル.html">ＣＧテーブル</a>　＞　<a href="../../スクリプトマニュアル/ＣＧテーブル/ＣＧテーブル（フラグを直接扱う）.html">ＣＧテーブル（フラグを直接扱う）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＣＧテーブル（フラグを直接扱う）</h1>
+
+<h4> ＣＧテーブルフラグ</h4>
+
+<pre class="exp">
+cgtable.flag
+</pre>
+
+<p>ＣＧテーブルは、ＣＧを見た／見てないを専用のフラグ（cgtable.flag）で管理しています。
+cgtable.flag は、aフラグなどと同様の、整数型のフラグです。
+他のフラグと同様に演算、代入などができます。ビットフラグにも対応しています。
+</p>
+<p>通常は <a href="../../スクリプトマニュアル/ＣＧテーブル/ＣＧテーブル.html">ＣＧテーブル</a> の簡易コマンドで事足りると思います。
+こちらの方が使いやすい場合は使って下さい。
+</p>
+<h5> フラグの値</h5>
+
+<p>ＣＧを見てない=0、ＣＧを見た=1
+</p>
+<h4> ＣＧに割り当てられているフラグの番号を取得する</h4>
+
+<pre class="exp">
+a[0] = cgtable.get_flag_no_by_name($file_name)       // 名前から取得する
+</pre>
+
+<div class="table-container">
+<table>
+<tr><td>cgtable.get_flag_no_by_name(CG001) == 3</td><td>cgtable.flag[3] == 0 なら見てない、cgtable.flag[3] == 1 なら見た</td></tr>
+<tr><td>cgtable.get_flag_no_by_name(CG001) == 5</td><td>cgtable.flag[5] == 0 なら見てない、cgtable.flag[5] == 1 なら見た</td></tr>
+<tr><td>cgtable.get_flag_no_by_name(CG001) == -1</td><td>CG001 は登録されていない</td></tr>
+</table>
+</div>
+
+<h4> フラグ番号からＣＧのファイル名を取得する</h4>
+
+<pre class="exp">
+s[0] = cgtable.get_name_by_flag_no($flag_no)
+</pre>
+
+<h4> フラグの使い方の例</h4>
+
+<pre class="source">
+cgtable.flag[0] = 1                 <span class="comment">// フラグに 1 を代入</span>
+a[0] = cgtable.flag[0]              <span class="comment">// フラグの値を a[0] に代入</span>
+a[0] = cgtable.flag.bit1[0]         <span class="comment">// ビットフラグ</span>
+</pre>
+
+<h5> サンプル：ＣＧを見た／見てないで分岐する</h5>
+
+<pre class="source">
+<span class="comment">// CG001 に割り当てられているフラグ番号を取得する</span>
+a[0] = cgtable.get_flag_no_by_name(CG001)
+
+<span class="comment">// フラグが 0（=見ていない）か 1（=見た）で分岐</span>
+if (cgtable.flag[a[0]] == 1)    {
+    <span class="comment">// ＣＧを見たときの処理</span>
+}
+else    {
+    <span class="comment">// ＣＧを見ていないときの処理</span>
+}
+</pre>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

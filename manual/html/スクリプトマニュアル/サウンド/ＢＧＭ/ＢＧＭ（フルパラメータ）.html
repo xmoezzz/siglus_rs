@@ -1,0 +1,86 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭ.html">ＢＧＭ</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\ＢＧＭ\ＢＧＭ（フルパラメータ）.html">ＢＧＭ（フルパラメータ）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ＢＧＭ（フルパラメータ）</h1>
+
+<p>ＢＧＭの play コマンドは、名前つき引数が使えます。
+</p>
+<pre class="exp">
+bgm.play({名前つき引数})
+bgm.play($name, {名前つき引数})
+bgm.play($name, $fade_in_time, {名前つき引数})
+bgm.play($name, $fade_in_time, $fade_out_time, {名前つき引数})
+
+名前つき引数 = {name, loop, wait, start_pos, fade_in_time, fade_out_time}
+</pre>
+
+<h5> name</h5>
+
+<p>Gameexe.ini で登録した bgm の名前を入れます。
+以下の２つのコマンドは、どちらも "学校１" を再生します。
+</p>
+<pre class="source">
+bgm.play("学校１")          <span class="comment">// Gameexe.ini に登録された "学校１" を再生する</span>
+bgm.play(name="学校１")     <span class="comment">// Gameexe.ini に登録された "学校１" を再生する</span>
+</pre>
+
+<h5> loop</h5>
+
+<p>0=ループしない、1=ループする
+</p>
+<p>省略した場合、1（ループする）になります。
+</p>
+<h5> wait</h5>
+
+<p>0=再生終了を待たない、1=再生終了を待つ
+</p>
+<p>省略した場合、0（再生終了を待たない）になります。
+</p>
+<h5> start_pos</h5>
+
+<p>再生開始位置を指定できます。
+Gameexe.ini と同様、サンプル数で指定して下さい。（ﾐﾘ秒ではありません！）
+</p>
+<p>省略した場合、または -1 を指定した場合、Gameexe.ini で設定した開始位置が使われます。
+</p>
+<h5> fade_in_time</h5>
+
+<p>フェードイン時間をﾐﾘ秒で指定します。
+</p>
+<h5> fade_out_time</h5>
+
+<p>クロスフェードを行います。前の曲がフェードアウトする時間をﾐﾘ秒で指定します。
+</p>
+<h4> サンプル：ＢＧＭ「学校１」を、100000 サンプル目から、１秒でフェードインしながら、ループ再生する</h4>
+
+<pre class="source">
+bgm.play("学校１", start_pos = 100000, fade_in_time = 1000, loop = 1)
+</pre>
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

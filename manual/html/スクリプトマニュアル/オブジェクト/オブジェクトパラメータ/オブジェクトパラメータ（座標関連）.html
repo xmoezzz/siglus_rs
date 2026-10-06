@@ -1,0 +1,138 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　オブジェクトパラメータ　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトパラメータ\オブジェクトパラメータ（座標関連）.html">オブジェクトパラメータ（座標関連）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> オブジェクトパラメータ（座標関連）</h1>
+
+<h4> 座標を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].x = 0
+front.object[0].y = 0
+front.object[0].z = 0
+front.object[0].set_pos($x, $y)
+front.object[0].set_pos($x, $y, $z)
+</pre>
+
+<p>表示座標を設定／取得します。２Ｄオブジェクトの場合、z は使いません。
+</p>
+<h4> 修正座標を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].x_rep
+front.object[0].y_rep
+front.object[0].z_rep
+</pre>
+
+<p>修正座標は「整数配列」です。
+詳しい使い方は <a href="../../../スクリプトマニュアル\整数\整数配列.html">整数配列</a> を参照して下さい。
+</p>
+<p>修正座標を使うには、修正座標を確保する必要があります。
+</p>
+<p>修正座標のイベントを使うには注意が必要です。
+詳しくは <a href="../../../スクリプトマニュアル\オブジェクト\オブジェクトイベント.html">オブジェクトイベント</a> を参照して下さい。
+</p>
+<pre class="source">
+front.object[0].x = 100            <span class="comment">// Ｘを１００にする</span>
+front.object[0].x_rep.resize(2)    <span class="comment">// 修正座標Ｘを２個確保する</span>
+front.object[0].x_rep[0] = 10      <span class="comment">// 修正座標Ｘの０番を１０に設定</span>
+front.object[0].x_rep[1] = 20      <span class="comment">// 修正座標Ｘの１番を２０に設定</span>
+
+disp     <span class="comment">// 100+10+20 = 130 の位置にオブジェクトが表示される</span>
+</pre>
+
+<h4> 中心座標を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].center_x = 0
+front.object[0].center_y = 0
+front.object[0].center_z = 0
+front.object[0].set_center($x, $y)
+front.object[0].set_center($x, $y, $z)
+</pre>
+
+<p>中心座標を設定／取得します。
+RealLive の「中心修正座標」に当たります。
+２Ｄオブジェクトの場合、z は使いません。
+</p>
+<p>通常はこの値を変更することはないと思います。
+なぜなら g00 画像の場合、G00Pack.exe で画像を作成する時点で中心座標を設定できるからです。
+詳しくは G00Pack.exe のマニュアルを参照して下さい。
+</p>
+<p>中心座標は、画像の中心をあらわします。
+例えば中心が (100, 100) で位置が (20, 20) の場合、
+画像の (100, 100) が画面の (20, 20) に来るように表示されます。
+結果、左上に 80 ほど動いた位置に表示されることになります。
+</p>
+<p>中心座標は拡縮や回転の中心にもなります。
+通常、画像を回転させると、画像の左上を基準に回転すると思います。
+中心座標を設定すると、その中心を基準に回転するようになります。
+</p>
+<p>似たパラメータとして「中心補正座標」があります。そちらも参照して下さい。
+</p>
+<h4> 中心補正座標を設定／取得する</h4>
+
+<pre class="exp">
+front.object[0].center_rep_x = 0
+front.object[0].center_rep_y = 0
+front.object[0].center_rep_z = 0
+front.object[0].set_center_rep($x, $y)
+front.object[0].set_center_rep($x, $y, $z)
+</pre>
+
+<p>拡縮、回転の中心を設定／取得します。
+２Ｄオブジェクトの場合、z は使いません。
+</p>
+<p>「中心補正座標」は「中心座標」と違い、位置は動きません。
+位置はそのままで、拡縮や回転の基準位置のみ変えたい場合に使って下さい。
+</p>
+<h4> 拡大／縮小する</h4>
+
+<pre class="exp">
+front.object[0].scale_x = 1000
+front.object[0].scale_y = 1000
+front.object[0].scale_z = 1000
+front.object[0].set_scale($x, $y)
+front.object[0].set_scale($x, $y, $z)
+</pre>
+
+<p>オブジェクトを拡縮します。（1000=等倍、2000=２倍、500=半分）
+２Ｄオブジェクトの場合、z は使いません。
+</p>
+<h4> 左右／上下に反転させる</h4>
+
+<p>専用パラメータはありません。
+scale にマイナスを指定することで、上下左右に反転できます。
+</p>
+<pre class="source">
+front.object[0].scale_x = -1000   <span class="comment">// 左右に反転させる</span>
+</pre>
+
+
+<h4> 回転する</h4>
+
+<pre class="exp">
+front.object[0].rotate_x = 0
+front.object[0].rotate_y = 0
+front.object[0].rotate_z = 0
+front.object[0].set_rotate($x, $y)
+front.object[0].set_rotate($x, $y, $z)
+</pre>
+
+<p>時計回りに回転を行います。（10 = 1°、3600 = 360°）
+２Ｄオブジェクトを回転させる場合は、rotate_z を使います。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

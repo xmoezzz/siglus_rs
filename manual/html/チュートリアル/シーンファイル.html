@@ -1,0 +1,101 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../チュートリアル/シーンファイル.html">シーンファイル</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1>シーンファイル</h1>
+
+<h4>シーンの分け方</h4>
+
+<p>ゲーム内のシナリオは、全てシナリオファイルに書きます。
+シナリオは、複数のシーンファイルに分けて書くのが普通です。
+シーン名は自由ですが、分かりやすい名前にしておきましょう。
+</p>
+<div class="table-container">
+<table>
+<caption>シーンファイル名の例</caption>
+<tr><td>_start.ss</td><td>スタートシーン</td></tr>
+<tr><td>_menu.ss</td><td>メニューシーン</td></tr>
+<tr><td>_cancel.ss</td><td>キャンセルメニュー</td></tr>
+<tr><td>_config.ss</td><td>環境設定画面</td></tr>
+<tr><td>５月１４日.ss</td><td>５月１４日</td></tr>
+<tr><td>５月１５日.ss</td><td>５月１５日</td></tr>
+<tr><td>...</td><td></td></tr>
+</table>
+</div>
+
+<h4>スタートシーンとメニューシーン</h4>
+
+<p>ゲームには、「スタートシーン」、「メニューシーン」の２つのシーンが必須になります。
+それぞれ、"_start.ss"、"_menu.ss" という名前になります。
+</p>
+<p>スタートシーンは、「ゲーム起動時に呼ばれるシーン」です。
+ブランドロゴを表示したり、プロテクトのチェックを行ったりなど、
+起動時に１回だけ行うべき処理を入れます。
+</p>
+<p>メニューシーンは、returnmenu コマンドや、ユーザーがシステムメニューの「メニューに戻る」を選んだ時など、
+メニューに戻った時に最初に呼ばれるシーンです。
+通常は、ゲームのタイトルメニューを表示し、「ゲームスタート」「鑑賞モード」などのボタンを配置します。
+</p>
+<h4>各シーンを作る</h4>
+
+<h5>_start.ss</h5>
+
+<pre class="source">
+#z00
+
+ブランドロゴを表示します。r
+
+<span class="comment">// メニューシーンに戻ります。</span>
+returnmenu
+</pre>
+
+<p>スタートシーンでは、ブランドロゴを表示した後、
+returnmenu コマンドでメニューに戻ります。
+</p>
+<h5>_menu.ss</h5>
+
+<pre class="source">
+#z00
+
+<span class="comment">// 選択肢を表示します。</span>
+a[0] = sel("ゲームを始める", "ゲームを終わる")
+
+<span class="comment">// 選択結果によって、処理を分岐します。</span>
+switch (a[0])   {
+    case (0)  jump("５月１４日")  <span class="comment">// ５月１４日.ss にジャンプします。</span>
+    case (1)  owari               <span class="comment">// ゲームを終了します。</span>
+}
+</pre>
+
+<p>メニュー画面では、sel コマンドを使って選択肢を表示しています。
+選んだ結果によって、"５月１４日.ss" に飛ぶか、またはゲームを終了しています。
+</p>
+<h5>５月１４日.ss</h5>
+
+<pre class="source">
+#z00
+
+５月１４日の朝です。r
+ゲームを終了します。r
+
+<span class="comment">// メニューシーンに戻ります。</span>
+returnmenu
+</pre>
+
+<p>ゲーム本編です。
+ゲーム終了後、returnmenu コマンドでメニューに戻ります。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,77 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../スクリプトマニュアル/フラグ/フラグ.html">フラグ</a>　＞　<a href="../../スクリプトマニュアル/フラグ/グローバル／ローカル／コールフラグ.html">グローバル／ローカル／コールフラグ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> グローバル／ローカル／コールフラグ</h1>
+
+<h4> グローバルフラグ</h4>
+
+<p>全セーブデータで共通して持つフラグです。
+ＣＧ鑑賞モードを作る場合は、「ＣＧを見たか見てないか」を記憶する必要があります。
+この値は全セーブデータで共通して持つべきですので、グローバルフラグを使います。
+</p>
+<p>整数フラグが g, z の２種類あります。文字列フラグは m フラグのみです。
+それぞれ 1000 個ずつあります。（設定ファイルで変更できます。<a href="../../設定ファイル/フラグの設定.html">フラグの設定</a> 参照）
+g, z の２つに違いはありません。分かりやすく使い分けてください。
+</p>
+<div class="table-container">
+<table>
+<tr><td>表記</td><td>型</td></tr>
+<tr><td>g[0000]～g[0999]</td><td>整数</td></tr>
+<tr><td>z[0000]～z[0999]</td><td>整数</td></tr>
+<tr><td>m[0000]～m[0999]</td><td>文字列</td></tr>
+</table>
+</div>
+
+<h4> ローカルフラグ</h4>
+
+<p>セーブデータごとに持つフラグです。
+キャラクターの好感度などは各セーブデータが持つべきですので、ローカルフラグを使います。
+</p>
+<p>整数フラグが a, b, c, d, e, f の６種類あります。文字列フラグは s フラグのみです。
+それぞれ 1000 個ずつあります。（設定ファイルで変更できます。<a href="../../設定ファイル/フラグの設定.html">フラグの設定</a> 参照）
+６つの整数フラグに違いはありません。分かりやすく使い分けてください。
+</p>
+<div class="table-container">
+<table>
+<tr><td>表記</td><td>型</td></tr>
+<tr><td>a[0000]～a[0999]</td><td>整数</td></tr>
+<tr><td>b[0000]～b[0999]</td><td>整数</td></tr>
+<tr><td>c[0000]～c[0999]</td><td>整数</td></tr>
+<tr><td>d[0000]～d[0999]</td><td>整数</td></tr>
+<tr><td>e[0000]～e[0999]</td><td>整数</td></tr>
+<tr><td>f[0000]～f[0999]</td><td>整数</td></tr>
+<tr><td>s[0000]～s[0999]</td><td>文字列</td></tr>
+</table>
+</div>
+
+<h4> コールフラグ</h4>
+
+<p>gosub、farcall などのコール時、またはユーザコマンドが呼ばれたときに作られるフラグです。
+それぞれ 50 個ずつあります。（設定ファイルで変更できます。<a href="../../設定ファイル/フラグの設定.html">フラグの設定</a> 参照）
+詳しくはコールの項目で説明します。
+非常に便利なフラグです。上手に使ってください。
+</p>
+<div class="table-container">
+<table>
+<tr><td>表記</td><td>型</td></tr>
+<tr><td>l[00]～l[49]</td><td>整数</td></tr>
+<tr><td>k[00]～k[49]</td><td>文字列</td></tr>
+</table>
+</div>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

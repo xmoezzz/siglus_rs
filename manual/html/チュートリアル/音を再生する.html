@@ -1,0 +1,62 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+チュートリアル　＞　<a href="../チュートリアル/音を再生する.html">音を再生する</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> 音を再生する</h1>
+
+<h4> ＢＧＭを再生する</h4>
+
+<p>ＢＧＭを再生するには、設定ファイルにＢＧＭを登録する必要があります。
+登録方法については <a href="../設定ファイル/ＢＧＭの設定.html">ＢＧＭの設定</a> を参照して下さい。
+</p>
+<p>ＢＧＭを再生するには、bgm を使います。
+</p>
+<pre class="source">
+bgm.play("朝")
+</pre>
+
+<p>bgm.play コマンドには、ファイル名ではなく「設定ファイルでの登録名」を指定することに注意して下さい。
+</p>
+<h4> 効果音を再生する</h4>
+
+<p>効果音を再生するには、pcm を使います。
+</p>
+<pre class="source">
+pcm.play(fanfare)
+</pre>
+
+<p>fanfare.wav を再生しています。
+</p>
+<h4> システムを音を再生する</h4>
+
+<p>システム音は、スクリプトで再生するものではありません。
+選択肢を選んだときや、セーブを行ったときなどに、自動的に鳴る音です。
+</p>
+<p>システム音は、設定ファイルに登録します。
+登録方法については <a href="../設定ファイル/システム音の設定.html">システム音の設定</a> を参照して下さい。
+</p>
+<p>自力制御のメニューを作った場合などは、スクリプトでシステム音を再生することもあります。
+その場合は、se を使います。
+</p>
+<pre class="source">
+se.play(0)
+</pre>
+
+<p>se.play コマンドには、ファイル名ではなく「設定ファイルでの登録番号」を指定することに注意して下さい。
+</p>
+
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

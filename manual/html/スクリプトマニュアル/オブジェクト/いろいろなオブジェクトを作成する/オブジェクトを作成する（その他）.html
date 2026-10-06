@@ -1,0 +1,83 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　<a href="../../../スクリプトマニュアル\オブジェクト\オブジェクト.html">オブジェクト</a>　＞　いろいろなオブジェクトを作成する　＞　<a href="../../../スクリプトマニュアル\オブジェクト\いろいろなオブジェクトを作成する\オブジェクトを作成する（その他）.html">オブジェクトを作成する（その他）</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> その他のオブジェクト</h1>
+
+<h4>セーブサムネイルオブジェクトを作成する</h4>
+
+<pre class="exp">
+front.object[0].create_save_thumb($save_no)
+front.object[0].create_save_thumb($save_no, $disp)
+front.object[0].create_save_thumb($save_no, $disp, $x, $y)
+</pre>
+
+<p>セーブサムネイルオブジェクトを作成します。
+自動的にオブジェクトは初期化されます。
+詳細は <a href="../../../スクリプトマニュアル\システム制御\セーブ／ロード\セーブサムネイル.html">セーブサムネイル</a> を参照して下さい。
+</p>
+
+<div class="mada">
+
+<h4>メッシュオブジェクト（３Ｄオブジェクト）を作成する</h4>
+
+<pre class="exp">
+front.object[0].create_mesh($file_name)
+front.object[0].create_mesh($file_name, $disp)
+front.object[0].create_mesh($file_name, $disp, $x, $y)
+</pre>
+
+<p>x ファイルを読み込み、メッシュオブジェクト（３Ｄオブジェクト）を作成します。
+自動的にオブジェクトは初期化されます。
+</p>
+<h4>ビルボードオブジェクトを作成する</h4>
+
+<pre class="exp">
+front.object[0].create_billboard($file_name)
+front.object[0].create_billboard($file_name, $disp)
+front.object[0].create_billboard($file_name, $disp, $x, $y)
+</pre>
+
+<p>画像ファイルを読み込み、ビルボードオブジェクトを作成します。
+自動的にオブジェクトは初期化されます。
+</p>
+<h5>ビルボードとは？</h5>
+
+<p>２Ｄの画像を、３Ｄ空間に立たせる技術です。
+３Ｄを使わない場合は使いません。
+</p>
+</div> <!-- mada -->
+
+<h4>オブジェクトのコピーを作成する</h4>
+
+<pre class="exp">
+front.object[0].create_copy_from($object)
+</pre>
+
+<p>オブジェクトをコピーします。
+</p>
+<h5>バックのオブジェクトをフロントにコピーする</h5>
+
+<pre class="source">
+front.object[0].create_copy_from(back.object[0])
+</pre>
+
+<h4>その他のオブジェクト</h4>
+
+<p>RealLive にあったフィルタオブジェクトは削除されました。
+<a href="../../../スクリプトマニュアル\演出\スクリーン.html">スクリーン</a> や <a href="../../../スクリプトマニュアル\ステージ／オーダー\ステージ.html">ステージ</a> のパラメータで代用して下さい。
+</p>
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

@@ -1,0 +1,93 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　ステージ／オーダー　＞　<a href="../../スクリプトマニュアル/ステージ／オーダー/ステージ.html">ステージ</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> ステージ</h1>
+
+<p>ステージは、画面に表示される１枚のプレーンです。
+オブジェクト、メッセージウィンドウなど、画面に表示されるものは、ステージ上に配置されます。
+</p>
+<p>通常時は「フロントステージ」が画面に表示されています。
+対して「バックステージ」は、画面に表示されません。
+「バックステージ」は、「ワイプ」を行うのに使います。
+「バックステージ」にオブジェクトを準備し、「ワイプ」を行うことで、
+徐々に「フロントステージ」から「バックステージ」に画面が切り替わります。
+</p>
+<p>通常、ゲームは次のように進みます。
+</p>
+<ul>
+<li>「バックステージ」にオブジェクトを準備する</li>
+<li>「ワイプ」を行う。バックステージがフロントステージにコピーされ、オブジェクトが画面に表示される</li>
+<li>「フロントステージ」にメッセージを表示する</li>
+</ul>
+
+<h4> ステージ</h4>
+
+<p>それぞれのステージは back、front、next で指定します。
+stage[0]、stage[1]、stage[2] でも指定できます。
+</p>
+<h4> オブジェクト</h4>
+
+<pre class="exp">
+back.object
+front.object
+next.object
+</pre>
+
+<p>オブジェクトについては <a href="../../スクリプトマニュアル/オブジェクト/オブジェクト.html">オブジェクト</a> を参照して下さい。
+</p>
+<h4> オブジェクトボタングループ（オブジェクトボタングループ）</h4>
+
+<pre class="exp">
+back.objbtngroup
+front.objbtngroup
+next.objbtngroup
+</pre>
+
+<p>オブジェクトボタングループについては <a href="../../スクリプトマニュアル/オブジェクトボタングループ/オブジェクトボタングループ.html">オブジェクトボタングループ</a> を参照して下さい。
+</p>
+<h4> メッセージウィンドウ</h4>
+
+<pre class="exp">
+back.mwnd
+front.mwnd
+next.mwnd
+</pre>
+
+<p>メッセージウィンドウについては <a href="../../スクリプトマニュアル/メッセージウィンドウ/メッセージウィンドウ.html">メッセージウィンドウ</a> を参照して下さい。
+</p>
+<h4> エフェクト</h4>
+
+<pre class="exp">
+back.effect
+front.effect
+next.effect
+</pre>
+
+<p>エフェクトについては <a href="../../スクリプトマニュアル/演出/エフェクト.html">エフェクト</a> を参照して下さい。
+</p>
+<h4> クエイク</h4>
+
+<pre class="exp">
+back.quake
+front.quake
+next.quake
+</pre>
+
+<p>クエイクについては <a href="../../スクリプトマニュアル/演出/クエイク.html">クエイク</a> を参照して下さい。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

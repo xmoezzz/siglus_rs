@@ -1,0 +1,46 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+スクリプトマニュアル　＞　サウンド　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\効果音.html">効果音</a>　＞　<a href="../../../スクリプトマニュアル\サウンド\効果音\BGVについて.html">BGVについて</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> BGVについて</h1>
+
+<p>BGV(バックグラウンドボイス)についての補足説明です。
+各命令の詳細は各命令のところを参照してください。
+</p>
+<h4> １ファイルで鳴らす場合</h4>
+
+<pre class="source">
+<p>pcmch[0].play($file_name, loop=1, volume_type = 16, bgm_fade2_target=1)
+</pre>
+</p>
+<p>ファイル名を１つ指定し、ループさせています。
+音量は汎用に設定しているので、環境に合わせて変更してください。
+</p>
+
+<h4> 複数のファイルで鳴らす場合</h4>
+
+<pre class="source">
+<p>pcmevent[0].start_random(0,wait_type=1,volume_type = 1,bgm_fade2_target = 1,chara_no=5,
+					[BGV_AA01, 100,500],
+					[BGV_AA02, 100,500],
+					[BGV_AA03, 100,500])
+</pre>
+</p>
+<p>この例ではファイルを３つ指定し、ランダムに再生させています。
+音量設定は音声と同期させ、キャラ番号は「5」を指定しています。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>

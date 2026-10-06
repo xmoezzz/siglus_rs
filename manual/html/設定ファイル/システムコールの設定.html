@@ -1,0 +1,50 @@
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=Shift-JIS" />
+<meta http-equiv="Content-Style-Type" content="text/css" />
+<link href="../../index.css" rel="stylesheet">
+</head>
+<body>
+<div class="table-container" style="border:none;">
+<table><tr><td class="whole">
+<a href="../チュートリアル/設定ファイル.html">設定ファイル</a>　＞　<a href="../設定ファイル/システムコールの設定.html">システムコールの設定</a>
+<!-- ここまで自動挿入ヘッダ -->
+
+<h1> システムコールの設定</h1>
+
+<pre class="source">
+<span class="comment">// *************************************************************</span>
+<span class="comment">// ■システムコールの設定</span>
+<span class="comment">// =============================================================</span>
+#EXCALL.ORDER = 10000        <span class="comment">// システムコールのオーダー</span>
+</pre>
+
+<p>システムコールのオーダーを設定できます。
+システムコールのオブジェクト（excall.front.object）のオーダーなどに、この値が加算されます。
+</p>
+<p>環境設定画面などより上に、常にゲームのロゴを表示したい！などの場合に使えると思います。
+</p>
+<h4> サンプル：システムコールより上にオブジェクトを表示する</h4>
+
+<h5> Gameexe.ini</h5>
+
+<pre class="source">
+#EXCALL.ORDER = 100
+</pre>
+
+<h5> ss </h5>
+
+<pre class="source">
+front.object[0].create(unit00, 1)
+front.object[0].order = 200
+</pre>
+
+<p>unit00 が、システムコールより上に表示されます。
+</p>
+
+<!-- ここから自動挿入フッタ -->
+</td></tr></table>
+<hr />
+<div style="text-align: right;">Siglus Manual (c)2016 VisualArt's</div>
+</body>
+</html>
