@@ -2955,7 +2955,7 @@ dependencies = [
 
 [[package]]
 name = "siglus_scene_vm"
-version = "0.2.0"
+version = "1.0.0"
 dependencies = [
  "ab_glyph",
  "android_logger",
