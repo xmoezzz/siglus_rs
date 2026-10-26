@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicU8, Ordering};
 
 use encoding_rs::{BIG5, Encoding, GBK, SHIFT_JIS, UTF_8};
 
+#[cfg_attr(feature = "portable-vm", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Nls {
     #[default]
@@ -114,13 +115,16 @@ impl FromStr for Nls {
     }
 }
 
+#[cfg(not(feature = "portable-vm"))]
 static CURRENT: AtomicU8 = AtomicU8::new(0);
 
 /// The encoding in effect for this process.
+#[cfg(not(feature = "portable-vm"))]
 pub fn current() -> Nls {
     Nls::ALL[usize::from(CURRENT.load(Ordering::Relaxed)).min(Nls::ALL.len() - 1)]
 }
 
+#[cfg(not(feature = "portable-vm"))]
 pub fn set(nls: Nls) {
     let index = Nls::ALL.iter().position(|each| *each == nls).unwrap_or(0);
     CURRENT.store(index as u8, Ordering::Relaxed);
@@ -234,5 +238,32 @@ mod tests {
         }
         assert_eq!(sjis_code('【'), Some(0x8179));
         assert_eq!(sjis_code('A'), Some(0x41));
+    }
+}
+
+#[cfg(feature = "portable-vm")]
+thread_local! { static SCOPED: std::cell::Cell<Nls> = const { std::cell::Cell::new(Nls::Sjis) }; }
+#[cfg(feature = "portable-vm")]
+pub fn current() -> Nls {
+    SCOPED.with(std::cell::Cell::get)
+}
+#[cfg(feature = "portable-vm")]
+pub fn set(nls: Nls) {
+    SCOPED.with(|slot| slot.set(nls));
+}
+#[cfg(feature = "portable-vm")]
+pub struct ScopedNls(Nls);
+#[cfg(feature = "portable-vm")]
+impl ScopedNls {
+    pub fn enter(nls: Nls) -> Self {
+        let previous = current();
+        set(nls);
+        Self(previous)
+    }
+}
+#[cfg(feature = "portable-vm")]
+impl Drop for ScopedNls {
+    fn drop(&mut self) {
+        set(self.0);
     }
 }

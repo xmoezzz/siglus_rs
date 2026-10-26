@@ -11,6 +11,7 @@ pub const STRING_COUNT: usize = 100;
 pub const STRING_BYTES: usize = 64;
 pub const MAX_STACK: usize = 256;
 
+#[cfg_attr(feature = "portable-vm", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Flags {
     values: Vec<i32>,

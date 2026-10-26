@@ -8,6 +8,7 @@
 
 use anyhow::{Result, bail};
 
+#[cfg_attr(feature = "portable-vm", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SceneSubmenu {
     pub id: u8,
@@ -18,6 +19,7 @@ pub struct SceneSubmenu {
     pub starts: Vec<i32>,
 }
 
+#[cfg_attr(feature = "portable-vm", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SceneMenu {
     pub id: u8,
@@ -25,6 +27,7 @@ pub struct SceneMenu {
     pub submenus: Vec<SceneSubmenu>,
 }
 
+#[cfg_attr(feature = "portable-vm", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Avg32SceneHeader {
     pub labels: Vec<u32>,

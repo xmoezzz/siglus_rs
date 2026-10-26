@@ -5,24 +5,28 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
-game_fs = { path = "../game_fs" }
-web-time = "1.1"
+game_fs = { path = "../game_fs", optional = true }
+web-time = { version = "1.1", optional = true }
 anyhow.workspace = true
-chrono.workspace = true
+chrono = { workspace = true, optional = true }
 encoding_rs = "0.8"
-engine-detect = { path = "../engine-detect" }
-ab_glyph = "0.2"
+serde = { version = "1", features = ["derive"], optional = true }
+engine-detect = { path = "../engine-detect", optional = true }
+ab_glyph = { version = "0.2", optional = true }
 
 [target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
 cpal = { version = "0.15", features = ["wasm-bindgen"] }
 
 [features]
-desktop-player = ["dep:bytemuck", "dep:clap", "dep:pollster", "dep:wgpu", "dep:winit"]
+default = ["native-engine"]
+native-engine = ["dep:game_fs", "dep:web-time", "dep:chrono", "dep:engine-detect", "dep:ab_glyph", "dep:kira", "dep:oxideav-cinepak"]
+portable-vm = ["dep:serde"]
+desktop-player = ["native-engine", "dep:bytemuck", "dep:clap", "dep:pollster", "dep:wgpu", "dep:winit"]
 
 [target.'cfg(not(target_os = "horizon"))'.dependencies]
-kira.workspace = true
-oxideav-cinepak = { version = "0.0.3", default-features = false }
+kira = { workspace = true, optional = true }
+oxideav-cinepak = { version = "0.0.3", default-features = false, optional = true }
 bytemuck = { workspace = true, optional = true }
 clap = { workspace = true, optional = true }
 pollster = { workspace = true, optional = true }

@@ -80,79 +80,7 @@ impl Key {
     }
 }
 
-/// Mouse state.
-#[derive(Debug, Clone)]
-pub struct Mouse {
-    pub x: i32,
-    pub y: i32,
-    /// -1: none, 0: left click, 1: right click.
-    click: i32,
-    click_time: u64,
-    /// Set while the engine waits for a click (`TextIconStart`); the
-    /// context menu is only offered then.
-    enable: bool,
-    popup: bool,
-    pub visible: bool,
-}
-
-impl Default for Mouse {
-    fn default() -> Self {
-        Self {
-            x: -999,
-            y: -999,
-            click: -1,
-            click_time: 0,
-            enable: false,
-            popup: false,
-            visible: true,
-        }
-    }
-}
-
-impl Mouse {
-    fn menu_flag(&self) -> bool {
-        self.enable || self.popup
-    }
-
-    /// Position and pending click (clicks expire after 200 ms).
-    pub fn state(&mut self, now: u64) -> (i32, i32, i32) {
-        if now.saturating_sub(self.click_time) > 200 {
-            self.click = -1;
-        }
-        (self.x, self.y, self.click)
-    }
-
-    /// Consumes a pending left click.
-    pub fn button(&mut self, now: u64) -> bool {
-        let clicked = self.click == 0 && now.saturating_sub(self.click_time) < 200;
-        self.click = -1;
-        clicked
-    }
-
-    pub fn flush(&mut self) {
-        self.click = -1;
-    }
-
-    pub fn text_icon_start(&mut self) {
-        self.enable = true;
-    }
-
-    pub fn text_icon_end(&mut self) {
-        self.enable = false;
-    }
-
-    pub fn start_pdt_draw(&mut self) {
-        self.enable = false;
-    }
-
-    pub fn disable_popup(&mut self) {
-        self.popup = false;
-    }
-
-    pub fn popup_flag(&self) -> i32 {
-        i32::from(!self.popup)
-    }
-}
+pub use crate::input::Mouse;
 
 #[derive(Debug, Clone, Default)]
 struct Shake {
@@ -356,6 +284,10 @@ pub fn detect_version(ini: &Ini, root: &std::path::Path) -> i32 {
 }
 
 impl System {
+    pub fn read_seen(&self, seen: i32) -> anyhow::Result<Vec<u8>> {
+        self.game.read_seen(seen)
+    }
+
     pub fn new(game: Avg32Game, clock: Clock, audio: bool, persist: bool) -> Self {
         let version = detect_version(&game.ini, &game.layout.root);
         let root = game.layout.root.clone();
@@ -491,23 +423,9 @@ impl System {
         self.rng = seed;
     }
 
-    fn next_random(&mut self) -> u32 {
-        self.rng = self.rng.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut z = self.rng;
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        (z ^ (z >> 31)) as u32
-    }
-
-    /// Inclusive range.
+    /// Inclusive range, using the original native generator.
     pub fn random(&mut self, low: i32, high: i32) -> i32 {
-        let (low, high) = if low <= high {
-            (low, high)
-        } else {
-            (high, low)
-        };
-        let span = (i64::from(high) - i64::from(low) + 1).max(1) as u64;
-        low + (u64::from(self.next_random()) % span) as i32
+        crate::rng::random(&mut self.rng, low, high)
     }
 
     pub fn rng_state(&self) -> u64 {

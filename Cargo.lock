@@ -259,6 +259,7 @@ dependencies = [
  "kira",
  "oxideav-cinepak",
  "pollster",
+ "serde",
  "web-time 1.1.0",
  "wgpu 0.20.1",
  "winit 0.31.0-beta.3",

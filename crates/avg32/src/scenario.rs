@@ -6,15 +6,23 @@
 //! while every other command runs to completion immediately.  All graphics,
 //! text, sound and input go through [`System`].
 
+#[cfg(feature = "native-engine")]
 use crate::ard::AreaMap;
+#[cfg(feature = "native-engine")]
 use crate::effect::Effect;
+#[cfg(feature = "native-engine")]
 use crate::movie::{AviMovie, MoviePlayer};
 use crate::nls;
+#[cfg(feature = "native-engine")]
 use crate::pdtmgr::{HIDEPDT, Rect};
+#[cfg(feature = "portable-vm")]
+use crate::portable::System;
 use crate::scene::{Avg32SceneHeader, parse_scene_value};
+#[cfg(feature = "native-engine")]
 use crate::system::System;
 
 /// The multi-PDT scroller/slideshow of `0x6a`.
+#[cfg(feature = "native-engine")]
 #[derive(Debug, Clone, Default)]
 struct Ending {
     active: bool,
@@ -33,7 +41,8 @@ struct Ending {
     images: Vec<Option<crate::buffer::PdtBuffer>>,
 }
 
-#[derive(Debug, Default)]
+#[cfg_attr(feature = "portable-vm", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Default)]
 struct MenuState {
     cur: i32,
     cur_sub: i32,
@@ -46,6 +55,8 @@ struct MenuState {
     loopback: i32,
 }
 
+#[cfg_attr(feature = "portable-vm", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "portable-vm", derive(Clone))]
 #[derive(Debug)]
 pub struct Scenario {
     pub seen: i32,
@@ -73,7 +84,9 @@ pub struct Scenario {
     flash_count: i32,
     mes_flag: i32,
     mes_wait_base: u64,
+    #[cfg(feature = "native-engine")]
     area: Option<AreaMap>,
+    #[cfg(feature = "native-engine")]
     area_enabled: [bool; 256],
     select_flag: u8,
     select_index: i32,
@@ -82,9 +95,12 @@ pub struct Scenario {
     multi_anm: i32,
     pub loading: bool,
     sound_wait: u8,
+    #[cfg(feature = "native-engine")]
     ending: Ending,
+    #[cfg(feature = "native-engine")]
     pub effect: Effect,
     auto_mode_count: i32,
+    #[cfg(feature = "native-engine")]
     movie: Option<(MoviePlayer, bool)>,
     name_wait: bool,
     menu_wait: bool,
@@ -163,7 +179,9 @@ impl Scenario {
             flash_count: 0,
             mes_flag: 0,
             mes_wait_base: 0,
+            #[cfg(feature = "native-engine")]
             area: None,
+            #[cfg(feature = "native-engine")]
             area_enabled: [true; 256],
             select_flag: 0,
             select_index: 0,
@@ -172,9 +190,12 @@ impl Scenario {
             multi_anm: 0,
             loading: false,
             sound_wait: 0,
+            #[cfg(feature = "native-engine")]
             ending: Ending::default(),
+            #[cfg(feature = "native-engine")]
             effect: Effect::default(),
             auto_mode_count: -1,
+            #[cfg(feature = "native-engine")]
             movie: None,
             name_wait: false,
             menu_wait: false,
@@ -197,7 +218,10 @@ impl Scenario {
         self.last_save_seen = self.seen;
         self.last_save_pos = self.pos;
         self.wait_cmd = 0;
-        self.effect = Effect::default();
+        #[cfg(feature = "native-engine")]
+        {
+            self.effect = Effect::default();
+        }
         self.fade_cmd = 0;
         self.mes_flag = 0;
         self.select_flag = 0;
@@ -205,15 +229,35 @@ impl Scenario {
         self.anm_flag = false;
         self.multi_anm = 0;
         self.loading = false;
-        self.ending = Ending::default();
-        self.area = None;
-        self.area_enabled = [true; 256];
+        #[cfg(feature = "native-engine")]
+        {
+            self.ending = Ending::default();
+        }
+        #[cfg(feature = "native-engine")]
+        {
+            self.area = None;
+        }
+        #[cfg(feature = "native-engine")]
+        {
+            self.area_enabled = [true; 256];
+        }
         self.auto_mode_count = -1;
         self.sound_wait = 0;
         self.flash_count = 0;
-        self.movie = None;
+        #[cfg(feature = "native-engine")]
+        {
+            self.movie = None;
+        }
         self.name_wait = false;
         self.menu_wait = false;
+    }
+
+    /// Acknowledge the deferred native mes_print return at its syscall boundary.
+    #[cfg(feature = "portable-vm")]
+    pub fn complete_message_print(&mut self, status: i32) -> anyhow::Result<()> {
+        anyhow::ensure!((-1..=1).contains(&status), "native message print status");
+        self.mes_flag = status;
+        Ok(())
     }
 
     pub fn current_command(&self) -> u8 {
@@ -273,6 +317,7 @@ impl Scenario {
         }
     }
 
+    #[cfg(feature = "native-engine")]
     fn rect(&mut self, sys: &System) -> Rect {
         Rect::new(
             self.value(sys),
@@ -282,6 +327,7 @@ impl Scenario {
         )
     }
 
+    #[cfg(feature = "native-engine")]
     fn colour(&mut self, sys: &System) -> [i32; 3] {
         [self.value(sys), self.value(sys), self.value(sys)]
     }
@@ -530,7 +576,7 @@ impl Scenario {
             sys.mouse.disable_popup();
             return true;
         }
-        let bytes = match sys.game.read_seen(seen) {
+        let bytes = match sys.read_seen(seen) {
             Ok(bytes) => bytes,
             Err(error) => {
                 sys.warn(format!("SEEN{seen:03}.TXT: {error:#}"));
@@ -564,21 +610,57 @@ impl Scenario {
 
     /// One frame's worth of decoding.
     pub fn run(&mut self, sys: &mut System) {
-        for _ in 0..100_000 {
+        self.run_budget(sys, 100_000);
+    }
+
+    /// Execute up to a caller-owned instruction budget, never waiting on a device.
+    pub fn run_budget(&mut self, sys: &mut System, budget: u32) {
+        #[cfg(feature = "portable-vm")]
+        if sys.has_events() || sys.error.is_some() {
+            return;
+        }
+        #[cfg(feature = "portable-vm")]
+        let _nls = crate::nls::ScopedNls::enter(sys.nls);
+        #[cfg(feature = "portable-vm")]
+        {
+            sys.frame_yielded = false;
+        }
+        for _ in 0..budget.min(100_000) {
+            #[cfg(feature = "portable-vm")]
+            {
+                sys.instructions = sys.instructions.saturating_add(1);
+            }
             if !sys.running {
                 return;
             }
             let end = if sys.window_in_effect() {
                 true
-            } else if self.effect.active() {
-                let mut effect = self.effect;
-                sys.run_effect(&mut effect);
-                self.effect = effect;
-                !sys.check_skip()
+            } else if {
+                #[cfg(feature = "native-engine")]
+                {
+                    self.effect.active()
+                }
+                #[cfg(feature = "portable-vm")]
+                {
+                    false
+                }
+            } {
+                #[cfg(feature = "native-engine")]
+                {
+                    let mut effect = self.effect;
+                    sys.run_effect(&mut effect);
+                    self.effect = effect;
+                    !sys.check_skip()
+                }
+                #[cfg(feature = "portable-vm")]
+                {
+                    false
+                }
             } else if self.mes_flag != 0 {
                 self.print_message(sys);
                 !sys.check_skip()
             } else {
+                #[cfg(feature = "native-engine")]
                 if self.multi_anm != 0
                     && self.cmd != 0x13
                     && (self.multi_anm == 1 || sys.sound.koe_playing())
@@ -598,10 +680,20 @@ impl Scenario {
                 }
                 self.decode(sys)
             };
+            #[cfg(feature = "portable-vm")]
+            if sys.has_events() || sys.error.is_some() {
+                sys.frame_yielded = end;
+                return;
+            }
             if end {
+                #[cfg(feature = "portable-vm")]
+                {
+                    sys.frame_yielded = true;
+                }
                 return;
             }
         }
+        #[cfg(feature = "native-engine")]
         sys.warn(format!(
             "SEEN{:03}: {:#x}: command loop did not yield",
             self.seen, self.pos
@@ -665,9 +757,11 @@ impl Scenario {
                 true
             }
             0x0b => self.graphics_load(sys),
+            #[cfg(feature = "native-engine")]
             0x0c => self.animation(sys),
             0x0e => self.sound(sys),
             0x10 => self.value_text(sys),
+            #[cfg(feature = "native-engine")]
             0x13 => self.fade(sys),
             0x15 => {
                 let condition = self.conditions(sys);
@@ -691,6 +785,7 @@ impl Scenario {
                 self.cmd = 0;
                 false
             }
+            #[cfg(feature = "native-engine")]
             0x17 => {
                 if self.shake_flag {
                     if sys.shake_step() {
@@ -706,6 +801,7 @@ impl Scenario {
                 }
                 true
             }
+            #[cfg(feature = "native-engine")]
             0x18 => {
                 if self.byte() == 1 {
                     let colour = self.value(sys);
@@ -858,7 +954,9 @@ impl Scenario {
                 false
             }
             0x60 => self.system_command(sys),
+            #[cfg(feature = "native-engine")]
             0x61 => self.name_control(sys),
+            #[cfg(feature = "native-engine")]
             0x63 => {
                 match self.byte() {
                     0x01 => {
@@ -880,7 +978,9 @@ impl Scenario {
                 self.cmd = 0;
                 false
             }
+            #[cfg(feature = "native-engine")]
             0x64 | 0x67 | 0x68 | 0x69 | 0x6a => self.graphics(sys),
+            #[cfg(feature = "native-engine")]
             0x66 => {
                 self.byte();
                 let (x, y) = (self.value(sys), self.value(sys));
@@ -891,8 +991,11 @@ impl Scenario {
                 self.cmd = 0;
                 true
             }
+            #[cfg(feature = "native-engine")]
             0x6c => self.area_control(sys),
+            #[cfg(feature = "native-engine")]
             0x6d => self.mouse_control(sys),
+            #[cfg(feature = "native-engine")]
             0x6e => self.cg_mode(sys),
             0x6f => {
                 for _ in 0..4 {
@@ -901,9 +1004,13 @@ impl Scenario {
                 self.cmd = 0;
                 true
             }
+            #[cfg(feature = "native-engine")]
             0x70 => self.window_config(sys),
+            #[cfg(feature = "native-engine")]
             0x72 => self.window_position(sys),
+            #[cfg(feature = "native-engine")]
             0x73 => self.system_values(sys),
+            #[cfg(feature = "native-engine")]
             0x74 => {
                 match self.byte() {
                     0x01 => {
@@ -932,6 +1039,7 @@ impl Scenario {
                 self.cmd = 0;
                 true
             }
+            #[cfg(feature = "native-engine")]
             0x75 => {
                 let subcommand = self.byte();
                 let data = self.value(sys);
@@ -945,6 +1053,7 @@ impl Scenario {
                 self.cmd = 0;
                 true
             }
+            #[cfg(feature = "native-engine")]
             0x76 => {
                 match self.byte() {
                     0x01 => {
@@ -966,7 +1075,15 @@ impl Scenario {
                 true
             }
             0xfe | 0xff => self.text_packet(sys),
+            #[cfg(feature = "native-engine")]
             _ => self.unknown(sys),
+            #[cfg(feature = "portable-vm")]
+            0 => self.unknown(sys),
+            #[cfg(feature = "portable-vm")]
+            other => {
+                sys.unsupported(other, self.pos - 1);
+                true
+            }
         }
     }
 
@@ -1037,6 +1154,7 @@ impl Scenario {
         true
     }
 
+    #[cfg(feature = "native-engine")]
     fn start_effect(&mut self, sys: &mut System, effect: Effect) {
         self.effect = effect;
         self.effect.curcount = 0;
@@ -1052,6 +1170,7 @@ impl Scenario {
         sys.mes_hide();
         let subcommand = self.byte();
         match subcommand {
+            #[cfg(feature = "native-engine")]
             0x01 | 0x03 | 0x05 => {
                 let name = self.text(sys);
                 let index = self.value(sys);
@@ -1059,6 +1178,7 @@ impl Scenario {
                 sys.snr_load_effect(&name, &effect);
                 self.start_effect(sys, effect);
             }
+            #[cfg(feature = "native-engine")]
             0x02 | 0x04 | 0x06 => {
                 let name = self.text(sys);
                 let mut values = [0i32; 15];
@@ -1097,6 +1217,7 @@ impl Scenario {
                 self.text(sys);
             }
             0x13 => {}
+            #[cfg(feature = "native-engine")]
             0x22 | 0x24 => {
                 let count = self.byte();
                 let mut name = if subcommand == 0x22 {
@@ -1152,12 +1273,15 @@ impl Scenario {
             0x31 | 0x32 => {
                 self.value(sys);
             }
+            #[cfg(feature = "native-engine")]
             0x33 => {
                 let index = self.value(sys);
                 let count = sys.macro_count();
                 sys.flags.set_value(index, count);
             }
+            #[cfg(feature = "native-engine")]
             0x50 => sys.snr_copy(Rect::full(), 0, 0, 0, HIDEPDT as i32, 0),
+            #[cfg(feature = "native-engine")]
             0x52 => {
                 let index = self.value(sys);
                 let mut effect = sys.copy_sel(index);
@@ -1172,6 +1296,7 @@ impl Scenario {
     }
 
     /// `0x0c` animations.
+    #[cfg(feature = "native-engine")]
     fn animation(&mut self, sys: &mut System) -> bool {
         if self.anm_flag {
             if sys.animation_exec() {
@@ -1239,6 +1364,7 @@ impl Scenario {
                 0x02 | 0x06 => sys.sound.bgm_playing(),
                 0x20 => sys.sound.koe_playing(),
                 0x34 | 0x35 => sys.sound.wav_playing(),
+                #[cfg(feature = "native-engine")]
                 0x52..=0x55 => {
                     let cancellable = matches!(self.sound_wait, 0x53 | 0x55);
                     let now = sys.now();
@@ -1259,8 +1385,12 @@ impl Scenario {
             };
             let skipping = sys.check_skip() && !matches!(self.sound_wait, 0x52 | 0x54);
             if !playing || skipping {
+                #[cfg(feature = "native-engine")]
                 if matches!(self.sound_wait, 0x52..=0x55) {
-                    self.movie = None;
+                    #[cfg(feature = "native-engine")]
+                    {
+                        self.movie = None;
+                    }
                     sys.sound.movie_stop();
                 }
                 self.cmd = 0;
@@ -1339,6 +1469,7 @@ impl Scenario {
                 let index = self.value(sys);
                 sys.play_se(index);
             }
+            #[cfg(feature = "native-engine")]
             0x50..=0x55 => {
                 let name = self.name(sys);
                 if subcommand >= 0x54 {
@@ -1358,6 +1489,7 @@ impl Scenario {
         true
     }
 
+    #[cfg(feature = "native-engine")]
     fn start_movie(&mut self, sys: &mut System, name: &str, looped: bool, rect: Rect) {
         let bytes = sys.game.resources.read("AVI", name).or_else(|_| {
             let directory = sys.ini().mov_dir.clone();
@@ -1392,11 +1524,15 @@ impl Scenario {
     }
 
     /// Non-blocking movies keep playing underneath the scenario.
+    #[cfg(feature = "native-engine")]
     pub fn tick_background(&mut self, sys: &mut System) {
         if self.sound_wait == 0 {
             if let Some((movie, _)) = self.movie.as_mut() {
                 if movie.tick(&mut sys.gfx).is_err() || !movie.active() {
-                    self.movie = None;
+                    #[cfg(feature = "native-engine")]
+                    {
+                        self.movie = None;
+                    }
                     sys.sound.movie_stop();
                 }
             }
@@ -1434,6 +1570,7 @@ impl Scenario {
     }
 
     /// `0x13` screen fades through a colour.
+    #[cfg(feature = "native-engine")]
     fn fade(&mut self, sys: &mut System) -> bool {
         if self.fade_cmd != 0 {
             let now = sys.now();
@@ -1877,6 +2014,7 @@ impl Scenario {
 
     /// `0x60` save, load, title and quit.
     fn system_command(&mut self, sys: &mut System) -> bool {
+        #[cfg(feature = "native-engine")]
         if self.loading {
             if sys.loading_proc() {
                 self.cmd = 0;
@@ -1885,6 +2023,7 @@ impl Scenario {
             return true;
         }
         match self.byte() {
+            #[cfg(feature = "native-engine")]
             0x02 => {
                 let slot = self.value(sys);
                 if let Some((seen, pos)) = sys.load(slot - 1) {
@@ -1895,6 +2034,7 @@ impl Scenario {
                     return true;
                 }
             }
+            #[cfg(feature = "native-engine")]
             0x03 => {
                 let slot = self.value(sys);
                 // A scripted save resumes right after this command, so it
@@ -1909,8 +2049,10 @@ impl Scenario {
                 let (title, _, _) = self.formatted_text(sys);
                 sys.set_window_title(title);
             }
+            #[cfg(feature = "native-engine")]
             0x05 => sys.open_context_menu(),
             0x20 => sys.running = false,
+            #[cfg(feature = "native-engine")]
             sub @ (0x30 | 0x35) => {
                 let slot = self.value(sys);
                 let index = self.value(sys);
@@ -1937,6 +2079,7 @@ impl Scenario {
                 });
                 sys.flags.set_string(index, &title.unwrap_or_default());
             }
+            #[cfg(feature = "native-engine")]
             sub @ (0x31 | 0x36 | 0x37) => {
                 let slot = self.value(sys);
                 let index = self.value(sys);
@@ -1959,6 +2102,7 @@ impl Scenario {
     }
 
     /// `0x61` character names and name entry.
+    #[cfg(feature = "native-engine")]
     fn name_control(&mut self, sys: &mut System) -> bool {
         if self.name_wait {
             if sys
@@ -2055,6 +2199,7 @@ impl Scenario {
     }
 
     /// `0x64`/`0x67`-`0x6a` buffer drawing.
+    #[cfg(feature = "native-engine")]
     fn graphics(&mut self, sys: &mut System) -> bool {
         sys.mes_hide();
         let version = sys.version;
@@ -2308,6 +2453,7 @@ impl Scenario {
     }
 
     /// `0x6a`: the ending scroller/slideshow.
+    #[cfg(feature = "native-engine")]
     fn ending(&mut self, sys: &mut System) -> bool {
         if !self.ending.active {
             let mode = self.byte();
@@ -2382,7 +2528,10 @@ impl Scenario {
             0x10 | 0x20 | 0x30 => {
                 if self.ending.cmd == 0x30 && (sys.mouse.button(now) || sys.check_skip()) {
                     sys.flags.set_value(self.ending.cancel, 1);
-                    self.ending = Ending::default();
+                    #[cfg(feature = "native-engine")]
+                    {
+                        self.ending = Ending::default();
+                    }
                     self.cmd = 0;
                     return true;
                 }
@@ -2427,7 +2576,10 @@ impl Scenario {
                 self.ending.line += self.ending.pixel;
                 if self.ending.line >= self.ending.total {
                     sys.flags.set_value(self.ending.cancel, 0);
-                    self.ending = Ending::default();
+                    #[cfg(feature = "native-engine")]
+                    {
+                        self.ending = Ending::default();
+                    }
                     self.cmd = 0;
                 }
             }
@@ -2440,7 +2592,10 @@ impl Scenario {
                 self.ending.time = now;
                 self.ending.line += 1;
                 if self.ending.line as usize >= self.ending.files.len() {
-                    self.ending = Ending::default();
+                    #[cfg(feature = "native-engine")]
+                    {
+                        self.ending = Ending::default();
+                    }
                     self.cmd = 0;
                 } else {
                     let index = self.ending.line as usize;
@@ -2453,6 +2608,7 @@ impl Scenario {
         true
     }
 
+    #[cfg(feature = "native-engine")]
     fn show_immediately(&mut self, sys: &mut System, name: &[u8]) {
         let effect = Effect {
             sx2: 639,
@@ -2467,6 +2623,7 @@ impl Scenario {
     }
 
     /// `0x6c` click areas (`.ARD` maps).
+    #[cfg(feature = "native-engine")]
     fn area_control(&mut self, sys: &mut System) -> bool {
         match self.byte() {
             0x02 => {
@@ -2478,7 +2635,10 @@ impl Scenario {
                     .read("CUR", &cursor)
                     .ok()
                     .and_then(|bytes| crate::cursor::Cursor::parse(&bytes).ok());
-                self.area_enabled = [true; 256];
+                #[cfg(feature = "native-engine")]
+                {
+                    self.area_enabled = [true; 256];
+                }
                 self.area = match sys
                     .game
                     .resources
@@ -2493,8 +2653,14 @@ impl Scenario {
                 };
             }
             0x03 => {
-                self.area = None;
-                self.area_enabled = [true; 256];
+                #[cfg(feature = "native-engine")]
+                {
+                    self.area = None;
+                }
+                #[cfg(feature = "native-engine")]
+                {
+                    self.area_enabled = [true; 256];
+                }
                 sys.cursor = None;
             }
             sub @ (0x04 | 0x05) => {
@@ -2546,6 +2712,7 @@ impl Scenario {
         true
     }
 
+    #[cfg(feature = "native-engine")]
     fn area_find(&self, x: i32, y: i32) -> i32 {
         let Some(map) = &self.area else {
             return 0;
@@ -2559,6 +2726,7 @@ impl Scenario {
     }
 
     /// `0x6d` mouse state.
+    #[cfg(feature = "native-engine")]
     fn mouse_control(&mut self, sys: &mut System) -> bool {
         let now = sys.now();
         match self.byte() {
@@ -2592,6 +2760,7 @@ impl Scenario {
     }
 
     /// `0x6e` CG mode (`MODE.CGM`).
+    #[cfg(feature = "native-engine")]
     fn cg_mode(&mut self, sys: &mut System) -> bool {
         match self.byte() {
             0x01 => {
@@ -2637,6 +2806,7 @@ impl Scenario {
     }
 
     /// Shows every seen CG, one per click.
+    #[cfg(feature = "native-engine")]
     fn auto_cg_mode(&mut self, sys: &mut System) -> bool {
         let now = sys.now();
         if self.auto_mode_count == -1 || sys.mouse.button(now) || sys.check_skip() {
@@ -2663,6 +2833,7 @@ impl Scenario {
     }
 
     /// `0x70` message-window colour and style.
+    #[cfg(feature = "native-engine")]
     fn window_config(&mut self, sys: &mut System) -> bool {
         match self.byte() {
             0x01 => {
@@ -2727,6 +2898,7 @@ impl Scenario {
     }
 
     /// `0x72` window positions.
+    #[cfg(feature = "native-engine")]
     fn window_position(&mut self, sys: &mut System) -> bool {
         let subcommand = self.byte();
         match subcommand {
@@ -2766,6 +2938,7 @@ impl Scenario {
     }
 
     /// `0x73` system values (`#MESSAGE_SIZE`, `#MSG_SPEED`, …).
+    #[cfg(feature = "native-engine")]
     fn system_values(&mut self, sys: &mut System) -> bool {
         let subcommand = self.byte();
         match subcommand {
@@ -2858,6 +3031,7 @@ impl Scenario {
         let extended = sys.version >= 1714;
         loop {
             let file_offset = (self.code_offset + self.pos.max(0) as usize) as u32;
+            #[cfg(feature = "native-engine")]
             if let Some(voice) = sys
                 .voice_patch
                 .as_ref()
@@ -3018,12 +3192,14 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "native-engine")]
     fn han_to_zen_matches_the_reference_table() {
         assert_eq!(han_to_zen(b"12"), vec![0x82, 0x50, 0x82, 0x51]);
         assert_eq!(han_to_zen(b"A "), vec![0x82, 0x60, 0x81, 0x40]);
     }
 
     #[test]
+    #[cfg(feature = "native-engine")]
     fn strcmp_orders_like_c() {
         assert_eq!(strcmp(b"abc", b"abc"), 0);
         assert!(strcmp(b"abc", b"abd") < 0);
