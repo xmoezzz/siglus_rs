@@ -833,6 +833,10 @@ impl CommandContext {
         self.globals.syscom.fallback_origin = None;
         self.globals.syscom.msg_back_open = false;
         self.globals.syscom.msg_back_proc_initialized = false;
+        // The menu hides the game message window before EXCALL. A load replaces
+        // that scene without running its cleanup, and native saves only store
+        // hide_mwnd's availability flags, not this transient on/off state.
+        self.globals.syscom.hide_mwnd.onoff = false;
         self.globals.system.messagebox_modal = None;
         self.globals.system.messagebox_modal_result = None;
         self.globals.finish_wipe();
@@ -17263,5 +17267,20 @@ mod emote_continuous_frame_tests {
             .emote
             .clear_runtime();
         assert!(!ctx.needs_continuous_frame());
+    }
+}
+
+#[cfg(test)]
+mod load_message_window_tests {
+    use super::*;
+
+    #[test]
+    fn loading_discards_menu_message_window_hide_state() {
+        let mut ctx = CommandContext::new(std::env::temp_dir().join("siglus-load-menu-reset"));
+        ctx.globals.syscom.hide_mwnd.onoff = true;
+        ctx.globals.syscom.hide_mwnd.enable = false;
+        ctx.begin_runtime_load_apply();
+        assert!(!ctx.globals.syscom.hide_mwnd.onoff);
+        assert!(!ctx.globals.syscom.hide_mwnd.enable);
     }
 }
