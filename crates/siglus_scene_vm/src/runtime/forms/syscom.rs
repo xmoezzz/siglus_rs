@@ -4531,6 +4531,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             });
             ctx.globals.syscom.last_menu_call = END_GAME;
             ctx.globals.syscom.menu_open = false;
+            // tnm_syscom_end_game() pushes the warning or end proc, which
+            // stops the script proc at once. Without this boundary the script
+            // runs on (e.g. to scene EOF, which returns to the menu) and the
+            // exit request is overwritten.
+            ctx.request_proc_boundary(crate::runtime::ProcKind::Script);
         }
         REPLAY_KOE => {
             let koe_no = ctx.globals.script.cur_koe_no;

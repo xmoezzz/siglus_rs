@@ -2736,7 +2736,9 @@ impl App {
                 break;
             }
             let Some(proc) = self.flow.top().cloned() else {
-                self.paused = true;
+                // An empty stack is idle, not suspended: `paused` is only the
+                // --paused option. Redraw can still queue a return-to-menu
+                // after the script has halted.
                 break;
             };
             if std::env::var_os("SG_PROC_FLOW_TRACE").is_some() {
