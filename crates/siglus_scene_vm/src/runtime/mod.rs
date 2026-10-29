@@ -9188,6 +9188,9 @@ fn object_backend_sprite_local_offset(
     let Some(sprite_id) = sprite_id else {
         return (0, 0);
     };
+    if obj.object_type == 1 {
+        return (obj.rect_param.left, obj.rect_param.top);
+    }
     if let globals::ObjectBackend::Number { sprite_ids, .. } = &obj.backend {
         return sprite_ids
             .iter()
@@ -9217,6 +9220,23 @@ fn object_backend_sprite_local_offset(
         }
     }
     (0, 0)
+}
+
+fn apply_object_backend_sprite_local_offset(
+    obj: &globals::ObjectState,
+    sprite_id: Option<SpriteId>,
+    sprite: &mut Sprite,
+) {
+    let (local_x, local_y) = object_backend_sprite_local_offset(obj, sprite_id);
+    if local_x == 0 && local_y == 0 {
+        return;
+    }
+    sprite.x = (sprite.x as i64 + local_x).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    sprite.y = (sprite.y as i64 + local_y).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+    // Rectangle edges, glyphs and digits use the object's transform origin.
+    // Moving a backend quad requires the inverse pivot adjustment.
+    sprite.pivot_x -= local_x as f32;
+    sprite.pivot_y -= local_y as f32;
 }
 
 fn object_backend_owns_sprite(
@@ -10668,6 +10688,7 @@ fn object_button_hit_sort_key_from_render(
     let mut bound = fetch_bound_render_sprites_for_hit(layers, gfx, stage_idx, runtime_slot, obj);
     for rs in &mut bound {
         apply_button_object_render_info_to_sprite(&mut rs.sprite, &info);
+        apply_object_backend_sprite_local_offset(obj, rs.sprite_id, &mut rs.sprite);
         if let Some(parent) = parent_state.clone() {
             let dummy = ObjectRenderInfo::default();
             apply_parent_render_state_to_sprite(&mut rs.sprite, &dummy, &parent);
@@ -13607,20 +13628,7 @@ fn append_object_tree_nodes(
             let bound_len_for_trace = bound.len();
             for mut rs in bound.drain(..) {
                 apply_object_render_info_to_sprite(&mut rs.sprite, &info);
-                let (local_x, local_y) = object_backend_sprite_local_offset(obj, rs.sprite_id);
-                if local_x != 0 || local_y != 0 {
-                    rs.sprite.x = (rs.sprite.x as i64 + local_x)
-                        .clamp(i32::MIN as i64, i32::MAX as i64)
-                        as i32;
-                    rs.sprite.y = (rs.sprite.y as i64 + local_y)
-                        .clamp(i32::MIN as i64, i32::MAX as i64)
-                        as i32;
-                    // All glyph and digit quads share the object's transform origin.
-                    // Moving the individual quad requires the inverse pivot
-                    // adjustment, matching C++ rp.center -= glyph.pos.
-                    rs.sprite.pivot_x -= local_x as f32;
-                    rs.sprite.pivot_y -= local_y as f32;
-                }
+                apply_object_backend_sprite_local_offset(obj, rs.sprite_id, &mut rs.sprite);
                 let sprite_layer = total_layer.saturating_add(object_backend_sprite_layer_offset(
                     ctx,
                     &obj.backend,
@@ -15609,6 +15617,168 @@ fn collect_button_visuals_recursive(
 
     for (child_idx, child) in obj.runtime.child_objects.iter().enumerate() {
         collect_button_visuals_recursive(ctx, st, stage_idx, child_idx, child, map, None);
+    }
+}
+
+#[cfg(test)]
+mod rectangle_button_tests {
+    use super::*;
+
+    fn gallery_buttons() -> CommandContext {
+        let mut ctx = CommandContext::new(PathBuf::from("."));
+        let layer_id = ctx.layers.create_layer();
+        let image_id = ctx.images.solid_rgba((255, 255, 255, 0));
+        let mut parent = globals::ObjectState::default();
+        parent.init_param_like();
+        parent.used = true;
+        parent.set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
+        for (i, button_no) in [14, 13, 11, 12, 15, 16].into_iter().enumerate() {
+            let sprite_id = ctx.layers.layer_mut(layer_id).unwrap().create_sprite();
+            let sprite = ctx
+                .layers
+                .layer_mut(layer_id)
+                .unwrap()
+                .sprite_mut(sprite_id)
+                .unwrap();
+            sprite.image_id = Some(image_id.clone());
+            sprite.size_mode = SpriteSizeMode::Explicit {
+                width: 100,
+                height: 570,
+            };
+            let mut obj = globals::ObjectState::default();
+            obj.init_param_like();
+            obj.used = true;
+            obj.object_type = 1;
+            obj.nested_runtime_slot = Some(100_000 + i);
+            obj.backend = globals::ObjectBackend::Rect {
+                layer_id,
+                sprite_id,
+                width: 100,
+                height: 570,
+            };
+            obj.rect_param.left = 43 + i as i64 * 100;
+            obj.rect_param.top = 88;
+            obj.rect_param.right = obj.rect_param.left + 100;
+            obj.rect_param.bottom = 658;
+            obj.set_int_prop(&ctx.ids, ctx.ids.obj_disp, 1);
+            obj.button.enabled = true;
+            obj.button.button_no = button_no;
+            obj.button.group_no = 0;
+            obj.button.action_no = 0;
+            parent.runtime.child_objects.push(obj);
+        }
+        let stage = ctx
+            .globals
+            .stage_forms
+            .entry(ctx.ids.form_global_stage)
+            .or_default();
+        stage.object_lists.insert(1, vec![parent]);
+        stage.ensure_group_list(1, 1);
+        stage.group_lists.get_mut(&1).unwrap()[0].start();
+        ctx
+    }
+
+    #[test]
+    fn transparent_gallery_rectangles_select_the_character_under_the_mouse() {
+        let mut ctx = gallery_buttons();
+        let form = ctx.ids.form_global_stage;
+        for (i, expected) in [14, 13, 11, 12, 15, 16].into_iter().enumerate() {
+            for y in [88, 300, 657] {
+                ctx.globals
+                    .stage_forms
+                    .get_mut(&form)
+                    .unwrap()
+                    .group_lists
+                    .get_mut(&1)
+                    .unwrap()[0]
+                    .start();
+                ctx.on_mouse_move(93 + i as i32 * 100, y);
+                assert_eq!(
+                    ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no,
+                    expected
+                );
+                ctx.on_mouse_down(input::VmMouseButton::Left);
+                ctx.on_mouse_up(input::VmMouseButton::Left);
+                assert_eq!(
+                    ctx.globals.stage_forms[&form].group_lists[&1][0].decided_button_no,
+                    expected
+                );
+            }
+        }
+        ctx.globals
+            .stage_forms
+            .get_mut(&form)
+            .unwrap()
+            .group_lists
+            .get_mut(&1)
+            .unwrap()[0]
+            .start();
+        for (x, y) in [(42, 300), (643, 300), (93, 87), (93, 658)] {
+            ctx.on_mouse_move(x, y);
+            assert_eq!(
+                ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no,
+                -1
+            );
+        }
+    }
+
+    #[test]
+    fn rectangle_edges_use_the_same_transform_for_rendering_and_hit_testing() {
+        let mut ctx = gallery_buttons();
+        let form = ctx.ids.form_global_stage;
+        let parent = &mut ctx
+            .globals
+            .stage_forms
+            .get_mut(&form)
+            .unwrap()
+            .object_lists
+            .get_mut(&1)
+            .unwrap()[0];
+        parent.runtime.child_objects.truncate(1);
+        parent.set_int_prop(&ctx.ids, ctx.ids.obj_x, 200);
+        parent.set_int_prop(&ctx.ids, ctx.ids.obj_y, 100);
+        let child = &mut parent.runtime.child_objects[0];
+        child.set_int_prop(&ctx.ids, ctx.ids.obj_x, 10);
+        child.set_int_prop(&ctx.ids, ctx.ids.obj_y, 20);
+        child.set_int_prop(&ctx.ids, ctx.ids.obj_scale_x, 2000);
+        child.set_int_prop(&ctx.ids, ctx.ids.obj_scale_y, 500);
+        let frame = ctx.render_frame_with_effects();
+        let sprite = &frame
+            .sprites
+            .iter()
+            .find(|rs| {
+                rs.sprite.size_mode
+                    == SpriteSizeMode::Explicit {
+                        width: 100,
+                        height: 570,
+                    }
+            })
+            .unwrap()
+            .sprite;
+        let quad = crate::render_math::sprite_quad_points(
+            sprite,
+            sprite.x as f32,
+            sprite.y as f32,
+            100.0,
+            570.0,
+            1280.0,
+            720.0,
+        )
+        .unwrap();
+        assert_eq!((quad[0].x, quad[0].y), (296.0, 164.0));
+        assert_eq!((quad[2].x, quad[2].y), (496.0, 449.0));
+        for (x, y, expected) in [
+            (296, 164, 14),
+            (495, 448, 14),
+            (295, 164, -1),
+            (496, 449, -1),
+        ] {
+            ctx.on_mouse_move(x, y);
+            assert_eq!(
+                ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no,
+                expected
+            );
+        }
     }
 }
 
