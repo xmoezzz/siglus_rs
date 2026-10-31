@@ -66,6 +66,8 @@ pub mod desktop_chihaya_bench;
 pub mod desktop_messagebox;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub mod desktop_twitter;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+mod desktop_viewport;
 pub mod host;
 #[cfg(target_os = "ios")]
 pub mod ios_host;
