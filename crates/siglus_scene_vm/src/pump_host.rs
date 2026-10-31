@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use winit::application::ApplicationHandler;
-use winit::dpi::{LogicalPosition, LogicalSize};
+use winit::dpi::LogicalSize;
 use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 use winit::event_loop::run_on_demand::EventLoopExtRunOnDemand;
@@ -18,6 +18,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowAttributes, WindowId};
 
+use crate::desktop_viewport::DesktopViewport;
 use crate::host::{
     SiglusHost, SiglusHostConfig, SiglusNativeMessageBoxCallback, cstr_opt, cstr_required,
     parse_bool_exit,
@@ -113,11 +114,15 @@ impl PumpApp {
             self.native_messagebox_callback,
             self.native_messagebox_user_data,
         );
-        if self.physical_pixels {
-            // The renderer starts from the window's own scale factor.
-            let size = window.surface_size();
-            host.resize(size.width.max(1), size.height.max(1), 1.0);
-        }
+        // Preserve Gameexe's canvas size; resizing the window must only change
+        // presentation, never the fixed coordinates used by game scripts.
+        let size = window.surface_size();
+        let scale = if self.physical_pixels {
+            1.0
+        } else {
+            window.scale_factor() as f32
+        };
+        resize_game_viewport(&mut host, size.width, size.height, scale);
         self.window_id = Some(window.id());
         self.window = Some(window);
         self.host = Some(host);
@@ -126,10 +131,12 @@ impl PumpApp {
 
     fn handle_window_event(&mut self, event: WindowEvent, elwt: &dyn ActiveEventLoop) {
         let scale = self.scale_factor();
-        let physical_pixels = self.physical_pixels;
+        let surface = self.window.map(|w| w.surface_size());
         let Some(host) = self.host.as_mut() else {
             return;
         };
+        let (gw, gh) = host.logical_size();
+        let viewport = surface.map(|s| DesktopViewport::fit(s.width, s.height, gw, gh));
         match event {
             WindowEvent::CloseRequested => {
                 self.exit_requested = true;
@@ -137,7 +144,7 @@ impl PumpApp {
             }
             WindowEvent::SurfaceResized(size) => {
                 let sf = scale as f32;
-                host.resize(size.width.max(1), size.height.max(1), sf);
+                resize_game_viewport(host, size.width, size.height, sf);
             }
             WindowEvent::KeyboardInput {
                 event:
@@ -185,8 +192,10 @@ impl PumpApp {
                 primary: true,
                 ..
             } => {
-                let p = position.to_logical::<f64>(scale);
-                let (x, y) = (p.x, p.y);
+                let Some(viewport) = viewport else {
+                    return;
+                };
+                let (x, y) = viewport.game_position(position.x, position.y);
                 host.mouse_move(x, y);
             }
             WindowEvent::PointerButton {
@@ -199,8 +208,11 @@ impl PumpApp {
                 let Some(button) = button.mouse_button() else {
                     return;
                 };
-                let point = position.to_logical::<f64>(scale);
-                host.mouse_move(point.x, point.y);
+                let Some(viewport) = viewport else {
+                    return;
+                };
+                let (x, y) = viewport.game_position(position.x, position.y);
+                host.mouse_move(x, y);
                 if let Some(b) = map_mouse_button(button) {
                     match (state, b) {
                         (ElementState::Pressed, VmMouseButton::Left) => {
@@ -226,7 +238,7 @@ impl PumpApp {
             }
             WindowEvent::RedrawRequested => {
                 if let Some(window) = self.window.as_ref() {
-                    apply_ime_window_state(*window, host, physical_pixels);
+                    apply_ime_window_state(*window, host);
                 }
                 let status = parse_bool_exit(host.step(16), "siglus_pump_step/redraw");
                 if status != 0 {
@@ -268,19 +280,24 @@ impl ApplicationHandler for PumpApp {
     }
 }
 
-fn apply_ime_window_state(window: &dyn Window, host: &mut SiglusHost, physical_pixels: bool) {
+fn resize_game_viewport(host: &mut SiglusHost, width: u32, height: u32, scale: f32) {
+    let (gw, gh) = host.logical_size();
+    let (x, y, w, h) = DesktopViewport::fit(width, height, gw, gh).rect();
+    host.resize_with_logical_viewport(width.max(1), height.max(1), scale, gw, gh, x, y, w, h);
+}
+
+fn apply_ime_window_state(window: &dyn Window, host: &mut SiglusHost) {
     if let Some((x, y, width, height)) = host.vm_mut().ctx.focused_editbox_ime_area() {
-        let (position, size) = if physical_pixels {
-            (
-                winit::dpi::PhysicalPosition::new(x.max(0), y.max(0)).into(),
-                winit::dpi::PhysicalSize::new(width.max(1) as u32, height.max(1) as u32).into(),
-            )
-        } else {
-            (
-                LogicalPosition::new(x.max(0) as f64, y.max(0) as f64).into(),
-                LogicalSize::new(width.max(1) as f64, height.max(1) as f64).into(),
-            )
-        };
+        let surface = window.surface_size();
+        let (gw, gh) = host.logical_size();
+        let viewport = DesktopViewport::fit(surface.width, surface.height, gw, gh);
+        let (px, py) = viewport.surface_position(x.max(0) as f64, y.max(0) as f64);
+        let (pw, ph) = viewport.surface_extent(width.max(1) as f64, height.max(1) as f64);
+        let position =
+            winit::dpi::PhysicalPosition::new(px.round() as i32, py.round() as i32).into();
+        let size =
+            winit::dpi::PhysicalSize::new(pw.round().max(1.0) as u32, ph.round().max(1.0) as u32)
+                .into();
         crate::ime::enable_ime(window, position, size);
     } else {
         crate::ime::disable_ime(window);
