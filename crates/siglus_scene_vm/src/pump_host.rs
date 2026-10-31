@@ -16,6 +16,7 @@ use winit::event_loop::pump_events::{EventLoopExtPumpEvents, PumpStatus};
 use winit::event_loop::run_on_demand::EventLoopExtRunOnDemand;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::monitor::Fullscreen;
 use winit::window::{Window, WindowAttributes, WindowId};
 
 use crate::desktop_viewport::DesktopViewport;
@@ -24,6 +25,7 @@ use crate::host::{
     parse_bool_exit,
 };
 use crate::render::Renderer;
+use crate::runtime::CommandContext;
 use crate::runtime::game_display_info::resolve_game_name_from_project_dir;
 use crate::runtime::input::{VmKey, VmMouseButton};
 
@@ -44,6 +46,33 @@ struct PumpApp {
     /// Size the window and map input in physical pixels, ignoring the
     /// display's HiDPI scale (the launcher app does this for every engine).
     physical_pixels: bool,
+    window_mode: WindowModeState,
+}
+
+/// Apply configuration changes once, without undoing native window controls on
+/// every frame or repeatedly requesting an asynchronous fullscreen transition.
+#[derive(Default)]
+struct WindowModeState {
+    last_requested: Option<bool>,
+}
+
+impl WindowModeState {
+    fn update(&mut self, ctx: &CommandContext) -> Option<bool> {
+        use crate::runtime::forms::codes::syscom_op::GET_WINDOW_MODE;
+        let fullscreen = ctx
+            .globals
+            .syscom
+            .config_int
+            .get(&GET_WINDOW_MODE)
+            .copied()
+            .unwrap_or(ctx.globals.syscom.original_config.screen_size_mode)
+            != 0;
+        if self.last_requested.replace(fullscreen) == Some(fullscreen) {
+            None
+        } else {
+            Some(fullscreen)
+        }
+    }
 }
 
 impl PumpApp {
@@ -58,6 +87,7 @@ impl PumpApp {
             exit_requested: false,
             native_messagebox_callback: None,
             native_messagebox_user_data: std::ptr::null_mut(),
+            window_mode: WindowModeState::default(),
         }
     }
 
@@ -244,6 +274,10 @@ impl PumpApp {
                 if status != 0 {
                     self.exit_requested = true;
                     elwt.exit();
+                } else if let Some(window) = self.window.as_ref()
+                    && let Some(fullscreen) = self.window_mode.update(&host.vm_mut().ctx)
+                {
+                    window.set_fullscreen(fullscreen.then_some(Fullscreen::Borderless(None)));
                 }
             }
             _ => {}
@@ -671,5 +705,54 @@ pub fn run_game(game_root: &str, physical_pixels: bool) -> i32 {
             log::error!("siglus_run_entry: run_app: {e:?}");
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod window_mode_tests {
+    use super::*;
+    use crate::runtime::CommandContext;
+    use crate::runtime::forms::codes::syscom_op::GET_WINDOW_MODE;
+    use crate::runtime::forms::syscom;
+
+    #[test]
+    fn windowed_startup_is_applied_only_once() {
+        let ctx = CommandContext::new(PathBuf::from("."));
+        let mut mode = WindowModeState::default();
+        assert_eq!(mode.update(&ctx), Some(false));
+        assert_eq!(mode.update(&ctx), None);
+    }
+
+    #[test]
+    fn config_dialog_switches_fullscreen_on_and_off() {
+        let mut ctx = CommandContext::new(PathBuf::from("."));
+        let mut mode = WindowModeState::default();
+        assert_eq!(mode.update(&ctx), Some(false));
+        let mut config = syscom::config_state_for_save(&ctx);
+        config.screen_size_mode = 1;
+        syscom::apply_config_dialog_state(&mut ctx, config.clone());
+        assert_eq!(mode.update(&ctx), Some(true));
+        assert_eq!(mode.update(&ctx), None);
+        config.screen_size_mode = 0;
+        syscom::apply_config_dialog_state(&mut ctx, config);
+        assert_eq!(mode.update(&ctx), Some(false));
+    }
+
+    #[test]
+    fn restored_fullscreen_mode_is_honored_without_a_runtime_override() {
+        let mut ctx = CommandContext::new(PathBuf::from("."));
+        ctx.globals.syscom.original_config.screen_size_mode = 1;
+        ctx.globals.syscom.config_int.remove(&GET_WINDOW_MODE);
+        let mut mode = WindowModeState::default();
+        assert_eq!(mode.update(&ctx), Some(true));
+    }
+
+    #[test]
+    fn script_setting_overrides_restored_fullscreen_mode() {
+        let mut ctx = CommandContext::new(PathBuf::from("."));
+        ctx.globals.syscom.original_config.screen_size_mode = 1;
+        ctx.globals.syscom.config_int.insert(GET_WINDOW_MODE, 0);
+        let mut mode = WindowModeState::default();
+        assert_eq!(mode.update(&ctx), Some(false));
     }
 }
