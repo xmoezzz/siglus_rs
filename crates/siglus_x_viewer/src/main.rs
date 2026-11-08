@@ -352,11 +352,12 @@ impl ViewerState {
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let surface = instance.create_surface(window).context("create surface")?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
+                apply_limit_buckets: false,
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
@@ -364,14 +365,12 @@ impl ViewerState {
             .await
             .context("request adapter")?;
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("siglus-x-viewer-device"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("siglus-x-viewer-device"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::default(),
+                ..Default::default()
+            })
             .await
             .context("request device")?;
 
@@ -396,6 +395,7 @@ impl ViewerState {
             .unwrap_or(caps.alpha_modes[0]);
         let size = window.surface_size();
         let config = wgpu::SurfaceConfiguration {
+            color_space: wgpu::SurfaceColorSpace::Auto,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width.max(1),
@@ -445,21 +445,22 @@ impl ViewerState {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("siglus-x-viewer-pipeline-layout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            cache: None,
             label: Some("siglus-x-viewer-pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
-                buffers: &[ViewerVertex::layout()],
+                entry_point: Some("vs_main"),
+                buffers: &[Some(ViewerVertex::layout())],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -478,13 +479,13 @@ impl ViewerState {
             },
             depth_stencil: Some(wgpu::DepthStencilState {
                 format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::LessEqual,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::LessEqual),
                 stencil: wgpu::StencilState::default(),
                 bias: wgpu::DepthBiasState::default(),
             }),
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
         });
 
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -553,13 +554,16 @@ impl ViewerState {
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
 
         let frame = match self.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
-            Err(wgpu::SurfaceError::OutOfMemory) => bail!("surface out of memory"),
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Validation => bail!("surface validation failed"),
         };
         let view = frame
             .texture
@@ -572,8 +576,10 @@ impl ViewerState {
 
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                multiview_mask: None,
                 label: Some("siglus-x-viewer-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    depth_slice: None,
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -605,7 +611,7 @@ impl ViewerState {
         }
 
         self.queue.submit(Some(encoder.finish()));
-        frame.present();
+        self.queue.present(frame);
         Ok(())
     }
 }

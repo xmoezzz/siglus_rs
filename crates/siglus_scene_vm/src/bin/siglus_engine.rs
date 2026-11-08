@@ -159,6 +159,7 @@ struct HudGui {
     renderer: EguiRenderer,
     start_time: Instant,
     raw_input: egui::RawInput,
+    modifiers: egui::Modifiers,
     pointer_pos: Option<egui::Pos2>,
     gpu_texture_cache: HashMap<String, HudTextureCacheEntry>,
 }
@@ -1375,8 +1376,8 @@ impl App {
                 .count();
             let usage_total: usize = textures.iter().map(|t| t.usage_count).sum();
 
-            let output = ctx.run(raw_input, |ctx| {
-                egui::TopBottomPanel::top("hud_toolbar").show(ctx, |ui| {
+            let output = ctx.run_ui(raw_input, |ctx| {
+                egui::Panel::top("hud_toolbar").show(ctx, |ui| {
                     ui.horizontal_wrapped(|ui| {
                         ui.heading("Siglus HUD");
                         ui.separator();
@@ -1414,10 +1415,10 @@ impl App {
                 });
 
                 if hud.show_memory {
-                    egui::SidePanel::left("hud_memory")
+                    egui::Panel::left("hud_memory")
                         .resizable(true)
-                        .default_width(340.0)
-                        .min_width(260.0)
+                        .default_size(340.0)
+                        .min_size(260.0)
                         .show(ctx, |ui| {
                             ui.heading("Memory");
                             if let Some((kind, bytes)) = hud.process_memory.primary() {
@@ -1566,7 +1567,7 @@ impl App {
                                 .default_open(true)
                                 .show(ui, |ui| {
                                     egui::ScrollArea::vertical()
-                                        .id_source("hud_objects_scroll")
+                                        .id_salt("hud_objects_scroll")
                                         .max_height(hud.object_list_height)
                                         .show(ui, |ui| {
                                             for tile in &stage_objects {
@@ -1752,23 +1753,30 @@ impl App {
                 return Ok(());
             };
             let main_renderer = main_renderer.borrow();
-            for (id, delta) in &output.textures_delta.set {
-                hud.gui.renderer.update_texture(
-                    &main_renderer.device,
-                    &main_renderer.queue,
-                    *id,
-                    delta,
-                );
+            for (id, deltas) in &output.textures_delta.set {
+                for delta in deltas {
+                    hud.gui.renderer.update_texture(
+                        &main_renderer.device,
+                        &main_renderer.queue,
+                        *id,
+                        delta,
+                    );
+                }
             }
 
             let frame = match hud.surface.get_current_texture() {
-                Ok(frame) => frame,
-                Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+                wgpu::CurrentSurfaceTexture::Success(frame)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+                wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                     hud.surface.configure(&main_renderer.device, &hud.config);
                     return Ok(());
                 }
-                Err(wgpu::SurfaceError::OutOfMemory) => anyhow::bail!("hud surface out of memory"),
-                Err(wgpu::SurfaceError::Timeout) => return Ok(()),
+                wgpu::CurrentSurfaceTexture::Validation => {
+                    anyhow::bail!("hud surface validation failed")
+                }
+                wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                    return Ok(());
+                }
             };
             let view = frame
                 .texture
@@ -1788,8 +1796,10 @@ impl App {
             );
             {
                 let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    multiview_mask: None,
                     label: Some("hud_egui_pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        depth_slice: None,
                         view: &view,
                         resolve_target: None,
                         ops: wgpu::Operations {
@@ -1808,11 +1818,11 @@ impl App {
                 });
                 hud.gui
                     .renderer
-                    .render(&mut pass, &paint_jobs, &screen_desc);
+                    .render(&mut pass.forget_lifetime(), &paint_jobs, &screen_desc);
             }
             main_renderer.queue.submit(Some(encoder.finish()));
-            frame.present();
-            for id in output.textures_delta.free {
+            main_renderer.queue.present(frame);
+            for &id in &output.textures_delta.free {
                 hud.gui.renderer.free_texture(&id);
             }
             Ok(())
@@ -3965,9 +3975,28 @@ impl App {
             return false;
         };
         let scale = (hud.window.scale_factor() as f32).max(f32::EPSILON);
-        let modifiers = hud.gui.raw_input.modifiers;
+        let modifiers = hud.gui.modifiers;
 
         match event {
+            WindowEvent::ModifiersChanged(event) => {
+                let state = event.state();
+                hud.gui.modifiers = egui::Modifiers {
+                    alt: state.alt_key(),
+                    ctrl: state.control_key(),
+                    shift: state.shift_key(),
+                    mac_cmd: cfg!(target_os = "macos") && state.meta_key(),
+                    command: if cfg!(target_os = "macos") {
+                        state.meta_key()
+                    } else {
+                        state.control_key()
+                    },
+                };
+                hud.gui
+                    .raw_input
+                    .events
+                    .push(egui::Event::ModifiersChanged(hud.gui.modifiers));
+                true
+            }
             WindowEvent::PointerMoved {
                 position,
                 primary: true,
@@ -4026,6 +4055,7 @@ impl App {
                     _ => return false,
                 };
                 hud.gui.raw_input.events.push(egui::Event::MouseWheel {
+                    phase: egui::TouchPhase::Move,
                     unit,
                     delta,
                     modifiers,
@@ -4137,6 +4167,7 @@ impl App {
             };
             let size = window.surface_size();
             let config = wgpu::SurfaceConfiguration {
+                color_space: wgpu::SurfaceColorSpace::Auto,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format,
                 width: size.width.max(1),
@@ -4147,7 +4178,11 @@ impl App {
                 desired_maximum_frame_latency: 2,
             };
             surface.configure(&renderer.device, &config);
-            let gui_renderer = EguiRenderer::new(&renderer.device, format, None, 1);
+            let gui_renderer = EguiRenderer::new(
+                &renderer.device,
+                format,
+                egui_wgpu::RendererOptions::default(),
+            );
             (surface, config, gui_renderer)
         };
 
@@ -4160,6 +4195,7 @@ impl App {
             renderer: gui_renderer,
             start_time: Instant::now(),
             raw_input,
+            modifiers: egui::Modifiers::default(),
             pointer_pos: None,
             gpu_texture_cache: HashMap::new(),
         };

@@ -336,11 +336,12 @@ impl Gpu {
     async fn new(window: &'static dyn Window) -> Result<Self> {
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::all(),
-            ..Default::default()
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
         let surface = instance.create_surface(window).context("create surface")?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
+                apply_limit_buckets: false,
                 power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: Some(&surface),
                 force_fallback_adapter: false,
@@ -348,15 +349,13 @@ impl Gpu {
             .await
             .context("no graphics adapter")?;
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    label: Some("game-launcher"),
-                    required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_webgl2_defaults()
-                        .using_resolution(adapter.limits()),
-                },
-                None,
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                label: Some("game-launcher"),
+                required_features: wgpu::Features::empty(),
+                required_limits: wgpu::Limits::downlevel_webgl2_defaults()
+                    .using_resolution(adapter.limits()),
+                ..Default::default()
+            })
             .await
             .context("request device")?;
         let caps = surface.get_capabilities(&adapter);
@@ -368,6 +367,7 @@ impl Gpu {
             .unwrap_or(caps.formats[0]);
         let size = window.surface_size();
         let config = wgpu::SurfaceConfiguration {
+            color_space: wgpu::SurfaceColorSpace::Auto,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width.max(1),
@@ -410,21 +410,22 @@ impl Gpu {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            cache: None,
             label: None,
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 buffers: &[],
                 compilation_options: Default::default(),
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -435,7 +436,7 @@ impl Gpu {
             primitive: wgpu::PrimitiveState::default(),
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: None,
         });
         Ok(Self {
             surface,
@@ -502,14 +503,14 @@ impl Gpu {
         }
         let (texture, bind_group, _) = self.texture.as_ref().expect("texture");
         self.queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             &rgba[..(size.0 * size.1 * 4) as usize],
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(size.0 * 4),
                 rows_per_image: Some(size.1),
@@ -521,13 +522,18 @@ impl Gpu {
             },
         );
         let frame = match self.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
-            Err(error) => bail!("surface: {error}"),
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                anyhow::bail!("GPU surface validation failed")
+            }
         };
         let view = frame
             .texture
@@ -537,8 +543,10 @@ impl Gpu {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                multiview_mask: None,
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    depth_slice: None,
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -557,7 +565,7 @@ impl Gpu {
             pass.draw(0..6, 0..1);
         }
         self.queue.submit(Some(encoder.finish()));
-        frame.present();
+        self.queue.present(frame);
         Ok(())
     }
 }

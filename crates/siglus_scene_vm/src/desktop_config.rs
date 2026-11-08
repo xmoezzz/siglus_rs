@@ -20,7 +20,7 @@ fn configure_egui_default_font(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "siglus_default".to_string(),
-        egui::FontData::from_static(crate::text_render::DEFAULT_FONT_BYTES),
+        egui::FontData::from_static(crate::text_render::DEFAULT_FONT_BYTES).into(),
     );
     fonts
         .families
@@ -71,7 +71,11 @@ impl DesktopConfigWindow {
         );
         let renderer =
             pollster::block_on(Renderer::new(window.clone())).context("config renderer init")?;
-        let egui_renderer = EguiRenderer::new(&renderer.device, renderer.config.format, None, 1);
+        let egui_renderer = EguiRenderer::new(
+            &renderer.device,
+            renderer.config.format,
+            egui_wgpu::RendererOptions::default(),
+        );
         let egui_ctx = egui::Context::default();
         configure_egui_default_font(&egui_ctx);
         egui_ctx.set_visuals(egui::Visuals::light());
@@ -154,6 +158,7 @@ impl DesktopConfigWindow {
                     _ => return None,
                 };
                 self.input_events.push(egui::Event::MouseWheel {
+                    phase: egui::TouchPhase::Move,
                     unit: egui::MouseWheelUnit::Point,
                     delta,
                     modifiers: self.modifiers,
@@ -163,7 +168,10 @@ impl DesktopConfigWindow {
             WindowEvent::Ime(ime) => {
                 let event = match ime {
                     Ime::Enabled => egui::ImeEvent::Enabled,
-                    Ime::Preedit(text, _) => egui::ImeEvent::Preedit(text),
+                    Ime::Preedit(text, _) => egui::ImeEvent::Preedit {
+                        text,
+                        active_range_chars: None,
+                    },
                     Ime::Commit(text) => egui::ImeEvent::Commit(text),
                     Ime::Disabled => egui::ImeEvent::Disabled,
                     _ => return None,
@@ -224,7 +232,8 @@ impl DesktopConfigWindow {
         self.egui_ctx.set_pixels_per_point(scale);
         let logical_w = size.width as f32 / scale.max(1.0);
         let logical_h = size.height as f32 / scale.max(1.0);
-        let events = std::mem::take(&mut self.input_events);
+        let mut events = std::mem::take(&mut self.input_events);
+        events.insert(0, egui::Event::ModifiersChanged(self.modifiers));
         let modifiers = self.modifiers;
         let raw_input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
@@ -232,7 +241,7 @@ impl DesktopConfigWindow {
                 egui::vec2(logical_w, logical_h),
             )),
             time: Some(self.start_time.elapsed().as_secs_f64()),
-            modifiers,
+
             events,
             ..Default::default()
         };
@@ -240,7 +249,7 @@ impl DesktopConfigWindow {
         let before = self.dialog.state.clone();
         let mut close = false;
         let egui_ctx = self.egui_ctx.clone();
-        let output = egui_ctx.run(raw_input, |ctx| {
+        let output = egui_ctx.run_ui(raw_input, |ctx| {
             close = self.dialog.show(ctx);
         });
         let action = if close {
@@ -256,22 +265,29 @@ impl DesktopConfigWindow {
         };
         let paint_jobs = self.egui_ctx.tessellate(output.shapes, scale);
         for (id, delta) in &output.textures_delta.set {
-            self.egui_renderer.update_texture(
-                &self.renderer.device,
-                &self.renderer.queue,
-                *id,
-                delta,
-            );
+            for delta in delta {
+                self.egui_renderer.update_texture(
+                    &self.renderer.device,
+                    &self.renderer.queue,
+                    *id,
+                    delta,
+                );
+            }
         }
         let frame = match self.renderer.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.renderer
                     .resize(self.renderer.config.width, self.renderer.config.height);
                 return Ok(action);
             }
-            Err(wgpu::SurfaceError::OutOfMemory) => anyhow::bail!("Config surface out of memory"),
-            Err(wgpu::SurfaceError::Timeout) => return Ok(action),
+            wgpu::CurrentSurfaceTexture::Validation => {
+                anyhow::bail!("Config surface validation failed")
+            }
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(action);
+            }
         };
         let view = frame
             .texture
@@ -291,8 +307,10 @@ impl DesktopConfigWindow {
         );
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                multiview_mask: None,
                 label: Some("siglus_config_egui_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    depth_slice: None,
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -310,11 +328,11 @@ impl DesktopConfigWindow {
                 occlusion_query_set: None,
             });
             self.egui_renderer
-                .render(&mut pass, &paint_jobs, &screen_desc);
+                .render(&mut pass.forget_lifetime(), &paint_jobs, &screen_desc);
         }
         self.renderer.queue.submit(Some(encoder.finish()));
-        frame.present();
-        for id in output.textures_delta.free {
+        self.renderer.queue.present(frame);
+        for &id in &output.textures_delta.free {
             self.egui_renderer.free_texture(&id);
         }
         Ok(action)
@@ -486,9 +504,9 @@ impl ConfigDialog {
         }
     }
 
-    fn show(&mut self, ctx: &egui::Context) -> bool {
+    fn show(&mut self, ctx: &mut egui::Ui) -> bool {
         let mut close = ctx.input(|i| i.key_pressed(egui::Key::Escape));
-        egui::TopBottomPanel::bottom("config_footer").show(ctx, |ui| {
+        egui::Panel::bottom("config_footer").show(ctx, |ui| {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.label(self.gameexe.get_unquoted("GAMEVERSION").unwrap_or(""));
@@ -505,7 +523,7 @@ impl ConfigDialog {
             });
             ui.add_space(8.0);
         });
-        egui::TopBottomPanel::top("config_tabs").show(ctx, |ui| {
+        egui::Panel::top("config_tabs").show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal_wrapped(|ui| {
                 for &tab in &self.tabs {
@@ -623,7 +641,7 @@ impl ConfigDialog {
     fn message(&mut self, ui: &mut egui::Ui) {
         ui.group(|ui| {
             ui.label("フォント");
-            egui::ComboBox::from_id_source("font_name")
+            egui::ComboBox::from_id_salt("font_name")
                 .selected_text(&self.state.font_name)
                 .show_ui(ui, |ui| {
                     let mut names = vec!["ＭＳ ゴシック", "ＭＳ 明朝", "メイリオ"];
@@ -1054,7 +1072,7 @@ mod tests {
         let egui = egui::Context::default();
         for tab in Tab::ALL {
             dialog.tab = tab;
-            let _ = egui.run(egui::RawInput::default(), |ctx| {
+            let _ = egui.run_ui(egui::RawInput::default(), |ctx| {
                 dialog.show(ctx);
             });
         }

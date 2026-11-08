@@ -51,8 +51,8 @@ wgpu.workspace = true
 winit.workspace = true
 pollster.workspace = true
 raw-window-handle = "0.6"
-egui = "0.28.1"
-egui-wgpu = "0.28.1"
+egui = "=0.36.1"
+egui-wgpu = "=0.36.1"
 
 [target.'cfg(all(not(any(target_os = "horizon", target_os = "vita")), not(all(target_arch = "wasm32", target_os = "unknown"))))'.dependencies]
 ureq = "2.10"
