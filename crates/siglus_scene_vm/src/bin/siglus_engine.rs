@@ -62,6 +62,9 @@ struct Args {
     /// The game's extracted root directory (contains g00/bg/etc).
     #[arg(long)]
     project_dir: Option<PathBuf>,
+    #[cfg(any(feature="nfs",feature="smb"))]
+    #[arg(long)]
+    user_root:Option<PathBuf>,
 
     /// Optional scene name override. Also accepted as `--scene` for direct script startup.
     #[arg(long, visible_alias = "scene")]
@@ -4775,7 +4778,15 @@ impl ApplicationHandler for App {
 fn main() -> Result<()> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("error"))
         .try_init();
-    let args = Args::parse();
+    let mut args = Args::parse();
+    #[cfg(any(feature="nfs",feature="smb"))]
+    let _network_mount = if let Some(url)=args.project_dir.as_ref().map(|p|p.to_string_lossy().into_owned()).filter(|s|s.contains("://")) {
+        let user=args.user_root.as_deref().context("network games require --user-root")?;
+        let mount=game_network::fs::Mount::connect_with_user(&url,user)?;
+        args.project_dir=Some(mount.path().to_owned());
+        Some(mount)
+    } else {None};
+
     // Frame capture must use the renderer attached during `can_create_surfaces`; the old
     // exit-after-capture shortcut constructed only a VM and could never own a
     // GPU FrameCaptureBackend.

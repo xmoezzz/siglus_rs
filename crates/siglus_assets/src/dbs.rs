@@ -28,6 +28,9 @@ use crate::lzss;
 use crate::util::read_i32_le;
 use anyhow::{Result, anyhow, bail};
 use encoding_rs::SHIFT_JIS;
+#[cfg(any(feature="nfs", feature="smb"))]
+use game_network::fs;
+#[cfg(not(any(feature="nfs", feature="smb")))]
 use std::fs;
 use std::path::Path;
 

@@ -21,6 +21,9 @@ use crate::lzss;
 use crate::util::read_i32_le;
 use anyhow::{Result, bail};
 use std::collections::BTreeMap;
+#[cfg(any(feature="nfs", feature="smb"))]
+use game_network::fs;
+#[cfg(not(any(feature="nfs", feature="smb")))]
 use std::fs;
 use std::path::Path;
 

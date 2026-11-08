@@ -5,6 +5,9 @@
 //! (0x000001B3) to retrieve dimensions and frame-rate code.
 
 use anyhow::{Context, Result, bail};
+#[cfg(any(feature="nfs", feature="smb"))]
+use game_network::fs::File;
+#[cfg(not(any(feature="nfs", feature="smb")))]
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;

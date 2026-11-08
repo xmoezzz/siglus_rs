@@ -280,14 +280,14 @@ impl FontCache {
         let Some(font_dir) = crate::resource::resolve_game_path(font_dir).ok().flatten() else {
             return false;
         };
-        let Ok(entries) = std::fs::read_dir(&font_dir) else {
+        let Ok(entries) = crate::resource::fs::read_dir(&font_dir) else {
             return false;
         };
         let mut exact_file = Vec::new();
         let mut other = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_file() || !is_supported_font_path(&path) {
+            if !crate::resource::game_file_exists(&path) || !is_supported_font_path(&path) {
                 continue;
             }
             let file_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
@@ -319,14 +319,14 @@ impl FontCache {
         let Some(font_dir) = crate::resource::resolve_game_path(font_dir).ok().flatten() else {
             return false;
         };
-        let Ok(entries) = std::fs::read_dir(&font_dir) else {
+        let Ok(entries) = crate::resource::fs::read_dir(&font_dir) else {
             return false;
         };
 
         let mut files = Vec::new();
         for entry in entries.flatten() {
             let path = entry.path();
-            if path.is_file() && is_supported_font_path(&path) {
+            if crate::resource::game_file_exists(&path) && is_supported_font_path(&path) {
                 files.push(path);
             }
         }

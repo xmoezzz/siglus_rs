@@ -9,6 +9,15 @@ use anyhow::{Context, Result, bail};
 use crate::angou::{self, AngouStepKind};
 
 fn find_case_insensitive_child(parent: &Path, name: &str) -> Result<Option<PathBuf>> {
+    #[cfg(any(feature="nfs",feature="smb"))]
+    if game_network::fs::is_remote(parent) {
+        let path=parent.join(name);
+        return match game_network::fs::metadata(&path) {
+            Ok(m)=>Ok(m.is_file().then_some(path)),
+            Err(e) if e.kind()==std::io::ErrorKind::NotFound=>Ok(None),
+            Err(e)=>Err(e.into()),
+        };
+    }
     let exact = parent.join(name);
 
     // libnx fsdev accepts sdmc:/ paths through open(2), but metadata/is_file
@@ -82,6 +91,8 @@ pub fn load_emote_key_from_file(path: &Path) -> Result<Option<u32>> {
 }
 
 fn read_key_toml_text(path: &Path) -> Result<String> {
+    #[cfg(any(feature="nfs",feature="smb"))]
+    if game_network::fs::is_remote(path) {return Ok(game_network::fs::read_to_string(path)?);}
     #[cfg(target_os = "horizon")]
     {
         let mut file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;

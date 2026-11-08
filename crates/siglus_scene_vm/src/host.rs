@@ -207,6 +207,8 @@ pub struct SiglusHost {
     paused: bool,
     pending_exit: bool,
     last_step: Option<Instant>,
+    #[cfg(any(feature="nfs", feature="smb"))]
+    network_mount:Option<game_network::fs::Mount>,
 }
 
 fn find_scene_pck_for_host(project_dir: &Path) -> Result<PathBuf> {
@@ -248,6 +250,22 @@ fn load_scene_pck_decode_options(project_dir: &Path) -> Result<ScenePckDecodeOpt
 }
 
 impl SiglusHost {
+    /// The caller owns bootstrap scheduling and local user data. Network
+    /// archive/audio/movie reads remain random-access and read-only.
+    #[cfg(any(feature="nfs", feature="smb"))]
+    pub fn new_network(config:SiglusHostConfig,renderer:Renderer,url:&str,user_root:&Path)->Result<Self> {
+        Self::new_with_resources(config,renderer, game_network::Directory::connect(url)?,user_root)
+    }
+    /// Use a host's existing read-only capability, without reconnecting.
+    #[cfg(any(feature="nfs",feature="smb"))]
+    pub fn new_with_resources(mut config:SiglusHostConfig,renderer:Renderer, source:game_network::Directory,user_root:&std::path::Path)->anyhow::Result<Self> {
+        let mount=game_network::fs::Mount::from_directory(source,user_root)?;
+        config.project_dir=mount.path().to_owned();
+        let mut host=Self::new_with_renderer_sync(config,renderer)?;
+        host.network_mount=Some(mount);
+        Ok(host)
+    }
+
     pub async fn new_with_renderer(config: SiglusHostConfig, renderer: Renderer) -> Result<Self> {
         Self::new_with_renderer_sync(config, renderer)
     }
@@ -255,6 +273,11 @@ impl SiglusHost {
     /// Synchronous constructor for native hosts which own their event loop and
     /// do not use a desktop async executor (Horizon/libnx in particular).
     pub fn new_with_renderer_sync(config: SiglusHostConfig, renderer: Renderer) -> Result<Self> {
+        #[cfg(any(feature="nfs",feature="smb"))]
+        if game_network::fs::is_remote(config.project_dir.as_path()) {
+            game_network::fs::user_root(config.project_dir.as_path())?.ok_or_else(||anyhow::anyhow!("network runtime requires an explicit local user root"))?;
+        }
+
         switch_startup_marker!(b"siglus_switch: host initial-size begin\n\0");
         let initial_size = Self::resolve_initial_size(&config);
         switch_startup_marker!(b"siglus_switch: host initial-size complete\n\0");
@@ -273,6 +296,8 @@ impl SiglusHost {
         let capture_backend: FrameCaptureBackendRef = renderer.clone();
         vm.ctx.set_frame_capture_backend(Some(capture_backend));
         Ok(Self {
+            #[cfg(any(feature="nfs", feature="smb"))]
+            network_mount:None,
             config,
             boot,
             flow,

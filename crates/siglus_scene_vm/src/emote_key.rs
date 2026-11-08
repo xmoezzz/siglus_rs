@@ -6,6 +6,9 @@
 //! and never start a DWORD bruteforce from `OBJECT.CREATE_EMOTE` in the live frame
 //! loop.
 
+#[cfg(any(feature="nfs",feature="smb"))]
+use game_network::fs::{self,File};
+#[cfg(not(any(feature="nfs",feature="smb")))]
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -369,7 +372,7 @@ fn persist_recovered_key(project_dir: &Path, key: u32, cache_path: Option<&Path>
 }
 
 fn load_cached_key_best_effort(path: &Path) -> Option<u32> {
-    if !path.is_file() {
+    if !crate::resource::game_file_exists(path) {
         return None;
     }
     match siglus_assets::key_toml::load_emote_key_from_file(path) {

@@ -6,6 +6,9 @@
 //! merely to inspect its header.
 
 use anyhow::{Context, Result, anyhow, bail};
+#[cfg(any(feature="nfs", feature="smb"))]
+use game_network::fs::File;
+#[cfg(not(any(feature="nfs", feature="smb")))]
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;

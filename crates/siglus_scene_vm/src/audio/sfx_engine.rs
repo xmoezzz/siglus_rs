@@ -1,5 +1,8 @@
 use crate::platform_time::{Duration, Instant};
 use std::collections::HashMap;
+#[cfg(any(feature="nfs", feature="smb"))]
+use game_network::fs;
+#[cfg(not(any(feature="nfs", feature="smb")))]
 use std::fs;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
