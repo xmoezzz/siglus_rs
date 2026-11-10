@@ -68,7 +68,10 @@ impl Drop for Project {
 /// Steps until the menu scene has run to its end and the proc stack is empty.
 fn step_until_menu_ended(host: &mut SiglusHost) {
     assert!(
-        (0..240).any(|_| host.step(0).unwrap()),
+        (0..240).any(|_| {
+            assert!(!host.step(0).unwrap(), "idle menu is not an exit request");
+            host.vm_mut().current_scene_name() == Some("menu") && host.vm_mut().is_halted()
+        }),
         "menu scene must end"
     );
     let vm = host.vm_mut();
@@ -89,7 +92,10 @@ fn run(window: Arc<dyn Window>) {
     // too, leaving the host idle with an empty proc stack.
     step_until_menu_ended(&mut host);
     for _ in 0..8 {
-        assert!(host.step(0).unwrap());
+        assert!(
+            !host.step(0).unwrap(),
+            "idle menu must keep the session alive"
+        );
     }
 
     // A return to menu requested while idle, as a native menu button does.
@@ -104,9 +110,12 @@ fn run(window: Arc<dyn Window>) {
     // The host must restart the menu scene and then run it to its end again.
     let mut restarted = false;
     let finished = (0..240).any(|_| {
-        let finished = host.step(0).unwrap();
+        assert!(
+            !host.step(0).unwrap(),
+            "return to menu is not an exit request"
+        );
         restarted |= !host.vm_mut().is_halted();
-        finished && restarted
+        restarted && host.vm_mut().is_halted()
     });
     assert!(restarted, "idle host ignored the queued return to menu");
     assert!(finished, "restarted menu scene must end");

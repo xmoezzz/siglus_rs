@@ -431,8 +431,14 @@ impl SiglusHost {
             #[cfg(target_os = "vita")]
             crate::render::vita_stats::phase(crate::render::vita_stats::PUMP, start);
         }
+        // eng_main.cpp checks game_end_flag before the presentation phase.
+        if self.pending_exit {
+            return Ok(true);
+        }
         self.redraw()?;
-        Ok(self.pending_exit || (self.vm.is_halted() && self.flow.stack.is_empty()))
+        // An idle script/proc stack is not END_GAME. Platform hosts destroy
+        // the session on true, so report only an explicit exit request.
+        Ok(self.pending_exit)
     }
 
     pub fn mouse_move(&mut self, x: f64, y: f64) {
@@ -1177,13 +1183,17 @@ impl SiglusHost {
     }
 
     fn queue_end_game_proc(&mut self, proc: SyscomPendingProc) {
+        // C++ does not cancel END_GAME when its automatic end-save fails.
+        if let Err(error) = self.vm.save_before_exit() {
+            log::error!("END_GAME end-save failed: {error:#}");
+        }
         self.flow.pending_syscom_proc = None;
+        // C++ pushes DISP, END_GAME, then the optional GAME_END_WIPE.
+        // The end-save capture above must see the scene before it fades out.
+        self.flow.push(ProcType::Disp, 0);
         self.flow.push(ProcType::EndGame, 0);
         if proc.fade_out {
             self.flow.push(ProcType::GameEndWipe, 0);
-            self.flow.push(ProcType::Disp, 0);
-        } else {
-            self.flow.push(ProcType::Disp, 0);
         }
     }
 
@@ -1643,6 +1653,9 @@ impl SiglusHost {
                     switch_trace_frame
                 ));
             }
+        }
+        if self.pending_exit {
+            return Ok(());
         }
         // eng_frame.cpp applies SCRIPT.SET_VSYNC_WAIT_OFF_FLAG after script
         // processing and before the frame is presented. Keep the VM flag as the
