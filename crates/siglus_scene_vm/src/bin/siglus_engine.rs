@@ -2461,13 +2461,18 @@ impl App {
     }
 
     fn queue_end_game_proc(&mut self, proc: SyscomPendingProc) {
+        // tnm_syscom_end_game ignores the end-save return value.
+        if let Some(vm) = self.vm.as_mut()
+            && let Err(error) = vm.save_before_exit()
+        {
+            log::error!("END_GAME end-save failed: {error:#}");
+        }
         self.flow.pending_syscom_proc = None;
+        // Match tnm_syscom_end_game's LIFO order after the end-save capture.
+        self.flow.push(ProcType::Disp, 0);
         self.flow.push(ProcType::EndGame, 0);
         if proc.fade_out {
             self.flow.push(ProcType::GameEndWipe, 0);
-            self.flow.push(ProcType::Disp, 0);
-        } else {
-            self.flow.push(ProcType::Disp, 0);
         }
     }
 

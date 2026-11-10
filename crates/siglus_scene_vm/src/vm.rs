@@ -12716,6 +12716,16 @@ impl<'a> SceneVm<'a> {
         }
     }
 
+    /// Complete the original exit save without executing another script command.
+    /// Use the SAVEPOINT snapshot and the existing thumbnail-priority path,
+    /// including a deferred automatic SAVEPOINT, rather than saving the exit UI.
+    pub fn save_before_exit(&mut self) -> Result<()> {
+        if crate::runtime::forms::syscom::request_end_save(&mut self.ctx) {
+            self.drain_runtime_save_load_requests()?;
+        }
+        Ok(())
+    }
+
     fn drain_runtime_save_load_requests(&mut self) -> Result<()> {
         // Auto SAVEPOINT must fire before any pending save in the same command
         // batch, so a SAVE issued from the script's first frame after a message

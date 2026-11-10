@@ -849,6 +849,18 @@ fn local_save_available(ctx: &CommandContext) -> bool {
         || ctx.pending_auto_savepoint
 }
 
+/// Shared END_SAVE path, also used after END_GAME confirmation. The original
+/// tnm_syscom_end_game calls tnm_syscom_end_save(false, false) before the wipe;
+/// declining the exit warning must never reach this operation.
+pub(crate) fn request_end_save(ctx: &mut CommandContext) -> bool {
+    if !local_save_available(ctx) {
+        return false;
+    }
+    prepare_runtime_save_thumb_capture_with_priority(ctx, CAPTURE_PRIOR_END);
+    ctx.request_runtime_save(RuntimeSaveKind::End, 0);
+    true
+}
+
 fn local_save_file_exists(ctx: &CommandContext, kind: SaveKind, idx: usize) -> bool {
     let path = original_save::save_file_path_with_counts(
         &ctx.project_dir,
@@ -4692,11 +4704,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             // C++ `END_SAVE(warning, se_play)` always targets
             // save_cnt + quick_save_cnt; it has no script-supplied index.
             let _warning = p_bool(params, 0);
-            let ok = local_save_available(ctx);
-            if ok {
-                prepare_runtime_save_thumb_capture_with_priority(ctx, CAPTURE_PRIOR_END);
-                ctx.request_runtime_save(RuntimeSaveKind::End, 0);
-            }
+            let ok = request_end_save(ctx);
             ctx.push(Value::Int(if ok { 1 } else { 0 }));
             return Ok(true);
         }
