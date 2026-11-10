@@ -204,7 +204,6 @@ pub struct SiglusHost {
     script_resume_after_redraw: bool,
     suppress_render_once: bool,
     syscom_suspended_waits: Vec<(usize, VmWait, String)>,
-    paused: bool,
     pending_exit: bool,
     last_step: Option<Instant>,
     #[cfg(any(feature="nfs", feature="smb"))]
@@ -308,7 +307,6 @@ impl SiglusHost {
             script_resume_after_redraw: false,
             suppress_render_once: false,
             syscom_suspended_waits: Vec::new(),
-            paused: false,
             pending_exit: false,
             last_step: None,
         })
@@ -420,6 +418,9 @@ impl SiglusHost {
     pub fn step(&mut self, dt_ms: u32) -> Result<bool> {
         let _ = dt_ms;
         self.last_step = Some(Instant::now());
+        if self.pending_exit {
+            return Ok(true);
+        }
         if self.native_messagebox_pending() {
             return Ok(false);
         }
@@ -1233,7 +1234,6 @@ impl SiglusHost {
         self.flow.stack.clear();
         self.flow.pending_syscom_proc = None;
         self.syscom_suspended_waits.clear();
-        self.paused = false;
         self.script_resume_after_redraw = false;
         self.suppress_render_once = true;
         self.vm.ctx.globals.syscom.pending_proc = None;
@@ -1299,8 +1299,7 @@ impl SiglusHost {
     fn pump_vm(&mut self) -> Result<()> {
         if env_is_set!("SG_PROC_FLOW_TRACE") {
             eprintln!(
-                "[SG_PROC_FLOW] host pump_vm start paused={} script_needs_pump={} scene={:?} line={} flow={:?} pending_proc={:?}",
-                self.paused,
+                "[SG_PROC_FLOW] host pump_vm start script_needs_pump={} scene={:?} line={} flow={:?} pending_proc={:?}",
                 self.script_needs_pump,
                 self.vm.current_scene_name(),
                 self.vm.current_line_no(),
@@ -1310,9 +1309,6 @@ impl SiglusHost {
         }
         self.script_needs_pump = false;
         self.ensure_requested_script_proc();
-        if self.paused {
-            return Ok(());
-        }
 
         self.vm.process_pending_button_actions()?;
         if env_is_set!("SG_PROC_FLOW_TRACE") {
@@ -1331,11 +1327,9 @@ impl SiglusHost {
 
         self.vm.begin_script_proc_pump();
 
-        loop {
-            let Some(proc) = self.flow.top().cloned() else {
-                self.paused = true;
-                break;
-            };
+        // An empty stack is idle, not suspended: redraw can still queue a
+        // return-to-menu after the script has halted.
+        while let Some(proc) = self.flow.top().cloned() {
             if env_is_set!("SG_PROC_FLOW_TRACE") {
                 eprintln!(
                     "[SG_PROC_FLOW] host pump_vm loop top proc={:?} scene={:?} line={} flow={:?}",
@@ -1576,7 +1570,8 @@ impl SiglusHost {
                     self.flow.pop();
                     crate::runtime::forms::syscom::write_global_save(&self.vm.ctx);
                     self.vm.ctx.globals.system.active_flag = false;
-                    continue;
+                    self.pending_exit = true;
+                    break;
                 }
                 ProcType::GameTimerStart => {
                     self.flow.pop();

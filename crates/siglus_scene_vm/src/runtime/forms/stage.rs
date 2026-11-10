@@ -357,6 +357,65 @@ fn parse_mwnd_selection_args(
     out
 }
 
+/// `[BACK|FRONT|NEXT, OBJECT, get_size]` names the object list of a concrete
+/// stage (BACK=0, FRONT=1, NEXT=2) without an explicit stage index.
+fn parse_alias_object_list_size(chain: &[i32], object: i32) -> Option<StageTarget> {
+    let [alias, child, op] = *chain else {
+        return None;
+    };
+    if child != object || op != constants::OBJECTLIST_GET_SIZE {
+        return None;
+    }
+    Some(StageTarget::ChildListOp {
+        stage: global_stage_alias_to_index(alias as u32)?,
+        child,
+        op: i64::from(op),
+    })
+}
+
+#[cfg(test)]
+mod alias_object_list_tests {
+    use super::*;
+    use crate::runtime::VmCallMeta;
+
+    fn context_with_object_lists(lens: [usize; 3]) -> CommandContext {
+        let mut ctx = CommandContext::new(std::path::PathBuf::from("."));
+        let form_id = normal_stage_form_id(&ctx);
+        let st = stage_state_mut(&mut ctx, form_id);
+        st.initialized_from_gameexe = true;
+        for (stage, len) in lens.into_iter().enumerate() {
+            st.object_lists
+                .insert(stage as i64, vec![ObjectState::default(); len]);
+        }
+        ctx
+    }
+
+    fn call(ctx: &mut CommandContext, element: Vec<i32>) -> Result<bool> {
+        ctx.vm_call = Some(VmCallMeta {
+            element,
+            al_id: 0,
+            ret_form: crate::runtime::forms::prop_access::FM_INT,
+        });
+        dispatch(ctx, &[])
+    }
+
+    #[test]
+    fn alias_object_list_size_reads_the_alias_stage() {
+        let object = crate::runtime::forms::codes::STAGE_ELM_OBJECT;
+        let get_size = constants::OBJECTLIST_GET_SIZE;
+        for (alias, len) in [
+            (constants::global_form::BACK, 4),
+            (constants::global_form::FRONT, 5),
+            (constants::global_form::NEXT, 6),
+        ] {
+            let mut ctx = context_with_object_lists([4, 5, 6]);
+            assert!(call(&mut ctx, vec![alias as i32, object, get_size]).unwrap());
+            assert!(matches!(ctx.stack.pop(), Some(Value::Int(n)) if n == len));
+            assert!(ctx.stack.is_empty());
+        }
+    }
+}
+
 fn parse_target(ctx: &CommandContext, chain: &[i32]) -> Option<StageTarget> {
     if chain.is_empty() || !is_stage_form_id(ctx, chain[0]) {
         return None;
@@ -376,6 +435,9 @@ fn parse_target(ctx: &CommandContext, chain: &[i32]) -> Option<StageTarget> {
     };
     let objectlist_get_size = constants::OBJECTLIST_GET_SIZE;
     let objectlist_resize = constants::OBJECTLIST_RESIZE;
+    if let Some(target) = parse_alias_object_list_size(chain, stage_object) {
+        return Some(target);
+    }
     if chain.len() < 4 || chain[1] != elm_array {
         // Global aliases are concrete stages in the original engine:
         // BACK=0, FRONT=1, NEXT=2. Do not collapse FRONT/NEXT into BACK.
