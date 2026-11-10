@@ -15812,19 +15812,21 @@ mod call_frame_save_metadata_tests {
     use crate::scene_stream::SceneStream;
     use std::path::PathBuf;
 
-    fn empty_scene_chunk() -> Vec<u8> {
+    fn scene_chunk_with_code(code: &[u8]) -> Vec<u8> {
         const HEADER_WORDS: usize = 33;
         const HEADER_SIZE: i32 = (HEADER_WORDS * 4) as i32;
         let mut words = [0i32; HEADER_WORDS];
-        for idx in [
-            0usize, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31,
-        ] {
-            words[idx] = HEADER_SIZE;
+        words[0] = HEADER_SIZE;
+        words[1] = HEADER_SIZE;
+        words[2] = code.len() as i32;
+        for idx in [3usize, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 27, 29, 31] {
+            words[idx] = HEADER_SIZE + code.len() as i32;
         }
-        let mut out = Vec::with_capacity(HEADER_SIZE as usize);
+        let mut out = Vec::with_capacity(HEADER_SIZE as usize + code.len());
         for word in words {
             out.extend_from_slice(&word.to_le_bytes());
         }
+        out.extend_from_slice(code);
         out
     }
 
@@ -15853,8 +15855,10 @@ mod call_frame_save_metadata_tests {
 
     #[test]
     fn exec_return_prefers_per_callee_continuation_for_inline_calls() {
-        let chunk = Box::leak(empty_scene_chunk().into_boxed_slice());
-        let stream = SceneStream::new(chunk).expect("empty scene stream");
+        // Keep the caller and callee continuation offsets inside the scene.
+        let code = [constants::cd::NONE; 17];
+        let chunk = Box::leak(scene_chunk_with_code(&code).into_boxed_slice());
+        let stream = SceneStream::new(chunk).expect("scene stream with continuations");
         let mut vm = SceneVm::new(stream, CommandContext::new(PathBuf::from(".")));
         vm.call_stack.clear();
         vm.call_stack.push(test_call_frame(8, vm.cfg.fm_void, None));
@@ -15874,8 +15878,10 @@ mod call_frame_save_metadata_tests {
 
     #[test]
     fn exec_return_falls_back_to_original_caller_metadata_for_saved_frames() {
-        let chunk = Box::leak(empty_scene_chunk().into_boxed_slice());
-        let stream = SceneStream::new(chunk).expect("empty scene stream");
+        // Keep the caller and callee continuation offsets inside the scene.
+        let code = [constants::cd::NONE; 17];
+        let chunk = Box::leak(scene_chunk_with_code(&code).into_boxed_slice());
+        let stream = SceneStream::new(chunk).expect("scene stream with continuations");
         let mut vm = SceneVm::new(stream, CommandContext::new(PathBuf::from(".")));
         vm.call_stack.clear();
         vm.call_stack.push(test_call_frame(16, vm.cfg.fm_int, None));
@@ -15891,7 +15897,7 @@ mod call_frame_save_metadata_tests {
 
     #[test]
     fn call_frame_round_trip_keeps_caller_lexer_metadata() {
-        let chunk = Box::leak(empty_scene_chunk().into_boxed_slice());
+        let chunk = Box::leak(scene_chunk_with_code(&[]).into_boxed_slice());
         let stream = SceneStream::new(chunk).expect("empty scene stream");
         let vm = SceneVm::new(stream, CommandContext::new(PathBuf::from(".")));
         let frame = CallFrame {
