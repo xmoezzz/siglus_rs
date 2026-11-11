@@ -28,21 +28,22 @@ impl MipmapGenerator {
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("siglus-mipmap-pipeline-layout"),
-            bind_group_layouts: &[&layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&layout)],
+            immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            cache: None,
             label: Some("siglus-mipmap-pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
-                entry_point: "vs_main",
+                entry_point: Some("vs_main"),
                 compilation_options: Default::default(),
                 buffers: &[],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader,
-                entry_point: "fs_main",
+                entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: wgpu::TextureFormat::Rgba8Unorm,
@@ -53,7 +54,7 @@ impl MipmapGenerator {
             primitive: Default::default(),
             depth_stencil: None,
             multisample: Default::default(),
-            multiview: None,
+            multiview_mask: None,
         });
         Self { layout, pipeline }
     }
@@ -70,6 +71,7 @@ impl MipmapGenerator {
         let views: Vec<_> = (0..count)
             .map(|level| {
                 texture.create_view(&wgpu::TextureViewDescriptor {
+                    usage: None,
                     label: Some("siglus-mipmap-level"),
                     base_mip_level: level,
                     mip_level_count: Some(1),
@@ -96,8 +98,10 @@ impl MipmapGenerator {
                 }],
             });
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                multiview_mask: None,
                 label: Some("siglus-mipmap-pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    depth_slice: None,
                     view: &views[level],
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -138,15 +142,15 @@ mod tests {
         });
         let mut encoder = device.create_command_encoder(&Default::default());
         encoder.copy_texture_to_buffer(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture,
                 mip_level: level,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            wgpu::ImageCopyBuffer {
+            wgpu::TexelCopyBufferInfo {
                 buffer: &buffer,
-                layout: wgpu::ImageDataLayout {
+                layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(stride),
                     rows_per_image: Some(height),
@@ -163,9 +167,9 @@ mod tests {
         buffer
             .slice(..)
             .map_async(wgpu::MapMode::Read, move |result| tx.send(result).unwrap());
-        device.poll(wgpu::Maintain::Wait);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
         rx.recv().unwrap().unwrap();
-        let mapped = buffer.slice(..).get_mapped_range();
+        let mapped = buffer.slice(..).get_mapped_range().unwrap();
         let result = mapped
             .chunks_exact(stride as usize)
             .flat_map(|row| row[..width as usize * 4].iter().copied())
@@ -178,19 +182,16 @@ mod tests {
     #[test]
     fn gpu_mips_match_integer_reference_including_odd_sizes_alpha_and_updates() {
         let instance = wgpu::Instance::default();
-        let Some(adapter) = pollster::block_on(instance.request_adapter(&Default::default()))
-        else {
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
             eprintln!("GPU mipmap comparison skipped: no graphics adapter");
             return;
         };
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::downlevel_defaults(),
-                label: Some("mipmap-test-device"),
-            },
-            None,
-        ))
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::downlevel_defaults(),
+            label: Some("mipmap-test-device"),
+            ..Default::default()
+        }))
         .unwrap();
         let generator = MipmapGenerator::new(&device);
         let mut textures = Vec::new();

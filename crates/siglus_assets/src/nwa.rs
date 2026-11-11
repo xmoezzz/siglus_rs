@@ -9,6 +9,9 @@
 //!   16-bit PCM output, matching the original decoder.
 
 use anyhow::{Context, Result, bail};
+#[cfg(any(feature="nfs", feature="smb"))]
+use game_network::fs::File;
+#[cfg(not(any(feature="nfs", feature="smb")))]
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;

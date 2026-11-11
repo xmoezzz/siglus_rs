@@ -33,7 +33,7 @@ misrefactored_assign_op = "allow"
 anyhow = { version = "1", default-features = false }
 clap = { version = "4", features = ["derive"] }
 bytemuck = { version = "1", features = ["derive"] }
-wgpu = { version = "0.20", features = ["wgsl"] }
+wgpu = { version = "=30.0.1", features = ["wgsl"] }
 winit = "=0.31.0-beta.3"
 pollster = "0.3"
 image = { version = "0.24", default-features = false, features = ["png", "jpeg", "bmp", "dds"] }

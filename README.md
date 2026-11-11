@@ -244,6 +244,16 @@ Explanation of each value:
 * `none`: Disables the string encryption. If you are sure that the game does not use string encryption.
 * `mdl`: Automatically detects the string encryption method by using the MDL approach (also see the paper: [https://arxiv.org/abs/cs/0312044](https://arxiv.org/abs/cs/0312044)). It does introduce a performance overhead, but IMO, it's minor.
 
+## Claims
+<p align="center">
+  <img src="icon/crysirror.svg" width="160" height="160" alt="CrySirror logo">
+</p>
+
+This project belongs to `CrySirror` [project](https://github.com/xmoezzz/CrySirror), which is a unified engine backend for visual novels and 3D games. 
+
+1. Bug fixes and improvements for the siglus engine is acceptable in this repository. 
+
+2. If you want to support a new platform (e.g. game console), please create an issue or pull request in the `CrySirror` repository instead of this one. 
 
 
 ## License

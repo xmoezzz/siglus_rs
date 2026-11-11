@@ -979,6 +979,8 @@ impl<'a> OriginalStreamReader<'a> {
 }
 
 pub fn save_dir(project_dir: &Path) -> PathBuf {
+    #[cfg(any(feature="nfs",feature="smb"))]
+    if let Ok(Some(user))=game_network::fs::user_root(project_dir) {return user;}
     project_dir.join("savedata")
 }
 

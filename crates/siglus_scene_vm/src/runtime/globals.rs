@@ -682,6 +682,8 @@ pub struct SyscomRuntimeState {
     pub system_extra_int_value: i64,
     pub system_extra_str_value: String,
     pub config_int: HashMap<i32, i64>,
+    /// Host window requests; transient and separate from original config bytes.
+    pub window_config_dirty: u8,
     pub config_str: HashMap<i32, String>,
     pub original_config: OriginalConfigRuntimeState,
     pub chrkoe_look_flags: HashMap<String, bool>,
@@ -831,6 +833,7 @@ impl Default for SyscomRuntimeState {
             system_extra_int_value: 0,
             system_extra_str_value: String::new(),
             config_int: HashMap::default(),
+            window_config_dirty: 0,
             config_str: HashMap::default(),
             original_config: OriginalConfigRuntimeState::default(),
             chrkoe_look_flags: HashMap::default(),

@@ -26,7 +26,7 @@ fn configure_egui_default_font(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "siglus_default".to_string(),
-        egui::FontData::from_static(crate::text_render::DEFAULT_FONT_BYTES),
+        egui::FontData::from_static(crate::text_render::DEFAULT_FONT_BYTES).into(),
     );
     fonts
         .families
@@ -142,7 +142,11 @@ impl DesktopMessageBoxWindow {
         let window: Arc<dyn Window> = Arc::from(window);
         let renderer = pollster::block_on(Renderer::new(window.clone()))
             .context("messagebox renderer init")?;
-        let egui_renderer = EguiRenderer::new(&renderer.device, renderer.config.format, None, 1);
+        let egui_renderer = EguiRenderer::new(
+            &renderer.device,
+            renderer.config.format,
+            egui_wgpu::RendererOptions::default(),
+        );
         let egui_ctx = egui::Context::default();
         configure_egui_default_font(&egui_ctx);
         let selected = request.buttons.len().saturating_sub(1).min(1);
@@ -335,12 +339,12 @@ impl DesktopMessageBoxWindow {
             time: Some(self.start_time.elapsed().as_secs_f64()),
             ..Default::default()
         };
-        let output = self.egui_ctx.run(raw_input, |ctx| {
+        let output = self.egui_ctx.run_ui(raw_input, |ctx| {
             egui::CentralPanel::default()
                 .frame(
                     egui::Frame::default()
                         .fill(egui::Color32::from_rgb(246, 247, 250))
-                        .inner_margin(egui::Margin::same(18.0)),
+                        .inner_margin(egui::Margin::same(18)),
                 )
                 .show(ctx, |ui| {
                     let full = ui.max_rect();
@@ -378,7 +382,7 @@ impl DesktopMessageBoxWindow {
                     painter.text(
                         egui::pos2(text_x, full.top() + 42.0),
                         egui::Align2::LEFT_TOP,
-                        message,
+                        &message,
                         egui::FontId::proportional(18.0),
                         egui::Color32::from_rgb(20, 22, 25),
                     );
@@ -399,7 +403,7 @@ impl DesktopMessageBoxWindow {
                         } else {
                             egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(166, 174, 186))
                         };
-                        painter.rect_filled(r, egui::Rounding::same(4.0), fill);
+                        painter.rect_filled(r, egui::CornerRadius::same(4), fill);
                         painter.line_segment([r.left_top(), r.right_top()], stroke);
                         painter.line_segment([r.right_top(), r.right_bottom()], stroke);
                         painter.line_segment([r.right_bottom(), r.left_bottom()], stroke);
@@ -430,25 +434,30 @@ impl DesktopMessageBoxWindow {
         };
         let paint_jobs = self.egui_ctx.tessellate(output.shapes, scale);
         for (id, delta) in &output.textures_delta.set {
-            self.egui_renderer.update_texture(
-                &self.renderer.device,
-                &self.renderer.queue,
-                *id,
-                delta,
-            );
+            for delta in delta {
+                self.egui_renderer.update_texture(
+                    &self.renderer.device,
+                    &self.renderer.queue,
+                    *id,
+                    delta,
+                );
+            }
         }
 
         let frame = match self.renderer.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.renderer
                     .resize(self.renderer.config.width, self.renderer.config.height);
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::OutOfMemory) => {
-                anyhow::bail!("messagebox surface out of memory")
+            wgpu::CurrentSurfaceTexture::Validation => {
+                anyhow::bail!("messagebox surface validation failed")
             }
-            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
         };
         let view = frame
             .texture
@@ -468,8 +477,10 @@ impl DesktopMessageBoxWindow {
         );
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                multiview_mask: None,
                 label: Some("siglus_messagebox_egui_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    depth_slice: None,
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -487,11 +498,11 @@ impl DesktopMessageBoxWindow {
                 occlusion_query_set: None,
             });
             self.egui_renderer
-                .render(&mut pass, &paint_jobs, &screen_desc);
+                .render(&mut pass.forget_lifetime(), &paint_jobs, &screen_desc);
         }
         self.renderer.queue.submit(Some(encoder.finish()));
-        frame.present();
-        for id in output.textures_delta.free {
+        self.renderer.queue.present(frame);
+        for &id in &output.textures_delta.free {
             self.egui_renderer.free_texture(&id);
         }
         Ok(())

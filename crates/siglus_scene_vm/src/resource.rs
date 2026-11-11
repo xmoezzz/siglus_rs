@@ -14,7 +14,10 @@
 
 use anyhow::{Result, bail};
 use std::collections::HashMap;
-use std::fs;
+#[cfg(any(feature="nfs", feature="smb"))]
+pub(crate) use game_network::fs;
+#[cfg(not(any(feature="nfs", feature="smb")))]
+pub(crate) use std::fs;
 #[cfg(target_os = "horizon")]
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -414,6 +417,15 @@ pub(crate) fn invalidate_game_path_cache(_path: &Path) {
 }
 
 pub(crate) fn resolve_windows_case_insensitive_path(path: &Path) -> Result<Option<PathBuf>> {
+    #[cfg(any(feature="nfs", feature="smb"))]
+    if fs::is_remote(path) {
+        return match fs::metadata(path) {
+            Ok(metadata) => Ok((true).then(||path.to_owned())),
+            Err(error) if error.kind()==std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        };
+    }
+
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         // `siglusFileExists` already uses the browser-side case-insensitive
@@ -463,6 +475,15 @@ pub(crate) fn resolve_windows_case_insensitive_path(path: &Path) -> Result<Optio
 }
 
 pub(crate) fn resolve_windows_case_insensitive_file(path: &Path) -> Result<Option<PathBuf>> {
+    #[cfg(any(feature="nfs", feature="smb"))]
+    if fs::is_remote(path) {
+        return match fs::metadata(path) {
+            Ok(metadata) => Ok((metadata.is_file()).then(||path.to_owned())),
+            Err(error) if error.kind()==std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.into()),
+        };
+    }
+
     #[cfg(all(target_arch = "wasm32", target_os = "unknown"))]
     {
         return Ok(wasm_path_is_file(path).then_some(path.to_path_buf()));
@@ -1430,7 +1451,7 @@ pub(crate) fn find_emote_psb_candidates(project_dir: &Path) -> Result<Vec<PathBu
         let Some(dat_dir) = resolve_windows_case_insensitive_path(&requested_dat)? else {
             continue;
         };
-        if !dat_dir.is_dir() {
+        if !fs::metadata(&dat_dir).is_ok_and(|m|m.is_dir()) {
             continue;
         }
 

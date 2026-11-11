@@ -849,6 +849,18 @@ fn local_save_available(ctx: &CommandContext) -> bool {
         || ctx.pending_auto_savepoint
 }
 
+/// Shared END_SAVE path, also used after END_GAME confirmation. The original
+/// tnm_syscom_end_game calls tnm_syscom_end_save(false, false) before the wipe;
+/// declining the exit warning must never reach this operation.
+pub(crate) fn request_end_save(ctx: &mut CommandContext) -> bool {
+    if !local_save_available(ctx) {
+        return false;
+    }
+    prepare_runtime_save_thumb_capture_with_priority(ctx, CAPTURE_PRIOR_END);
+    ctx.request_runtime_save(RuntimeSaveKind::End, 0);
+    true
+}
+
 fn local_save_file_exists(ctx: &CommandContext, kind: SaveKind, idx: usize) -> bool {
     let path = original_save::save_file_path_with_counts(
         &ctx.project_dir,
@@ -3577,8 +3589,33 @@ fn cfg_get_int(st: &crate::runtime::globals::SyscomRuntimeState, key: i32, defau
     st.config_int.get(&key).copied().unwrap_or(default)
 }
 
+pub(crate) const WINDOW_MODE_REQUEST: u8 = 1;
+pub(crate) const WINDOW_SIZE_REQUEST: u8 = 2;
+
 fn cfg_set_int(st: &mut crate::runtime::globals::SyscomRuntimeState, key: i32, value: i64) {
-    st.config_int.insert(key, value);
+    if st.config_int.insert(key, value) != Some(value) {
+        st.window_config_dirty |= match key {
+            GET_WINDOW_MODE => WINDOW_MODE_REQUEST,
+            GET_WINDOW_MODE_SIZE => WINDOW_SIZE_REQUEST,
+            _ => 0,
+        };
+    }
+}
+
+fn request_window_mode(st: &mut crate::runtime::globals::SyscomRuntimeState, mode: i64) {
+    // cmd_syscom.cpp ignores modes other than WINDOW/FULL. An explicit
+    // same-value command still applies after a native window-control change.
+    if matches!(mode, 0 | 1) {
+        cfg_set_int(st, GET_WINDOW_MODE, mode);
+        st.window_config_dirty |= WINDOW_MODE_REQUEST;
+    }
+}
+
+fn request_window_size(st: &mut crate::runtime::globals::SyscomRuntimeState, size: i64) {
+    // C++ SET_WINDOW_MODE_SIZE also leaves fullscreen.
+    request_window_mode(st, 0);
+    cfg_set_int(st, GET_WINDOW_MODE_SIZE, size);
+    st.window_config_dirty |= WINDOW_SIZE_REQUEST;
 }
 
 fn volume_to_raw(v: i64) -> u8 {
@@ -4531,6 +4568,11 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             });
             ctx.globals.syscom.last_menu_call = END_GAME;
             ctx.globals.syscom.menu_open = false;
+            // tnm_syscom_end_game() pushes the warning or end proc, which
+            // stops the script proc at once. Without this boundary the script
+            // runs on (e.g. to scene EOF, which returns to the menu) and the
+            // exit request is overwritten.
+            ctx.request_proc_boundary(crate::runtime::ProcKind::Script);
         }
         REPLAY_KOE => {
             let koe_no = ctx.globals.script.cur_koe_no;
@@ -4687,11 +4729,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             // C++ `END_SAVE(warning, se_play)` always targets
             // save_cnt + quick_save_cnt; it has no script-supplied index.
             let _warning = p_bool(params, 0);
-            let ok = local_save_available(ctx);
-            if ok {
-                prepare_runtime_save_thumb_capture_with_priority(ctx, CAPTURE_PRIOR_END);
-                ctx.request_runtime_save(RuntimeSaveKind::End, 0);
-            }
+            let ok = request_end_save(ctx);
             ctx.push(Value::Int(if ok { 1 } else { 0 }));
             return Ok(true);
         }
@@ -5449,21 +5487,17 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
             set_syscom_pending_proc(ctx, SyscomPendingProcKind::OpenConfigDialog);
             ctx.globals.syscom.last_menu_call = op;
         }
-        SET_WINDOW_MODE => cfg_set_int(&mut ctx.globals.syscom, GET_WINDOW_MODE, p_i64(params, 0)),
+        SET_WINDOW_MODE => request_window_mode(&mut ctx.globals.syscom, p_i64(params, 0)),
         SET_WINDOW_MODE_DEFAULT => {
             let value = gameexe_i64_or(ctx, "CONFIG.WINDOW_MODE", 0).clamp(0, 1);
-            cfg_set_int(&mut ctx.globals.syscom, GET_WINDOW_MODE, value);
+            request_window_mode(&mut ctx.globals.syscom, value);
         }
         GET_WINDOW_MODE => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_WINDOW_MODE, 0);
             ctx.push(Value::Int(v));
             return Ok(true);
         }
-        SET_WINDOW_MODE_SIZE => cfg_set_int(
-            &mut ctx.globals.syscom,
-            GET_WINDOW_MODE_SIZE,
-            p_i64(params, 0),
-        ),
+        SET_WINDOW_MODE_SIZE => request_window_size(&mut ctx.globals.syscom, p_i64(params, 0)),
         SET_WINDOW_MODE_SIZE_DEFAULT => {
             let value = ctx
                 .globals
@@ -5472,7 +5506,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
                 .screen_size_scale
                 .0
                 .max(1);
-            cfg_set_int(&mut ctx.globals.syscom, GET_WINDOW_MODE_SIZE, value);
+            request_window_size(&mut ctx.globals.syscom, value);
         }
         GET_WINDOW_MODE_SIZE => {
             let v = cfg_get_int(&ctx.globals.syscom, GET_WINDOW_MODE_SIZE, 100);

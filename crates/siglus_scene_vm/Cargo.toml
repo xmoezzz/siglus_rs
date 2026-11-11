@@ -8,12 +8,15 @@ license.workspace = true
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [features]
+nfs = ["dep:game-network", "game-network/nfs", "siglus_assets/nfs"]
+smb = ["dep:game-network", "game-network/smb", "siglus_assets/smb"]
 # Replaces the monotonic clock with one advanced by hand
 # (`platform_time::advance_virtual_clock`), for deterministic replays of the
 # VM (examples/vm_replay.rs). Never enable it in a player.
 virtual-clock = []
 
 [dependencies]
+game-network = { path = "../game-network", optional = true, default-features = false }
 rustc-hash = "2"
 anyhow.workspace = true
 clap.workspace = true
@@ -51,8 +54,8 @@ wgpu.workspace = true
 winit.workspace = true
 pollster.workspace = true
 raw-window-handle = "0.6"
-egui = "0.28.1"
-egui-wgpu = "0.28.1"
+egui = "=0.36.1"
+egui-wgpu = "=0.36.1"
 
 [target.'cfg(all(not(any(target_os = "horizon", target_os = "vita")), not(all(target_arch = "wasm32", target_os = "unknown"))))'.dependencies]
 ureq = "2.10"

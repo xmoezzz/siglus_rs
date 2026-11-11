@@ -26,7 +26,7 @@ fn configure_egui_default_font(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     fonts.font_data.insert(
         "siglus_default".to_string(),
-        egui::FontData::from_static(crate::text_render::DEFAULT_FONT_BYTES),
+        egui::FontData::from_static(crate::text_render::DEFAULT_FONT_BYTES).into(),
     );
     fonts
         .families
@@ -95,7 +95,11 @@ impl DesktopChihayaBenchWindow {
         let window: Arc<dyn Window> = Arc::from(window);
         let renderer = pollster::block_on(Renderer::new(window.clone()))
             .context("Chihaya benchmark dialog renderer init")?;
-        let egui_renderer = EguiRenderer::new(&renderer.device, renderer.config.format, None, 1);
+        let egui_renderer = EguiRenderer::new(
+            &renderer.device,
+            renderer.config.format,
+            egui_wgpu::RendererOptions::default(),
+        );
         let egui_ctx = egui::Context::default();
         configure_egui_default_font(&egui_ctx);
         window.request_redraw();
@@ -378,12 +382,12 @@ impl DesktopChihayaBenchWindow {
             time: Some(self.start_time.elapsed().as_secs_f64()),
             ..Default::default()
         };
-        let output = self.egui_ctx.run(raw_input, |ctx| {
+        let output = self.egui_ctx.run_ui(raw_input, |ctx| {
             egui::CentralPanel::default()
                 .frame(
                     egui::Frame::default()
                         .fill(egui::Color32::from_rgb(246, 247, 250))
-                        .inner_margin(egui::Margin::same(12.0)),
+                        .inner_margin(egui::Margin::same(12)),
                 )
                 .show(ctx, |ui| {
                     let full = ui.max_rect();
@@ -392,7 +396,11 @@ impl DesktopChihayaBenchWindow {
                         egui::pos2(full.right() - 6.0, rects[0].y0 - 12.0),
                     );
                     let painter = ui.painter();
-                    painter.rect_filled(body_rect, egui::Rounding::same(2.0), egui::Color32::WHITE);
+                    painter.rect_filled(
+                        body_rect,
+                        egui::CornerRadius::same(2),
+                        egui::Color32::WHITE,
+                    );
                     let border = egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(150, 154, 160));
                     painter.line_segment([body_rect.left_top(), body_rect.right_top()], border);
                     painter.line_segment([body_rect.right_top(), body_rect.right_bottom()], border);
@@ -403,7 +411,7 @@ impl DesktopChihayaBenchWindow {
                     body_painter.text(
                         body_rect.left_top() + egui::vec2(8.0, 8.0),
                         egui::Align2::LEFT_TOP,
-                        body,
+                        &body,
                         egui::FontId::monospace(15.0),
                         egui::Color32::from_rgb(20, 22, 25),
                     );
@@ -430,7 +438,7 @@ impl DesktopChihayaBenchWindow {
                         } else {
                             egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(150, 154, 160))
                         };
-                        painter.rect_filled(r, egui::Rounding::same(3.0), fill);
+                        painter.rect_filled(r, egui::CornerRadius::same(3), fill);
                         painter.line_segment([r.left_top(), r.right_top()], stroke);
                         painter.line_segment([r.right_top(), r.right_bottom()], stroke);
                         painter.line_segment([r.right_bottom(), r.left_bottom()], stroke);
@@ -457,7 +465,11 @@ impl DesktopChihayaBenchWindow {
                             full.center(),
                             egui::vec2((logical_w - 80.0).clamp(300.0, 480.0), 120.0),
                         );
-                        painter.rect_filled(popup, egui::Rounding::same(5.0), egui::Color32::WHITE);
+                        painter.rect_filled(
+                            popup,
+                            egui::CornerRadius::same(5),
+                            egui::Color32::WHITE,
+                        );
                         let stroke =
                             egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(120, 124, 132));
                         painter.line_segment([popup.left_top(), popup.right_top()], stroke);
@@ -488,25 +500,30 @@ impl DesktopChihayaBenchWindow {
         };
         let paint_jobs = self.egui_ctx.tessellate(output.shapes, scale);
         for (id, delta) in &output.textures_delta.set {
-            self.egui_renderer.update_texture(
-                &self.renderer.device,
-                &self.renderer.queue,
-                *id,
-                delta,
-            );
+            for delta in delta {
+                self.egui_renderer.update_texture(
+                    &self.renderer.device,
+                    &self.renderer.queue,
+                    *id,
+                    delta,
+                );
+            }
         }
 
         let frame = match self.renderer.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(frame)
+            | wgpu::CurrentSurfaceTexture::Suboptimal(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                 self.renderer
                     .resize(self.renderer.config.width, self.renderer.config.height);
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::OutOfMemory) => {
-                anyhow::bail!("Chihaya benchmark dialog surface out of memory")
+            wgpu::CurrentSurfaceTexture::Validation => {
+                anyhow::bail!("Chihaya benchmark dialog surface validation failed")
             }
-            Err(wgpu::SurfaceError::Timeout) => return Ok(()),
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(());
+            }
         };
         let view = frame
             .texture
@@ -526,8 +543,10 @@ impl DesktopChihayaBenchWindow {
         );
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                multiview_mask: None,
                 label: Some("siglus_chihaya_bench_dialog_pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    depth_slice: None,
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -545,11 +564,11 @@ impl DesktopChihayaBenchWindow {
                 occlusion_query_set: None,
             });
             self.egui_renderer
-                .render(&mut pass, &paint_jobs, &screen_desc);
+                .render(&mut pass.forget_lifetime(), &paint_jobs, &screen_desc);
         }
         self.renderer.queue.submit(Some(encoder.finish()));
-        frame.present();
-        for id in output.textures_delta.free {
+        self.renderer.queue.present(frame);
+        for &id in &output.textures_delta.free {
             self.egui_renderer.free_texture(&id);
         }
         Ok(())
