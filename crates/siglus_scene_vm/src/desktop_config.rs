@@ -1072,9 +1072,11 @@ mod tests {
         let egui = egui::Context::default();
         for tab in Tab::ALL {
             dialog.tab = tab;
-            let _ = egui.run_ui(egui::RawInput::default(), |ctx| {
+            let mut output = egui.run_ui(egui::RawInput::default(), |ctx| {
                 dialog.show(ctx);
             });
+            // This layout-only test has no renderer to consume texture updates.
+            output.textures_delta.clear();
         }
     }
 }
