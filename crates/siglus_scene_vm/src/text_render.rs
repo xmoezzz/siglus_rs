@@ -271,17 +271,11 @@ impl FontCache {
         self.fallback_files.get_or_init(|| {
             let mut paths = Vec::new();
             if let Some(project) = &self.project_dir {
-                let mut dirs = vec![
-                    project.join("font"),
-                    project.join("fonts"),
-                    project.join("dat"),
-                ];
-                dirs.extend(project_font_dirs(project));
-                for dir in dirs {
+                for dir in project_font_dirs(project) {
                     let Some(dir) = crate::resource::resolve_game_path(&dir).ok().flatten() else {
                         continue;
                     };
-                    let Ok(entries) = std::fs::read_dir(dir) else {
+                    let Ok(entries) = crate::resource::fs::read_dir(dir) else {
                         continue;
                     };
                     let mut fonts: Vec<_> = entries
@@ -381,9 +375,7 @@ impl FontCache {
         // fonts are matched by file/family spelling, including the '@' prefix
         // used by the original vertical-font enumeration.
         if !normalized.is_empty() {
-            let mut named_dirs = dirs.clone();
-            named_dirs.insert(2, project_dir.join("dat"));
-            for dir in &named_dirs {
+            for dir in &dirs {
                 if self.load_named_from_font_dir(dir, &normalized) {
                     return true;
                 }
@@ -2520,8 +2512,14 @@ fn font_path_priority(path: &Path) -> (u8, u8, String) {
     (family_score, ext_score, name)
 }
 
+// Share the same project-first order for named faces, generic primary fonts,
+// and per-glyph fallback. Some games keep their only font in dat/.
 fn project_font_dirs(project_dir: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![project_dir.join("font"), project_dir.join("fonts")];
+    let mut dirs = vec![
+        project_dir.join("font"),
+        project_dir.join("fonts"),
+        project_dir.join("dat"),
+    ];
     if let Ok(exe) = std::env::current_exe()
         && let Some(exe_dir) = exe.parent()
     {
@@ -2758,7 +2756,46 @@ fn glyph_5x7(ch: char) -> [u8; 7] {
 mod fallback_tests {
     use super::*;
 
-    fn fixture() -> (FontCache, FontArc) {
+    struct FontProject(PathBuf);
+
+    impl FontProject {
+        fn new() -> Self {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root =
+                std::env::temp_dir().join(format!("siglus-font-{}-{stamp}", std::process::id()));
+            std::fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+
+        fn write(&self, directory: &str, name: &str, bytes: &[u8]) -> PathBuf {
+            let directory = self.0.join(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            let path = directory.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        }
+    }
+
+    impl Drop for FontProject {
+        fn drop(&mut self) {
+            // Remove only the fixture's files and now-empty directories.
+            for directory in ["font", "fonts", "dat", "DaT"] {
+                let directory = self.0.join(directory);
+                if let Ok(entries) = std::fs::read_dir(&directory) {
+                    for entry in entries.flatten() {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+                let _ = std::fs::remove_dir(directory);
+            }
+            let _ = std::fs::remove_dir(&self.0);
+        }
+    }
+
+    fn primary_font_bytes() -> Vec<u8> {
         let full = FontArc::from(FontRef::try_from_slice(DEFAULT_FONT_BYTES).unwrap());
         assert_ne!(full.glyph_id('中').0, 0);
         // Reuse the repository font's outlines, with a synthetic cmap exposing
@@ -2783,7 +2820,12 @@ mod fallback_tests {
         }
         bytes[offset..offset + cmap.len()].copy_from_slice(&cmap);
         bytes[record + 12..record + 16].copy_from_slice(&(cmap.len() as u32).to_be_bytes());
-        let primary = FontArc::try_from_vec(bytes).unwrap();
+        bytes
+    }
+
+    fn fixture() -> (FontCache, FontArc) {
+        let full = FontArc::from(FontRef::try_from_slice(DEFAULT_FONT_BYTES).unwrap());
+        let primary = FontArc::try_from_vec(primary_font_bytes()).unwrap();
         assert_eq!(primary.glyph_id('中').0, 0);
         let mut cache = FontCache::new();
         cache.font = Some(primary);
@@ -2792,6 +2834,107 @@ mod fallback_tests {
             faces: OnceLock::from(vec![full.clone()]),
         }]);
         (cache, full)
+    }
+
+    #[test]
+    fn unnamed_and_unmatched_faces_use_the_dat_font_as_primary() {
+        let project = FontProject::new();
+        let path = project.write("DaT", "bundled.OTF", DEFAULT_FONT_BYTES);
+        for requested in ["", "siglus-nonexistent-font-family-for-test"] {
+            let mut cache = FontCache::new();
+            assert!(cache.load_for_project_named(&project.0, requested));
+            assert_eq!(
+                std::fs::canonicalize(cache.loaded_from().unwrap()).unwrap(),
+                std::fs::canonicalize(&path).unwrap(),
+                "{requested:?}"
+            );
+            assert_ne!(cache.font.as_ref().unwrap().glyph_id('中').0, 0);
+            assert!(cache.glyph_fallbacks.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn named_dat_font_matches_family_and_vertical_name_prefix() {
+        let project = FontProject::new();
+        let path = project.write("dat", "bundled.ttf", DEFAULT_FONT_BYTES);
+        let family = font_face_names(DEFAULT_FONT_BYTES)[0][0].clone();
+        assert!(!family.is_empty());
+        for requested in [family.clone(), format!("@{family}")] {
+            let mut cache = FontCache::new();
+            assert!(cache.load_for_project_named(&project.0, &requested));
+            assert_eq!(cache.loaded_from(), Some(path.as_path()));
+        }
+    }
+
+    #[test]
+    fn generic_project_font_fallback_preserves_directory_priority() {
+        let project = FontProject::new();
+        let family = font_face_names(DEFAULT_FONT_BYTES)[0][0].clone();
+        for directory in ["dat", "fonts", "font"] {
+            let path = project.write(directory, "bundled.ttf", DEFAULT_FONT_BYTES);
+            for requested in ["", "siglus-nonexistent-font-family-for-test", &family] {
+                let mut cache = FontCache::new();
+                assert!(cache.load_for_project_named(&project.0, requested));
+                assert_eq!(cache.loaded_from(), Some(path.as_path()));
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_font_files_do_not_hide_valid_dat_fonts() {
+        let project = FontProject::new();
+        project.write("dat", "msgothic.ttf", b"invalid font");
+        project.write("dat", "readme.txt", b"not a font");
+        let path = project.write("dat", "bundled.otf", DEFAULT_FONT_BYTES);
+        let mut cache = FontCache::new();
+        assert!(cache.load_for_project_named(&project.0, ""));
+        assert_eq!(cache.loaded_from(), Some(path.as_path()));
+    }
+
+    #[test]
+    fn dat_glyph_fallback_preserves_primary_and_resets_when_changing_game() {
+        let first = FontProject::new();
+        let primary_path = first.write("font", "primary.ttf", &primary_font_bytes());
+        let fallback_path = first.write("dat", "bundled.ttf", DEFAULT_FONT_BYTES);
+        let mut cache = FontCache::new();
+        assert!(cache.load_for_project_named(&first.0, ""));
+        assert_eq!(cache.loaded_from(), Some(primary_path.as_path()));
+        assert_eq!(cache.font.as_ref().unwrap().glyph_id('中').0, 0);
+        let fonts = cache.resolved_fonts().unwrap();
+        assert!(std::ptr::eq(fonts.for_char('A'), fonts.primary));
+        assert_ne!(fonts.for_char('中').glyph_id('中').0, 0);
+        let (file_index, _) = cache.glyph_fallbacks.lock().unwrap()[&'中'].unwrap();
+        assert_eq!(cache.fallback_files()[file_index].path, fallback_path);
+        assert_eq!(
+            cache
+                .fallback_files()
+                .iter()
+                .filter(|file| file.path == fallback_path)
+                .count(),
+            1
+        );
+
+        let second = FontProject::new();
+        let second_path = second.write("dat", "bundled.ttf", DEFAULT_FONT_BYTES);
+        assert!(cache.load_for_project_named(&second.0, ""));
+        assert_eq!(cache.loaded_from(), Some(second_path.as_path()));
+        assert!(cache.fallback_files.get().is_none());
+        assert!(cache.glyph_fallbacks.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn absent_project_fonts_still_use_engine_default() {
+        let project = FontProject::new();
+        for requested in ["", "siglus-nonexistent-font-family-for-test"] {
+            let mut cache = FontCache::new();
+            assert!(cache.load_for_project_named(&project.0, requested));
+            assert!(
+                cache
+                    .loaded_from()
+                    .unwrap()
+                    .ends_with(embedded_font::EMBEDDED_DEFAULT_FONT_SOURCE.unwrap())
+            );
+        }
     }
 
     #[test]
