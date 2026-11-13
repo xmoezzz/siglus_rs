@@ -121,7 +121,7 @@ impl<'a> SceneVm<'a> {
         let objects = rd.fixed_items(|rd| {
             // Native C_elm_object_list::_save omits disabled/non-saving slots
             // without changing the declared array length. Children have no INI filter.
-            let saved = self.short_object_slot_saved(slot);
+            let saved = self.native_object_slot_saved(slot);
             slot += 1;
             if saved {
                 Self::read_short_object(rd)
@@ -151,7 +151,7 @@ impl<'a> SceneVm<'a> {
         Ok((st, btn_select))
     }
 
-    pub(super) fn short_object_slot_saved(&self, slot: usize) -> bool {
+    pub(super) fn native_object_slot_saved(&self, slot: usize) -> bool {
         let mut use_flag = true;
         let mut save_flag = true;
         if let Some(cfg) = self.ctx.tables.gameexe.as_ref() {

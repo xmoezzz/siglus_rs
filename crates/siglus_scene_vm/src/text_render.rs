@@ -146,6 +146,43 @@ pub struct FontCache {
     /// face neither rescans the font directories nor reads a font file
     /// again (each scan read whole files, tens of MiB, per switch).
     resolved: std::collections::HashMap<String, (FontArc, Option<PathBuf>, u32)>,
+    project_dir: Option<PathBuf>,
+    fallback_files: OnceLock<Vec<FallbackFontFile>>,
+    glyph_fallbacks: Mutex<std::collections::HashMap<char, Option<(usize, usize)>>>,
+}
+
+#[derive(Debug)]
+struct FallbackFontFile {
+    path: PathBuf,
+    faces: OnceLock<Vec<FontArc>>,
+}
+
+/// Keep line metrics and existing glyphs on the selected face. Only the
+/// outline/advance of a missing character comes from another face.
+#[derive(Clone, Copy)]
+struct ResolvedFonts<'a> {
+    primary: &'a FontArc,
+    cache: Option<&'a FontCache>,
+}
+
+impl std::ops::Deref for ResolvedFonts<'_> {
+    type Target = FontArc;
+    fn deref(&self) -> &FontArc {
+        self.primary
+    }
+}
+
+impl<'a> ResolvedFonts<'a> {
+    fn for_char(self, ch: char) -> &'a FontArc {
+        self.cache
+            .map_or(self.primary, |cache| cache.font_for_char(self.primary, ch))
+    }
+
+    fn advance(self, ch: char, scale: PxScale) -> f32 {
+        let font = self.for_char(ch);
+        let scaled = font.as_scaled(scale);
+        scaled.h_advance(scaled.glyph_id(ch)).max(0.0)
+    }
 }
 
 impl FontCache {
@@ -156,6 +193,9 @@ impl FontCache {
             loaded_face_index: 0,
             requested_name: String::new(),
             resolved: std::collections::HashMap::new(),
+            project_dir: None,
+            fallback_files: OnceLock::new(),
+            glyph_fallbacks: Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -182,6 +222,13 @@ impl FontCache {
     /// original glyph manager when that face changes.  This method mirrors the
     /// same boundary and deliberately does not retain the first face forever.
     pub fn load_for_project_named(&mut self, project_dir: &Path, requested_name: &str) -> bool {
+        if self.project_dir.as_deref() != Some(project_dir) {
+            self.font = None;
+            self.resolved.clear();
+            self.fallback_files = OnceLock::new();
+            self.glyph_fallbacks = Mutex::new(std::collections::HashMap::new());
+            self.project_dir = Some(project_dir.to_path_buf());
+        }
         let normalized = normalize_font_name_for_match(requested_name.trim_start_matches('@'));
         if self.font.is_some() && self.requested_name == normalized {
             return true;
@@ -196,6 +243,11 @@ impl FontCache {
         }
         let found = self.resolve_for_project_named(project_dir, requested_name, &normalized);
         if found && let Some(font) = &self.font {
+            log::warn!(
+                "[SG_FONT] requested={requested_name:?} source={:?} face={}",
+                self.loaded_from,
+                self.loaded_face_index
+            );
             self.resolved.insert(
                 normalized,
                 (
@@ -206,6 +258,103 @@ impl FontCache {
             );
         }
         found
+    }
+
+    fn resolved_fonts(&self) -> Option<ResolvedFonts<'_>> {
+        self.font.as_ref().map(|primary| ResolvedFonts {
+            primary,
+            cache: Some(self),
+        })
+    }
+
+    fn fallback_files(&self) -> &[FallbackFontFile] {
+        self.fallback_files.get_or_init(|| {
+            let mut paths = Vec::new();
+            if let Some(project) = &self.project_dir {
+                for dir in project_font_dirs(project) {
+                    let Some(dir) = crate::resource::resolve_game_path(&dir).ok().flatten() else {
+                        continue;
+                    };
+                    let Ok(entries) = crate::resource::fs::read_dir(dir) else {
+                        continue;
+                    };
+                    let mut fonts: Vec<_> = entries
+                        .flatten()
+                        .map(|entry| entry.path())
+                        .filter(|path| is_supported_font_path(path))
+                        .collect();
+                    fonts.sort_by_key(|path| font_path_priority(path));
+                    paths.extend(fonts);
+                }
+            }
+            paths.extend(platform_font_candidates());
+            let mut seen = HashSet::new();
+            let mut files: Vec<_> = paths
+                .into_iter()
+                .filter(|path| seen.insert(path.clone()))
+                .map(|path| FallbackFontFile {
+                    path,
+                    faces: OnceLock::new(),
+                })
+                .collect();
+            if let Ok(font) = FontRef::try_from_slice(DEFAULT_FONT_BYTES) {
+                files.push(FallbackFontFile {
+                    path: PathBuf::from("embedded:default-font"),
+                    faces: OnceLock::from(vec![FontArc::from(font)]),
+                });
+            }
+            files
+        })
+    }
+
+    fn font_for_char<'a>(&'a self, primary: &'a FontArc, ch: char) -> &'a FontArc {
+        if primary.glyph_id(ch).0 != 0 || ch.is_control() {
+            return primary;
+        }
+        let cached = self
+            .glyph_fallbacks
+            .lock()
+            .ok()
+            .and_then(|cache| cache.get(&ch).copied());
+        let files = self.fallback_files();
+        let selected = if let Some(cached) = cached {
+            cached
+        } else {
+            let selected = files.iter().enumerate().find_map(|(file_index, file)| {
+                let faces = file.faces.get_or_init(|| {
+                    let Some((data, _)) = font_file_face(&file.path, "") else {
+                        return Vec::new();
+                    };
+                    (0..ttf_parser::fonts_in_collection(data).unwrap_or(1))
+                        .filter_map(|index| {
+                            FontRef::try_from_slice_and_index(data, index)
+                                .ok()
+                                .map(FontArc::from)
+                        })
+                        .collect()
+                });
+                faces
+                    .iter()
+                    .position(|font| font.glyph_id(ch).0 != 0)
+                    .map(|face_index| (file_index, face_index))
+            });
+            if let Ok(mut cache) = self.glyph_fallbacks.lock() {
+                cache.insert(ch, selected);
+                // At most 64 diagnostic lines per game, including unresolved characters.
+                if cache.len() <= 64 {
+                    log::warn!(
+                        "[SG_FONT_FALLBACK] U+{:04X} primary={:?} fallback={:?}",
+                        ch as u32,
+                        self.loaded_from,
+                        selected.map(|(index, face)| (&files[index].path, face))
+                    );
+                }
+            }
+            selected
+        };
+        selected
+            .and_then(|(file, face)| files[file].faces.get().and_then(|faces| faces.get(face)))
+            .unwrap_or(primary)
     }
 
     fn resolve_for_project_named(
@@ -485,7 +634,7 @@ impl FontCache {
             return None;
         }
         let (img, offset_x, offset_y) =
-            render_positioned_glyphs_rgba(self.font.as_ref(), glyphs, min_w, min_h, layer)?;
+            render_positioned_glyphs_rgba(self.resolved_fonts(), glyphs, min_w, min_h, layer)?;
         let image = match target {
             Some(id) => {
                 images.replace_image(&id, img).ok()?;
@@ -554,7 +703,7 @@ impl FontCache {
         max_h: u32,
     ) -> Option<ImageHandle> {
         let img = render_editbox_rgba(
-            self.font.as_ref(),
+            self.resolved_fonts(),
             text,
             cursor_pos,
             selection,
@@ -583,7 +732,7 @@ impl FontCache {
         max_w: u32,
         max_h: u32,
     ) -> Option<RgbaImage> {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.resolved_fonts() else {
             return render_text_image_basic_rgba(text, font_px as u32, max_w, max_h);
         };
         render_text_ab_glyph_rgba(font, text, font_px, max_w, max_h)
@@ -603,8 +752,8 @@ impl FontCache {
         max_w: u32,
         max_h: u32,
     ) -> (usize, f32) {
-        match self.font.as_ref() {
-            Some(font) => text_line_metrics_ab_glyph(font, text, font_px, max_w, max_h),
+        match self.resolved_fonts() {
+            Some(font) => text_line_metrics_resolved(font, text, font_px, max_w, max_h),
             // The basic fallback renderer breaks on '\n' only; approximate its pitch.
             None => (
                 text.lines().count().max(1),
@@ -688,7 +837,7 @@ impl FontCache {
         vertical: bool,
         layer: Option<TextSpriteLayer>,
     ) -> Option<RgbaImage> {
-        let Some(font) = self.font.as_ref() else {
+        let Some(font) = self.resolved_fonts() else {
             if layer.is_none() || layer == Some(TextSpriteLayer::Body) {
                 return render_text_image_basic_rgba(text, font_px as u32, max_w, max_h);
             }
@@ -717,7 +866,7 @@ pub fn editbox_cell_width_px(ch: char, font_px: i32) -> i32 {
 
 #[allow(clippy::too_many_arguments)]
 fn render_editbox_rgba(
-    font: Option<&FontArc>,
+    font: Option<ResolvedFonts<'_>>,
     text: &str,
     cursor_pos: usize,
     selection: Option<(usize, usize)>,
@@ -896,7 +1045,7 @@ fn render_editbox_rgba(
 #[allow(clippy::too_many_arguments)]
 fn draw_editbox_committed_segment(
     rgba: &mut [u8],
-    font: Option<&FontArc>,
+    font: Option<ResolvedFonts<'_>>,
     text: &str,
     range_start: usize,
     range_end: usize,
@@ -946,7 +1095,7 @@ fn draw_editbox_committed_segment(
 #[allow(clippy::too_many_arguments)]
 fn draw_editbox_cell(
     rgba: &mut [u8],
-    font: Option<&FontArc>,
+    font: Option<ResolvedFonts<'_>>,
     ch: char,
     cell_x: i32,
     cell_w: i32,
@@ -1166,7 +1315,7 @@ pub fn render_text_image_basic_rgba(
 }
 
 fn render_positioned_glyphs_rgba(
-    font: Option<&FontArc>,
+    font: Option<ResolvedFonts<'_>>,
     glyphs: &[PositionedTextGlyph],
     min_w: u32,
     min_h: u32,
@@ -1398,7 +1547,7 @@ fn positioned_glyph_origin(
 }
 
 fn rasterize_ab_glyph_oriented(
-    font: &FontArc,
+    font: ResolvedFonts<'_>,
     ch: char,
     font_px: f32,
     vertical: bool,
@@ -1407,7 +1556,7 @@ fn rasterize_ab_glyph_oriented(
         return rasterize_ab_glyph(font, ch, font_px);
     }
 
-    let (vertical_ch, rotate) = vertical_glyph_mapping(font, ch);
+    let (vertical_ch, rotate) = vertical_glyph_mapping(font.for_char(ch), ch);
     let mut glyph = rasterize_ab_glyph(font, vertical_ch, font_px);
     if rotate && glyph.width != 0 && glyph.height != 0 {
         glyph = rotate_raster_glyph_clockwise(glyph);
@@ -1483,7 +1632,8 @@ fn rotate_raster_glyph_clockwise(src: RasterGlyph) -> RasterGlyph {
     }
 }
 
-fn rasterize_ab_glyph(font: &FontArc, ch: char, font_px: f32) -> RasterGlyph {
+fn rasterize_ab_glyph(font: ResolvedFonts<'_>, ch: char, font_px: f32) -> RasterGlyph {
+    let font = font.for_char(ch);
     let scale = PxScale::from(font_px.max(1.0));
     let scaled = font.as_scaled(scale);
     let glyph_id = scaled.glyph_id(ch);
@@ -1546,7 +1696,7 @@ fn rasterize_ab_glyph(font: &FontArc, ch: char, font_px: f32) -> RasterGlyph {
 }
 
 fn render_mwnd_text_ab_glyph_rgba(
-    font: &FontArc,
+    font: ResolvedFonts<'_>,
     text: &str,
     font_px: f32,
     max_w: u32,
@@ -1567,7 +1717,7 @@ fn render_mwnd_text_ab_glyph_rgba(
 }
 
 fn render_mwnd_text_ab_glyph_rgba_styled(
-    font: &FontArc,
+    font: ResolvedFonts<'_>,
     text: &str,
     font_px: f32,
     max_w: u32,
@@ -2045,6 +2195,25 @@ pub fn text_line_metrics_ab_glyph(
     max_w: u32,
     max_h: u32,
 ) -> (usize, f32) {
+    text_line_metrics_resolved(
+        ResolvedFonts {
+            primary: font,
+            cache: None,
+        },
+        text,
+        font_px,
+        max_w,
+        max_h,
+    )
+}
+
+fn text_line_metrics_resolved(
+    font: ResolvedFonts<'_>,
+    text: &str,
+    font_px: f32,
+    max_w: u32,
+    max_h: u32,
+) -> (usize, f32) {
     let scaled = font.as_scaled(PxScale::from(font_px.max(1.0)));
     let ascent = scaled.ascent().max(1.0);
     let line_height = (scaled.height() + scaled.line_gap()).max(1.0);
@@ -2074,7 +2243,7 @@ pub fn text_line_metrics_ab_glyph(
             _ => {}
         }
 
-        let advance = scaled.h_advance(scaled.glyph_id(ch)).max(0.0);
+        let advance = font.advance(ch, PxScale::from(font_px.max(1.0)));
         if x > 0.0 && x + advance > max_w as f32 {
             x = 0.0;
             baseline_y += line_height;
@@ -2089,7 +2258,7 @@ pub fn text_line_metrics_ab_glyph(
 }
 
 fn render_text_ab_glyph_rgba(
-    font: &FontArc,
+    font: ResolvedFonts<'_>,
     text: &str,
     font_px: f32,
     max_w: u32,
@@ -2125,7 +2294,7 @@ fn render_text_ab_glyph_rgba(
             _ => {}
         }
 
-        let advance = scaled.h_advance(scaled.glyph_id(ch)).max(0.0);
+        let advance = font.advance(ch, PxScale::from(font_px.max(1.0)));
         if x > 0.0 && x + advance > max_w as f32 {
             x = 0.0;
             baseline_y += line_height;
@@ -2343,8 +2512,14 @@ fn font_path_priority(path: &Path) -> (u8, u8, String) {
     (family_score, ext_score, name)
 }
 
+// Share the same project-first order for named faces, generic primary fonts,
+// and per-glyph fallback. Some games keep their only font in dat/.
 fn project_font_dirs(project_dir: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![project_dir.join("font"), project_dir.join("fonts")];
+    let mut dirs = vec![
+        project_dir.join("font"),
+        project_dir.join("fonts"),
+        project_dir.join("dat"),
+    ];
     if let Ok(exe) = std::env::current_exe()
         && let Some(exe_dir) = exe.parent()
     {
@@ -2430,6 +2605,12 @@ fn platform_font_candidates_for_name(name: &str) -> Vec<PathBuf> {
 
 fn platform_font_candidates() -> Vec<PathBuf> {
     let mut out = Vec::new();
+
+    #[cfg(target_os = "android")]
+    {
+        out.push(PathBuf::from("/system/fonts/NotoSansCJK-Regular.ttc"));
+        out.push(PathBuf::from("/system/fonts/NotoSerifCJK-Regular.ttc"));
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -2568,6 +2749,278 @@ fn glyph_5x7(ch: char) -> [u8; 7] {
         '|' => [0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
         ' ' => [0x00; 7],
         _ => [0x1F, 0x11, 0x15, 0x15, 0x15, 0x11, 0x1F],
+    }
+}
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+
+    struct FontProject(PathBuf);
+
+    impl FontProject {
+        fn new() -> Self {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root =
+                std::env::temp_dir().join(format!("siglus-font-{}-{stamp}", std::process::id()));
+            std::fs::create_dir(&root).unwrap();
+            Self(root)
+        }
+
+        fn write(&self, directory: &str, name: &str, bytes: &[u8]) -> PathBuf {
+            let directory = self.0.join(directory);
+            std::fs::create_dir_all(&directory).unwrap();
+            let path = directory.join(name);
+            std::fs::write(&path, bytes).unwrap();
+            path
+        }
+    }
+
+    impl Drop for FontProject {
+        fn drop(&mut self) {
+            // Remove only the fixture's files and now-empty directories.
+            for directory in ["font", "fonts", "dat", "DaT"] {
+                let directory = self.0.join(directory);
+                if let Ok(entries) = std::fs::read_dir(&directory) {
+                    for entry in entries.flatten() {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+                let _ = std::fs::remove_dir(directory);
+            }
+            let _ = std::fs::remove_dir(&self.0);
+        }
+    }
+
+    fn primary_font_bytes() -> Vec<u8> {
+        let full = FontArc::from(FontRef::try_from_slice(DEFAULT_FONT_BYTES).unwrap());
+        assert_ne!(full.glyph_id('中').0, 0);
+        // Reuse the repository font's outlines, with a synthetic cmap exposing
+        // only 'A'. No external or commercial test font is needed.
+        let mut bytes = DEFAULT_FONT_BYTES.to_vec();
+        let count = u16::from_be_bytes(bytes[4..6].try_into().unwrap()) as usize;
+        let record = (0..count)
+            .map(|i| 12 + i * 16)
+            .find(|&at| &bytes[at..at + 4] == b"cmap")
+            .unwrap();
+        let offset =
+            u32::from_be_bytes(bytes[record + 8..record + 12].try_into().unwrap()) as usize;
+        let mut cmap = Vec::new();
+        for value in [0u16, 1, 3, 10] {
+            cmap.extend_from_slice(&value.to_be_bytes());
+        }
+        cmap.extend_from_slice(&12u32.to_be_bytes());
+        cmap.extend_from_slice(&12u16.to_be_bytes());
+        cmap.extend_from_slice(&0u16.to_be_bytes());
+        for value in [28u32, 0, 1, 65, 65, full.glyph_id('A').0 as u32] {
+            cmap.extend_from_slice(&value.to_be_bytes());
+        }
+        bytes[offset..offset + cmap.len()].copy_from_slice(&cmap);
+        bytes[record + 12..record + 16].copy_from_slice(&(cmap.len() as u32).to_be_bytes());
+        bytes
+    }
+
+    fn fixture() -> (FontCache, FontArc) {
+        let full = FontArc::from(FontRef::try_from_slice(DEFAULT_FONT_BYTES).unwrap());
+        let primary = FontArc::try_from_vec(primary_font_bytes()).unwrap();
+        assert_eq!(primary.glyph_id('中').0, 0);
+        let mut cache = FontCache::new();
+        cache.font = Some(primary);
+        cache.fallback_files = OnceLock::from(vec![FallbackFontFile {
+            path: PathBuf::from("test:fallback"),
+            faces: OnceLock::from(vec![full.clone()]),
+        }]);
+        (cache, full)
+    }
+
+    #[test]
+    fn unnamed_and_unmatched_faces_use_the_dat_font_as_primary() {
+        let project = FontProject::new();
+        let path = project.write("DaT", "bundled.OTF", DEFAULT_FONT_BYTES);
+        for requested in ["", "siglus-nonexistent-font-family-for-test"] {
+            let mut cache = FontCache::new();
+            assert!(cache.load_for_project_named(&project.0, requested));
+            assert_eq!(
+                std::fs::canonicalize(cache.loaded_from().unwrap()).unwrap(),
+                std::fs::canonicalize(&path).unwrap(),
+                "{requested:?}"
+            );
+            assert_ne!(cache.font.as_ref().unwrap().glyph_id('中').0, 0);
+            assert!(cache.glyph_fallbacks.lock().unwrap().is_empty());
+        }
+    }
+
+    #[test]
+    fn named_dat_font_matches_family_and_vertical_name_prefix() {
+        let project = FontProject::new();
+        let path = project.write("dat", "bundled.ttf", DEFAULT_FONT_BYTES);
+        let family = font_face_names(DEFAULT_FONT_BYTES)[0][0].clone();
+        assert!(!family.is_empty());
+        for requested in [family.clone(), format!("@{family}")] {
+            let mut cache = FontCache::new();
+            assert!(cache.load_for_project_named(&project.0, &requested));
+            assert_eq!(cache.loaded_from(), Some(path.as_path()));
+        }
+    }
+
+    #[test]
+    fn generic_project_font_fallback_preserves_directory_priority() {
+        let project = FontProject::new();
+        let family = font_face_names(DEFAULT_FONT_BYTES)[0][0].clone();
+        for directory in ["dat", "fonts", "font"] {
+            let path = project.write(directory, "bundled.ttf", DEFAULT_FONT_BYTES);
+            for requested in ["", "siglus-nonexistent-font-family-for-test", &family] {
+                let mut cache = FontCache::new();
+                assert!(cache.load_for_project_named(&project.0, requested));
+                assert_eq!(cache.loaded_from(), Some(path.as_path()));
+            }
+        }
+    }
+
+    #[test]
+    fn invalid_font_files_do_not_hide_valid_dat_fonts() {
+        let project = FontProject::new();
+        project.write("dat", "msgothic.ttf", b"invalid font");
+        project.write("dat", "readme.txt", b"not a font");
+        let path = project.write("dat", "bundled.otf", DEFAULT_FONT_BYTES);
+        let mut cache = FontCache::new();
+        assert!(cache.load_for_project_named(&project.0, ""));
+        assert_eq!(cache.loaded_from(), Some(path.as_path()));
+    }
+
+    #[test]
+    fn dat_glyph_fallback_preserves_primary_and_resets_when_changing_game() {
+        let first = FontProject::new();
+        let primary_path = first.write("font", "primary.ttf", &primary_font_bytes());
+        let fallback_path = first.write("dat", "bundled.ttf", DEFAULT_FONT_BYTES);
+        let mut cache = FontCache::new();
+        assert!(cache.load_for_project_named(&first.0, ""));
+        assert_eq!(cache.loaded_from(), Some(primary_path.as_path()));
+        assert_eq!(cache.font.as_ref().unwrap().glyph_id('中').0, 0);
+        let fonts = cache.resolved_fonts().unwrap();
+        assert!(std::ptr::eq(fonts.for_char('A'), fonts.primary));
+        assert_ne!(fonts.for_char('中').glyph_id('中').0, 0);
+        let (file_index, _) = cache.glyph_fallbacks.lock().unwrap()[&'中'].unwrap();
+        assert_eq!(cache.fallback_files()[file_index].path, fallback_path);
+        assert_eq!(
+            cache
+                .fallback_files()
+                .iter()
+                .filter(|file| file.path == fallback_path)
+                .count(),
+            1
+        );
+
+        let second = FontProject::new();
+        let second_path = second.write("dat", "bundled.ttf", DEFAULT_FONT_BYTES);
+        assert!(cache.load_for_project_named(&second.0, ""));
+        assert_eq!(cache.loaded_from(), Some(second_path.as_path()));
+        assert!(cache.fallback_files.get().is_none());
+        assert!(cache.glyph_fallbacks.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn absent_project_fonts_still_use_engine_default() {
+        let project = FontProject::new();
+        for requested in ["", "siglus-nonexistent-font-family-for-test"] {
+            let mut cache = FontCache::new();
+            assert!(cache.load_for_project_named(&project.0, requested));
+            assert!(
+                cache
+                    .loaded_from()
+                    .unwrap()
+                    .ends_with(embedded_font::EMBEDDED_DEFAULT_FONT_SOURCE.unwrap())
+            );
+        }
+    }
+
+    #[test]
+    fn fallback_preserves_present_glyphs_and_repairs_missing_outlines() {
+        let (cache, full) = fixture();
+        let fonts = cache.resolved_fonts().unwrap();
+        assert!(std::ptr::eq(fonts.for_char('A'), fonts.primary));
+        assert_ne!(fonts.for_char('中').glyph_id('中').0, 0);
+        let expected = ResolvedFonts {
+            primary: &full,
+            cache: None,
+        };
+        for vertical in [false, true] {
+            for ch in ['A', '中'] {
+                let actual = rasterize_ab_glyph_oriented(fonts, ch, 32.0, vertical);
+                let wanted = rasterize_ab_glyph_oriented(expected, ch, 32.0, vertical);
+                assert_eq!(
+                    (actual.width, actual.height, actual.xmin, actual.ymin),
+                    (wanted.width, wanted.height, wanted.xmin, wanted.ymin)
+                );
+                assert_eq!(actual.bitmap, wanted.bitmap);
+            }
+        }
+        assert!(std::ptr::eq(fonts.for_char('\u{10ffff}'), fonts.primary));
+        assert_eq!(
+            cache.glyph_fallbacks.lock().unwrap().get(&'\u{10ffff}'),
+            Some(&None)
+        );
+    }
+
+    #[test]
+    fn mixed_text_uses_the_same_fallback_for_measurement_and_rendering() {
+        let (cache, full) = fixture();
+        let expected = ResolvedFonts {
+            primary: &full,
+            cache: None,
+        };
+        let actual = cache.render_text_rgba("A中A中", 32.0, 55, 160).unwrap();
+        let wanted = render_text_ab_glyph_rgba(expected, "A中A中", 32.0, 55, 160).unwrap();
+        assert_eq!(actual.rgba, wanted.rgba);
+        assert_eq!(
+            cache.text_line_metrics("A中A中", 32.0, 55, 160),
+            text_line_metrics_ab_glyph(&full, "A中A中", 32.0, 55, 160)
+        );
+        let actual = render_editbox_rgba(
+            cache.resolved_fonts(),
+            "A中",
+            0,
+            None,
+            "",
+            None,
+            None,
+            0,
+            false,
+            32.0,
+            160,
+            48,
+        )
+        .unwrap();
+        let wanted = render_editbox_rgba(
+            Some(expected),
+            "A中",
+            0,
+            None,
+            "",
+            None,
+            None,
+            0,
+            false,
+            32.0,
+            160,
+            48,
+        )
+        .unwrap();
+        assert_eq!(actual.rgba, wanted.rgba);
+    }
+
+    #[test]
+    fn changing_game_discards_resolved_faces_and_missing_character_cache() {
+        let (mut cache, _) = fixture();
+        cache.project_dir = Some(PathBuf::from("first-game"));
+        cache.resolved_fonts().unwrap().for_char('中');
+        assert!(!cache.glyph_fallbacks.lock().unwrap().is_empty());
+        cache.load_for_project_named(Path::new("different-game"), "default");
+        assert!(cache.fallback_files.get().is_none());
+        assert!(cache.glyph_fallbacks.lock().unwrap().is_empty());
     }
 }
 

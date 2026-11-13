@@ -7137,6 +7137,136 @@ fn resolve_object_op(ids: &constants::RuntimeConstants, op: i32) -> ObjectOpKind
     ObjectOpKind::Unknown
 }
 
+#[cfg(test)]
+mod image_size_tests {
+    use super::*;
+
+    struct Fixture(PathBuf);
+
+    impl Fixture {
+        fn new() -> Self {
+            let stamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let file = Self(
+                std::env::temp_dir()
+                    .join(format!("siglus-size-{}-{stamp}.g00", std::process::id())),
+            );
+            // Two synthetic type-2 cuts: small visible rectangles in larger
+            // original canvases. No game resources are needed by this test.
+            let mut raw = vec![0u8; 20];
+            raw[0..4].copy_from_slice(&2u32.to_le_bytes());
+            for (i, (width, original)) in [(2u16, (800i32, 1400i32)), (3, (1000, 1600))]
+                .into_iter()
+                .enumerate()
+            {
+                let mut cut = vec![0u8; 0x74 + 0x5c];
+                cut[0] = 2;
+                cut[2..4].copy_from_slice(&1u16.to_le_bytes());
+                for (offset, value) in [
+                    (4, 10i32),
+                    (8, 20),
+                    (12, i32::from(width)),
+                    (16, 1),
+                    (20, 11),
+                    (24, 20),
+                    (28, original.0),
+                    (32, original.1),
+                ] {
+                    cut[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+                }
+                cut[0x74..0x76].copy_from_slice(&10u16.to_le_bytes());
+                cut[0x76..0x78].copy_from_slice(&20u16.to_le_bytes());
+                cut[0x78] = 1;
+                cut[0x7a..0x7c].copy_from_slice(&width.to_le_bytes());
+                cut[0x7c..0x7e].copy_from_slice(&1u16.to_le_bytes());
+                cut.extend(vec![255; usize::from(width) * 4]);
+                let offset = raw.len() as u32;
+                raw[4 + i * 8..8 + i * 8].copy_from_slice(&offset.to_le_bytes());
+                raw[8 + i * 8..12 + i * 8].copy_from_slice(&(cut.len() as u32).to_le_bytes());
+                raw.extend(cut);
+            }
+            let mut packed = Vec::new();
+            for chunk in raw.chunks(8) {
+                packed.push(((1u16 << chunk.len()) - 1) as u8);
+                packed.extend_from_slice(chunk);
+            }
+            let mut bytes = vec![2, 1, 0, 1, 0];
+            bytes.extend_from_slice(&2u32.to_le_bytes());
+            bytes.extend([0u8; 48]);
+            bytes.extend_from_slice(&((packed.len() + 8) as u32).to_le_bytes());
+            bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+            bytes.extend(packed);
+            std::fs::write(&file.0, bytes).unwrap();
+            file
+        }
+    }
+
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+
+    fn query(ctx: &mut CommandContext, name: &str, op: i32, pat: Option<i64>) -> i64 {
+        let mut state = StageFormState::default();
+        let mut stage = ObjectDispatchStage {
+            backend_slot_base: 0,
+            group_lists: &mut state.group_lists,
+            rect_layers: &mut state.rect_layers,
+            next_nested_object_slot: &mut state.next_nested_object_slot,
+            embedded_tree: false,
+        };
+        let mut obj = ObjectState::default();
+        obj.object_type = 1;
+        obj.file_name = Some(name.to_string());
+        let args = pat.map(Value::Int).into_iter().collect::<Vec<_>>();
+        assert!(dispatch_object_state_op(
+            ctx,
+            &mut stage,
+            0,
+            0,
+            &mut obj,
+            op,
+            &[],
+            &args,
+            Some(10),
+            None,
+            Some(i64::from(pat.is_some())),
+            &mut None
+        ));
+        match ctx.stack.pop() {
+            Some(Value::Int(value)) => value,
+            other => panic!("unexpected size result: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn composed_object_size_uses_base_canvas_and_preserves_cut_geometry() {
+        let fixture = Fixture::new();
+        let name = fixture.0.to_str().unwrap();
+        let mut ctx = CommandContext::new(std::env::temp_dir());
+        let x = ctx.ids.obj_get_size_x;
+        let y = ctx.ids.obj_get_size_y;
+        assert_eq!(query(&mut ctx, name, x, None), 800);
+        assert_eq!(query(&mut ctx, name, y, Some(1)), 1600);
+        let descriptor = format!("{name}(0,0,1)|{name}(0,0,0)");
+        assert_eq!(query(&mut ctx, &descriptor, x, None), 1000);
+        assert_eq!(query(&mut ctx, &descriptor, y, None), 1600);
+        let id = ctx.images.load_g00(&descriptor, 0).unwrap();
+        assert_eq!(ctx.images.original_size(&id), Some((1000, 1600)));
+        let image = ctx.images.get(&id).unwrap();
+        assert_eq!(
+            (image.width, image.height, image.center_x, image.center_y),
+            (3, 1, 1, 0)
+        );
+        assert_eq!(query(&mut ctx, &descriptor, y, Some(0)), 1600);
+        assert_eq!(query(&mut ctx, &descriptor, y, Some(1)), 0);
+        assert_eq!(query(&mut ctx, &format!("(5,7)|{name}(0,0,0)"), y, None), 7);
+    }
+}
+
 struct ObjectDispatchStage<'a> {
     backend_slot_base: usize,
     group_lists: &'a mut HashMap<i64, Vec<GroupState>>,
@@ -11564,6 +11694,19 @@ fn dispatch_object_state_op(
                                     log::error!("object.get_size mesh load failed '{name}': {e}");
                                 }
                             }
+                        }
+                    } else if let Some(name) =
+                        obj.file_name.as_deref().filter(|name| name.contains('|'))
+                    {
+                        // A composite descriptor is not a filesystem path.
+                        // It creates one texture whose size is inherited from
+                        // the base canvas, just like the rendering path.
+                        if pat == 0
+                            && let Ok(id) = ctx.images.load_g00_composed(name)
+                            && let Some((width, height)) = ctx.images.original_size(&id)
+                        {
+                            sx = i64::from(width);
+                            sy = i64::from(height);
                         }
                     } else if let Some(name) = obj.file_name.as_deref()
                         && let Ok((path, _pct)) = crate::resource::find_g00_image_with_append_dir(
