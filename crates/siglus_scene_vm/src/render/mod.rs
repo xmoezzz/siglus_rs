@@ -2341,6 +2341,22 @@ impl Renderer {
                 wgpu::TextureFormat::Rgba8Unorm | wgpu::TextureFormat::Rgba8UnormSrgb => {
                     dst.copy_from_slice(src);
                 }
+                wgpu::TextureFormat::Rgb10a2Unorm => {
+                    for (src_px, dst_px) in src
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .zip(dst.as_chunks_mut::<4>().0.iter_mut())
+                    {
+                        // R, G, B, A occupy bits 0..10, 10..20, 20..30, 30..32.
+                        // Normalize with rounding so both endpoints stay exact.
+                        let packed = u32::from_le_bytes(*src_px);
+                        dst_px[0] = (((packed & 0x3ff) * 255 + 511) / 1023) as u8;
+                        dst_px[1] = ((((packed >> 10) & 0x3ff) * 255 + 511) / 1023) as u8;
+                        dst_px[2] = ((((packed >> 20) & 0x3ff) * 255 + 511) / 1023) as u8;
+                        dst_px[3] = ((packed >> 30) * 85) as u8;
+                    }
+                }
                 other => {
                     anyhow::bail!("unsupported debug texture readback format: {other:?}");
                 }
