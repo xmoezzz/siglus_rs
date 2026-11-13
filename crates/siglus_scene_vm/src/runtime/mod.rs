@@ -5012,6 +5012,7 @@ impl CommandContext {
                         obj,
                         &mask_info,
                         &resolved_masks,
+                        None,
                     );
                 }
             }
@@ -12489,6 +12490,7 @@ fn apply_object_masks_recursive(
     obj: &mut globals::ObjectState,
     mask_info: &[Option<(String, i32, i32)>],
     resolved_masks: &HashMap<String, ImageHandle>,
+    inherited_mask: Option<&(ImageHandle, i32, i32)>,
 ) {
     let mask_no = if ids.obj_mask_no != 0 {
         obj.lookup_int_prop(ids, ids.obj_mask_no).unwrap_or(-1)
@@ -12504,8 +12506,13 @@ fn apply_object_masks_recursive(
                 .get(mask_name)
                 .cloned()
                 .map(|mask_image_id| (mask_image_id, *mask_x, *mask_y))
-        });
+        })
+        .or_else(|| inherited_mask.cloned());
 
+    // A container can own a mask without having a drawable sprite. Carry its
+    // effective binding down the object tree instead of relying on the parent
+    // render state's first sprite. A child's own resolved mask takes priority;
+    // mask coordinates remain in screen space, independent of object transforms.
     let targets: Vec<(LayerId, SpriteId)> = match &obj.backend {
         globals::ObjectBackend::Gfx => gfx
             .object_sprite_binding(stage_i64, obj_i64)
@@ -12542,6 +12549,7 @@ fn apply_object_masks_recursive(
             child,
             mask_info,
             resolved_masks,
+            mask_binding.as_ref(),
         );
     }
 }
@@ -17494,3 +17502,6 @@ mod load_message_window_tests {
         assert!(!ctx.globals.syscom.hide_mwnd.enable);
     }
 }
+
+#[cfg(test)]
+mod object_mask_tests;
