@@ -574,6 +574,8 @@ jobs:
   android:
     name: android
     runs-on: ubuntu-22.04
+    outputs:
+      signed: ${{ steps.sign_android.outcome == 'success' }}
 
     steps:
       - name: Checkout
@@ -659,10 +661,14 @@ jobs:
           )"
 
           test -n "$APK_PATH"
-          cp -v "$APK_PATH" dist/android_ci/app-release.apk
-          test -f dist/android_ci/app-release.apk
+          cp -v "$APK_PATH" dist/android_ci/app-release-unsigned.apk
+          test -f dist/android_ci/app-release-unsigned.apk
 
       - name: Sign Android APK
+        id: sign_android
+        # PRs and fork branch pushes validate compilation without release secrets.
+        # All tag builds still require a persistent signing identity, even in forks.
+        if: github.event_name == 'push' && (!github.event.repository.fork || startsWith(github.ref, 'refs/tags/'))
         shell: bash
         env:
           ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
@@ -678,7 +684,7 @@ jobs:
           : "${ANDROID_KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD signing secret is required}"
 
           KEYSTORE="$RUNNER_TEMP/upload-keystore.jks"
-          UNSIGNED_APK="dist/android_ci/app-release.apk"
+          UNSIGNED_APK="dist/android_ci/app-release-unsigned.apk"
           ALIGNED_APK="$RUNNER_TEMP/app-release-aligned.apk"
           SIGNED_APK="$RUNNER_TEMP/app-release-signed.apk"
 
@@ -701,18 +707,27 @@ jobs:
             --print-certs \
             "${SIGNED_APK}"
 
-          mv -f "${SIGNED_APK}" "${UNSIGNED_APK}"
+          mv -f "${SIGNED_APK}" dist/android_ci/app-release.apk
 
-      - name: Upload artifact
+      - name: Upload signed Android artifact
+        if: steps.sign_android.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: siglus-android
           path: dist/android_ci/app-release.apk
           if-no-files-found: error
 
+      - name: Upload unsigned Android build check
+        if: steps.sign_android.outcome == 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: siglus-android-unsigned
+          path: dist/android_ci/app-release-unsigned.apk
+          if-no-files-found: error
+
   prerelease:
     name: Publish GitHub Pre-release (non-tag pushes only)
-    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/') && needs.android.outputs.signed == 'true'
     needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, vita, switch, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
@@ -775,7 +790,7 @@ jobs:
 
   release:
     name: Publish GitHub Release (tags only)
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') && needs.android.outputs.signed == 'true'
     needs: [meta, linux_x86_64, linux_aarch64, freebsd, wasm, vita, switch, macos, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
