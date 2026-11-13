@@ -25,22 +25,20 @@ script-visible string operations, and native save formats.
 
 ## Decision
 
-### An explicit unofficial extension
+### An unofficial extension
 
 Implement language-independent Unicode text layout as a `siglus_rs` extension.
 **This is not official SiglusEngine behavior and is not a claim of compatibility
 with the original engine's typography.** Documentation and any exposed setting
 must identify it as an unofficial extension.
 
-Keep original-compatible layout as the default. Unicode layout is an explicit
-project-level choice, retained consistently for a session. Do not infer it from
-the operating system locale, an individual accented character, or a font name.
-The initial cell-spacing profile is selected by `siglus-text-layout.txt` in the
-project root, containing `unicode-cells`. Missing configuration or `native`
-selects original-compatible layout. Invalid values fail project startup.
-Hosts load the profile through `CommandContext::try_new` and the shared resource
-filesystem. Font-cache and UI resets retain the session profile, as do child
-message windows. Changing the file takes effect on the next project open.
+Apply Unicode cell spacing automatically in the Siglus runtime. No per-game
+configuration file, activation step, operating-system locale, or font-name
+heuristic selects it. `CommandContext::new` initializes both runtime and UI
+font caches with the same display policy on every host. Cache/UI resets and
+child message windows retain it. Native-width classification remains available
+internally for original-semantics reference and other runtimes. Native VM string
+operations retain their original rules.
 
 There is no language whitelist. Support is defined by Unicode text properties
 and layout requirements, not by a Vietnamese special case or a list of selected
@@ -103,8 +101,7 @@ Before enabling saving for Unicode layouts that cannot be represented by the
 native snapshot, define a lossless reconstruction contract. Any necessary
 extension metadata belongs in separately identified runner-owned storage,
 bound to the relevant game and snapshot. It must not be inserted into native
-records or silently discarded. Mode mismatch and missing required metadata
-must produce an explicit result.
+records or silently discarded. Missing required reconstruction metadata must produce an explicit result.
 
 ### Platform and engine boundaries
 
@@ -127,20 +124,20 @@ backlog measurement, text raster layout, and choice reconstruction. Positioned
 glyph snapshots retain their recorded geometry. Native string-width operations
 remain separate in `runtime/string_semantics.rs`.
 
-`unicode-cells` is intentionally named for this stage. It does not establish
+The internal `UnicodeCells` policy implements this stage. It does not establish
 contextual shaping, bidi, Unicode line breaking, complex mark attachment,
 cluster-aware fallback, joined emoji rendering, or normalization across separate
 script append operations. Source mappings are working-layout data, not new
-native save fields. Profile identity and reconstruction metadata across save
-sessions remain pending, so cross-profile save compatibility is not claimed.
+native save fields. Lossless reconstruction metadata for future shaped layouts
+remains pending.
 These limitations also apply to scripts whose glyph order and joining need a
 shaping engine, even when their characters now receive narrower cells.
 
 Deliver in stages under this single architectural scope:
 
-1. Define the explicit profile selection, source mappings, cache identity,
-   invalidation rules, and common layout result. Centralize display decisions
-   without changing original-compatible output.
+1. Define source mappings, cache identity, invalidation rules, and the common
+   layout result. Centralize display decisions while preserving native string
+   operations and saved glyph coordinates.
 2. Implement Unicode cluster, shaping, font fallback, direction, wrapping, and
    interaction behavior. A Latin-only width patch is an intermediate milestone,
    not completion of Unicode support.
@@ -159,8 +156,8 @@ support from a width predicate, a successful build, or one screenshot.
 
 Translation patches can share one Unicode layout extension instead of accumulating
 language-specific exceptions. The extension requires more than glyph coverage,
-and introduces explicit profile, font, cache, and reconstruction contracts.
-Original-compatible games remain insulated from those policy changes.
+and introduces font, cache, and reconstruction contracts. Native VM string
+operations and positioned save glyphs remain independent of display-width rules.
 
 ## References
 

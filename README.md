@@ -9,12 +9,8 @@ This project is non-commercial and intended for research purposes.
 Architectural decisions are recorded in [docs/adr](docs/adr/README.md).
 Accepted decisions describe the intended design, not necessarily implemented features.
 
-For translation patches, an **unofficial Unicode cell-spacing extension** is
-available for Siglus. Put `siglus-text-layout.txt` in the game directory with
-the single value `unicode-cells`. Omit the file, or use `native`, for the
-original-compatible default. The setting is read once when the project opens
-through the shared resource filesystem, including mobile and browser hosts.
-Invalid values stop startup with a configuration error.
+Siglus applies an **unofficial Unicode cell-spacing extension** automatically.
+It requires no configuration file or activation step on any host.
 
 The extension uses Unicode widths rather than a language whitelist. It handles
 accented alphabetic text, narrow Greek and Cyrillic, wide CJK, and canonical
@@ -27,8 +23,8 @@ Existing positioned save glyphs retain their coordinates.
 This is the cell-spacing stage of [ADR 0001](docs/adr/0001-unicode-text-layout.md),
 not complete Unicode typography. Contextual shaping, bidi, Unicode word/line
 breaking, complex mark attachment, joined emoji, cluster-aware font fallback,
-and cross-profile save metadata are still pending. Keep the same profile when
-resuming a save. Font availability still determines glyph coverage.
+and lossless save reconstruction for future shaped layouts are still pending.
+Font availability still determines glyph coverage.
 
 <br clear="left"/>
 

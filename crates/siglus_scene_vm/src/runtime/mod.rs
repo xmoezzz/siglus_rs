@@ -1502,15 +1502,6 @@ impl CommandContext {
             self.globals.script.async_msg_mode_once = false;
         }
     }
-    /// Host entry point: load the explicit unofficial display profile once.
-    pub fn try_new(project_dir: PathBuf) -> Result<Self> {
-        let profile = crate::text_layout::TextLayoutProfile::load(&project_dir)?;
-        let mut ctx = Self::new(project_dir);
-        ctx.font_cache = FontCache::with_layout_profile(profile);
-        ctx.ui = ui::UiRuntime::with_layout_profile(profile);
-        Ok(ctx)
-    }
-
     pub fn new(project_dir: PathBuf) -> Self {
         let mut unknown = unknown::UnknownOpRecorder::default();
         let tables = tables::AssetTables::load(&project_dir, &mut unknown);
@@ -1550,8 +1541,12 @@ impl CommandContext {
             ids,
             int_vec_pool: IntVecPool::default(),
             gfx: graphics::GfxRuntime::default(),
-            ui: ui::UiRuntime::default(),
-            font_cache: FontCache::new(),
+            ui: ui::UiRuntime::with_layout_profile(
+                crate::text_layout::TextLayoutProfile::UnicodeCells,
+            ),
+            font_cache: FontCache::with_layout_profile(
+                crate::text_layout::TextLayoutProfile::UnicodeCells,
+            ),
             input: input::InputState::default(),
             script_input: input::InputState::default(),
             wait: wait::VmWait::default(),

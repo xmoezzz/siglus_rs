@@ -44,7 +44,7 @@ fn make_vm(scene_name: &str, z: i32) -> Result<SceneVm<'static>> {
         }
     }
     stream.jump_to_z_label(z as usize)?;
-    let mut ctx = CommandContext::try_new(project)?;
+    let mut ctx = CommandContext::new(project);
     ctx.screen_w = 1280;
     ctx.screen_h = 720;
     let mut vm = SceneVm::with_config(VmConfig::from_env(), stream, ctx);

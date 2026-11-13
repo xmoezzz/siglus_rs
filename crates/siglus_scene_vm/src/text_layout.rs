@@ -3,7 +3,6 @@
 //! `UnicodeCells` is an unofficial spacing extension, not a shaping or bidi engine.
 
 use std::ops::Range;
-use std::path::Path;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthChar;
@@ -26,25 +25,6 @@ pub struct DisplayChar {
 }
 
 impl TextLayoutProfile {
-    pub fn load(project: &Path) -> anyhow::Result<Self> {
-        let Some(path) =
-            crate::resource::resolve_game_file(&project.join("siglus-text-layout.txt"))?
-        else {
-            return Ok(Self::Native);
-        };
-        match crate::resource::read_file_to_string(&path)?
-            .trim_start_matches('\u{feff}')
-            .trim()
-        {
-            "native" => Ok(Self::Native),
-            "unicode-cells" => Ok(Self::UnicodeCells),
-            value => anyhow::bail!(
-                "{}: unknown text layout profile {value:?}, expected native or unicode-cells",
-                path.display()
-            ),
-        }
-    }
-
     /// Narrow Unicode width treats ambiguous alphabetic characters as narrow
     /// while retaining wide/fullwidth CJK and emoji. Marks and format controls
     /// consume no cell. No language or script whitelist is involved.

@@ -737,7 +737,7 @@ impl SiglusHost {
         };
         stream.jump_to_z_label(start_z.max(0) as usize)?;
         switch_startup_marker!(b"siglus_switch: vm command-context begin\n\0");
-        let mut ctx = CommandContext::try_new(project_dir)?;
+        let mut ctx = CommandContext::new(project_dir);
         switch_startup_marker!(b"siglus_switch: vm command-context complete\n\0");
         let active_append = ctx.globals.append_dir.clone();
         switch_startup_marker!(b"siglus_switch: vm scene-metadata begin\n\0");

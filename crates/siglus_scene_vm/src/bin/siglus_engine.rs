@@ -1954,7 +1954,7 @@ impl App {
             self.boot.start_z
         };
         stream.jump_to_z_label(start_z.max(0) as usize)?;
-        let mut ctx = CommandContext::try_new(project_dir)?;
+        let mut ctx = CommandContext::new(project_dir);
         let active_append = ctx.globals.append_dir.clone();
         ctx.install_scene_metadata(&active_append, &pck)?;
         ctx.screen_w = self.game_size.0;
