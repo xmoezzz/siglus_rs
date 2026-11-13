@@ -36,6 +36,12 @@ Saves go to `ux0:data/siglus_rs/game/savedata/`; the log is
 One game is installed at a time: to switch, replace the files in `game/`
 (keep each game's `savedata/` if you want to keep its progress).
 
+For encrypted games without `key.toml`, a native Vita dialog explains that
+on-device key recovery can take several minutes. Choose OK to continue or
+Cancel to exit, then generate the key with the desktop player and copy it
+into `ux0:data/siglus_rs/game/`. Startup and runtime errors also open a native
+message dialog instead of immediately closing the player.
+
 Games are shown fitted into the 960×544 screen (up to 1920×1080). Touch the
 screen to click; Cross confirms, Circle cancels, the D-pad moves between
 choices.

@@ -16,6 +16,7 @@ use crate::runtime::input::VmKey;
 unsafe extern "C" {
     fn siglus_switch_random_fill(buffer: *mut u8, length: usize);
     fn siglus_switch_log_message(message: *const c_char);
+    fn siglus_switch_set_error(message: *const c_char);
 }
 
 /// Write a NUL-terminated static startup marker through the C shell. This
@@ -37,7 +38,10 @@ fn report_switch_error(context: &str, err: &anyhow::Error) {
     let message = format!("{context}: {err:#}\n");
     eprintln!("{message}");
     if let Ok(message_c) = std::ffi::CString::new(message.as_str()) {
-        unsafe { siglus_switch_log_message(message_c.as_ptr()) };
+        unsafe {
+            siglus_switch_set_error(message_c.as_ptr());
+            siglus_switch_log_message(message_c.as_ptr());
+        }
     }
     // Standard error is not normally visible from a homebrew launcher. Keep
     // a small append-only diagnostic on the mounted SD card without making
@@ -84,6 +88,12 @@ const DUMP_DIR: &str = "sdmc:/switch/siglus_rs/dump";
 
 impl SwitchHost {
     pub fn new(config: SiglusHostConfig, width: u32, height: u32) -> Result<Self> {
+        if crate::resource::project_needs_exe_key(&config.project_dir)? {
+            anyhow::bail!(
+                "This encrypted game needs key.toml in {}. Start the game once with the desktop player, then copy its key.toml here. Automatic key recovery is unavailable on Switch.",
+                config.project_dir.display()
+            );
+        }
         report_switch_marker(b"siglus_switch: rust renderer-create begin\n\0");
         let renderer = Renderer::new(width, height)?;
         report_switch_marker(b"siglus_switch: rust renderer-create complete\n\0");

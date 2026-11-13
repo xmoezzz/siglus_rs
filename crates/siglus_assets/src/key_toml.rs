@@ -770,7 +770,9 @@ fn collect_rhs_for_key(text: &str, key: &str) -> Option<String> {
             }
             collecting = true;
             out.push_str(rhs.trim());
-            if rhs.contains(']') {
+            // Only arrays span lines. A scalar key must not consume the
+            // following assignments as part of its hexadecimal value.
+            if !rhs.trim_start().starts_with('[') || rhs.contains(']') {
                 break;
             }
         } else {

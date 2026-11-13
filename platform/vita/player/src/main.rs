@@ -1,5 +1,8 @@
 #![cfg_attr(target_os = "vita", feature(alloc_error_hook))]
 
+#[cfg(target_os = "vita")]
+mod dialog;
+
 #[cfg(not(target_os = "vita"))]
 fn main() {
     eprintln!("siglus_vita_player must be built with cargo-vita for PS Vita");
@@ -302,6 +305,15 @@ mod vita {
         if !game_dir.join("Scene.pck").exists() {
             return Err(format!("missing {}", game_dir.join("Scene.pck").display()));
         }
+        let needs_key = siglus_scene_vm::resource::project_needs_exe_key(&game_dir)
+            .map_err(|error| format!("Check {ROOT}/game/key.toml and the game files: {error:#}"))?;
+        if needs_key && !super::dialog::show(
+            "No key.toml was found for this encrypted game.\n\nOn PS Vita, automatic key recovery can take several minutes. For faster startup, start the game once with the desktop player, then copy key.toml to ux0:data/siglus_rs/game/.\n\nContinue with recovery on this device?",
+            true,
+        )? {
+            log("startup cancelled before key recovery");
+            return Ok(());
+        }
         // The renderer starts vita2d and GXM.
         let renderer = Renderer::new(WIDTH as u32, HEIGHT as u32)
             .map_err(|error| format!("renderer init: {error:#}"))?;
@@ -531,6 +543,12 @@ mod vita {
         if let Err(error) = run() {
             log(&format!("player error: {error}"));
             eprintln!("{error}");
+            if let Err(dialog_error) = super::dialog::show(
+                &format!("Siglus Vita could not continue.\n\n{error}\n\nLog: ux0:data/siglus_rs/vita-player.log"),
+                false,
+            ) {
+                log(&format!("error dialog failed: {dialog_error}"));
+            }
         }
     }
 }

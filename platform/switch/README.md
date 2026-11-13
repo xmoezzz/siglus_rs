@@ -28,6 +28,16 @@ that directory to the existing `SiglusHostConfig`, so standard engine resource
 lookup remains responsible for locating the game's `Gameexe` data, `Scene.pck`,
 archives, movies, and audio assets.
 
+Encrypted games also need their valid `key.toml` in that directory. Automatic
+resource key recovery is disabled on Switch because of its startup memory
+cost. Start the game once with the desktop player to generate the file, then
+copy it with the game assets. A missing or invalid key causes startup to fail
+before the main loop.
+
+Startup and runtime failures open the native Switch error dialog. Missing
+encryption keys are reported before scene decoding, with the game directory
+and instructions for generating `key.toml` on a PC.
+
 For a self-contained NRO, use:
 
 ```sh
