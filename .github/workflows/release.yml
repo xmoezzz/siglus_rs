@@ -672,14 +672,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ -z "${ANDROID_KEY_BASE64:-}" ]]; then
-            echo "No Android signing secret configured; uploading unsigned release APK."
-            exit 0
-          fi
-
-          test -n "${ANDROID_KEY_ALIAS}"
-          test -n "${ANDROID_KEY_PASSWORD}"
-          test -n "${ANDROID_KEYSTORE_PASSWORD}"
+          : "${ANDROID_KEY_BASE64:?ANDROID_KEY_BASE64 signing secret is required}"
+          : "${ANDROID_KEY_ALIAS:?ANDROID_KEY_ALIAS signing secret is required}"
+          : "${ANDROID_KEY_PASSWORD:?ANDROID_KEY_PASSWORD signing secret is required}"
+          : "${ANDROID_KEYSTORE_PASSWORD:?ANDROID_KEYSTORE_PASSWORD signing secret is required}"
 
           KEYSTORE="$RUNNER_TEMP/upload-keystore.jks"
           UNSIGNED_APK="dist/android_ci/app-release.apk"
@@ -695,8 +691,8 @@ jobs:
           "${ANDROID_HOME}/build-tools/34.0.0/apksigner" sign \
             --ks "${KEYSTORE}" \
             --ks-key-alias "${ANDROID_KEY_ALIAS}" \
-            --ks-pass "pass:${ANDROID_KEYSTORE_PASSWORD}" \
-            --key-pass "pass:${ANDROID_KEY_PASSWORD}" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD \
+            --key-pass env:ANDROID_KEY_PASSWORD \
             --out "${SIGNED_APK}" \
             "${ALIGNED_APK}"
 

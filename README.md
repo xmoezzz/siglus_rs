@@ -187,6 +187,13 @@ non-Siglus games. See [crates/game_launcher](crates/game_launcher/README.md).
 ## Pre-built binaries
 * See preview releases on [GitHub Releases](https://github.com/xmoezzz/siglus_rs/releases)
 
+Android CI artifacts and release APKs use a persistent signing key. The build
+aligns the APK, signs it, and verifies its signature before uploading it.
+Repository secrets `ANDROID_KEY_BASE64` (base64-encoded keystore),
+`ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and `ANDROID_KEYSTORE_PASSWORD` are
+required. Missing signing configuration fails the Android job. Keep the same
+key for future releases so installed apps can be updated.
+
 ## Documentation Availability
 * API documentation is available at [docs](https://xmoezzz.github.io/siglus_rs/)
 * [PS Vita port](platform/vita/README.md) — experimental SiglusEngine player (`siglus-psvita.vpk` on the releases page); installing it and a game is described there. [Roadmap](platform/vita/ROADMAP.md).
