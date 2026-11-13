@@ -793,7 +793,7 @@ impl CommandContext {
         // populated but the snapshot omits would survive across the load.
         self.layers.clear_all();
         self.gfx = graphics::GfxRuntime::default();
-        self.ui = ui::UiRuntime::default();
+        self.ui = ui::UiRuntime::with_layout_profile(self.font_cache.layout_profile());
         self.wait = wait::VmWait::default();
         self.stack.clear();
         self.render_object_keys_scratch.clear();
@@ -1502,6 +1502,15 @@ impl CommandContext {
             self.globals.script.async_msg_mode_once = false;
         }
     }
+    /// Host entry point: load the explicit unofficial display profile once.
+    pub fn try_new(project_dir: PathBuf) -> Result<Self> {
+        let profile = crate::text_layout::TextLayoutProfile::load(&project_dir)?;
+        let mut ctx = Self::new(project_dir);
+        ctx.font_cache = FontCache::with_layout_profile(profile);
+        ctx.ui = ui::UiRuntime::with_layout_profile(profile);
+        Ok(ctx)
+    }
+
     pub fn new(project_dir: PathBuf) -> Self {
         let mut unknown = unknown::UnknownOpRecorder::default();
         let tables = tables::AssetTables::load(&project_dir, &mut unknown);
@@ -2229,8 +2238,8 @@ impl CommandContext {
         self.solid_white = self.images.solid_rgba((255, 255, 255, 255));
         self.layers.clear_all();
         self.gfx = graphics::GfxRuntime::default();
-        self.ui = ui::UiRuntime::default();
-        self.font_cache = FontCache::new();
+        self.ui = ui::UiRuntime::with_layout_profile(self.font_cache.layout_profile());
+        self.font_cache = FontCache::with_layout_profile(self.font_cache.layout_profile());
         self.wait = wait::VmWait::default();
         self.stack.clear();
 
@@ -5480,10 +5489,6 @@ impl CommandContext {
             .max(1)
     }
 
-    fn msg_back_is_hankaku(ch: char) -> bool {
-        ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F)
-    }
-
     fn msg_back_is_kinsoku_moji(ch: char) -> bool {
         matches!(
             ch,
@@ -5556,6 +5561,7 @@ impl CommandContext {
     }
 
     fn msg_back_measure_entry_text(
+        &self,
         entry: &globals::MsgBackEntry,
         moji_cnt: (i64, i64),
         moji_size: i32,
@@ -5588,7 +5594,8 @@ impl CommandContext {
             *y = (*y).saturating_add(line_step);
         };
 
-        for ch in text.chars() {
+        for display in self.font_cache.layout_profile().chars(&text) {
+            let ch = display.ch;
             if ch == '\r' {
                 continue;
             }
@@ -5604,12 +5611,18 @@ impl CommandContext {
                 continue;
             }
 
-            let this_moji_size = if Self::msg_back_is_hankaku(ch) {
+            let this_moji_size = if self.font_cache.layout_profile().columns(ch) == 0 {
+                0
+            } else if self.font_cache.layout_profile().columns(ch) == 1 {
                 (moji_size / 2).max(1)
             } else {
                 moji_size.max(1)
             };
-            let this_check_size = this_moji_size.saturating_add(space_x);
+            let this_check_size = if this_moji_size == 0 {
+                0
+            } else {
+                this_moji_size.saturating_add(space_x)
+            };
             let mut auto_indent = false;
             if x.saturating_add(this_check_size) > msg_w.saturating_add(moji_size)
                 || (x.saturating_add(this_check_size) > msg_w
@@ -5625,7 +5638,7 @@ impl CommandContext {
                 break;
             }
 
-            x = x.saturating_add(this_moji_size).saturating_add(space_x);
+            x = x.saturating_add(this_check_size);
 
             if ch == '「' || ch == '『' || ch == '（' {
                 if line_head {
@@ -5742,7 +5755,7 @@ impl CommandContext {
                 last_margin = 0;
             } else {
                 let (text, height) =
-                    Self::msg_back_measure_entry_text(entry, moji_cnt, moji_size, moji_space);
+                    self.msg_back_measure_entry_text(entry, moji_cnt, moji_size, moji_space);
                 let total_pos = total_height.saturating_add(last_margin);
                 out.entries.push(MsgBackLayoutEntry {
                     history_index: *history_index,

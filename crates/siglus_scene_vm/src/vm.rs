@@ -10851,6 +10851,7 @@ impl<'a> SceneVm<'a> {
     }
 
     fn synthesize_cpp_btn_select_glyphs(
+        &self,
         text: &str,
         param: &[i64; 28],
         color: i64,
@@ -10860,7 +10861,8 @@ impl<'a> SceneVm<'a> {
         let space_x = param[12];
         let mut x = 0i64;
         let mut glyphs = Vec::with_capacity(text.chars().count());
-        for ch in text.chars() {
+        for display in self.ctx.font_cache.layout_profile().chars(text) {
+            let ch = display.ch;
             glyphs.push(runtime::globals::MwndGlyphState {
                 moji_type: 0,
                 code: ch as u32 as i32,
@@ -10880,8 +10882,10 @@ impl<'a> SceneVm<'a> {
                 message_button: None,
             });
             let full_advance = size.saturating_add(space_x);
-            let half_width = ch.is_ascii() || matches!(ch as u32, 0xff61..=0xff9f);
-            x = x.saturating_add(if half_width {
+            let columns = self.ctx.font_cache.layout_profile().columns(ch);
+            x = x.saturating_add(if columns == 0 {
+                0
+            } else if columns == 1 {
                 full_advance / 2
             } else {
                 full_advance
@@ -10967,7 +10971,7 @@ impl<'a> SceneVm<'a> {
             let relative_y = choice.pos.1.saturating_sub(param[1]);
             let generated;
             let glyphs = if choice.glyphs.is_empty() {
-                generated = Self::synthesize_cpp_btn_select_glyphs(
+                generated = self.synthesize_cpp_btn_select_glyphs(
                     &choice.text,
                     &param,
                     color,

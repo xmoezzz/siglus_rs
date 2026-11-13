@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-11-13
 - Scope: Text layout in `siglus_rs`, initially in `siglus_scene_vm`
-- Implementation: Planned. This ADR does not add or claim working Unicode layout.
+- Implementation: Cell-spacing stage implemented. Full shaping and bidi remain planned.
 - Related issue: [#97](https://github.com/xmoezzz/siglus_rs/issues/97)
 
 ## Context
@@ -35,7 +35,12 @@ must identify it as an unofficial extension.
 Keep original-compatible layout as the default. Unicode layout is an explicit
 project-level choice, retained consistently for a session. Do not infer it from
 the operating system locale, an individual accented character, or a font name.
-Configuration spelling and storage will be specified with the implementation.
+The initial cell-spacing profile is selected by `siglus-text-layout.txt` in the
+project root, containing `unicode-cells`. Missing configuration or `native`
+selects original-compatible layout. Invalid values fail project startup.
+Hosts load the profile through `CommandContext::try_new` and the shared resource
+filesystem. Font-cache and UI resets retain the session profile, as do child
+message windows. Changing the file takes effect on the next project open.
 
 There is no language whitelist. Support is defined by Unicode text properties
 and layout requirements, not by a Vietnamese special case or a list of selected
@@ -113,6 +118,23 @@ Unicode layout component may serve them through explicit integration, without
 making their native width or string rules aliases of Siglus rules.
 
 ## Delivery and acceptance
+
+The implemented cell-spacing stage lives in `src/text_layout.rs` under
+`siglus_scene_vm`. It centralizes Unicode column widths, display-only NFC
+projection, source byte/UTF-16 cluster ranges, and editbox grapheme boundaries.
+The runtime uses it for messages, names, ruby, object strings, button choices,
+backlog measurement, text raster layout, and choice reconstruction. Positioned
+glyph snapshots retain their recorded geometry. Native string-width operations
+remain separate in `runtime/string_semantics.rs`.
+
+`unicode-cells` is intentionally named for this stage. It does not establish
+contextual shaping, bidi, Unicode line breaking, complex mark attachment,
+cluster-aware fallback, joined emoji rendering, or normalization across separate
+script append operations. Source mappings are working-layout data, not new
+native save fields. Profile identity and reconstruction metadata across save
+sessions remain pending, so cross-profile save compatibility is not claimed.
+These limitations also apply to scripts whose glyph order and joining need a
+shaping engine, even when their characters now receive narrower cells.
 
 Deliver in stages under this single architectural scope:
 

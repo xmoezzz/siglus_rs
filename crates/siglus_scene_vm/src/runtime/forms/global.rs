@@ -241,19 +241,27 @@ fn parse_selbtn_choices(
 }
 
 fn selbtn_text_extent(
+    profile: crate::text_layout::TextLayoutProfile,
     text: &str,
     tmpl: &crate::runtime::tables::SelBtnTemplate,
     vertical: bool,
 ) -> (i64, i64) {
     let font_px = tmpl.moji_size.max(1);
     let mut advance_sum = 0i64;
-    for ch in text.chars() {
-        let advance = if ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F) {
+    for display in profile.chars(text) {
+        let ch = display.ch;
+        let advance = if profile.columns(ch) == 0 {
+            0
+        } else if profile.columns(ch) == 1 {
             (font_px + tmpl.moji_space.0) / 2
         } else {
             font_px + tmpl.moji_space.0
         };
-        advance_sum = advance_sum.saturating_add(advance.max(1));
+        advance_sum = advance_sum.saturating_add(if profile.columns(ch) == 0 {
+            0
+        } else {
+            advance.max(1)
+        });
     }
     if !text.is_empty() {
         advance_sum = advance_sum.saturating_sub(tmpl.moji_space.0);
@@ -292,8 +300,12 @@ fn selbtn_template_item_size(
     choices
         .first()
         .map(|choice| {
-            let (tw, th) =
-                selbtn_text_extent(&choice.text, tmpl, ctx.tables.mwnd_render.vertical_writing);
+            let (tw, th) = selbtn_text_extent(
+                ctx.font_cache.layout_profile(),
+                &choice.text,
+                tmpl,
+                ctx.tables.mwnd_render.vertical_writing,
+            );
             (
                 tw.saturating_add(tmpl.moji_pos.0.max(0)).max(1),
                 th.saturating_add(tmpl.moji_pos.1.max(0)).max(1),
@@ -618,14 +630,28 @@ fn make_selbtn_text_object(
     } else {
         let font_px = tmpl.moji_size.max(1);
         let mut cursor_x = 0i64;
-        for (index, ch) in choice.text.chars().enumerate() {
+        for (index, display) in ctx
+            .font_cache
+            .layout_profile()
+            .chars(&choice.text)
+            .into_iter()
+            .enumerate()
+        {
+            let ch = display.ch;
             placements.push((index, ch, cursor_x, 0, font_px));
-            let advance = if crate::text_render::is_hankaku(ch) {
+            let advance = if ctx.font_cache.layout_profile().columns(ch) == 0 {
+                0
+            } else if ctx.font_cache.layout_profile().columns(ch) == 1 {
                 (font_px + tmpl.moji_space.0) / 2
             } else {
                 font_px + tmpl.moji_space.0
             };
-            cursor_x = cursor_x.saturating_add(advance.max(1));
+            cursor_x =
+                cursor_x.saturating_add(if ctx.font_cache.layout_profile().columns(ch) == 0 {
+                    0
+                } else {
+                    advance.max(1)
+                });
         }
         let total_x = cursor_x.saturating_sub(tmpl.moji_space.0).max(font_px);
         let total_y = font_px;

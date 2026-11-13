@@ -21,4 +21,4 @@ available. Material changes to an accepted decision require a superseding ADR.
 
 | ADR | Decision | Status | Implementation |
 | --- | --- | --- | --- |
-| [0001](0001-unicode-text-layout.md) | Unicode text layout as an unofficial extension | Accepted | Planned |
+| [0001](0001-unicode-text-layout.md) | Unicode text layout as an unofficial extension | Accepted | Cell spacing implemented, shaping and bidi planned |

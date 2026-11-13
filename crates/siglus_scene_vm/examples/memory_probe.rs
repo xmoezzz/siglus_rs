@@ -125,7 +125,7 @@ fn main() -> Result<()> {
         SceneStream::new_shared_range_with_string_codec(owner, range, pack.string_codec)?;
     stream.jump_to_z_label(z as usize)?;
     // As the host does: one pack shared by the first scene and the VM.
-    let mut ctx = CommandContext::new(project);
+    let mut ctx = CommandContext::try_new(project)?;
     let append = ctx.globals.append_dir.clone();
     ctx.install_scene_metadata(&append, &pack)?;
     ctx.screen_w = 1280;

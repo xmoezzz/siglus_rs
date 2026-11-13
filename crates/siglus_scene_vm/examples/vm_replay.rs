@@ -36,7 +36,7 @@ fn main() -> Result<()> {
         .with_context(|| format!("scene not found: {scene}"))?;
     let (owner, range) = pack.scn_data_shared(scn_no)?;
     let stream = SceneStream::new_shared_range_with_string_codec(owner, range, pack.string_codec)?;
-    let mut ctx = CommandContext::new(project);
+    let mut ctx = CommandContext::try_new(project)?;
     let append = ctx.globals.append_dir.clone();
     ctx.install_scene_metadata(&append, &pack)?;
     ctx.screen_w = 1920;

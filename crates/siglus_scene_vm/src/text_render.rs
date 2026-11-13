@@ -132,6 +132,7 @@ impl Default for TextStyle {
 
 #[derive(Debug, Default)]
 pub struct FontCache {
+    layout_profile: crate::text_layout::TextLayoutProfile,
     font: Option<FontArc>,
     loaded_from: Option<PathBuf>,
     loaded_face_index: u32,
@@ -188,6 +189,7 @@ impl<'a> ResolvedFonts<'a> {
 impl FontCache {
     pub fn new() -> Self {
         Self {
+            layout_profile: Default::default(),
             font: None,
             loaded_from: None,
             loaded_face_index: 0,
@@ -196,6 +198,17 @@ impl FontCache {
             project_dir: None,
             fallback_files: OnceLock::new(),
             glyph_fallbacks: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub fn layout_profile(&self) -> crate::text_layout::TextLayoutProfile {
+        self.layout_profile
+    }
+
+    pub(crate) fn with_layout_profile(profile: crate::text_layout::TextLayoutProfile) -> Self {
+        Self {
+            layout_profile: profile,
+            ..Self::new()
         }
     }
 
@@ -883,6 +896,10 @@ fn render_editbox_rgba(
         return None;
     }
 
+    let profile = font
+        .and_then(|f| f.cache)
+        .map(|c| c.layout_profile())
+        .unwrap_or_default();
     const PAD_X: i32 = 3;
     let mut rgba = vec![255u8; (max_w * max_h * 4) as usize];
     let font_cell = font_px.round().max(1.0) as i32;
@@ -898,13 +915,7 @@ fn render_editbox_rgba(
         (top + glyph_h, top, (top + glyph_h).min(max_h as i32))
     };
 
-    let normalize = |value: usize, source: &str| {
-        let mut value = value.min(source.len());
-        while value > 0 && !source.is_char_boundary(value) {
-            value -= 1;
-        }
-        value
-    };
+    let normalize = |value: usize, source: &str| profile.floor_boundary(source, value);
     let cursor_pos = normalize(cursor_pos, text);
     let selection = selection.map(|(a, b)| {
         let a = normalize(a, text);
@@ -947,15 +958,17 @@ fn render_editbox_rgba(
         let comp_caret = composition_cursor
             .map(|(_, end)| end)
             .unwrap_or(composition_text.len());
-        for (idx, ch) in composition_text.char_indices() {
+        for display in profile.chars(composition_text) {
+            let idx = display.bytes.start;
+            let ch = display.ch;
             if idx == comp_caret {
                 caret_x = Some(x);
             }
-            let next = idx + ch.len_utf8();
+            let next = display.bytes.end;
             let selected = composition_cursor
                 .map(|(start, end)| start != end && idx < end && next > start)
                 .unwrap_or(false);
-            let cell_w = editbox_cell_width_px(ch, font_cell);
+            let cell_w = profile.cell(ch, font_cell as i64) as i32;
             draw_editbox_cell(
                 &mut rgba,
                 font,
@@ -1061,16 +1074,21 @@ fn draw_editbox_committed_segment(
     max_w: u32,
     max_h: u32,
 ) -> i32 {
-    for (relative, ch) in text[range_start..range_end].char_indices() {
-        let idx = range_start + relative;
+    let profile = font
+        .and_then(|f| f.cache)
+        .map(|c| c.layout_profile())
+        .unwrap_or_default();
+    for display in profile.chars(&text[range_start..range_end]) {
+        let ch = display.ch;
+        let idx = range_start + display.bytes.start;
         if idx == cursor_pos {
             *caret_x = Some(x);
         }
-        let next = idx + ch.len_utf8();
+        let next = range_start + display.bytes.end;
         let selected = selection
             .map(|(start, end)| idx < end && next > start)
             .unwrap_or(false);
-        let cell_w = editbox_cell_width_px(ch, font_cell);
+        let cell_w = profile.cell(ch, font_cell as i64) as i32;
         draw_editbox_cell(
             rgba,
             font,
@@ -1745,10 +1763,27 @@ fn render_mwnd_text_ab_glyph_rgba_styled(
     );
     let mut rgba = vec![0u8; (render_w * render_h * 4) as usize];
 
+    let profile = font.cache.map(|c| c.layout_profile()).unwrap_or_default();
     let placed_chars = if vertical {
-        layout_mwnd_text_vertical(text, font_cell, space_x as i32, line_h, max_w, max_h)
+        layout_mwnd_text_vertical(
+            text,
+            font_cell,
+            space_x as i32,
+            line_h,
+            max_w,
+            max_h,
+            profile,
+        )
     } else {
-        layout_mwnd_text(text, font_cell, space_x as i32, line_h, max_w, max_h)
+        layout_mwnd_text(
+            text,
+            font_cell,
+            space_x as i32,
+            line_h,
+            max_w,
+            max_h,
+            profile,
+        )
     };
     for placed in placed_chars {
         let glyph = rasterize_ab_glyph_oriented(font, placed.ch, font_px, vertical);
@@ -1844,6 +1879,7 @@ fn layout_mwnd_text(
     line_h: i32,
     max_w: u32,
     max_h: u32,
+    profile: crate::text_layout::TextLayoutProfile,
 ) -> Vec<MwndPlacedChar> {
     let full_cell_w = font_cell.max(1);
     let half_cell_w = ((font_cell + 1) / 2).max(1);
@@ -1855,7 +1891,8 @@ fn layout_mwnd_text(
     let mut indent_x = 0i32;
     let mut line_head = true;
 
-    for ch in text.chars() {
+    for display in profile.chars(text) {
+        let ch = display.ch;
         match ch {
             '\r' => continue,
             '\n' => {
@@ -1885,14 +1922,19 @@ fn layout_mwnd_text(
             _ => {}
         }
 
-        let cell_w = if is_hankaku(ch) {
+        let cell_w = if profile.columns(ch) == 0 {
+            0
+        } else if profile.columns(ch) == 1 {
             half_cell_w
         } else {
             full_cell_w
         };
-        let check_size = cell_w + space_x;
-        let force_wrap = x > 0 && x + check_size > max_w + full_cell_w;
-        let soft_wrap = x > 0 && x + check_size > max_w && !is_siglus_forbidden_line_head(ch);
+        let check_size = if cell_w == 0 { 0 } else { cell_w + space_x };
+        let force_wrap = display.cluster_start && x > 0 && x + check_size > max_w + full_cell_w;
+        let soft_wrap = display.cluster_start
+            && x > 0
+            && x + check_size > max_w
+            && !is_siglus_forbidden_line_head(ch);
         if force_wrap || soft_wrap {
             x = indent_x;
             y += line_h;
@@ -1913,8 +1955,24 @@ fn layout_mwnd_text(
             }
         }
 
-        out.push(MwndPlacedChar { ch, x, y, cell_w });
-        x += (cell_w + space_x).max(1);
+        let (draw_x, draw_y) = if cell_w == 0 {
+            out.last()
+                .map(|p: &MwndPlacedChar| (p.x, p.y))
+                .unwrap_or((x, y))
+        } else {
+            (x, y)
+        };
+        out.push(MwndPlacedChar {
+            ch,
+            x: draw_x,
+            y: draw_y,
+            cell_w,
+        });
+        x += if cell_w == 0 {
+            0
+        } else {
+            (cell_w + space_x).max(1)
+        };
         line_head = false;
     }
     out
@@ -1927,6 +1985,7 @@ fn layout_mwnd_text_vertical(
     column_w: i32,
     max_w: u32,
     max_h: u32,
+    profile: crate::text_layout::TextLayoutProfile,
 ) -> Vec<MwndPlacedChar> {
     let full_cell_h = font_cell.max(1);
     let half_cell_h = ((font_cell + 1) / 2).max(1);
@@ -1938,7 +1997,8 @@ fn layout_mwnd_text_vertical(
     let mut x = (max_w - full_cell_h).max(0);
     let mut y = 0i32;
 
-    for ch in text.chars() {
+    for display in profile.chars(text) {
+        let ch = display.ch;
         match ch {
             '\r' => continue,
             '\n' | '\u{0007}' => {
@@ -1956,23 +2016,36 @@ fn layout_mwnd_text_vertical(
             _ => {}
         }
 
-        let cell_h = if is_hankaku(ch) {
+        let cell_h = if profile.columns(ch) == 0 {
+            0
+        } else if profile.columns(ch) == 1 {
             half_cell_h
         } else {
             full_cell_h
         };
-        let advance = (cell_h + space_y).max(1);
-        if y > 0 && y + cell_h > max_h {
+        let advance = if cell_h == 0 {
+            0
+        } else {
+            (cell_h + space_y).max(1)
+        };
+        if display.cluster_start && y > 0 && y + cell_h > max_h {
             x -= column_w.max(1);
             y = 0;
             if x + full_cell_h <= 0 {
                 break;
             }
         }
+        let (draw_x, draw_y) = if cell_h == 0 {
+            out.last()
+                .map(|p: &MwndPlacedChar| (p.x, p.y))
+                .unwrap_or((x, y))
+        } else {
+            (x, y)
+        };
         out.push(MwndPlacedChar {
             ch,
-            x,
-            y,
+            x: draw_x,
+            y: draw_y,
             cell_w: full_cell_h,
         });
         y += advance;
@@ -2088,7 +2161,7 @@ fn text_effect_padding(size: i32, style: TextStyle) -> i32 {
 }
 
 pub fn is_hankaku(ch: char) -> bool {
-    ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F)
+    crate::text_layout::TextLayoutProfile::Native.columns(ch) == 1
 }
 
 fn draw_glyph_bitmap(
@@ -2224,7 +2297,13 @@ fn text_line_metrics_resolved(
     let mut lines = 1usize;
     let mut x = 0.0f32;
     let mut baseline_y = ascent.max(1.0);
-    for ch in text.chars() {
+    for display in font
+        .cache
+        .map(|c| c.layout_profile())
+        .unwrap_or_default()
+        .chars(text)
+    {
+        let ch = display.ch;
         match ch {
             '\r' => continue,
             '\n' => {
@@ -2276,7 +2355,13 @@ fn render_text_ab_glyph_rgba(
     let mut x = 0.0f32;
     let mut baseline_y = ascent.max(1.0);
 
-    for ch in text.chars() {
+    for display in font
+        .cache
+        .map(|c| c.layout_profile())
+        .unwrap_or_default()
+        .chars(text)
+    {
+        let ch = display.ch;
         match ch {
             '\r' => continue,
             '\n' => {
@@ -2749,6 +2834,60 @@ fn glyph_5x7(ch: char) -> [u8; 7] {
         '|' => [0x04, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04],
         ' ' => [0x00; 7],
         _ => [0x1F, 0x11, 0x15, 0x15, 0x15, 0x11, 0x1F],
+    }
+}
+
+#[cfg(test)]
+mod unicode_layout_tests {
+    use super::*;
+    use crate::text_layout::TextLayoutProfile;
+
+    #[test]
+    fn unicode_cells_preserve_clusters_and_native_geometry() {
+        let profile = TextLayoutProfile::UnicodeCells;
+        let composed = "éắΩЖ界";
+        let decomposed = "e\u{301}a\u{306}\u{301}ΩЖ界";
+        let layout = |text, profile| layout_mwnd_text(text, 24, 0, 34, 240, 100, profile);
+        let a = layout(composed, profile);
+        let b = layout(decomposed, profile);
+        assert_eq!(
+            a.iter().map(|g| (g.ch, g.x)).collect::<Vec<_>>(),
+            b.iter().map(|g| (g.ch, g.x)).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            a.iter().map(|g| g.x).collect::<Vec<_>>(),
+            [0, 12, 24, 36, 48]
+        );
+        assert_eq!(
+            layout(composed, TextLayoutProfile::Native)
+                .iter()
+                .map(|g| g.x)
+                .collect::<Vec<_>>(),
+            [0, 24, 48, 72, 96]
+        );
+        let source = profile.chars(decomposed);
+        assert_eq!(source[0].bytes, 0..3);
+        assert_eq!(source[0].utf16, 0..2);
+        assert_eq!(source[1].utf16, 2..5);
+
+        let mut font = FontCache::with_layout_profile(profile);
+        assert!(font.try_load_embedded_default_font());
+        let image = |text| {
+            font.render_mwnd_text_rgba(text, 24.0, 240, 100, Some((0, 10)))
+                .unwrap()
+        };
+        assert_eq!(image(composed).rgba, image(decomposed).rgba);
+
+        let mut edit = crate::runtime::globals::EditBoxState::default();
+        edit.layout_profile = profile;
+        edit.create_like(0, 0, 320, 32, 24, 1280, 720);
+        edit.update_rect(1280, 720);
+        edit.set_text_like("a\u{301}Ж".into());
+        edit.move_cursor_left(false, false);
+        assert_eq!(edit.cursor_pos, "a\u{301}".len());
+        edit.delete_backward(false);
+        assert_eq!(edit.text, "Ж");
+        assert_eq!(edit.cursor_pos, 0);
     }
 }
 
