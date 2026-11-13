@@ -23,6 +23,10 @@ target
 se-src/
 testcase/
 docs/
+# Track architecture records within the otherwise ignored docs directory.
+!/docs/
+/docs/*
+!/docs/adr/
 siglus_unknown_report.txt
 dist/
 GameData/

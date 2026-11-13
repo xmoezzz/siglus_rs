@@ -6,6 +6,9 @@
 
 This project is non-commercial and intended for research purposes.
 
+Architectural decisions are recorded in [docs/adr](docs/adr/README.md).
+Accepted decisions describe the intended design, not necessarily implemented features.
+
 <br clear="left"/>
 
 ## Example screenshots
