@@ -673,6 +673,8 @@ pub struct SyscomRuntimeState {
     pub total_play_time: i64,
     pub save_slots: Vec<SaveSlotState>,
     pub quick_save_slots: Vec<SaveSlotState>,
+    /// Header cache for absolute numbers after the normal and quick ranges.
+    pub end_save_slots: Vec<SaveSlotState>,
     pub inner_save_exists: bool,
     pub inner_save_streams: Vec<Vec<u8>>,
     pub sel_save_stock_stream: Vec<u8>,
@@ -824,6 +826,7 @@ impl Default for SyscomRuntimeState {
             total_play_time: 0,
             save_slots: Vec::new(),
             quick_save_slots: Vec::new(),
+            end_save_slots: Vec::new(),
             inner_save_exists: false,
             inner_save_streams: Vec::new(),
             sel_save_stock_stream: Vec::new(),
