@@ -793,7 +793,7 @@ impl CommandContext {
         // populated but the snapshot omits would survive across the load.
         self.layers.clear_all();
         self.gfx = graphics::GfxRuntime::default();
-        self.ui = ui::UiRuntime::default();
+        self.ui = ui::UiRuntime::with_layout_profile(self.font_cache.layout_profile());
         self.wait = wait::VmWait::default();
         self.stack.clear();
         self.render_object_keys_scratch.clear();
@@ -1350,6 +1350,21 @@ impl CommandContext {
     }
 
     fn sync_editbox_runtime(&mut self) {
+        self.prepare_text_font();
+        let text: String = self
+            .globals
+            .editbox_lists
+            .values()
+            .flat_map(|l| l.boxes.iter())
+            .flat_map(|e| [e.text.as_str(), e.composition_text.as_str()])
+            .collect();
+        let metrics = self.font_cache.cell_metrics(&text);
+        for list in self.globals.editbox_lists.values_mut() {
+            for eb in &mut list.boxes {
+                eb.cell_metrics = metrics.clone();
+            }
+        }
+
         let sw = self.screen_w as i32;
         let sh = self.screen_h as i32;
         let display_cnt = self.globals.change_display_mode_proc_cnt;
@@ -1541,8 +1556,12 @@ impl CommandContext {
             ids,
             int_vec_pool: IntVecPool::default(),
             gfx: graphics::GfxRuntime::default(),
-            ui: ui::UiRuntime::default(),
-            font_cache: FontCache::new(),
+            ui: ui::UiRuntime::with_layout_profile(
+                crate::text_layout::TextLayoutProfile::UnicodeCells,
+            ),
+            font_cache: FontCache::with_layout_profile(
+                crate::text_layout::TextLayoutProfile::UnicodeCells,
+            ),
             input: input::InputState::default(),
             script_input: input::InputState::default(),
             wait: wait::VmWait::default(),
@@ -1596,6 +1615,7 @@ impl CommandContext {
         };
         ctx.set_active_append(initial_append.dir, initial_append.name);
         ctx.apply_gameexe_runtime_defaults();
+        ctx.prepare_text_font();
         ctx
     }
 
@@ -1674,6 +1694,12 @@ impl CommandContext {
         // C_jitan_cnv itself defensively clamps 100..400.  Preserve the latter
         // for values loaded from legacy config data.
         cfg(GET_JITAN_SPEED, original.jitan_speed).clamp(100, 400) as u16
+    }
+
+    pub(crate) fn prepare_text_font(&mut self) {
+        let name = self.effective_font_name().to_owned();
+        self.font_cache
+            .load_for_project_named(&self.project_dir, &name);
     }
 
     pub(crate) fn effective_font_name(&self) -> &str {
@@ -2229,8 +2255,8 @@ impl CommandContext {
         self.solid_white = self.images.solid_rgba((255, 255, 255, 255));
         self.layers.clear_all();
         self.gfx = graphics::GfxRuntime::default();
-        self.ui = ui::UiRuntime::default();
-        self.font_cache = FontCache::new();
+        self.ui = ui::UiRuntime::with_layout_profile(self.font_cache.layout_profile());
+        self.font_cache = FontCache::with_layout_profile(self.font_cache.layout_profile());
         self.wait = wait::VmWait::default();
         self.stack.clear();
 
@@ -3774,6 +3800,8 @@ impl CommandContext {
     }
 
     pub fn on_text_input(&mut self, text: &str) {
+        self.prepare_text_font();
+        let metrics = self.font_cache.cell_metrics(text);
         if self.globals.system.messagebox_modal.is_some() {
             return;
         }
@@ -3789,10 +3817,13 @@ impl CommandContext {
         if !eb.created || !eb.visible {
             return;
         }
+        eb.cell_metrics.extend(metrics);
         eb.commit_text(text);
     }
 
     pub fn on_ime_preedit(&mut self, text: &str, cursor: Option<(usize, usize)>) {
+        self.prepare_text_font();
+        let metrics = self.font_cache.cell_metrics(text);
         if self.globals.system.messagebox_modal.is_some() {
             return;
         }
@@ -3810,6 +3841,7 @@ impl CommandContext {
         if !eb.created || !eb.visible {
             return;
         }
+        eb.cell_metrics.extend(metrics);
         eb.set_ime_preedit(text, cursor);
     }
 
@@ -5480,10 +5512,6 @@ impl CommandContext {
             .max(1)
     }
 
-    fn msg_back_is_hankaku(ch: char) -> bool {
-        ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F)
-    }
-
     fn msg_back_is_kinsoku_moji(ch: char) -> bool {
         matches!(
             ch,
@@ -5556,6 +5584,7 @@ impl CommandContext {
     }
 
     fn msg_back_measure_entry_text(
+        &self,
         entry: &globals::MsgBackEntry,
         moji_cnt: (i64, i64),
         moji_size: i32,
@@ -5588,7 +5617,8 @@ impl CommandContext {
             *y = (*y).saturating_add(line_step);
         };
 
-        for ch in text.chars() {
+        for display in self.font_cache.layout_profile().chars(&text) {
+            let ch = display.ch;
             if ch == '\r' {
                 continue;
             }
@@ -5604,12 +5634,20 @@ impl CommandContext {
                 continue;
             }
 
-            let this_moji_size = if Self::msg_back_is_hankaku(ch) {
+            let this_moji_size = if self.font_cache.layout_profile().uses_font_metrics(ch) {
+                self.font_cache.display_cell_width(ch, moji_size as i64) as i32
+            } else if self.font_cache.layout_profile().columns(ch) == 0 {
+                0
+            } else if self.font_cache.layout_profile().columns(ch) == 1 {
                 (moji_size / 2).max(1)
             } else {
                 moji_size.max(1)
             };
-            let this_check_size = this_moji_size.saturating_add(space_x);
+            let this_check_size = if this_moji_size == 0 {
+                0
+            } else {
+                this_moji_size.saturating_add(space_x)
+            };
             let mut auto_indent = false;
             if x.saturating_add(this_check_size) > msg_w.saturating_add(moji_size)
                 || (x.saturating_add(this_check_size) > msg_w
@@ -5625,7 +5663,7 @@ impl CommandContext {
                 break;
             }
 
-            x = x.saturating_add(this_moji_size).saturating_add(space_x);
+            x = x.saturating_add(this_check_size);
 
             if ch == '「' || ch == '『' || ch == '（' {
                 if line_head {
@@ -5742,7 +5780,7 @@ impl CommandContext {
                 last_margin = 0;
             } else {
                 let (text, height) =
-                    Self::msg_back_measure_entry_text(entry, moji_cnt, moji_size, moji_space);
+                    self.msg_back_measure_entry_text(entry, moji_cnt, moji_size, moji_space);
                 let total_pos = total_height.saturating_add(last_margin);
                 out.entries.push(MsgBackLayoutEntry {
                     history_index: *history_index,
@@ -6019,6 +6057,7 @@ impl CommandContext {
         }
         self.globals.syscom.read_skip.onoff = false;
         self.globals.syscom.msg_back_open = true;
+        self.prepare_text_font();
         self.globals.syscom.pending_proc = Some(globals::SyscomPendingProc {
             kind: globals::SyscomPendingProcKind::MsgBack,
             warning: false,
@@ -15377,6 +15416,7 @@ fn trace_codes_enabled() -> bool {
 }
 
 pub fn dispatch_form_code(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Result<bool> {
+    ctx.prepare_text_font();
     let append_dir = ctx.globals.append_dir.as_str();
     ctx.images.set_current_append_dir_ref(append_dir);
     ctx.movie.set_current_append_dir_ref(append_dir);

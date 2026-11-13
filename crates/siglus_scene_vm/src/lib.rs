@@ -33,6 +33,7 @@ pub(crate) mod render_plan;
 pub mod resource;
 pub mod runtime;
 pub mod text_render;
+pub mod text_layout;
 #[cfg(target_arch = "wasm32")]
 pub mod wasm_entry;
 #[cfg(target_arch = "wasm32")]

@@ -1897,6 +1897,8 @@ struct EditBoxUndoSnapshot {
 
 #[derive(Debug, Clone)]
 pub struct EditBoxState {
+    pub layout_profile: crate::text_layout::TextLayoutProfile,
+    pub cell_metrics: crate::text_layout::TextCellMetrics,
     pub created: bool,
     pub visible: bool,
     pub text: String,
@@ -1937,6 +1939,8 @@ pub struct EditBoxState {
 impl Default for EditBoxState {
     fn default() -> Self {
         Self {
+            layout_profile: Default::default(),
+            cell_metrics: Default::default(),
             created: false,
             visible: false,
             text: String::new(),
@@ -2158,7 +2162,7 @@ impl EditBoxState {
         let start = if by_word {
             self.word_left_boundary(cursor)
         } else {
-            Self::previous_boundary(&self.text, cursor)
+            self.layout_profile.previous_boundary(&self.text, cursor)
         };
         self.push_undo_snapshot();
         self.replace_range_without_undo((start, cursor), "");
@@ -2179,7 +2183,7 @@ impl EditBoxState {
         let end = if by_word {
             self.word_right_boundary(cursor)
         } else {
-            Self::next_boundary(&self.text, cursor)
+            self.layout_profile.next_boundary(&self.text, cursor)
         };
         self.push_undo_snapshot();
         self.replace_range_without_undo((cursor, end), "");
@@ -2200,7 +2204,7 @@ impl EditBoxState {
         let next = if by_word {
             self.word_left_boundary(old)
         } else {
-            Self::previous_boundary(&self.text, old)
+            self.layout_profile.previous_boundary(&self.text, old)
         };
         self.set_cursor_with_selection(old, next, extend);
     }
@@ -2219,7 +2223,7 @@ impl EditBoxState {
         let next = if by_word {
             self.word_right_boundary(old)
         } else {
-            Self::next_boundary(&self.text, old)
+            self.layout_profile.next_boundary(&self.text, old)
         };
         self.set_cursor_with_selection(old, next, extend);
     }
@@ -2249,14 +2253,18 @@ impl EditBoxState {
             .max(0);
         let mut x = 0i32;
         let mut target = self.text.len();
-        for (idx, ch) in self.text.char_indices() {
-            let width = crate::text_render::editbox_cell_width_px(ch, self.font_px());
+        for display in self.layout_profile.chars(&self.text) {
+            let idx = display.bytes.start;
+            let width =
+                self.cell_metrics
+                    .cell(self.layout_profile, display.ch, self.font_px() as i64)
+                    as i32;
             if target_x < x.saturating_add((width + 1) / 2) {
                 target = idx;
                 break;
             }
             x = x.saturating_add(width);
-            target = idx + ch.len_utf8();
+            target = display.bytes.end;
         }
         let old = self.normalized_cursor();
         self.set_cursor_with_selection(old, target, extend);
@@ -2342,7 +2350,8 @@ impl EditBoxState {
     }
 
     fn normalized_cursor(&self) -> usize {
-        Self::normalize_boundary(&self.text, self.cursor_pos)
+        self.layout_profile
+            .floor_boundary(&self.text, self.cursor_pos)
     }
 
     fn normalize_boundary(text: &str, pos: usize) -> usize {
@@ -2351,24 +2360,6 @@ impl EditBoxState {
             pos -= 1;
         }
         pos
-    }
-
-    fn previous_boundary(text: &str, pos: usize) -> usize {
-        let pos = Self::normalize_boundary(text, pos);
-        text[..pos]
-            .char_indices()
-            .next_back()
-            .map(|(idx, _)| idx)
-            .unwrap_or(0)
-    }
-
-    fn next_boundary(text: &str, pos: usize) -> usize {
-        let pos = Self::normalize_boundary(text, pos);
-        text[pos..]
-            .chars()
-            .next()
-            .map(|ch| pos + ch.len_utf8())
-            .unwrap_or(text.len())
     }
 
     fn word_class(ch: char) -> u8 {
@@ -2384,7 +2375,7 @@ impl EditBoxState {
     fn word_left_boundary(&self, pos: usize) -> usize {
         let mut cursor = Self::normalize_boundary(&self.text, pos);
         while cursor > 0 {
-            let prev = Self::previous_boundary(&self.text, cursor);
+            let prev = self.layout_profile.previous_boundary(&self.text, cursor);
             let ch = self.text[prev..cursor].chars().next().unwrap_or(' ');
             if Self::word_class(ch) != 0 {
                 break;
@@ -2392,14 +2383,14 @@ impl EditBoxState {
             cursor = prev;
         }
         let Some(class) = (cursor > 0).then(|| {
-            let prev = Self::previous_boundary(&self.text, cursor);
+            let prev = self.layout_profile.previous_boundary(&self.text, cursor);
             let ch = self.text[prev..cursor].chars().next().unwrap_or(' ');
             Self::word_class(ch)
         }) else {
             return 0;
         };
         while cursor > 0 {
-            let prev = Self::previous_boundary(&self.text, cursor);
+            let prev = self.layout_profile.previous_boundary(&self.text, cursor);
             let ch = self.text[prev..cursor].chars().next().unwrap_or(' ');
             if Self::word_class(ch) != class {
                 break;
@@ -2420,7 +2411,7 @@ impl EditBoxState {
             .map(Self::word_class)
             .unwrap_or(0);
         while cursor < self.text.len() {
-            let next = Self::next_boundary(&self.text, cursor);
+            let next = self.layout_profile.next_boundary(&self.text, cursor);
             let ch = self.text[cursor..next].chars().next().unwrap_or(' ');
             if Self::word_class(ch) != class {
                 break;
@@ -2428,7 +2419,7 @@ impl EditBoxState {
             cursor = next;
         }
         while cursor < self.text.len() {
-            let next = Self::next_boundary(&self.text, cursor);
+            let next = self.layout_profile.next_boundary(&self.text, cursor);
             let ch = self.text[cursor..next].chars().next().unwrap_or(' ');
             if Self::word_class(ch) != 0 {
                 break;
@@ -2505,13 +2496,17 @@ impl EditBoxState {
     }
 
     fn display_width_before(&self, byte_pos: usize) -> i32 {
-        let pos = Self::normalize_boundary(&self.text, byte_pos);
-        self.text[..pos].chars().fold(0i32, |sum, ch| {
-            sum.saturating_add(crate::text_render::editbox_cell_width_px(
-                ch,
-                self.font_px(),
-            ))
-        })
+        let pos = self.layout_profile.floor_boundary(&self.text, byte_pos);
+        self.layout_profile
+            .chars(&self.text[..pos])
+            .iter()
+            .fold(0i32, |sum, c| {
+                sum.saturating_add(self.cell_metrics.cell(
+                    self.layout_profile,
+                    c.ch,
+                    self.font_px() as i64,
+                ) as i32)
+            })
     }
 
     fn display_caret_content_x(&self) -> i32 {
@@ -2519,13 +2514,20 @@ impl EditBoxState {
             let mut x = self.display_width_before(start);
             let comp_cursor = self
                 .composition_cursor
-                .map(|(_, end)| Self::normalize_boundary(&self.composition_text, end))
+                .map(|(_, end)| {
+                    self.layout_profile
+                        .floor_boundary(&self.composition_text, end)
+                })
                 .unwrap_or(self.composition_text.len());
-            for ch in self.composition_text[..comp_cursor].chars() {
-                x = x.saturating_add(crate::text_render::editbox_cell_width_px(
-                    ch,
-                    self.font_px(),
-                ));
+            for c in self
+                .layout_profile
+                .chars(&self.composition_text[..comp_cursor])
+            {
+                x = x.saturating_add(self.cell_metrics.cell(
+                    self.layout_profile,
+                    c.ch,
+                    self.font_px() as i64,
+                ) as i32);
             }
             x
         } else {
@@ -2538,17 +2540,19 @@ impl EditBoxState {
             let start = Self::normalize_boundary(&self.text, start);
             let end = Self::normalize_boundary(&self.text, end);
             let mut width = self.display_width_before(start);
-            for ch in self.composition_text.chars() {
-                width = width.saturating_add(crate::text_render::editbox_cell_width_px(
-                    ch,
-                    self.font_px(),
-                ));
+            for c in self.layout_profile.chars(&self.composition_text) {
+                width = width.saturating_add(self.cell_metrics.cell(
+                    self.layout_profile,
+                    c.ch,
+                    self.font_px() as i64,
+                ) as i32);
             }
-            for ch in self.text[end..].chars() {
-                width = width.saturating_add(crate::text_render::editbox_cell_width_px(
-                    ch,
-                    self.font_px(),
-                ));
+            for c in self.layout_profile.chars(&self.text[end..]) {
+                width = width.saturating_add(self.cell_metrics.cell(
+                    self.layout_profile,
+                    c.ch,
+                    self.font_px() as i64,
+                ) as i32);
             }
             width
         } else {

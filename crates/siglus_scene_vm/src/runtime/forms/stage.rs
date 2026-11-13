@@ -5510,7 +5510,13 @@ fn object_string_glyph_layout(
     src: &str,
     vertical: bool,
 ) -> (Vec<crate::text_render::PositionedTextGlyph>, u32, u32) {
-    let chars: Vec<char> = src.chars().collect();
+    let chars: Vec<char> = ctx
+        .font_cache
+        .layout_profile()
+        .chars(src)
+        .into_iter()
+        .map(|c| c.ch)
+        .collect();
     let mut i = 0usize;
     let mut glyphs = Vec::new();
     let mut cur_x = 0i64;
@@ -5580,8 +5586,12 @@ fn object_string_glyph_layout(
             i += 1;
         }
 
-        let half = crate::text_render::is_hankaku(ch);
-        let glyph_units = if half { 1 } else { 2 };
+        let glyph_units = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+            (ctx.font_cache.display_cell_width(ch, size) * 2 + size - 1) / size
+        } else {
+            ctx.font_cache.layout_profile().columns(ch)
+        };
+        let half = glyph_units == 1;
         if wrap_units > 0 && units_on_line > 0 && units_on_line + glyph_units > wrap_units {
             units_on_line = 0;
             if vertical {
@@ -5610,14 +5620,22 @@ fn object_string_glyph_layout(
         max_y = max_y.max(cur_y.saturating_add(size));
         units_on_line = units_on_line.saturating_add(glyph_units);
         if vertical {
-            let advance = if half {
+            let advance = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+                ctx.font_cache.display_cell_width(ch, size) + space_x
+            } else if glyph_units == 0 {
+                0
+            } else if half {
                 (size + 1) / 2 + space_x
             } else {
                 size + space_x
             };
             cur_y = cur_y.saturating_add(advance);
         } else {
-            let advance = if half {
+            let advance = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+                ctx.font_cache.display_cell_width(ch, size) + space_x
+            } else if glyph_units == 0 {
+                0
+            } else if half {
                 (size + 1) / 2 + space_x
             } else {
                 size + space_x
@@ -13656,10 +13674,6 @@ fn current_mwnd_target(ctx: &CommandContext) -> (u32, i64, usize) {
     )
 }
 
-fn is_hankaku_moji(ch: char) -> bool {
-    ch.is_ascii() || matches!(ch as u32, 0xFF61..=0xFF9F)
-}
-
 fn is_mwnd_kinsoku_moji(ch: char) -> bool {
     matches!(
         ch,
@@ -13836,7 +13850,13 @@ fn mwnd_rebuild_name_glyphs(ctx: &CommandContext, m: &mut MwndState, mwnd_idx: u
         m.name_window_rect = (left, 0, left.saturating_add(width), height);
         return;
     }
-    let chars: Vec<char> = name.chars().collect();
+    let chars: Vec<char> = ctx
+        .font_cache
+        .layout_profile()
+        .chars(name)
+        .into_iter()
+        .map(|c| c.ch)
+        .collect();
     let mut i = 0usize;
     let (draw_shadow, draw_fuchi) =
         crate::text_render::font_shadow_mode_flags(ctx.effective_font_shadow_mode());
@@ -13914,11 +13934,16 @@ fn mwnd_rebuild_name_glyphs(ctx: &CommandContext, m: &mut MwndState, mwnd_idx: u
                 m.default_name_fuchi_color
             }
         });
+        let glyph_x = if ctx.font_cache.layout_profile().columns(ch) == 0 {
+            m.name_glyphs.last().map(|g| g.x).unwrap_or(x)
+        } else {
+            x
+        };
         m.name_glyphs.push(MwndGlyphState {
             moji_type: 0,
             code: ch as i32,
             ch,
-            x,
+            x: glyph_x,
             y,
             size: cur_size,
             moji_color_no,
@@ -13932,7 +13957,11 @@ fn mwnd_rebuild_name_glyphs(ctx: &CommandContext, m: &mut MwndState, mwnd_idx: u
             appeared: true,
             message_button: None,
         });
-        let advance = if is_hankaku_moji(ch) {
+        let advance = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+            ctx.font_cache.display_cell_width(ch, cur_size + space_x)
+        } else if ctx.font_cache.layout_profile().columns(ch) == 0 {
+            0
+        } else if ctx.font_cache.layout_profile().columns(ch) == 1 {
             (cur_size + space_x) / 2
         } else {
             cur_size + space_x
@@ -14123,13 +14152,18 @@ fn mwnd_append_glyph(
     let script_bold = ctx.effective_font_bold();
     let shadow_mode = ctx.effective_font_shadow_mode();
     let (script_shadow, script_fuchi) = crate::text_render::font_shadow_mode_flags(shadow_mode);
-    let body_count = m
+    let body = m
         .message_pages
         .iter()
         .flat_map(|page| page.glyphs.iter())
         .chain(m.glyphs.iter())
-        .filter(|g| !g.ruby)
-        .count();
+        .filter(|g| !g.ruby);
+    let body_count =
+        if ctx.font_cache.layout_profile() == crate::text_layout::TextLayoutProfile::Native {
+            body.count()
+        } else {
+            body.map(|g| g.reveal_index).max().unwrap_or(0)
+        };
     let reveal_index = if ruby {
         body_count.max(1)
     } else {
@@ -14170,9 +14204,13 @@ struct MwndTextToken {
     ch: char,
     byte_start: usize,
     byte_end: usize,
+    cluster_start: bool,
 }
 
-fn mwnd_text_tokens(text: &str) -> Vec<MwndTextToken> {
+fn mwnd_text_tokens(
+    text: &str,
+    profile: crate::text_layout::TextLayoutProfile,
+) -> Vec<MwndTextToken> {
     let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut out = Vec::with_capacity(chars.len());
     let mut i = 0usize;
@@ -14199,6 +14237,7 @@ fn mwnd_text_tokens(text: &str) -> Vec<MwndTextToken> {
                     ch: '\0',
                     byte_start: start,
                     byte_end: end,
+                    cluster_start: true,
                 });
                 i = j;
                 continue;
@@ -14211,10 +14250,40 @@ fn mwnd_text_tokens(text: &str) -> Vec<MwndTextToken> {
             ch,
             byte_start: start,
             byte_end: end,
+            cluster_start: true,
         });
         i += 1;
     }
-    out
+    if profile == crate::text_layout::TextLayoutProfile::Native {
+        return out;
+    }
+    let mut projected = Vec::new();
+    let mut i = 0;
+    while i < out.len() {
+        if out[i].moji_type != 0 {
+            projected.push(out[i]);
+            i += 1;
+            continue;
+        }
+        let start = out[i].byte_start;
+        let mut end = out[i].byte_end;
+        i += 1;
+        while i < out.len() && out[i].moji_type == 0 {
+            end = out[i].byte_end;
+            i += 1;
+        }
+        for display in profile.chars(&text[start..end]) {
+            projected.push(MwndTextToken {
+                moji_type: 0,
+                code: display.ch as i32,
+                ch: display.ch,
+                byte_start: start + display.bytes.start,
+                byte_end: start + display.bytes.end,
+                cluster_start: display.cluster_start,
+            });
+        }
+    }
+    projected
 }
 
 /// Direct translation of C_elm_mwnd_msg::add_msg_sub for both horizontal and
@@ -14224,7 +14293,7 @@ fn mwnd_append_styled_text(ctx: &CommandContext, m: &mut MwndState, text: &str) 
     if text.is_empty() {
         return String::new();
     }
-    let tokens = mwnd_text_tokens(text);
+    let tokens = mwnd_text_tokens(text, ctx.font_cache.layout_profile());
     let (max_w, max_h) = mwnd_message_extent(m);
     let (space_x, _) = m.moji_space.unwrap_or((-1, 10));
     let def_size = m.default_moji_size.max(1);
@@ -14244,20 +14313,31 @@ fn mwnd_append_styled_text(ctx: &CommandContext, m: &mut MwndState, text: &str) 
         }
 
         let size = mwnd_current_moji_size(m);
-        let cell = if token.moji_type == 0 && is_hankaku_moji(ch) {
+        let cell = if token.moji_type == 0 && ctx.font_cache.layout_profile().uses_font_metrics(ch)
+        {
+            ctx.font_cache.display_cell_width(ch, size)
+        } else if token.moji_type == 0 && ctx.font_cache.layout_profile().columns(ch) == 0 {
+            0
+        } else if token.moji_type == 0 && ctx.font_cache.layout_profile().columns(ch) == 1 {
             (size / 2).max(1)
         } else {
             size
         };
-        let check = cell.saturating_add(space_x);
+        let check = if cell == 0 {
+            0
+        } else {
+            cell.saturating_add(space_x)
+        };
         let axis = if m.vertical_writing {
             m.cursor_pos.1
         } else {
             m.cursor_pos.0
         };
         let axis_max = if m.vertical_writing { max_h } else { max_w };
-        let force_wrap = axis.saturating_add(check) > axis_max.saturating_add(def_size);
-        let soft_wrap = axis.saturating_add(check) > axis_max
+        let force_wrap =
+            token.cluster_start && axis.saturating_add(check) > axis_max.saturating_add(def_size);
+        let soft_wrap = token.cluster_start
+            && axis.saturating_add(check) > axis_max
             && !(token.moji_type == 0 && is_mwnd_kinsoku_moji(ch));
         let mut auto_indent = false;
         if force_wrap || soft_wrap {
@@ -14284,12 +14364,31 @@ fn mwnd_append_styled_text(ctx: &CommandContext, m: &mut MwndState, text: &str) 
             m.ruby_start_ready = false;
         }
 
-        let (x, y) = m.cursor_pos;
+        let (mut x, mut y) = m.cursor_pos;
+        let previous = m.glyphs.last().map(|g| (g.x, g.y, g.reveal_index));
+        if cell == 0
+            && let Some((px, py, _)) = previous
+        {
+            x = px.saturating_sub(m.moji_rep_pos.0);
+            y = py.saturating_sub(m.moji_rep_pos.1);
+        }
         mwnd_append_glyph(ctx, m, token.moji_type, token.code, ch, false, x, y, size);
+        if !token.cluster_start
+            && let Some((_, _, index)) = previous
+            && let Some(glyph) = m.glyphs.last_mut()
+        {
+            glyph.reveal_index = index;
+        }
         if m.vertical_writing {
-            m.cursor_pos.1 = m.cursor_pos.1.saturating_add(check.max(1));
+            m.cursor_pos.1 =
+                m.cursor_pos
+                    .1
+                    .saturating_add(if cell == 0 { 0 } else { check.max(1) });
         } else {
-            m.cursor_pos.0 = m.cursor_pos.0.saturating_add(check.max(1));
+            m.cursor_pos.0 =
+                m.cursor_pos
+                    .0
+                    .saturating_add(if cell == 0 { 0 } else { check.max(1) });
         }
 
         if token.moji_type == 0 && mwnd_is_indent_open(ch) {
@@ -14327,8 +14426,66 @@ fn mwnd_finish_ruby(ctx: &CommandContext, m: &mut MwndState) {
         return;
     };
     let (end_x, end_y) = m.cursor_pos;
-    let ruby_chars: Vec<char> = pending.text.chars().collect();
+    let ruby_chars: Vec<char> = ctx
+        .font_cache
+        .layout_profile()
+        .chars(&pending.text)
+        .into_iter()
+        .map(|c| c.ch)
+        .collect();
     if ruby_chars.is_empty() {
+        return;
+    }
+    // Preserve original ruby distribution and integer rounding whenever the
+    // display widths are unchanged, including ordinary Japanese annotations.
+    if ctx.font_cache.layout_profile() == crate::text_layout::TextLayoutProfile::UnicodeCells
+        && ruby_chars.iter().any(|&ch| {
+            ctx.font_cache.display_cell_width(ch, m.ruby_size.max(1))
+                != crate::text_layout::TextLayoutProfile::Native.cell(ch, m.ruby_size.max(1))
+        })
+    {
+        let profile = ctx.font_cache.layout_profile();
+        let size = m.ruby_size.max(1);
+        if (m.vertical_writing && start_x != end_x) || (!m.vertical_writing && start_y != end_y) {
+            log::error!("MWND.RUBY body crossed a line or column; suppressing ruby");
+            return;
+        }
+        let display = profile.chars(&pending.text);
+        let clusters = display.iter().filter(|c| c.cluster_start).count() as i64;
+        let extent: i64 = display
+            .iter()
+            .map(|c| ctx.font_cache.display_cell_width(c.ch, size))
+            .sum();
+        let body = if m.vertical_writing {
+            end_y - start_y
+        } else {
+            end_x - start_x
+        };
+        let spacing = ((body - extent) / (clusters + 1)).max(0);
+        let start = if m.vertical_writing { start_y } else { start_x };
+        let mut axis = (start + (body - extent - spacing * (clusters - 1).max(0)) / 2).max(0);
+        let mut anchor = axis;
+        let mut display = display.into_iter().peekable();
+        while let Some(c) = display.next() {
+            let cell = ctx.font_cache.display_cell_width(c.ch, size);
+            if c.cluster_start {
+                anchor = axis;
+            }
+            let pos = if cell == 0 { anchor } else { axis };
+            let (x, y) = if m.vertical_writing {
+                (start_x + size + m.ruby_space, pos)
+            } else {
+                (pos, start_y - size - m.ruby_space)
+            };
+            mwnd_append_glyph(ctx, m, 0, c.ch as i32, c.ch, true, x, y, size);
+            axis += cell;
+            // Spacing belongs between complete clusters, not between marks.
+            if display.peek().is_some_and(|next| next.cluster_start) {
+                axis += spacing;
+            }
+        }
+        m.ruby_start_pos = (0, 0);
+        m.ruby_start_ready = false;
         return;
     }
     let ruby_size = m.ruby_size.max(1);
@@ -14358,7 +14515,7 @@ fn mwnd_finish_ruby(ctx: &CommandContext, m: &mut MwndState) {
             .saturating_add(ruby_size)
             .saturating_add(m.ruby_space);
         for ch in ruby_chars {
-            let half_rep = if is_hankaku_moji(ch) {
+            let half_rep = if ctx.font_cache.layout_profile().columns(ch) == 1 {
                 ruby_size / 4
             } else {
                 0
@@ -14399,7 +14556,7 @@ fn mwnd_finish_ruby(ctx: &CommandContext, m: &mut MwndState) {
             .saturating_sub(ruby_size)
             .saturating_sub(m.ruby_space);
         for ch in ruby_chars {
-            let half_rep = if is_hankaku_moji(ch) {
+            let half_rep = if ctx.font_cache.layout_profile().columns(ch) == 1 {
                 ruby_size / 4
             } else {
                 0
@@ -14620,6 +14777,7 @@ fn wait_after_mwnd_print_if_needed(ctx: &mut CommandContext, m: &mut MwndState) 
 }
 
 pub fn cd_text_current_mwnd(ctx: &mut CommandContext, text: &str, rf_flag_no: i64) -> bool {
+    ctx.prepare_text_font();
     let text = super::global::expand_name_flags(ctx, text);
     let text = text.as_str();
     let (form_id, stage_idx, mwnd_idx) = current_mwnd_target(ctx);
@@ -14658,6 +14816,7 @@ pub fn cd_text_current_mwnd(ctx: &mut CommandContext, text: &str, rf_flag_no: i6
 }
 
 pub fn cd_name_current_mwnd(ctx: &mut CommandContext, name: &str) -> bool {
+    ctx.prepare_text_font();
     let (form_id, stage_idx, mwnd_idx) = current_mwnd_target(ctx);
     ctx.globals.last_mwnd_stage_idx = stage_idx;
     ctx.globals.last_mwnd_no = Some(mwnd_idx);

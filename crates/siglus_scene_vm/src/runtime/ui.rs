@@ -514,6 +514,7 @@ pub struct MwndProjectionState {
 
 #[derive(Debug, Default)]
 pub struct UiRuntime {
+    pub(crate) layout_profile: crate::text_layout::TextLayoutProfile,
     pub mwnd: MwndRuntime,
     pub mwnd_instances: HashMap<(u32, i64, usize), Box<UiRuntime>>,
     pub primary_mwnd_key: Option<(u32, i64, usize)>,
@@ -536,6 +537,14 @@ pub struct UiRuntime {
 }
 
 impl UiRuntime {
+    pub(crate) fn with_layout_profile(profile: crate::text_layout::TextLayoutProfile) -> Self {
+        Self {
+            layout_profile: profile,
+            font_cache: FontCache::with_layout_profile(profile),
+            ..Self::default()
+        }
+    }
+
     pub fn set_text_colors(&mut self, text_color: (u8, u8, u8), shadow_color: (u8, u8, u8)) {
         self.set_text_colors_full(text_color, shadow_color, None);
     }
@@ -1004,8 +1013,29 @@ impl UiRuntime {
             .is_some()
     }
 
+    fn message_reveal_len(&self) -> usize {
+        if self.layout_profile == crate::text_layout::TextLayoutProfile::UnicodeCells {
+            self.mwnd
+                .msg
+                .glyphs
+                .iter()
+                .filter(|g| !g.ruby)
+                .map(|g| g.reveal_index)
+                .max()
+                .unwrap_or_else(|| {
+                    self.layout_profile
+                        .chars(self.mwnd.msg.text.as_deref().unwrap_or(""))
+                        .iter()
+                        .filter(|c| c.cluster_start)
+                        .count()
+                })
+        } else {
+            self.mwnd.msg.text.as_deref().unwrap_or("").chars().count()
+        }
+    }
+
     fn message_fully_revealed(&self) -> bool {
-        let total = self.mwnd.msg.text.as_deref().unwrap_or("").chars().count();
+        let total = self.message_reveal_len();
         total == 0 || self.mwnd.msg.visible_chars >= total
     }
 
@@ -2227,10 +2257,9 @@ impl UiRuntime {
             if Some(key) == primary {
                 self.apply_mwnd_projection(&proj);
             } else {
-                let child = self
-                    .mwnd_instances
-                    .entry(key)
-                    .or_insert_with(|| Box::new(UiRuntime::default()));
+                let child = self.mwnd_instances.entry(key).or_insert_with(|| {
+                    Box::new(UiRuntime::with_layout_profile(self.layout_profile))
+                });
                 child.apply_mwnd_projection(&proj);
             }
         }
@@ -2793,8 +2822,7 @@ impl UiRuntime {
     pub fn begin_message_reveal_wait(&mut self) {
         self.mwnd.msg.waiting = true;
         self.mwnd.msg.wait_started_at = Some(Instant::now());
-        self.mwnd.msg.wait_message_len =
-            self.mwnd.msg.text.as_deref().unwrap_or("").chars().count();
+        self.mwnd.msg.wait_message_len = self.message_reveal_len();
         self.mwnd.msg.clear_on_wait_end = MessageWaitClearAction::None;
         self.mwnd.key_icon.appear = false;
     }
@@ -2816,8 +2844,7 @@ impl UiRuntime {
     fn begin_wait_message_with_icon_mode(&mut self, icon_mode: i64) {
         self.mwnd.msg.waiting = true;
         self.mwnd.msg.wait_started_at = Some(Instant::now());
-        self.mwnd.msg.wait_message_len =
-            self.mwnd.msg.text.as_deref().unwrap_or("").chars().count();
+        self.mwnd.msg.wait_message_len = self.message_reveal_len();
         self.mwnd.key_icon.appear = true;
         if self.mwnd.key_icon.mode != icon_mode {
             self.mwnd.key_icon.mode = icon_mode;
@@ -2827,7 +2854,7 @@ impl UiRuntime {
     }
 
     pub fn reveal_message_now(&mut self) {
-        let total = self.mwnd.msg.text.as_deref().unwrap_or("").chars().count();
+        let total = self.message_reveal_len();
         if self.mwnd.msg.visible_chars != total {
             self.mwnd.msg.visible_chars = total;
             self.mwnd.msg.reveal_base = total;
@@ -2961,7 +2988,7 @@ impl UiRuntime {
     }
 
     fn update_message_reveal(&mut self, script: &ScriptRuntimeState, syscom: &SyscomRuntimeState) {
-        let total = self.mwnd.msg.text.as_deref().unwrap_or("").chars().count();
+        let total = self.message_reveal_len();
         if total == 0 {
             self.mwnd.msg.visible_chars = 0;
             self.mwnd.msg.reveal_base = 0;
@@ -3022,7 +3049,19 @@ impl UiRuntime {
         if self.mwnd.msg.visible_chars == 0 {
             return String::new();
         }
-        msg.chars().take(self.mwnd.msg.visible_chars).collect()
+        if self.layout_profile == crate::text_layout::TextLayoutProfile::UnicodeCells {
+            let end = self
+                .layout_profile
+                .chars(msg)
+                .iter()
+                .filter(|c| c.cluster_start)
+                .nth(self.mwnd.msg.visible_chars)
+                .map(|c| c.bytes.start)
+                .unwrap_or(msg.len());
+            msg[..end].to_string()
+        } else {
+            msg.chars().take(self.mwnd.msg.visible_chars).collect()
+        }
     }
 
     fn refresh_waku_images(

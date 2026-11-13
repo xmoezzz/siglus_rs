@@ -26,6 +26,9 @@ log.workspace = true
 env_logger.workspace = true
 chrono.workspace = true
 ab_glyph = "0.2.32"
+unicode-width = "0.1.14"
+unicode-segmentation = "1.13.3"
+unicode-normalization = "0.1"
 ttf-parser = "0.25.1"
 encoding_rs = "0.8"
 eluna = { package = "eluna_rs", version = "0.1.0", path = "../../vendor/eluna_rs" }
