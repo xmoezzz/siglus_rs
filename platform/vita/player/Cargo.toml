@@ -29,4 +29,4 @@ build_std = "std,panic_abort"
 
 [target.'cfg(target_os = "vita")'.dependencies]
 siglus_scene_vm = { path = "../../../crates/siglus_scene_vm" }
-vitasdk-sys = { version = "=0.3.3", default-features = false, features = ["SceAudio_stub", "SceCtrl_stub", "SceSysmem_stub", "SceTouch_stub"] }
+vitasdk-sys = { version = "=0.3.3", default-features = false, features = ["SceAudio_stub", "SceCtrl_stub", "SceSysmem_stub", "SceTouch_stub", "SceCommonDialog_stub"] }
