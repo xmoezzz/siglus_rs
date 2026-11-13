@@ -13,8 +13,11 @@ Siglus applies an **unofficial Unicode cell-spacing extension** automatically.
 It requires no configuration file or activation step on any host.
 
 The extension uses Unicode widths rather than a language whitelist. It handles
-accented alphabetic text, narrow Greek and Cyrillic, wide CJK, and canonical
-composition of decomposed characters in display runs. Messages, names, ruby,
+accented alphabetic text, font-measured Greek and Cyrillic, wide CJK, East Asian
+ambiguous punctuation such as Japanese ellipses and dashes, and canonical
+composition of decomposed characters in display runs. Newly handled alphabetic
+characters use their resolved font advances, including fallback fonts, so wide
+glyphs are not forced into overlapping half cells. Messages, names, ruby,
 text objects, choices, backlog, reconstructed choices, and editbox geometry
 share the policy. Editbox movement and deletion use grapheme boundaries.
 Script strings and native UTF-16/width commands retain their original semantics.

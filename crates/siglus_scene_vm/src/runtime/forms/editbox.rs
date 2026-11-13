@@ -139,6 +139,9 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         return Ok(false);
     }
 
+    let text: String = args.iter().filter_map(Value::as_str).collect();
+    let metrics = ctx.font_cache.cell_metrics(&text);
+
     let (meta_al_id, _meta_ret_form, rhs_meta) =
         prop_access::infer_assign_and_ret_ctx(ctx, chain_pos, args);
     if chain.len() >= 4 && is_array_code(ctx.ids.elm_array, chain[1]) && meta_al_id == Some(1) {
@@ -154,6 +157,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         list.ensure_size(cnt);
         for eb in &mut list.boxes {
             eb.layout_profile = ctx.font_cache.layout_profile();
+            eb.cell_metrics.extend(metrics.clone());
         }
         let params = match rhs {
             Some(Value::Str(s)) => vec![Value::Str(s.clone())],
@@ -201,6 +205,7 @@ pub fn dispatch(ctx: &mut CommandContext, form_id: u32, args: &[Value]) -> Resul
         list.ensure_size(cnt);
         for eb in &mut list.boxes {
             eb.layout_profile = ctx.font_cache.layout_profile();
+            eb.cell_metrics.extend(metrics.clone());
         }
 
         if chain.len() == 2 && !is_array_code(elm_array, chain[1]) {

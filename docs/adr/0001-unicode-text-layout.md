@@ -119,6 +119,14 @@ making their native width or string rules aliases of Siglus rules.
 The implemented cell-spacing stage lives in `src/text_layout.rs` under
 `siglus_scene_vm`. It centralizes Unicode column widths, display-only NFC
 projection, source byte/UTF-16 cluster ranges, and editbox grapheme boundaries.
+Alphabetic and numeric characters use Unicode width classification, with resolved
+font advances for newly handled narrow characters. Measurement uses the same
+fallback face as rasterization. This avoids overlapping wide glyphs in legacy
+CJK fonts that contain full-cell Greek and Cyrillic glyphs. Editbox interaction
+and IME geometry carry the same em-unit advances as rendering. Other characters
+use East Asian ambiguous widths to preserve Japanese ellipses, dashes, and
+symbols. Ruby whose measured widths are unchanged retains the original
+distribution and integer rounding.
 The runtime uses it for messages, names, ruby, object strings, button choices,
 backlog measurement, text raster layout, and choice reconstruction. Positioned
 glyph snapshots retain their recorded geometry. Native string-width operations

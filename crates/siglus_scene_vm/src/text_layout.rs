@@ -2,6 +2,7 @@
 //!
 //! `UnicodeCells` is an unofficial spacing extension, not a shaping or bidi engine.
 
+use std::collections::HashMap;
 use std::ops::Range;
 use unicode_normalization::UnicodeNormalization;
 use unicode_segmentation::UnicodeSegmentation;
@@ -24,10 +25,39 @@ pub struct DisplayChar {
     pub cluster_start: bool,
 }
 
+/// Font advances in em units for display characters added by the extension.
+/// Editbox interaction keeps the same measurements as its rasterizer.
+#[derive(Debug, Clone, Default)]
+pub struct TextCellMetrics {
+    pub(crate) advances: HashMap<char, f32>,
+}
+
+impl TextCellMetrics {
+    pub fn cell(&self, profile: TextLayoutProfile, ch: char, full: i64) -> i64 {
+        if profile.uses_font_metrics(ch)
+            && let Some(ratio) = self.advances.get(&ch)
+        {
+            return (full as f32 * ratio).ceil().max(1.0) as i64;
+        }
+        profile.cell(ch, full)
+    }
+
+    pub(crate) fn extend(&mut self, other: Self) {
+        self.advances.extend(other.advances);
+    }
+}
+
 impl TextLayoutProfile {
-    /// Narrow Unicode width treats ambiguous alphabetic characters as narrow
-    /// while retaining wide/fullwidth CJK and emoji. Marks and format controls
-    /// consume no cell. No language or script whitelist is involved.
+    pub(crate) fn uses_font_metrics(self, ch: char) -> bool {
+        self == Self::UnicodeCells
+            && Self::Native.columns(ch) == 2
+            && self.columns(ch) == 1
+            && (ch.is_alphabetic() || ch.is_numeric())
+    }
+    /// Alphabetic text uses narrow Unicode widths. Other characters retain
+    /// East Asian ambiguous widths, so Japanese ellipses, dashes and symbols
+    /// keep their native cells. Marks and format controls consume no cell.
+    /// No language or script whitelist is involved.
     pub fn columns(self, ch: char) -> i64 {
         match self {
             Self::Native => {
@@ -37,7 +67,13 @@ impl TextLayoutProfile {
                     2
                 }
             }
-            Self::UnicodeCells => ch.width().unwrap_or(0) as i64,
+            Self::UnicodeCells => {
+                if ch.is_alphabetic() || ch.is_numeric() {
+                    ch.width().unwrap_or(0) as i64
+                } else {
+                    ch.width_cjk().unwrap_or(0) as i64
+                }
+            }
         }
     }
 

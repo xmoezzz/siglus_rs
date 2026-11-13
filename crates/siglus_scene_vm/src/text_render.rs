@@ -174,6 +174,26 @@ impl std::ops::Deref for ResolvedFonts<'_> {
 }
 
 impl<'a> ResolvedFonts<'a> {
+    fn em_advance(self, ch: char) -> Option<f32> {
+        let font = self.for_char(ch);
+        let id = font.glyph_id(ch);
+        if id.0 == 0 {
+            return None;
+        }
+        let em = font.units_per_em()?;
+        let advance = font.h_advance_unscaled(id) / em;
+        (advance.is_finite() && advance > 0.0).then_some(advance)
+    }
+
+    fn cell(self, profile: crate::text_layout::TextLayoutProfile, ch: char, full: i64) -> i64 {
+        if profile.uses_font_metrics(ch)
+            && let Some(ratio) = self.em_advance(ch)
+        {
+            return (full as f32 * ratio).ceil().max(1.0) as i64;
+        }
+        profile.cell(ch, full)
+    }
+
     fn for_char(self, ch: char) -> &'a FontArc {
         self.cache
             .map_or(self.primary, |cache| cache.font_for_char(self.primary, ch))
@@ -203,6 +223,27 @@ impl FontCache {
 
     pub fn layout_profile(&self) -> crate::text_layout::TextLayoutProfile {
         self.layout_profile
+    }
+
+    pub fn display_cell_width(&self, ch: char, full: i64) -> i64 {
+        self.resolved_fonts().map_or_else(
+            || self.layout_profile.cell(ch, full),
+            |font| font.cell(self.layout_profile, ch, full),
+        )
+    }
+
+    pub fn cell_metrics(&self, text: &str) -> crate::text_layout::TextCellMetrics {
+        let mut metrics = crate::text_layout::TextCellMetrics::default();
+        if let Some(font) = self.resolved_fonts() {
+            for display in self.layout_profile.chars(text) {
+                if self.layout_profile.uses_font_metrics(display.ch)
+                    && let Some(ratio) = font.em_advance(display.ch)
+                {
+                    metrics.advances.insert(display.ch, ratio);
+                }
+            }
+        }
+        metrics
     }
 
     pub(crate) fn with_layout_profile(profile: crate::text_layout::TextLayoutProfile) -> Self {
@@ -968,7 +1009,10 @@ fn render_editbox_rgba(
             let selected = composition_cursor
                 .map(|(start, end)| start != end && idx < end && next > start)
                 .unwrap_or(false);
-            let cell_w = profile.cell(ch, font_cell as i64) as i32;
+            let cell_w = font.map_or_else(
+                || profile.cell(ch, font_cell as i64),
+                |font| font.cell(profile, ch, font_cell as i64),
+            ) as i32;
             draw_editbox_cell(
                 &mut rgba,
                 font,
@@ -1088,7 +1132,10 @@ fn draw_editbox_committed_segment(
         let selected = selection
             .map(|(start, end)| idx < end && next > start)
             .unwrap_or(false);
-        let cell_w = profile.cell(ch, font_cell as i64) as i32;
+        let cell_w = font.map_or_else(
+            || profile.cell(ch, font_cell as i64),
+            |font| font.cell(profile, ch, font_cell as i64),
+        ) as i32;
         draw_editbox_cell(
             rgba,
             font,
@@ -1764,6 +1811,7 @@ fn render_mwnd_text_ab_glyph_rgba_styled(
     let mut rgba = vec![0u8; (render_w * render_h * 4) as usize];
 
     let profile = font.cache.map(|c| c.layout_profile()).unwrap_or_default();
+    let metrics = font.cache.map(|c| c.cell_metrics(text)).unwrap_or_default();
     let placed_chars = if vertical {
         layout_mwnd_text_vertical(
             text,
@@ -1773,6 +1821,7 @@ fn render_mwnd_text_ab_glyph_rgba_styled(
             max_w,
             max_h,
             profile,
+            &metrics,
         )
     } else {
         layout_mwnd_text(
@@ -1783,6 +1832,7 @@ fn render_mwnd_text_ab_glyph_rgba_styled(
             max_w,
             max_h,
             profile,
+            &metrics,
         )
     };
     for placed in placed_chars {
@@ -1880,6 +1930,7 @@ fn layout_mwnd_text(
     max_w: u32,
     max_h: u32,
     profile: crate::text_layout::TextLayoutProfile,
+    metrics: &crate::text_layout::TextCellMetrics,
 ) -> Vec<MwndPlacedChar> {
     let full_cell_w = font_cell.max(1);
     let half_cell_w = ((font_cell + 1) / 2).max(1);
@@ -1922,7 +1973,9 @@ fn layout_mwnd_text(
             _ => {}
         }
 
-        let cell_w = if profile.columns(ch) == 0 {
+        let cell_w = if profile.uses_font_metrics(ch) {
+            metrics.cell(profile, ch, full_cell_w as i64) as i32
+        } else if profile.columns(ch) == 0 {
             0
         } else if profile.columns(ch) == 1 {
             half_cell_w
@@ -1986,6 +2039,7 @@ fn layout_mwnd_text_vertical(
     max_w: u32,
     max_h: u32,
     profile: crate::text_layout::TextLayoutProfile,
+    metrics: &crate::text_layout::TextCellMetrics,
 ) -> Vec<MwndPlacedChar> {
     let full_cell_h = font_cell.max(1);
     let half_cell_h = ((font_cell + 1) / 2).max(1);
@@ -2016,7 +2070,9 @@ fn layout_mwnd_text_vertical(
             _ => {}
         }
 
-        let cell_h = if profile.columns(ch) == 0 {
+        let cell_h = if profile.uses_font_metrics(ch) {
+            metrics.cell(profile, ch, full_cell_h as i64) as i32
+        } else if profile.columns(ch) == 0 {
             0
         } else if profile.columns(ch) == 1 {
             half_cell_h
@@ -2847,7 +2903,9 @@ mod unicode_layout_tests {
         let profile = TextLayoutProfile::UnicodeCells;
         let composed = "éắΩЖ界";
         let decomposed = "e\u{301}a\u{306}\u{301}ΩЖ界";
-        let layout = |text, profile| layout_mwnd_text(text, 24, 0, 34, 240, 100, profile);
+        let layout = |text, profile| {
+            layout_mwnd_text(text, 24, 0, 34, 240, 100, profile, &Default::default())
+        };
         let a = layout(composed, profile);
         let b = layout(decomposed, profile);
         assert_eq!(
@@ -2877,6 +2935,22 @@ mod unicode_layout_tests {
                 .unwrap()
         };
         assert_eq!(image(composed).rgba, image(decomposed).rgba);
+
+        // The bundled CJK face has full-cell Greek/Cyrillic glyphs. A Unicode
+        // narrow property must not force their actual ink into half cells.
+        let alphabetic = "ΚαλημέραПривет";
+        let metrics = font.cell_metrics(alphabetic);
+        let placed = layout_mwnd_text(alphabetic, 24, 0, 34, 1000, 100, profile, &metrics);
+        for pair in placed.windows(2) {
+            let left = rasterize_ab_glyph(font.resolved_fonts().unwrap(), pair[0].ch, 24.0);
+            let right = rasterize_ab_glyph(font.resolved_fonts().unwrap(), pair[1].ch, 24.0);
+            assert!(
+                pair[0].x + left.xmin + left.width as i32 <= pair[1].x + right.xmin,
+                "adjacent glyph ink overlaps: {}{}",
+                pair[0].ch,
+                pair[1].ch
+            );
+        }
 
         let mut edit = crate::runtime::globals::EditBoxState::default();
         edit.layout_profile = profile;

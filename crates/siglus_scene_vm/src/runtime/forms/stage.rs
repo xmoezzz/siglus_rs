@@ -5586,7 +5586,11 @@ fn object_string_glyph_layout(
             i += 1;
         }
 
-        let glyph_units = ctx.font_cache.layout_profile().columns(ch);
+        let glyph_units = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+            (ctx.font_cache.display_cell_width(ch, size) * 2 + size - 1) / size
+        } else {
+            ctx.font_cache.layout_profile().columns(ch)
+        };
         let half = glyph_units == 1;
         if wrap_units > 0 && units_on_line > 0 && units_on_line + glyph_units > wrap_units {
             units_on_line = 0;
@@ -5616,7 +5620,9 @@ fn object_string_glyph_layout(
         max_y = max_y.max(cur_y.saturating_add(size));
         units_on_line = units_on_line.saturating_add(glyph_units);
         if vertical {
-            let advance = if glyph_units == 0 {
+            let advance = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+                ctx.font_cache.display_cell_width(ch, size) + space_x
+            } else if glyph_units == 0 {
                 0
             } else if half {
                 (size + 1) / 2 + space_x
@@ -5625,7 +5631,9 @@ fn object_string_glyph_layout(
             };
             cur_y = cur_y.saturating_add(advance);
         } else {
-            let advance = if glyph_units == 0 {
+            let advance = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+                ctx.font_cache.display_cell_width(ch, size) + space_x
+            } else if glyph_units == 0 {
                 0
             } else if half {
                 (size + 1) / 2 + space_x
@@ -13949,7 +13957,9 @@ fn mwnd_rebuild_name_glyphs(ctx: &CommandContext, m: &mut MwndState, mwnd_idx: u
             appeared: true,
             message_button: None,
         });
-        let advance = if ctx.font_cache.layout_profile().columns(ch) == 0 {
+        let advance = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+            ctx.font_cache.display_cell_width(ch, cur_size + space_x)
+        } else if ctx.font_cache.layout_profile().columns(ch) == 0 {
             0
         } else if ctx.font_cache.layout_profile().columns(ch) == 1 {
             (cur_size + space_x) / 2
@@ -14303,7 +14313,10 @@ fn mwnd_append_styled_text(ctx: &CommandContext, m: &mut MwndState, text: &str) 
         }
 
         let size = mwnd_current_moji_size(m);
-        let cell = if token.moji_type == 0 && ctx.font_cache.layout_profile().columns(ch) == 0 {
+        let cell = if token.moji_type == 0 && ctx.font_cache.layout_profile().uses_font_metrics(ch)
+        {
+            ctx.font_cache.display_cell_width(ch, size)
+        } else if token.moji_type == 0 && ctx.font_cache.layout_profile().columns(ch) == 0 {
             0
         } else if token.moji_type == 0 && ctx.font_cache.layout_profile().columns(ch) == 1 {
             (size / 2).max(1)
@@ -14423,7 +14436,14 @@ fn mwnd_finish_ruby(ctx: &CommandContext, m: &mut MwndState) {
     if ruby_chars.is_empty() {
         return;
     }
-    if ctx.font_cache.layout_profile() == crate::text_layout::TextLayoutProfile::UnicodeCells {
+    // Preserve original ruby distribution and integer rounding whenever the
+    // display widths are unchanged, including ordinary Japanese annotations.
+    if ctx.font_cache.layout_profile() == crate::text_layout::TextLayoutProfile::UnicodeCells
+        && ruby_chars.iter().any(|&ch| {
+            ctx.font_cache.display_cell_width(ch, m.ruby_size.max(1))
+                != crate::text_layout::TextLayoutProfile::Native.cell(ch, m.ruby_size.max(1))
+        })
+    {
         let profile = ctx.font_cache.layout_profile();
         let size = m.ruby_size.max(1);
         if (m.vertical_writing && start_x != end_x) || (!m.vertical_writing && start_y != end_y) {
@@ -14432,7 +14452,10 @@ fn mwnd_finish_ruby(ctx: &CommandContext, m: &mut MwndState) {
         }
         let display = profile.chars(&pending.text);
         let clusters = display.iter().filter(|c| c.cluster_start).count() as i64;
-        let extent: i64 = display.iter().map(|c| profile.cell(c.ch, size)).sum();
+        let extent: i64 = display
+            .iter()
+            .map(|c| ctx.font_cache.display_cell_width(c.ch, size))
+            .sum();
         let body = if m.vertical_writing {
             end_y - start_y
         } else {
@@ -14444,7 +14467,7 @@ fn mwnd_finish_ruby(ctx: &CommandContext, m: &mut MwndState) {
         let mut anchor = axis;
         let mut display = display.into_iter().peekable();
         while let Some(c) = display.next() {
-            let cell = profile.cell(c.ch, size);
+            let cell = ctx.font_cache.display_cell_width(c.ch, size);
             if c.cluster_start {
                 anchor = axis;
             }
@@ -14754,6 +14777,7 @@ fn wait_after_mwnd_print_if_needed(ctx: &mut CommandContext, m: &mut MwndState) 
 }
 
 pub fn cd_text_current_mwnd(ctx: &mut CommandContext, text: &str, rf_flag_no: i64) -> bool {
+    ctx.prepare_text_font();
     let text = super::global::expand_name_flags(ctx, text);
     let text = text.as_str();
     let (form_id, stage_idx, mwnd_idx) = current_mwnd_target(ctx);
@@ -14792,6 +14816,7 @@ pub fn cd_text_current_mwnd(ctx: &mut CommandContext, text: &str, rf_flag_no: i6
 }
 
 pub fn cd_name_current_mwnd(ctx: &mut CommandContext, name: &str) -> bool {
+    ctx.prepare_text_font();
     let (form_id, stage_idx, mwnd_idx) = current_mwnd_target(ctx);
     ctx.globals.last_mwnd_stage_idx = stage_idx;
     ctx.globals.last_mwnd_no = Some(mwnd_idx);

@@ -1898,6 +1898,7 @@ struct EditBoxUndoSnapshot {
 #[derive(Debug, Clone)]
 pub struct EditBoxState {
     pub layout_profile: crate::text_layout::TextLayoutProfile,
+    pub cell_metrics: crate::text_layout::TextCellMetrics,
     pub created: bool,
     pub visible: bool,
     pub text: String,
@@ -1939,6 +1940,7 @@ impl Default for EditBoxState {
     fn default() -> Self {
         Self {
             layout_profile: Default::default(),
+            cell_metrics: Default::default(),
             created: false,
             visible: false,
             text: String::new(),
@@ -2253,7 +2255,10 @@ impl EditBoxState {
         let mut target = self.text.len();
         for display in self.layout_profile.chars(&self.text) {
             let idx = display.bytes.start;
-            let width = self.layout_profile.cell(display.ch, self.font_px() as i64) as i32;
+            let width =
+                self.cell_metrics
+                    .cell(self.layout_profile, display.ch, self.font_px() as i64)
+                    as i32;
             if target_x < x.saturating_add((width + 1) / 2) {
                 target = idx;
                 break;
@@ -2496,7 +2501,11 @@ impl EditBoxState {
             .chars(&self.text[..pos])
             .iter()
             .fold(0i32, |sum, c| {
-                sum.saturating_add(self.layout_profile.cell(c.ch, self.font_px() as i64) as i32)
+                sum.saturating_add(self.cell_metrics.cell(
+                    self.layout_profile,
+                    c.ch,
+                    self.font_px() as i64,
+                ) as i32)
             })
     }
 
@@ -2514,7 +2523,11 @@ impl EditBoxState {
                 .layout_profile
                 .chars(&self.composition_text[..comp_cursor])
             {
-                x = x.saturating_add(self.layout_profile.cell(c.ch, self.font_px() as i64) as i32);
+                x = x.saturating_add(self.cell_metrics.cell(
+                    self.layout_profile,
+                    c.ch,
+                    self.font_px() as i64,
+                ) as i32);
             }
             x
         } else {
@@ -2528,12 +2541,18 @@ impl EditBoxState {
             let end = Self::normalize_boundary(&self.text, end);
             let mut width = self.display_width_before(start);
             for c in self.layout_profile.chars(&self.composition_text) {
-                width = width
-                    .saturating_add(self.layout_profile.cell(c.ch, self.font_px() as i64) as i32);
+                width = width.saturating_add(self.cell_metrics.cell(
+                    self.layout_profile,
+                    c.ch,
+                    self.font_px() as i64,
+                ) as i32);
             }
             for c in self.layout_profile.chars(&self.text[end..]) {
-                width = width
-                    .saturating_add(self.layout_profile.cell(c.ch, self.font_px() as i64) as i32);
+                width = width.saturating_add(self.cell_metrics.cell(
+                    self.layout_profile,
+                    c.ch,
+                    self.font_px() as i64,
+                ) as i32);
             }
             width
         } else {

@@ -10883,13 +10883,17 @@ impl<'a> SceneVm<'a> {
             });
             let full_advance = size.saturating_add(space_x);
             let columns = self.ctx.font_cache.layout_profile().columns(ch);
-            x = x.saturating_add(if columns == 0 {
-                0
-            } else if columns == 1 {
-                full_advance / 2
-            } else {
-                full_advance
-            });
+            x = x.saturating_add(
+                if self.ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+                    self.ctx.font_cache.display_cell_width(ch, full_advance)
+                } else if columns == 0 {
+                    0
+                } else if columns == 1 {
+                    full_advance / 2
+                } else {
+                    full_advance
+                },
+            );
         }
 
         // C_elm_btn_select_item::set_msg removes one trailing spacing unit

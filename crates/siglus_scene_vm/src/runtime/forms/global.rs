@@ -241,16 +241,19 @@ fn parse_selbtn_choices(
 }
 
 fn selbtn_text_extent(
-    profile: crate::text_layout::TextLayoutProfile,
+    font: &crate::text_render::FontCache,
     text: &str,
     tmpl: &crate::runtime::tables::SelBtnTemplate,
     vertical: bool,
 ) -> (i64, i64) {
+    let profile = font.layout_profile();
     let font_px = tmpl.moji_size.max(1);
     let mut advance_sum = 0i64;
     for display in profile.chars(text) {
         let ch = display.ch;
-        let advance = if profile.columns(ch) == 0 {
+        let advance = if profile.uses_font_metrics(ch) {
+            font.display_cell_width(ch, font_px + tmpl.moji_space.0)
+        } else if profile.columns(ch) == 0 {
             0
         } else if profile.columns(ch) == 1 {
             (font_px + tmpl.moji_space.0) / 2
@@ -301,7 +304,7 @@ fn selbtn_template_item_size(
         .first()
         .map(|choice| {
             let (tw, th) = selbtn_text_extent(
-                ctx.font_cache.layout_profile(),
+                &ctx.font_cache,
                 &choice.text,
                 tmpl,
                 ctx.tables.mwnd_render.vertical_writing,
@@ -639,7 +642,10 @@ fn make_selbtn_text_object(
         {
             let ch = display.ch;
             placements.push((index, ch, cursor_x, 0, font_px));
-            let advance = if ctx.font_cache.layout_profile().columns(ch) == 0 {
+            let advance = if ctx.font_cache.layout_profile().uses_font_metrics(ch) {
+                ctx.font_cache
+                    .display_cell_width(ch, font_px + tmpl.moji_space.0)
+            } else if ctx.font_cache.layout_profile().columns(ch) == 0 {
                 0
             } else if ctx.font_cache.layout_profile().columns(ch) == 1 {
                 (font_px + tmpl.moji_space.0) / 2
