@@ -14620,6 +14620,8 @@ fn wait_after_mwnd_print_if_needed(ctx: &mut CommandContext, m: &mut MwndState) 
 }
 
 pub fn cd_text_current_mwnd(ctx: &mut CommandContext, text: &str, rf_flag_no: i64) -> bool {
+    let text = super::global::expand_name_flags(ctx, text);
+    let text = text.as_str();
     let (form_id, stage_idx, mwnd_idx) = current_mwnd_target(ctx);
     ctx.globals.last_mwnd_stage_idx = stage_idx;
     ctx.globals.last_mwnd_no = Some(mwnd_idx);
@@ -14671,13 +14673,13 @@ pub fn cd_name_current_mwnd(ctx: &mut CommandContext, name: &str) -> bool {
 
         start_mwnd_msg_block_if_needed(ctx, stage_idx, m);
         if m.name_text.is_empty() {
+            super::syscom::reveal_config_voice_name(ctx, name);
             let resolved_name = resolve_gameexe_namae(&ctx.tables, name);
-            let display_name = resolved_name.display;
+            let display_name = super::global::expand_name_flags(ctx, &resolved_name.display);
             m.chara_color_mod = resolved_name.color_mod;
             m.chara_moji_color = resolved_name.moji_color_no;
             m.chara_shadow_color = resolved_name.shadow_color_no;
             m.chara_fuchi_color = resolved_name.fuchi_color_no;
-            super::syscom::reveal_config_voice_name(ctx, &display_name);
             m.name_text = display_name.clone();
             mwnd_rebuild_name_glyphs(ctx, m, mwnd_idx, &display_name);
             ctx.ui.set_name(display_name.clone());
@@ -15009,6 +15011,8 @@ fn dispatch_mwnd_item_op(
                 .and_then(|v| v.as_str())
                 .or_else(|| script_args.iter().find_map(|v| v.as_str()))
                 .unwrap_or("");
+            let msg = super::global::expand_name_flags(ctx, msg);
+            let msg = msg.as_str();
             if !msg.is_empty() {
                 let overflow = mwnd_append_styled_text(ctx, m, msg);
                 let accepted_len = msg.len().saturating_sub(overflow.len());
@@ -15133,13 +15137,13 @@ fn dispatch_mwnd_item_op(
                 .and_then(|v| v.as_str())
                 .or_else(|| script_args.iter().find_map(|v| v.as_str()))
                 .unwrap_or("");
+            super::syscom::reveal_config_voice_name(ctx, s);
             let resolved_name = resolve_gameexe_namae(&ctx.tables, s);
-            let display_name = resolved_name.display.clone();
+            let display_name = super::global::expand_name_flags(ctx, &resolved_name.display);
             m.chara_color_mod = resolved_name.color_mod;
             m.chara_moji_color = resolved_name.moji_color_no;
             m.chara_shadow_color = resolved_name.shadow_color_no;
             m.chara_fuchi_color = resolved_name.fuchi_color_no;
-            super::syscom::reveal_config_voice_name(ctx, &display_name);
             m.name_text = display_name.clone();
             mwnd_rebuild_name_glyphs(ctx, m, mwnd_idx, &display_name);
             ctx.ui.set_name(display_name.clone());
@@ -15164,7 +15168,10 @@ fn dispatch_mwnd_item_op(
         }
         MwndOpKind::Sel | MwndOpKind::SelCancel | MwndOpKind::SelMsg | MwndOpKind::SelMsgCancel => {
             ctx.request_read_flag_no_for_mwnd(form_id, stage_idx, mwnd_idx);
-            let choices = parse_mwnd_selection_args(script_args, rhs);
+            let mut choices = parse_mwnd_selection_args(script_args, rhs);
+            for choice in &mut choices {
+                choice.text = super::global::expand_name_flags(ctx, &choice.text);
+            }
             let cancel_enable = matches!(k, MwndOpKind::SelCancel | MwndOpKind::SelMsgCancel);
             let close_mwnd = matches!(k, MwndOpKind::Sel | MwndOpKind::SelCancel);
 
@@ -15202,7 +15209,7 @@ fn dispatch_mwnd_item_op(
                 .or_else(|| script_args.iter().find_map(|v| v.as_str()));
             if let Some(text) = s {
                 m.ruby_pending = Some(MwndRubyPendingState {
-                    text: text.to_string(),
+                    text: super::global::expand_name_flags(ctx, text),
                     start_pos: None,
                 });
             } else {
