@@ -12689,6 +12689,9 @@ impl<'a> SceneVm<'a> {
             }
             RuntimeSaveKind::End => {
                 self.ctx.globals.syscom.end_save_exists = true;
+                if let Some(slot) = self.ctx.globals.syscom.end_save_slots.get_mut(req.index) {
+                    slot.header_cache_valid = false;
+                }
             }
             RuntimeSaveKind::Inner => {}
         }
