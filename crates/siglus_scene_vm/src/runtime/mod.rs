@@ -5012,7 +5012,7 @@ impl CommandContext {
                         obj,
                         &mask_info,
                         &resolved_masks,
-                        None,
+                        -1,
                     );
                 }
             }
@@ -12490,12 +12490,19 @@ fn apply_object_masks_recursive(
     obj: &mut globals::ObjectState,
     mask_info: &[Option<(String, i32, i32)>],
     resolved_masks: &HashMap<String, ImageHandle>,
-    inherited_mask: Option<&(ImageHandle, i32, i32)>,
+    inherited_mask_no: i64,
 ) {
     let mask_no = if ids.obj_mask_no != 0 {
         obj.lookup_int_prop(ids, ids.obj_mask_no).unwrap_or(-1)
     } else {
         -1
+    };
+    // C++ tnm_add_parent_trp inherits only TNM_MASK_NONE (-1), before
+    // resolving the texture. An explicit invalid/empty mask blocks inheritance.
+    let mask_no = if mask_no == -1 {
+        inherited_mask_no
+    } else {
+        mask_no
     };
     let mask_binding = usize::try_from(mask_no)
         .ok()
@@ -12506,12 +12513,11 @@ fn apply_object_masks_recursive(
                 .get(mask_name)
                 .cloned()
                 .map(|mask_image_id| (mask_image_id, *mask_x, *mask_y))
-        })
-        .or_else(|| inherited_mask.cloned());
+        });
 
     // A container can own a mask without having a drawable sprite. Carry its
-    // effective binding down the object tree instead of relying on the parent
-    // render state's first sprite. A child's own resolved mask takes priority;
+    // effective mask number down the tree instead of relying on the parent
+    // render state's first sprite. A child's explicit mask takes priority;
     // mask coordinates remain in screen space, independent of object transforms.
     let targets: Vec<(LayerId, SpriteId)> = match &obj.backend {
         globals::ObjectBackend::Gfx => gfx
@@ -12549,7 +12555,7 @@ fn apply_object_masks_recursive(
             child,
             mask_info,
             resolved_masks,
-            mask_binding.as_ref(),
+            mask_no,
         );
     }
 }
@@ -13367,6 +13373,20 @@ fn append_object_tree_nodes(
     if !object_participates_in_tree(obj) {
         return;
     }
+
+    // The mask pass already selected this object's effective native mask.
+    // Do not let the drawable-parent fallback restore an ancestor's texture
+    // when this object explicitly selected an invalid or empty mask instead.
+    let parent_state = parent_state.map(|mut parent| {
+        if ctx.ids.obj_mask_no != 0
+            && obj.lookup_int_prop(&ctx.ids, ctx.ids.obj_mask_no).unwrap_or(-1) != -1
+        {
+            parent.mask_image_id = None;
+            parent.mask_offset_x = 0;
+            parent.mask_offset_y = 0;
+        }
+        parent
+    });
 
     let debug_enabled = sg_render_tree_debug_enabled();
     let info =

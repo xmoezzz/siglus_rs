@@ -171,7 +171,7 @@ fn sprite_less_container_masks_nested_children_without_masking_other_roots() {
 }
 
 #[test]
-fn nearest_resolved_mask_overrides_ancestor_and_missing_masks_inherit() {
+fn only_default_mask_numbers_inherit_and_explicit_missing_masks_block() {
     let mut fixture = Fixture::new();
     let mut root = fixture.container(0);
     let mut override_group = fixture.container(1);
@@ -179,13 +179,41 @@ fn nearest_resolved_mask_overrides_ancestor_and_missing_masks_inherit() {
     override_group.runtime.child_objects.push(leaf);
     let (own, own_id) = fixture.leaf(1);
     let (missing, missing_id) = fixture.leaf(999);
+    let (negative, negative_id) = fixture.leaf(-2);
+    let mut missing_group = fixture.container(999);
+    let (nested, nested_id) = fixture.leaf(-1);
+    missing_group.runtime.child_objects.push(nested);
     let (sibling, sibling_id) = fixture.leaf(-1);
-    root.runtime.child_objects = vec![override_group, own, missing, sibling];
+    root.runtime.child_objects = vec![
+        override_group,
+        own,
+        missing,
+        negative,
+        missing_group,
+        sibling,
+    ];
     fixture.install(vec![root]);
     let sprites = fixture.render();
     fixture.assert_mask(&sprites, leaf_id, Some((1, 40, 50)));
     fixture.assert_mask(&sprites, own_id, Some((1, 40, 50)));
-    fixture.assert_mask(&sprites, missing_id, Some((0, 10, 20)));
+    fixture.assert_mask(&sprites, missing_id, None);
+    fixture.assert_mask(&sprites, negative_id, None);
+    fixture.assert_mask(&sprites, nested_id, None);
+    fixture.assert_mask(&sprites, sibling_id, Some((0, 10, 20)));
+
+    // A valid slot without an image is also explicit: C++ resolves no texture
+    // after choosing that slot, rather than falling back to the parent mask.
+    fixture
+        .ctx
+        .globals
+        .mask_lists
+        .get_mut(&fixture.ctx.ids.form_global_mask)
+        .unwrap()
+        .masks[1]
+        .name = None;
+    let sprites = fixture.render();
+    fixture.assert_mask(&sprites, leaf_id, None);
+    fixture.assert_mask(&sprites, own_id, None);
     fixture.assert_mask(&sprites, sibling_id, Some((0, 10, 20)));
 }
 
@@ -229,10 +257,16 @@ fn drawable_parents_and_explicit_leaf_masks_keep_existing_behavior() {
     let (mut root, root_id) = fixture.leaf(0);
     let (child, child_id) = fixture.leaf(-1);
     let (own, own_id) = fixture.leaf(1);
-    root.runtime.child_objects = vec![child, own];
+    let (missing, missing_id) = fixture.leaf(999);
+    let mut missing_group = fixture.container(999);
+    let (nested, nested_id) = fixture.leaf(-1);
+    missing_group.runtime.child_objects.push(nested);
+    root.runtime.child_objects = vec![child, own, missing, missing_group];
     fixture.install(vec![root]);
     let sprites = fixture.render();
     fixture.assert_mask(&sprites, root_id, Some((0, 10, 20)));
     fixture.assert_mask(&sprites, child_id, Some((0, 10, 20)));
     fixture.assert_mask(&sprites, own_id, Some((1, 40, 50)));
+    fixture.assert_mask(&sprites, missing_id, None);
+    fixture.assert_mask(&sprites, nested_id, None);
 }
