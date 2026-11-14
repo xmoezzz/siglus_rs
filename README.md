@@ -187,12 +187,19 @@ non-Siglus games. See [crates/game_launcher](crates/game_launcher/README.md).
 ## Pre-built binaries
 * See preview releases on [GitHub Releases](https://github.com/xmoezzz/siglus_rs/releases)
 
-Android CI artifacts and release APKs use a persistent signing key. The build
-aligns the APK, signs it, and verifies its signature before uploading it.
+Android APKs from non-fork pushes and all tag builds use a persistent signing
+key. The build aligns the APK, signs it, and verifies its signature before
+uploading the `siglus-android` artifact.
 Repository secrets `ANDROID_KEY_BASE64` (base64-encoded keystore),
 `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and `ANDROID_KEYSTORE_PASSWORD` are
 required. Missing signing configuration fails the Android job. Keep the same
 key for future releases so installed apps can be updated.
+
+Pull requests and branch pushes in forks only check compilation. They upload
+`siglus-android-unsigned/app-release-unsigned.apk`, which is not directly
+installable and is never published as a release or rolling pre-release. No
+release signing secrets are required for these checks. Forks that publish
+tagged releases must configure their own persistent signing key and secrets.
 
 ## Documentation Availability
 * API documentation is available at [docs](https://xmoezzz.github.io/siglus_rs/)
