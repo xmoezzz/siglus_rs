@@ -6,6 +6,7 @@ BUILD := build
 ROMFS ?= romfs
 CC := $(DEVKITA64)/bin/aarch64-none-elf-gcc
 ELF2NRO := $(DEVKITPRO)/tools/bin/elf2nro
+ELF2NSO := $(DEVKITPRO)/tools/bin/elf2nso
 NACPTOOL := $(DEVKITPRO)/tools/bin/nacptool
 UAM := $(DEVKITPRO)/tools/bin/uam
 
@@ -47,7 +48,9 @@ SHADERS := $(foreach n,$(SHADER_NAMES),$(ROMFS)/shaders/$(n)_vsh.dksh $(ROMFS)/s
 # `rust` always runs cargo (incremental): the library depends on the whole
 # engine source, which make cannot see, so the ELF is always relinked.
 .PHONY: all clean rust
-all: $(TARGET).nro
+# The NRO serves the homebrew-menu deployment; the NSO is the ExeFS `main`
+# consumed by NSP packaging (elf2nso + npdmtool/elf2nso-based pipelines).
+all: $(TARGET).nro $(TARGET).nso
 
 rust: $(LIBC_DIR)/.patched
 	cd ../../.. && RUSTFLAGS='--cfg getrandom_backend="custom"' rustup run nightly-2026-01-20 cargo build $(RUST_PATCHES) -p siglus_scene_vm --lib --release --target platform/switch/rust/aarch64-switch.json -Zbuild-std=std,panic_abort
@@ -87,7 +90,12 @@ $(TARGET).nacp:
 $(TARGET).nro: $(TARGET).elf $(TARGET).nacp $(SHADERS)
 	$(ELF2NRO) $< $@ --nacp=$(TARGET).nacp --romfsdir=$(ROMFS)
 
+# The same ELF compressed as an NSO: identical code to the NRO payload, used
+# verbatim as the ExeFS `main` of an NSP package.
+$(TARGET).nso: $(TARGET).elf
+	$(ELF2NSO) $< $@
+
 clean:
-	rm -rf $(BUILD) $(ROMFS) $(TARGET).elf $(TARGET).map $(TARGET).nacp $(TARGET).nro
+	rm -rf $(BUILD) $(ROMFS) $(TARGET).elf $(TARGET).map $(TARGET).nacp $(TARGET).nro $(TARGET).nso
 
 -include $(OBJECTS:.o=.d)

@@ -1,6 +1,7 @@
 runtime/build/
 runtime/romfs/
 runtime/*.elf
+runtime/*.nso
 runtime/*.map
 runtime/*.nacp
 runtime/*.nro
