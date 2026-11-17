@@ -289,7 +289,7 @@ enum StageTarget {
 }
 
 fn load_thumb_image_id(ctx: &mut CommandContext, idx: i64) -> Option<ImageHandle> {
-    let dir = ctx.project_dir.join("savedata");
+    let dir = crate::original_save::save_dir(&ctx.project_dir);
     for path in super::syscom::thumb_candidate_paths(&dir, idx) {
         if let Some(path) = crate::resource::resolve_game_file(&path).ok().flatten()
             && let Ok(img_id) = ctx.images.load_file(&path, 0)
