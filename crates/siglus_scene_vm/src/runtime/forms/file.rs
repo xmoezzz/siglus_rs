@@ -14,7 +14,7 @@ fn resolve_text_file_path(project_dir: &Path, append_dir: &str, raw: &str) -> Op
         candidates.push(project_dir.join(raw_path));
         candidates.push(project_dir.join("dat").join(raw_path));
         candidates.push(project_dir.join("save").join(raw_path));
-        candidates.push(project_dir.join("savedata").join(raw_path));
+        candidates.push(crate::original_save::save_dir(project_dir).join(raw_path));
         if !append_dir.is_empty() {
             let append = Path::new(append_dir);
             if append.is_absolute() {

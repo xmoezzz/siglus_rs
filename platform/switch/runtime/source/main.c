@@ -112,10 +112,19 @@ Result __wrap_nvAddressSpaceMap(NvAddressSpace* address_space, u32 handle,
 }
 
 static const char* select_game_root(void) {
-    FILE* const scene_package = fopen("romfs:/game/Scene.pck", "rb");
-    if (scene_package != NULL) {
-        fclose(scene_package);
-        return RomfsGameRoot;
+    /* RomFS is case-sensitive while PC game data occasionally spells the
+       scene package differently; the Rust engine resolves case on its own,
+       so the shell only probes the common spellings for the root choice. */
+    static const char* const scene_packages[] = {
+        "romfs:/game/Scene.pck",
+        "romfs:/game/scene.pck",
+    };
+    for (size_t i = 0; i < sizeof(scene_packages) / sizeof(scene_packages[0]); ++i) {
+        FILE* const scene_package = fopen(scene_packages[i], "rb");
+        if (scene_package != NULL) {
+            fclose(scene_package);
+            return RomfsGameRoot;
+        }
     }
     return SdmcGameRoot;
 }
