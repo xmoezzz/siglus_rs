@@ -170,7 +170,7 @@ Font availability still determines glyph coverage.
 | Platform | Targets |
 |---|---|
 | Linux | x86_64, aarch64 |
-| FreeBSD | x86_64 |
+| FreeBSD | x86_64 (manual builds) |
 | Windows | x86_64, ARM64 |
 | macOS | aarch64 app, x86_64 app, universal DMG app bundle |
 | iOS | arm64 device, arm64 simulator, x86_64 simulator |
