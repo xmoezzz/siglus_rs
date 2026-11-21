@@ -11,7 +11,6 @@ const W7: i64 = 4520;
 
 const ROW_SHIFT: i64 = 11;
 const COL_SHIFT: i64 = 20;
-const DC_SHIFT: i64 = 3;
 
 #[inline]
 fn idct_row_cond_dc(row: &mut [i16; 8]) {
@@ -159,10 +158,4 @@ pub fn simple_idct_add(dest: &mut [u8], stride: usize, block: &mut [i16; 64]) {
             dest[y * stride + x] = clip_u8(cur + add);
         }
     }
-}
-
-// For completeness; MPEG-2 DC scaling uses (1<<(3-dc_precision)) in the block decode.
-#[allow(dead_code)]
-pub fn dc_shift() -> i64 {
-    DC_SHIFT
 }
