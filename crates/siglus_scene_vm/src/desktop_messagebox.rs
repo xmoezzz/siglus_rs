@@ -121,7 +121,11 @@ pub struct DesktopMessageBoxWindow {
 }
 
 impl DesktopMessageBoxWindow {
-    pub fn new(elwt: &dyn ActiveEventLoop, request: NativeMessageBoxRequest) -> Result<Self> {
+    pub fn new(
+        elwt: &dyn ActiveEventLoop,
+        request: NativeMessageBoxRequest,
+        instance: wgpu::Instance,
+    ) -> Result<Self> {
         let button_count = request.buttons.len().max(1) as f64;
         let width = (420.0f64).max(220.0 + button_count * 112.0);
         let height = 190.0f64;
@@ -140,7 +144,7 @@ impl DesktopMessageBoxWindow {
             )
             .context("create desktop messagebox window")?;
         let window: Arc<dyn Window> = Arc::from(window);
-        let renderer = pollster::block_on(Renderer::new(window.clone()))
+        let renderer = pollster::block_on(Renderer::new_with_instance(instance, window.clone()))
             .context("messagebox renderer init")?;
         let egui_renderer = EguiRenderer::new(
             &renderer.device,

@@ -3581,6 +3581,18 @@ impl App {
     }
 
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    fn with_renderer_instance<T>(
+        &self,
+        f: impl FnOnce(wgpu::Instance) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        self.renderer
+            .as_ref()
+            .map(|renderer| renderer.borrow().instance.clone())
+            .ok_or_else(|| anyhow::anyhow!("main renderer is not initialized"))
+            .and_then(f)
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     fn pump_desktop_config_request(&mut self, elwt: &dyn ActiveEventLoop) {
         let Some(mut dialog) = self.desktop_config_request.take() else {
             return;
@@ -3588,7 +3600,10 @@ impl App {
         if let Some(previous) = self.desktop_config_previous_dialog.as_ref() {
             dialog.remember_tab_from(previous);
         }
-        match DesktopConfigWindow::new(elwt, dialog) {
+        let created = self.with_renderer_instance(|instance| {
+            DesktopConfigWindow::new(elwt, dialog, instance)
+        });
+        match created {
             Ok(window) => self.desktop_config_window = Some(window),
             Err(err) => {
                 log::error!("configuration window creation failed: {err:#}");
@@ -3668,7 +3683,10 @@ impl App {
             .last()
             .map(|button| button.value)
             .unwrap_or(0);
-        match DesktopMessageBoxWindow::new(elwt, request) {
+        let created = self.with_renderer_instance(|instance| {
+            DesktopMessageBoxWindow::new(elwt, request, instance)
+        });
+        match created {
             Ok(window) => {
                 self.desktop_messagebox_window = Some(window);
             }
@@ -3710,7 +3728,10 @@ impl App {
             return;
         };
         let request_id = request.request_id;
-        match DesktopChihayaBenchWindow::new(elwt, request) {
+        let created = self.with_renderer_instance(|instance| {
+            DesktopChihayaBenchWindow::new(elwt, request, instance)
+        });
+        match created {
             Ok(window) => {
                 self.desktop_chihaya_bench_window = Some(window);
             }
@@ -3770,7 +3791,10 @@ impl App {
         };
 
         self.desktop_twitter_window = None;
-        match DesktopTwitterWindow::new(elwt, request) {
+        let created = self.with_renderer_instance(|instance| {
+            DesktopTwitterWindow::new(elwt, request, instance)
+        });
+        match created {
             Ok(window) => {
                 self.desktop_twitter_window = Some(window);
                 self.sync_desktop_twitter_account();
