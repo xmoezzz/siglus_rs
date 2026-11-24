@@ -10166,28 +10166,54 @@ impl<'a> SceneVm<'a> {
         m: &runtime::globals::MwndState,
         name_waku: bool,
     ) {
-        w.push_i32(Self::save_i32(m.msg_waku_no.unwrap_or(0)));
-        w.push_str(if name_waku { "" } else { &m.waku_file });
-        w.push_str(if name_waku { "" } else { &m.filter_file });
+        let template_no = if name_waku {
+            // Preserve the engine's "no name frame" sentinel across saves.
+            m.name_waku_no.unwrap_or(-1)
+        } else {
+            m.msg_waku_no.unwrap_or(0)
+        };
+        let waku_file: &str = if name_waku {
+            &m.name_waku_file
+        } else {
+            &m.waku_file
+        };
+        let filter_file: &str = if name_waku {
+            &m.name_filter_file
+        } else {
+            &m.filter_file
+        };
         let margin = if name_waku {
-            (0, 0, 0, 0)
+            m.name_filter_margin.unwrap_or((0, 0, 0, 0))
         } else {
             m.filter_margin.unwrap_or((0, 0, 0, 0))
         };
-        for value in [margin.0, margin.1, margin.2, margin.3] {
-            w.push_i32(Self::save_i32(value));
-        }
         let (a, r, g, b) = if name_waku {
-            (0, 0, 0, 0)
+            m.name_filter_color.unwrap_or((0, 0, 0, 0))
         } else {
             m.filter_color.unwrap_or((0, 0, 0, 0))
         };
+        let filter_config_color = if name_waku {
+            m.name_filter_config_color
+        } else {
+            m.filter_config_color
+        };
+        let filter_config_tr = if name_waku {
+            m.name_filter_config_tr
+        } else {
+            m.filter_config_tr
+        };
+        w.push_i32(Self::save_i32(template_no));
+        w.push_str(waku_file);
+        w.push_str(filter_file);
+        for value in [margin.0, margin.1, margin.2, margin.3] {
+            w.push_i32(Self::save_i32(value));
+        }
         w.push_raw(&[b, g, r, a]);
-        w.push_bool(!name_waku && m.filter_config_color);
-        w.push_bool(!name_waku && m.filter_config_tr);
+        w.push_bool(filter_config_color);
+        w.push_bool(filter_config_tr);
         // MSVC rounds STATE (22 bytes) up to four-byte alignment.
         w.push_padding(2);
-        w.push_i32(Self::save_i32(m.msg_waku_no.unwrap_or(0)));
+        w.push_i32(Self::save_i32(template_no));
         w.push_i32(Self::save_i32(if name_waku { 0 } else { m.key_icon_mode }));
         let icon_pos = if name_waku { None } else { m.key_icon_pos };
         w.push_i32(Self::save_i32(icon_pos.map(|p| p.0).unwrap_or(0)));
@@ -10223,7 +10249,17 @@ impl<'a> SceneVm<'a> {
         let key_y = rd.i32()? as i64;
         let faces = rd.fixed_items(Self::read_cpp_object)?;
         let objects = rd.fixed_items(Self::read_cpp_object)?;
-        if !name_waku {
+        if name_waku {
+            // The name record is stored even when NAME_WAKU_NO is -1; keep the
+            // engine's "no frame" sentinel instead of turning it into frame 0.
+            m.name_waku_no = (template_no >= 0).then_some(template_no);
+            m.name_waku_file = waku_file;
+            m.name_filter_file = filter_file;
+            m.name_filter_margin = Some(margin);
+            m.name_filter_color = Some((color[3], color[2], color[1], color[0]));
+            m.name_filter_config_color = filter_config_color;
+            m.name_filter_config_tr = filter_config_tr;
+        } else {
             m.msg_waku_no = Some(template_no);
             m.waku_file = waku_file;
             m.filter_file = filter_file;
@@ -16107,6 +16143,59 @@ mod command_dispatch_tests {
         let cell = &vm.user_props[&prop_id];
         assert_eq!(cell.form, vm.cfg.fm_strlist);
         assert_eq!(cell.str_list, vec!["keep".to_string()]);
+    }
+
+    #[test]
+    fn name_waku_save_record_round_trips_independently_of_message_waku() {
+        let vm = test_vm();
+        let mut m = runtime::globals::MwndState::default();
+        m.msg_waku_no = Some(1);
+        m.waku_file = "msg_frame".to_string();
+        m.filter_file = "msg_filter".to_string();
+        m.filter_margin = Some((9, 9, 9, 9));
+        m.filter_color = Some((1, 2, 3, 4));
+        m.name_waku_no = Some(4);
+        m.name_waku_file = "name_frame".to_string();
+        m.name_filter_file = "name_filter".to_string();
+        m.name_filter_margin = Some((5, 6, 7, 8));
+        m.name_filter_color = Some((20, 30, 40, 50));
+        m.name_filter_config_color = true;
+        m.name_filter_config_tr = false;
+
+        let mut w = crate::original_save::OriginalStreamWriter::new();
+        vm.write_cpp_mwnd_waku(&mut w, &m, false);
+        vm.write_cpp_mwnd_waku(&mut w, &m, true);
+        let data = w.into_inner();
+        let mut rd = crate::original_save::OriginalStreamReader::new(&data);
+        let mut restored = runtime::globals::MwndState::default();
+        SceneVm::read_cpp_mwnd_waku(&mut rd, &mut restored, false).expect("read message waku");
+        SceneVm::read_cpp_mwnd_waku(&mut rd, &mut restored, true).expect("read name waku");
+
+        assert_eq!(restored.msg_waku_no, Some(1));
+        assert_eq!(restored.waku_file, "msg_frame");
+        assert_eq!(restored.filter_margin, Some((9, 9, 9, 9)));
+        assert_eq!(restored.filter_color, Some((1, 2, 3, 4)));
+        assert_eq!(restored.name_waku_no, Some(4));
+        assert_eq!(restored.name_waku_file, "name_frame");
+        assert_eq!(restored.name_filter_file, "name_filter");
+        assert_eq!(restored.name_filter_margin, Some((5, 6, 7, 8)));
+        assert_eq!(restored.name_filter_color, Some((20, 30, 40, 50)));
+        assert!(restored.name_filter_config_color);
+        assert!(!restored.name_filter_config_tr);
+    }
+
+    #[test]
+    fn absent_name_frame_keeps_the_negative_sentinel_across_saves() {
+        let vm = test_vm();
+        let m = runtime::globals::MwndState::default();
+        let mut w = crate::original_save::OriginalStreamWriter::new();
+        vm.write_cpp_mwnd_waku(&mut w, &m, true);
+        let data = w.into_inner();
+        let mut rd = crate::original_save::OriginalStreamReader::new(&data);
+        let mut restored = runtime::globals::MwndState::default();
+        SceneVm::read_cpp_mwnd_waku(&mut rd, &mut restored, true).expect("read name waku");
+        assert_eq!(restored.name_waku_no, None);
+        assert!(restored.name_waku_file.is_empty());
     }
 }
 #[cfg(test)]

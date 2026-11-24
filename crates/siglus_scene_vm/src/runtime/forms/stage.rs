@@ -3160,6 +3160,73 @@ mod mwnd_color_tests {
     }
 
     #[test]
+    fn name_waku_template_and_set_waku_populate_the_name_window_frame() {
+        let mut ctx = CommandContext::new(std::path::PathBuf::from("."));
+        ctx.tables.mwnd_templates = vec![MwndTemplate {
+            name_waku_no: 0,
+            ..Default::default()
+        }];
+        ctx.tables.waku_templates = vec![
+            crate::runtime::tables::WakuTemplate {
+                waku_file: "msg_frame".to_string(),
+                filter_file: "msg_filter".to_string(),
+                ..Default::default()
+            },
+            crate::runtime::tables::WakuTemplate {
+                waku_file: "name_frame".to_string(),
+                filter_file: "name_filter".to_string(),
+                filter_margin: (1, 2, 3, 4),
+                filter_color: (10, 20, 30, 40),
+                filter_config_color: false,
+                filter_config_tr: true,
+                ..Default::default()
+            },
+        ];
+
+        let mut stage = StageFormState::default();
+        ensure_mwnd(&mut ctx, &mut stage, 0, 0);
+        let m = &stage.mwnd_lists[&0][0];
+        assert_eq!(m.msg_waku_no, Some(0));
+        assert_eq!(m.waku_file, "msg_frame");
+        assert_eq!(m.name_waku_no, Some(0));
+        assert_eq!(m.name_waku_file, "msg_frame");
+        assert_eq!(m.name_filter_file, "msg_filter");
+
+        // set_waku(msg, name) switches both frames independently.
+        apply_mwnd_waku_from_gameexe(&mut ctx, &mut stage, 0, 0, Some(0));
+        apply_mwnd_name_waku_from_gameexe(&ctx, &mut stage, 0, 0, Some(1));
+        let m = &stage.mwnd_lists[&0][0];
+        assert_eq!(m.msg_waku_no, Some(0));
+        assert_eq!(m.name_waku_no, Some(1));
+        assert_eq!(m.name_waku_file, "name_frame");
+        assert_eq!(m.name_filter_file, "name_filter");
+        assert_eq!(m.name_filter_margin, Some((1, 2, 3, 4)));
+        assert_eq!(m.name_filter_color, Some((10, 20, 30, 40)));
+        assert!(!m.name_filter_config_color);
+        assert!(m.name_filter_config_tr);
+
+        // -1 explicitly removes the name frame (the manual's "no frame").
+        apply_mwnd_name_waku_from_gameexe(&ctx, &mut stage, 0, 0, Some(-1));
+        let m = &stage.mwnd_lists[&0][0];
+        assert_eq!(m.name_waku_no, None);
+        assert!(m.name_waku_file.is_empty());
+    }
+
+    #[test]
+    fn name_waku_without_a_template_clears_the_frame() {
+        let mut ctx = CommandContext::new(std::path::PathBuf::from("."));
+        ctx.tables.mwnd_templates = vec![MwndTemplate::default()];
+        let mut stage = StageFormState::default();
+        ensure_mwnd(&mut ctx, &mut stage, 0, 0);
+        assert_eq!(stage.mwnd_lists[&0][0].name_waku_no, None);
+
+        apply_mwnd_name_waku_from_gameexe(&ctx, &mut stage, 0, 0, Some(7));
+        let m = &stage.mwnd_lists[&0][0];
+        assert_eq!(m.name_waku_no, None);
+        assert!(m.name_waku_file.is_empty());
+    }
+
+    #[test]
     fn message_colors_preserve_window_and_inline_overrides() {
         let mut ctx = CommandContext::new(std::path::PathBuf::from("."));
         ctx.tables.mwnd_templates = vec![MwndTemplate {
@@ -3203,7 +3270,7 @@ fn ensure_mwnd(ctx: &mut CommandContext, st: &mut StageFormState, stage_idx: i64
         return;
     }
 
-    let fallback_waku_no = if let Some(t) = ctx.tables.mwnd_templates.get(mwnd_idx).cloned() {
+    let fallback_waku_nos = if let Some(t) = ctx.tables.mwnd_templates.get(mwnd_idx).cloned() {
         if let Some(list) = st.mwnd_lists.get_mut(&stage_idx)
             && let Some(m) = list.get_mut(mwnd_idx)
         {
@@ -3289,13 +3356,14 @@ fn ensure_mwnd(ctx: &mut CommandContext, st: &mut StageFormState, stage_idx: i64
             m.close_anime_type = t.close_anime_type;
             m.close_anime_time = t.close_anime_time;
         }
-        Some(t.waku_no)
+        Some((t.waku_no, t.name_waku_no))
     } else {
         None
     };
 
-    if let Some(waku_no) = fallback_waku_no {
+    if let Some((waku_no, name_waku_no)) = fallback_waku_nos {
         apply_mwnd_waku_from_gameexe(ctx, st, stage_idx, mwnd_idx, Some(waku_no));
+        apply_mwnd_name_waku_from_gameexe(ctx, st, stage_idx, mwnd_idx, Some(name_waku_no));
     }
 
     if let Some(list) = st.mwnd_lists.get_mut(&stage_idx)
@@ -3338,6 +3406,30 @@ fn apply_mwnd_waku_template_fields(
         .map(|b| (b.pos_base, b.pos.0, b.pos.1))
         .collect();
     m.waku_face_pos = waku.face_pos.clone();
+}
+
+fn apply_mwnd_name_waku_template_fields(
+    m: &mut crate::runtime::globals::MwndState,
+    waku_no: i64,
+    waku: &crate::runtime::tables::WakuTemplate,
+) {
+    m.name_waku_no = Some(waku_no);
+    m.name_waku_file = waku.waku_file.clone();
+    m.name_filter_file = waku.filter_file.clone();
+    m.name_filter_margin = Some(waku.filter_margin);
+    m.name_filter_color = Some(waku.filter_color);
+    m.name_filter_config_color = waku.filter_config_color;
+    m.name_filter_config_tr = waku.filter_config_tr;
+}
+
+fn clear_mwnd_name_waku_template_fields(m: &mut crate::runtime::globals::MwndState) {
+    m.name_waku_no = None;
+    m.name_waku_file.clear();
+    m.name_filter_file.clear();
+    m.name_filter_margin = None;
+    m.name_filter_color = None;
+    m.name_filter_config_color = false;
+    m.name_filter_config_tr = false;
 }
 
 fn clear_mwnd_waku_template_fields(m: &mut crate::runtime::globals::MwndState) {
@@ -3618,6 +3710,9 @@ fn apply_mwnd_waku_from_gameexe(
         .get(mwnd_idx)
         .map(|t| t.waku_no)
         .unwrap_or(-1);
+    // Keep the existing message-window semantics: a missing or negative
+    // argument falls back to the Gameexe frame. Only the name argument treats
+    // an explicit -1 as "no name frame".
     let waku_no = requested_waku_no.unwrap_or(fallback);
     let waku_no = if waku_no < 0 { fallback } else { waku_no };
     let Some(waku) = (waku_no >= 0)
@@ -3671,6 +3766,40 @@ fn apply_mwnd_waku_from_gameexe(
         && let Some(m) = list.get_mut(mwnd_idx)
     {
         m.button_list = button_list;
+    }
+}
+
+fn apply_mwnd_name_waku_from_gameexe(
+    ctx: &CommandContext,
+    st: &mut StageFormState,
+    stage_idx: i64,
+    mwnd_idx: usize,
+    requested_waku_no: Option<i64>,
+) {
+    let fallback = ctx
+        .tables
+        .mwnd_templates
+        .get(mwnd_idx)
+        .map(|t| t.name_waku_no)
+        .unwrap_or(-1);
+    let waku_no = requested_waku_no.unwrap_or(fallback);
+    let Some(waku) = (waku_no >= 0)
+        .then_some(waku_no as usize)
+        .and_then(|idx| ctx.tables.waku_templates.get(idx))
+        .cloned()
+    else {
+        if let Some(list) = st.mwnd_lists.get_mut(&stage_idx)
+            && let Some(m) = list.get_mut(mwnd_idx)
+        {
+            clear_mwnd_name_waku_template_fields(m);
+        }
+        return;
+    };
+
+    if let Some(list) = st.mwnd_lists.get_mut(&stage_idx)
+        && let Some(m) = list.get_mut(mwnd_idx)
+    {
+        apply_mwnd_name_waku_template_fields(m, waku_no, &waku);
     }
 }
 
@@ -14980,7 +15109,9 @@ fn dispatch_mwnd_item_op(
     match k {
         MwndOpKind::SetWaku => {
             let requested = script_args.first().and_then(Value::as_i64);
+            let requested_name = script_args.get(1).and_then(Value::as_i64);
             apply_mwnd_waku_from_gameexe(ctx, st, stage_idx, mwnd_idx, requested);
+            apply_mwnd_name_waku_from_gameexe(ctx, st, stage_idx, mwnd_idx, requested_name);
             push_ok(ctx, ret_form);
             return true;
         }

@@ -7587,6 +7587,15 @@ impl CommandContext {
                         filter_color: m.filter_color,
                         filter_config_color: m.filter_config_color,
                         filter_config_tr: m.filter_config_tr,
+                        name_bg_file: (!m.name_waku_file.is_empty())
+                            .then(|| m.name_waku_file.clone()),
+                        name_filter_file: (!m.name_filter_file.is_empty())
+                            .then(|| m.name_filter_file.clone()),
+                        name_filter_margin: m.name_filter_margin,
+                        name_filter_color: m.name_filter_color,
+                        name_filter_config_color: m.name_filter_config_color,
+                        name_filter_config_tr: m.name_filter_config_tr,
+                        name_waku_no: m.name_waku_no,
                         face_file: (!m.face_file.is_empty()).then(|| m.face_file.clone()),
                         face_no: m.face_no,
                         rep_pos: m.rep_pos,
@@ -15042,6 +15051,9 @@ fn normalize_mwnd_ui_sprite_sorter(
         1_000_012 | 1_000_013 | 1_000_022 => {
             mwnd_layer.saturating_add(ctx.tables.mwnd_render.moji_layer_rep)
         }
+        // The name-window backing filter precedes the main name frame, both at
+        // the textbox waku layer so the name waku draws above the textbox waku.
+        1_000_018 | 1_000_017 => mwnd_layer.saturating_add(ctx.tables.mwnd_render.waku_layer_rep),
         _ => return unpack_legacy_sorter_key(order),
     };
     (
@@ -17302,6 +17314,37 @@ mod msg_back_voice_tests {
             ..Default::default()
         }];
         ctx
+    }
+
+    #[test]
+    fn mwnd_projection_forwards_the_name_waku_record() {
+        let mut ctx = CommandContext::new(std::env::temp_dir().join("siglus-mwnd-name-waku"));
+        let form = ctx.ids.form_global_stage;
+        let mut m = globals::MwndState::default();
+        m.initialized_from_gameexe = true;
+        m.open = true;
+        m.name_text = "Name".to_string();
+        m.name_waku_no = Some(3);
+        m.name_waku_file = "name_frame".to_string();
+        m.name_filter_file = "name_filter".to_string();
+        m.name_filter_margin = Some((1, 2, 3, 4));
+        m.name_filter_color = Some((10, 20, 30, 40));
+        m.name_filter_config_color = true;
+        m.name_filter_config_tr = false;
+        let stage = ctx.globals.stage_forms.entry(form).or_default();
+        stage.mwnd_lists.insert(0, vec![m]);
+        ctx.sync_mwnd_window_ui();
+
+        assert!(ctx.ui.mwnd.name.waku_active);
+        assert_eq!(ctx.ui.mwnd.name.waku.bg_file.as_deref(), Some("name_frame"));
+        assert_eq!(
+            ctx.ui.mwnd.name.waku.filter_file.as_deref(),
+            Some("name_filter")
+        );
+        assert_eq!(ctx.ui.mwnd.name.waku.filter_margin, (1, 2, 3, 4));
+        assert_eq!(ctx.ui.mwnd.name.waku.filter_color, (10, 20, 30, 40));
+        assert!(ctx.ui.mwnd.name.waku.filter_config_color);
+        assert!(!ctx.ui.mwnd.name.waku.filter_config_tr);
     }
 
     #[test]

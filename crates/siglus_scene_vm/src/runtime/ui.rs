@@ -97,6 +97,10 @@ pub struct MwndGlyphLayerRuntime {
 
 #[derive(Debug, Default)]
 pub struct MwndNameRuntime {
+    /// NAME_WAKU_NO background/filter behind the speaker name.
+    pub waku: MwndWakuRuntime,
+    /// Whether NAME_WAKU_NO currently resolves to a valid WAKU template.
+    pub waku_active: bool,
     /// Legacy whole-line sprites retained only for save states or fallback
     /// projections that do not carry the original per-character records.
     pub shadow_sprite: Option<SpriteId>,
@@ -448,6 +452,13 @@ pub struct MwndProjectionState {
     pub filter_color: Option<(u8, u8, u8, u8)>,
     pub filter_config_color: bool,
     pub filter_config_tr: bool,
+    pub name_bg_file: Option<String>,
+    pub name_filter_file: Option<String>,
+    pub name_filter_margin: Option<(i64, i64, i64, i64)>,
+    pub name_filter_color: Option<(u8, u8, u8, u8)>,
+    pub name_filter_config_color: bool,
+    pub name_filter_config_tr: bool,
+    pub name_waku_no: Option<i64>,
     pub face_file: Option<String>,
     pub face_no: i64,
     pub rep_pos: Option<(i64, i64)>,
@@ -671,6 +682,42 @@ impl UiRuntime {
             .expect("ui_layer exists")
             .create_sprite();
         self.mwnd.waku.filter_sprite = Some(sprite_id);
+        sprite_id
+    }
+
+    fn ensure_name_bg_sprite(
+        &mut self,
+        layers: &mut crate::layer::LayerManager,
+        ui_layer: LayerId,
+    ) -> SpriteId {
+        if let Some(id) = self.mwnd.name.waku.bg_sprite
+            && layers.layer(ui_layer).and_then(|l| l.sprite(id)).is_some()
+        {
+            return id;
+        }
+        let sprite_id = layers
+            .layer_mut(ui_layer)
+            .expect("ui_layer exists")
+            .create_sprite();
+        self.mwnd.name.waku.bg_sprite = Some(sprite_id);
+        sprite_id
+    }
+
+    fn ensure_name_filter_sprite(
+        &mut self,
+        layers: &mut crate::layer::LayerManager,
+        ui_layer: LayerId,
+    ) -> SpriteId {
+        if let Some(id) = self.mwnd.name.waku.filter_sprite
+            && layers.layer(ui_layer).and_then(|l| l.sprite(id)).is_some()
+        {
+            return id;
+        }
+        let sprite_id = layers
+            .layer_mut(ui_layer)
+            .expect("ui_layer exists")
+            .create_sprite();
+        self.mwnd.name.waku.filter_sprite = Some(sprite_id);
         sprite_id
     }
 
@@ -1530,6 +1577,8 @@ impl UiRuntime {
         let ui_layer = Self::ensure_layer(layers, &mut self.mwnd.layer);
         let bg_sprite = self.ensure_msg_bg_sprite(layers, ui_layer);
         let filter_sprite = self.ensure_msg_filter_sprite(layers, ui_layer);
+        let name_filter_sprite = self.ensure_name_filter_sprite(layers, ui_layer);
+        let name_bg_sprite = self.ensure_name_bg_sprite(layers, ui_layer);
         let face_sprite = self.ensure_msg_face_sprite(layers, ui_layer);
         let key_icon_sprite = self.ensure_key_icon_sprite(layers, ui_layer);
         let msg_shadow_sprite =
@@ -1737,7 +1786,39 @@ impl UiRuntime {
             }
         }
 
-        let ((_, _, nw, nh), (nx, ny)) = self.name_layout(w, h);
+        let ((nwx, nwy, nw, nh), (nx, ny)) = self.name_layout(w, h);
+        if let Some(s) = layers
+            .layer_mut(ui_layer)
+            .and_then(|l| l.sprite_mut(name_bg_sprite))
+        {
+            s.size_mode = if self.mwnd.name.waku.bg_image.is_some() {
+                SpriteSizeMode::Intrinsic
+            } else {
+                SpriteSizeMode::Explicit {
+                    width: nw.max(1),
+                    height: nh.max(1),
+                }
+            };
+            let (cx, cy) = self.mwnd.name.waku.bg_center;
+            apply_anim(s, nwx - cx, nwy - cy, 1_000_018);
+        }
+        if let Some(s) = layers
+            .layer_mut(ui_layer)
+            .and_then(|l| l.sprite_mut(name_filter_sprite))
+        {
+            let (ml, mt, mr, mb) = self.mwnd.name.waku.filter_margin;
+            let (cx, cy) = self.mwnd.name.waku.filter_center;
+            let fx = nwx.saturating_add(ml as i32).saturating_sub(cx);
+            let fy = nwy.saturating_add(mt as i32).saturating_sub(cy);
+            if self.mwnd.name.waku.filter_image.is_some() {
+                s.size_mode = SpriteSizeMode::Intrinsic;
+            } else {
+                let width = (nw as i64 - ml - mr).max(1) as u32;
+                let height = (nh as i64 - mt - mb).max(1) as u32;
+                s.size_mode = SpriteSizeMode::Explicit { width, height };
+            }
+            apply_anim(s, fx, fy, 1_000_017);
+        }
         for (sprite_id, image, order) in [
             (
                 name_shadow_sprite,
@@ -2131,6 +2212,84 @@ impl UiRuntime {
                 }
             }
         }
+        let name_visible = name_has_glyph_sprites
+            || self
+                .mwnd
+                .name
+                .text
+                .as_deref()
+                .is_some_and(|text| !text.is_empty());
+        let name_waku_active = self.mwnd.name.waku_active && name_visible;
+        if let Some(sprite_id) = self.mwnd.name.waku.bg_sprite
+            && let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(sprite_id))
+        {
+            s.visible = mwnd_visible && name_waku_active && self.mwnd.name.waku.bg_image.is_some();
+            s.image_id = self.mwnd.name.waku.bg_image.clone();
+            s.alpha = anim_alpha;
+        }
+        if let Some(sprite_id) = self.mwnd.name.waku.filter_sprite {
+            let image_id = self.mwnd.name.waku.filter_image.clone().or(self
+                .mwnd
+                .name
+                .waku
+                .solid_filter_image
+                .clone());
+            let has_filter_texture = self.mwnd.name.waku.filter_image.is_some();
+            let (_, _, _, filter_a) = self.mwnd.name.waku.filter_color;
+            let filter_config_tr = self.mwnd.name.waku.filter_config_tr;
+            let filter_config_color = self.mwnd.name.waku.filter_config_color;
+            if let Some(s) = layers
+                .layer_mut(ui_layer)
+                .and_then(|l| l.sprite_mut(sprite_id))
+            {
+                s.visible = mwnd_visible && name_waku_active && image_id.is_some();
+                s.image_id = image_id;
+                const GET_FILTER_COLOR_R: i32 = 84;
+                const GET_FILTER_COLOR_G: i32 = 91;
+                const GET_FILTER_COLOR_B: i32 = 92;
+                const GET_FILTER_COLOR_A: i32 = 93;
+                let cfg = &syscom.config_int;
+                s.alpha = anim_alpha;
+                s.tr = if filter_config_tr {
+                    cfg.get(&GET_FILTER_COLOR_A)
+                        .copied()
+                        .unwrap_or(128)
+                        .clamp(0, 255) as u8
+                } else if has_filter_texture {
+                    255
+                } else {
+                    filter_a
+                };
+                s.color_rate = 0;
+                s.color_r = 255;
+                s.color_g = 255;
+                s.color_b = 255;
+                s.mask_mode = 0;
+                if filter_config_color {
+                    s.color_add_r = cfg
+                        .get(&GET_FILTER_COLOR_R)
+                        .copied()
+                        .unwrap_or(0)
+                        .clamp(0, 255) as u8;
+                    s.color_add_g = cfg
+                        .get(&GET_FILTER_COLOR_G)
+                        .copied()
+                        .unwrap_or(0)
+                        .clamp(0, 255) as u8;
+                    s.color_add_b = cfg
+                        .get(&GET_FILTER_COLOR_B)
+                        .copied()
+                        .unwrap_or(0)
+                        .clamp(0, 255) as u8;
+                } else {
+                    s.color_add_r = 0;
+                    s.color_add_g = 0;
+                    s.color_add_b = 0;
+                }
+            }
+        }
         if let Some(sprite_id) = self.mwnd.key_icon.sprite
             && let Some(s) = layers
                 .layer_mut(ui_layer)
@@ -2326,6 +2485,9 @@ impl UiRuntime {
                 1_000_010 | 1_000_020 => shadow_rep,
                 1_000_011 | 1_000_021 => fuchi_rep,
                 1_000_012 | 1_000_013 | 1_000_022 => moji_rep,
+                // The NAME_WAKU_NO backing filter draws before the main name
+                // frame, matching the textbox waku pair.
+                1_000_018 | 1_000_017 => waku_rep,
                 _ => return None,
             };
             Some((
@@ -2532,6 +2694,37 @@ impl UiRuntime {
         self.mwnd.waku.filter_config_color = proj.filter_config_color;
         self.mwnd.waku.filter_config_tr = proj.filter_config_tr;
 
+        self.mwnd.name.waku_active = proj.name_waku_no.is_some_and(|no| no >= 0);
+        let name_bg_file = proj
+            .name_bg_file
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if self.mwnd.name.waku.bg_file != name_bg_file {
+            self.mwnd.name.waku.bg_file = name_bg_file;
+            self.mwnd.name.waku.bg_image = None;
+            self.mwnd.name.waku.bg_size = None;
+        }
+        let name_filter_file = proj
+            .name_filter_file
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        if self.mwnd.name.waku.filter_file != name_filter_file {
+            self.mwnd.name.waku.filter_file = name_filter_file;
+            self.mwnd.name.waku.filter_image = None;
+            self.mwnd.name.waku.filter_size = None;
+            self.mwnd.name.waku.solid_filter_image = None;
+        }
+        self.mwnd.name.waku.filter_margin = proj.name_filter_margin.unwrap_or((0, 0, 0, 0));
+        let next_name_filter_color = proj.name_filter_color.unwrap_or((0, 0, 255, 128));
+        if self.mwnd.name.waku.filter_color != next_name_filter_color {
+            self.mwnd.name.waku.solid_filter_image = None;
+        }
+        self.mwnd.name.waku.filter_color = next_name_filter_color;
+        self.mwnd.name.waku.filter_config_color = proj.name_filter_config_color;
+        self.mwnd.name.waku.filter_config_tr = proj.name_filter_config_tr;
+
         if self.mwnd.key_icon.key_file != proj.key_icon_file
             || self.mwnd.key_icon.page_file != proj.page_icon_file
         {
@@ -2725,6 +2918,18 @@ impl UiRuntime {
         self.mwnd.waku.filter_color = (0, 0, 255, 128);
         self.mwnd.waku.filter_config_color = true;
         self.mwnd.waku.filter_config_tr = true;
+        self.mwnd.name.waku_active = false;
+        self.mwnd.name.waku.bg_file = None;
+        self.mwnd.name.waku.filter_file = None;
+        self.mwnd.name.waku.bg_image = None;
+        self.mwnd.name.waku.filter_image = None;
+        self.mwnd.name.waku.solid_filter_image = None;
+        self.mwnd.name.waku.bg_size = None;
+        self.mwnd.name.waku.filter_size = None;
+        self.mwnd.name.waku.filter_margin = (0, 0, 0, 0);
+        self.mwnd.name.waku.filter_color = (0, 0, 255, 128);
+        self.mwnd.name.waku.filter_config_color = true;
+        self.mwnd.name.waku.filter_config_tr = true;
         self.mwnd.key_icon = MwndKeyIconRuntime::default();
         self.mwnd.face.file = None;
         self.mwnd.face.no = 0;
@@ -3130,6 +3335,71 @@ impl UiRuntime {
             .unwrap_or_default();
         self.mwnd.waku.filter_center = self
             .mwnd
+            .waku
+            .filter_image
+            .as_ref()
+            .and_then(|id| images.get(id))
+            .map(|img| (img.center_x, img.center_y))
+            .unwrap_or_default();
+
+        if self.mwnd.name.waku.bg_image.is_none()
+            && let Some(raw) = self.mwnd.name.waku.bg_file.as_deref()
+            && !raw.is_empty()
+        {
+            let path = project_dir.join(raw);
+            if let Ok(id) = images.load_file(Path::new(raw), 0) {
+                self.mwnd.name.waku.bg_image = Some(id);
+            } else if let Ok(id) = images.load_file(&path, 0) {
+                self.mwnd.name.waku.bg_image = Some(id);
+            } else if let Ok(id) = images.load_g00(raw, 0) {
+                self.mwnd.name.waku.bg_image = Some(id);
+            } else if let Ok(id) = images.load_bg(raw) {
+                self.mwnd.name.waku.bg_image = Some(id);
+            }
+            if let Some(ref id) = self.mwnd.name.waku.bg_image
+                && let Some(img) = images.get(id)
+            {
+                self.mwnd.name.waku.bg_size = Some((img.width, img.height));
+            }
+        }
+        if self.mwnd.name.waku.filter_image.is_none()
+            && let Some(raw) = self.mwnd.name.waku.filter_file.as_deref()
+            && !raw.is_empty()
+        {
+            let path = project_dir.join(raw);
+            if let Ok(id) = images.load_file(Path::new(raw), 0) {
+                self.mwnd.name.waku.filter_image = Some(id);
+            } else if let Ok(id) = images.load_file(&path, 0) {
+                self.mwnd.name.waku.filter_image = Some(id);
+            } else if let Ok(id) = images.load_g00(raw, 0) {
+                self.mwnd.name.waku.filter_image = Some(id);
+            } else if let Ok(id) = images.load_bg(raw) {
+                self.mwnd.name.waku.filter_image = Some(id);
+            }
+            if let Some(ref id) = self.mwnd.name.waku.filter_image
+                && let Some(img) = images.get(id)
+            {
+                self.mwnd.name.waku.filter_size = Some((img.width, img.height));
+            }
+        }
+        if self.mwnd.name.waku.filter_image.is_none()
+            && self.mwnd.name.waku.solid_filter_image.is_none()
+        {
+            let (r, g, b, _a) = self.mwnd.name.waku.filter_color;
+            self.mwnd.name.waku.solid_filter_image = Some(images.solid_rgba((r, g, b, 255)));
+        }
+        self.mwnd.name.waku.bg_center = self
+            .mwnd
+            .name
+            .waku
+            .bg_image
+            .as_ref()
+            .and_then(|id| images.get(id))
+            .map(|img| (img.center_x, img.center_y))
+            .unwrap_or_default();
+        self.mwnd.name.waku.filter_center = self
+            .mwnd
+            .name
             .waku
             .filter_image
             .as_ref()
@@ -4618,6 +4888,63 @@ mod projection_dirty_tests {
             SpriteSizeMode::Explicit {
                 width: 1270,
                 height: 308,
+            }
+        ));
+    }
+
+    #[test]
+    fn name_waku_uses_the_name_window_rect_and_filter_margins() {
+        let mut ui = UiRuntime::default();
+        let mut images = crate::image_manager::ImageManager::new(PathBuf::from("."));
+        let mut layers = crate::layer::LayerManager::new();
+        ui.apply_mwnd_projection(&MwndProjectionState {
+            window_pos: Some((0, 640)),
+            window_size: Some((1280, 320)),
+            name_waku_no: Some(0),
+            name_window_pos: (10, -50),
+            name_window_rect: (0, 0, 300, 100),
+            name_filter_margin: Some((0, 0, 0, 0)),
+            ..Default::default()
+        });
+        let image = images.insert_image(crate::assets::RgbaImage {
+            width: 300,
+            height: 100,
+            center_x: -10,
+            center_y: -20,
+            rgba: vec![255; 300 * 100 * 4],
+        });
+        ui.mwnd.name.waku.bg_image = Some(image.clone());
+        ui.mwnd.name.waku.filter_image = Some(image);
+        ui.refresh_waku_images(&mut images, Path::new("."));
+        ui.sync_layout(&mut layers, 1280, 960);
+
+        let layer = layers.layer(ui.mwnd.layer.unwrap()).unwrap();
+        let bg = layer.sprite(ui.mwnd.name.waku.bg_sprite.unwrap()).unwrap();
+        assert_eq!((bg.x, bg.y), (20, 610));
+        assert!(matches!(bg.size_mode, SpriteSizeMode::Intrinsic));
+        let filter = layer
+            .sprite(ui.mwnd.name.waku.filter_sprite.unwrap())
+            .unwrap();
+        assert_eq!((filter.x, filter.y), (20, 610));
+
+        // Without a filter texture the solid filter is inset by the record's
+        // FILTER_MARGIN inside the name window rect.
+        ui.mwnd.name.waku.filter_image = None;
+        ui.mwnd.name.waku.solid_filter_image = None;
+        ui.mwnd.name.waku.filter_margin = (4, 5, 6, 7);
+        ui.refresh_waku_images(&mut images, Path::new("."));
+        ui.sync_layout(&mut layers, 1280, 960);
+        let filter = layers
+            .layer(ui.mwnd.layer.unwrap())
+            .unwrap()
+            .sprite(ui.mwnd.name.waku.filter_sprite.unwrap())
+            .unwrap();
+        assert_eq!((filter.x, filter.y), (14, 595));
+        assert!(matches!(
+            filter.size_mode,
+            SpriteSizeMode::Explicit {
+                width: 290,
+                height: 88,
             }
         ));
     }
