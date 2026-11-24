@@ -4520,7 +4520,12 @@ impl UiRuntime {
                 }
                 s.x = projection.window_x + entry.x;
                 s.y = projection.window_y + entry.y;
-                s.order = msg_back_packed_sorter_key(projection.order, 0);
+                // C_elm_msg_back::frame gives the message container layer 0 and
+                // C_elm_mwnd_msg::add_msg_sub offsets each glyph by
+                // MWND.MOJI_LAYER_REP, so the final sorter is (order,
+                // moji_layer_rep).  Drawing at layer 0 would put the text
+                // underneath the background/filter sprites and tint its colour.
+                s.order = msg_back_packed_sorter_key(projection.order, projection.moji_layer_rep);
                 s.alpha = 255;
                 s.tr = 255;
                 s.alpha_test = false;
@@ -4972,5 +4977,85 @@ mod projection_dirty_tests {
         ui.apply_mwnd_projection(&projection);
         assert!(ui.mwnd.msg.text_dirty);
         assert!(ui.mwnd.name.text_dirty);
+    }
+
+    #[test]
+    fn backlog_text_is_sorted_above_background_and_filter() {
+        let mut ui = UiRuntime::default();
+        let mut images = crate::image_manager::ImageManager::new(PathBuf::from("."));
+        let mut layers = crate::layer::LayerManager::new();
+        ui.set_msg_back_projection(Some(MsgBackUiProjection {
+            window_x: 0,
+            window_y: 0,
+            window_w: 1280,
+            window_h: 720,
+            disp_margin: (0, 0, 0, 0),
+            msg_pos: 100,
+            moji_size: 24,
+            moji_space: Some((0, 10)),
+            order: 10000,
+            // Typical Siglus values: filter 0, frame 10, text 50.
+            filter_layer_rep: 0,
+            waku_layer_rep: 10,
+            moji_layer_rep: 50,
+            waku_file: None,
+            filter_file: None,
+            filter_margin: (0, 0, 0, 0),
+            filter_rgba: (0, 0, 0, 0),
+            filter_config_rgba: (0, 0, 0, 0),
+            text_entries: vec![MsgBackTextProjection {
+                history_index: 0,
+                text: "backlog".to_string(),
+                x: 100,
+                y: 0,
+                width: 400,
+                height: 400,
+                style: TextStyle::default(),
+            }],
+            separators: Vec::new(),
+            koe_buttons: Vec::new(),
+            load_buttons: Vec::new(),
+            close_btn_file: None,
+            close_btn_pos: (0, 0),
+            msg_up_btn_file: None,
+            msg_up_btn_pos: (0, 0),
+            msg_down_btn_file: None,
+            msg_down_btn_pos: (0, 0),
+            slider_file: None,
+            slider_rect: (0, 0, 0, 0),
+            slider_pos: (0, 0),
+            ex_btn_files: [None, None, None, None],
+            ex_btn_pos: [(0, 0); 4],
+        }));
+        ui.sync_msg_back_ui(&mut layers, &mut images, Path::new("."));
+
+        let layer = layers.layer(ui.mwnd.layer.unwrap()).unwrap();
+        let waku_order = layer
+            .sprite(ui.msg_back.waku_sprite.unwrap())
+            .unwrap()
+            .order;
+        let filter_order = layer
+            .sprite(ui.msg_back.filter_sprite.unwrap())
+            .unwrap()
+            .order;
+        let text_order = layer
+            .sprite(
+                ui.msg_back.text_entries[0]
+                    .sprite
+                    .expect("backlog text sprite"),
+            )
+            .unwrap()
+            .order;
+
+        // C_elm_msg_back renders glyphs at (MSGBK.ORDER, MWND.MOJI_LAYER_REP).
+        assert_eq!(text_order, msg_back_packed_sorter_key(10000, 50));
+        assert!(
+            text_order > waku_order,
+            "backlog text must draw over MSGBK.BACK_FILE"
+        );
+        assert!(
+            text_order > filter_order,
+            "backlog text must draw over the filter"
+        );
     }
 }
