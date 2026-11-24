@@ -6340,10 +6340,25 @@ impl CommandContext {
         let (font_shadow, font_fuchi) =
             crate::text_render::font_shadow_mode_flags(font_shadow_mode);
         let font_bold = self.effective_font_bold();
+        // C_elm_msg_back renders history with its own default text style.  The
+        // classic engine seeds that style from MWND.MOJI_* (its MSGBK.MOJI_*
+        // keys were parsed but unused), while newer builds read
+        // MSGBK.MOJI_*.  Prefer an explicit MSGBK value and fall back to the
+        // MWND style so both engine generations render like the original.
+        // Active/debug rows are temporary overrides using the engine defaults
+        // (colour table 7 / 5 with a colour-table-0 edge) when unconfigured.
         let base_style = TextStyle {
-            color: self.gameexe_color(self.tables.mwnd_render.moji_color),
-            shadow_color: self.gameexe_color(self.tables.mwnd_render.shadow_color),
-            fuchi_color: self.gameexe_color(self.tables.mwnd_render.fuchi_color),
+            color: self.gameexe_color(
+                self.gameexe_i64_default("MSGBK.MOJI_COLOR", self.tables.mwnd_render.moji_color),
+            ),
+            shadow_color: self.gameexe_color(self.gameexe_i64_default(
+                "MSGBK.MOJI_SHADOW_COLOR",
+                self.tables.mwnd_render.shadow_color,
+            )),
+            fuchi_color: self.gameexe_color(self.gameexe_i64_default(
+                "MSGBK.MOJI_FUCHI_COLOR",
+                self.tables.mwnd_render.fuchi_color,
+            )),
             shadow_mode: font_shadow_mode,
             shadow: font_shadow,
             fuchi: font_fuchi,
@@ -6360,6 +6375,8 @@ impl CommandContext {
             fuchi: font_fuchi,
             bold: font_bold,
         };
+        // The debug target is highlighted with colour table 5 by default; the
+        // edge colours follow DEBUG_MOJI_* and are normally black.
         let debug_style = TextStyle {
             color: self.gameexe_color(self.gameexe_i64_default("MSGBK.DEBUG_MOJI_COLOR", 5)),
             shadow_color: self
@@ -17302,6 +17319,129 @@ mod msg_back_voice_tests {
             ..Default::default()
         }];
         ctx
+    }
+
+    fn backlog_projection(
+        project: PathBuf,
+        gameexe: Option<&str>,
+        active_history_index: Option<isize>,
+    ) -> ui::MsgBackUiProjection {
+        let mut ctx = CommandContext::new(project);
+        if let Some(text) = gameexe {
+            ctx.tables.gameexe = Some(crate::formats::gameexe::GameexeConfig::from_text(text));
+        }
+        let mut history = globals::MsgBackState::default();
+        history.add_msg("Backlog colour", "", 0, 0);
+        ctx.globals
+            .msgbk_forms
+            .insert(ctx.ids.form_global_msgbk, history);
+        ctx.globals.syscom.msg_back_open = true;
+        ctx.globals.syscom.msg_back_mouse_target_no = active_history_index.unwrap_or(-1);
+        ctx.build_msg_back_projection().unwrap()
+    }
+
+    #[test]
+    fn backlog_text_style_falls_back_to_mwnd_colors() {
+        let mut ctx =
+            CommandContext::new(std::env::temp_dir().join("siglus-backlog-color-default"));
+        // Without explicit MSGBK.MOJI_* keys the classic engine seeds the
+        // history style from the message-window MWND colours.
+        ctx.tables.mwnd_render.moji_color = 2;
+        ctx.tables.mwnd_render.shadow_color = 3;
+        ctx.tables.mwnd_render.fuchi_color = 4;
+        let mut history = globals::MsgBackState::default();
+        history.add_msg("Backlog colour", "", 0, 0);
+        ctx.globals
+            .msgbk_forms
+            .insert(ctx.ids.form_global_msgbk, history);
+        ctx.globals.syscom.msg_back_open = true;
+        let projection = ctx.build_msg_back_projection().unwrap();
+
+        let style = projection.text_entries[0].style;
+        assert_eq!(style.color, (255, 0, 0), "MWND.MOJI_COLOR");
+        assert_eq!(style.shadow_color, (0, 255, 0), "MWND.SHADOW_COLOR");
+        assert_eq!(style.fuchi_color, (0, 0, 255), "MWND.FUCHI_COLOR");
+    }
+
+    #[test]
+    fn backlog_text_style_prefers_msgbk_colors() {
+        // Newer builds read the MSGBK.MOJI_* keys instead of MWND.*.
+        let projection = backlog_projection(
+            std::env::temp_dir().join("siglus-backlog-color-msgbk"),
+            Some("#MSGBK.MOJI_COLOR=4\n#MSGBK.MOJI_SHADOW_COLOR=3\n#MSGBK.MOJI_FUCHI_COLOR=2"),
+            None,
+        );
+        let style = projection.text_entries[0].style;
+        assert_eq!(style.color, (0, 0, 255));
+        assert_eq!(style.shadow_color, (0, 255, 0));
+        assert_eq!(style.fuchi_color, (255, 0, 0));
+    }
+
+    #[test]
+    fn backlog_active_style_uses_engine_defaults_and_can_be_overridden() {
+        // Without ACTIVE_* keys the hovered row uses the engine default
+        // colour-table entries (7 = cyan body, 0 = white edge colours).
+        let projection = backlog_projection(
+            std::env::temp_dir().join("siglus-backlog-color-active-base"),
+            Some("#MSGBK.MOJI_COLOR=4\n#MSGBK.MOJI_SHADOW_COLOR=3\n#MSGBK.MOJI_FUCHI_COLOR=2"),
+            Some(0),
+        );
+        let style = projection.text_entries[0].style;
+        assert_eq!(
+            style.color,
+            (0, 255, 255),
+            "MSGBK.ACTIVE_MOJI_COLOR default 7"
+        );
+        assert_eq!(
+            style.shadow_color, (255, 255, 255),
+            "MSGBK.ACTIVE_MOJI_SHADOW_COLOR default 0"
+        );
+        assert_eq!(
+            style.fuchi_color, (255, 255, 255),
+            "MSGBK.ACTIVE_MOJI_FUCHI_COLOR default 0"
+        );
+
+        // ACTIVE_* keys override individual channels of the base style.
+        let projection = backlog_projection(
+            std::env::temp_dir().join("siglus-backlog-color-active-override"),
+            Some(
+                "#MSGBK.MOJI_COLOR=4\n#MSGBK.MOJI_SHADOW_COLOR=3\n#MSGBK.MOJI_FUCHI_COLOR=2\n\
+                 #MSGBK.ACTIVE_MOJI_COLOR=6\n#MSGBK.ACTIVE_MOJI_SHADOW_COLOR=5",
+            ),
+            Some(0),
+        );
+        let style = projection.text_entries[0].style;
+        assert_eq!(style.color, (255, 0, 255));
+        assert_eq!(style.shadow_color, (255, 255, 0));
+        assert_eq!(style.fuchi_color, (255, 255, 255));
+    }
+
+    #[test]
+    fn backlog_debug_target_uses_debug_color_defaults() {
+        let mut ctx = CommandContext::new(std::env::temp_dir().join("siglus-backlog-color-debug"));
+        ctx.globals.system.debug_flag = true;
+        let mut history = globals::MsgBackState::default();
+        history.add_msg("Backlog colour", "", 0, 0);
+        ctx.globals
+            .msgbk_forms
+            .insert(ctx.ids.form_global_msgbk, history);
+        ctx.globals.syscom.msg_back_open = true;
+        ctx.globals.syscom.msg_back_target_no = 0;
+        let projection = ctx.build_msg_back_projection().unwrap();
+        let style = projection.text_entries[0].style;
+        assert_eq!(
+            style.color,
+            (255, 255, 0),
+            "MSGBK.DEBUG_MOJI_COLOR default 5"
+        );
+        assert_eq!(
+            style.shadow_color, (255, 255, 255),
+            "MSGBK.DEBUG_MOJI_SHADOW_COLOR default 0"
+        );
+        assert_eq!(
+            style.fuchi_color, (255, 255, 255),
+            "MSGBK.DEBUG_MOJI_FUCHI_COLOR default 0"
+        );
     }
 
     #[test]
