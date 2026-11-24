@@ -77,6 +77,7 @@ impl DesktopChihayaBenchWindow {
     pub fn new(
         elwt: &dyn ActiveEventLoop,
         request: NativeChihayaBenchDialogRequest,
+        instance: wgpu::Instance,
     ) -> Result<Self> {
         let title = if request.title.trim().is_empty() {
             "Siglus".to_string()
@@ -93,7 +94,7 @@ impl DesktopChihayaBenchWindow {
             )
             .context("create Chihaya benchmark information window")?;
         let window: Arc<dyn Window> = Arc::from(window);
-        let renderer = pollster::block_on(Renderer::new(window.clone()))
+        let renderer = pollster::block_on(Renderer::new_with_instance(instance, window.clone()))
             .context("Chihaya benchmark dialog renderer init")?;
         let egui_renderer = EguiRenderer::new(
             &renderer.device,

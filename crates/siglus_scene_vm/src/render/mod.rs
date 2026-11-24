@@ -467,7 +467,27 @@ impl Renderer {
             backends,
             ..wgpu::InstanceDescriptor::new_with_display_handle(Box::new(window.clone()))
         });
+        Self::new_with_instance(instance, window).await
+    }
 
+    /// Create a renderer for another window using an existing `wgpu::Instance`.
+    ///
+    /// Secondary windows (configuration, message boxes, Twitter, …) must share
+    /// the main window's instance. Creating a second Vulkan instance and then
+    /// destroying it corrupts NVIDIA's Wayland/EGL WSI state, which makes the
+    /// next `vkAcquireNextImageKHR` on the *main* surface jump through a null
+    /// function pointer. The instance is cheap to clone and keeps the Vulkan
+    /// instance alive as long as any window still uses it.
+    pub async fn new_with_instance<W>(instance: wgpu::Instance, window: W) -> Result<Self>
+    where
+        W: std::ops::Deref<Target = dyn Window>
+            + Into<wgpu::SurfaceTarget<'static>>
+            + std::fmt::Debug
+            + Clone
+            + Send
+            + Sync
+            + 'static,
+    {
         let size = window.surface_size();
         let scale_factor = window.scale_factor() as f32;
         let surface = instance.create_surface(window).context("create_surface")?;

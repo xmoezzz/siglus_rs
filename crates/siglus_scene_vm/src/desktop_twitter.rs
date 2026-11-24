@@ -77,7 +77,11 @@ pub struct DesktopTwitterWindow {
 }
 
 impl DesktopTwitterWindow {
-    pub fn new(elwt: &dyn ActiveEventLoop, request: TwitterDialogRequest) -> Result<Self> {
+    pub fn new(
+        elwt: &dyn ActiveEventLoop,
+        request: TwitterDialogRequest,
+        instance: wgpu::Instance,
+    ) -> Result<Self> {
         let window = elwt
             .create_window(
                 WindowAttributes::default()
@@ -92,8 +96,8 @@ impl DesktopTwitterWindow {
             LogicalPosition::new(0, 0).into(),
             LogicalSize::new(0, 0).into(),
         );
-        let renderer =
-            pollster::block_on(Renderer::new(window.clone())).context("Twitter renderer init")?;
+        let renderer = pollster::block_on(Renderer::new_with_instance(instance, window.clone()))
+            .context("Twitter renderer init")?;
         let egui_renderer = EguiRenderer::new(
             &renderer.device,
             renderer.config.format,

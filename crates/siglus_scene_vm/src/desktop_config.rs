@@ -54,7 +54,11 @@ pub struct DesktopConfigWindow {
 }
 
 impl DesktopConfigWindow {
-    pub fn new(elwt: &dyn ActiveEventLoop, dialog: ConfigDialog) -> Result<Self> {
+    pub fn new(
+        elwt: &dyn ActiveEventLoop,
+        dialog: ConfigDialog,
+        instance: wgpu::Instance,
+    ) -> Result<Self> {
         let window = elwt
             .create_window(
                 WindowAttributes::default()
@@ -69,8 +73,8 @@ impl DesktopConfigWindow {
             LogicalPosition::new(0, 0).into(),
             LogicalSize::new(0, 0).into(),
         );
-        let renderer =
-            pollster::block_on(Renderer::new(window.clone())).context("config renderer init")?;
+        let renderer = pollster::block_on(Renderer::new_with_instance(instance, window.clone()))
+            .context("config renderer init")?;
         let egui_renderer = EguiRenderer::new(
             &renderer.device,
             renderer.config.format,
@@ -968,6 +972,63 @@ mod tests {
     #[cfg(target_os = "linux")]
     #[test]
     #[ignore = "requires a desktop session and GPU"]
+    fn native_main_surface_survives_config_close() {
+        use winit::application::ApplicationHandler;
+        use winit::event_loop::EventLoop;
+        use winit::platform::wayland::EventLoopBuilderExtWayland;
+
+        struct Probe;
+        impl ApplicationHandler for Probe {
+            fn can_create_surfaces(&mut self, elwt: &dyn ActiveEventLoop) {
+                let ctx = CommandContext::new(
+                    std::env::temp_dir().join("siglus-config-main-surface-test"),
+                );
+                let main_window: Arc<dyn Window> = Arc::from(
+                    elwt.create_window(
+                        WindowAttributes::default()
+                            .with_title("main")
+                            .with_surface_size(LogicalSize::new(1280.0, 720.0)),
+                    )
+                    .unwrap(),
+                );
+                let mut main_renderer =
+                    pollster::block_on(Renderer::new(main_window.clone())).unwrap();
+                main_renderer
+                    .render_frame(
+                        &crate::image_manager::ImageManager::new(std::env::temp_dir()),
+                        &crate::layer::RenderFrame::ordinary(Vec::new()),
+                    )
+                    .unwrap();
+                let dialog = ConfigDialog::new(&ctx);
+                let mut window =
+                    DesktopConfigWindow::new(elwt, dialog, main_renderer.instance.clone())
+                        .unwrap();
+                window.render().unwrap();
+                assert!(matches!(
+                    window.handle_window_event(WindowEvent::CloseRequested),
+                    Some(DesktopConfigAction::Close)
+                ));
+                window.render().unwrap();
+                let _dialog = window.into_dialog();
+                let frame = match main_renderer.surface.get_current_texture() {
+                    wgpu::CurrentSurfaceTexture::Success(f)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
+                    other => panic!("main surface acquire failed: {other:?}"),
+                };
+                main_renderer.queue.present(frame);
+                elwt.exit();
+            }
+
+            fn window_event(&mut self, _: &dyn ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+        }
+
+        let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
+        event_loop.run_app(Probe).unwrap();
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires a desktop session and GPU"]
     fn native_config_close_releases_window_and_surface() {
         use winit::application::ApplicationHandler;
         use winit::event_loop::EventLoop;
@@ -978,9 +1039,24 @@ mod tests {
             fn can_create_surfaces(&mut self, elwt: &dyn ActiveEventLoop) {
                 let ctx =
                     CommandContext::new(std::env::temp_dir().join("siglus-config-close-test"));
+                let main_window: Arc<dyn Window> = Arc::from(
+                    elwt.create_window(
+                        WindowAttributes::default()
+                            .with_title("main")
+                            .with_surface_size(LogicalSize::new(1280.0, 720.0)),
+                    )
+                    .unwrap(),
+                );
+                let main_renderer =
+                    pollster::block_on(Renderer::new(main_window.clone())).unwrap();
                 let mut dialog = ConfigDialog::new(&ctx);
                 for _ in 0..2 {
-                    let mut window = DesktopConfigWindow::new(elwt, dialog).unwrap();
+                    let mut window = DesktopConfigWindow::new(
+                        elwt,
+                        dialog,
+                        main_renderer.instance.clone(),
+                    )
+                    .unwrap();
                     let weak = Arc::downgrade(&window.window);
                     window.render().unwrap();
                     assert!(matches!(
