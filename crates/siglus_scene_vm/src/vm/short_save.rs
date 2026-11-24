@@ -140,6 +140,17 @@ impl<'a> SceneVm<'a> {
                 m.waku_file = waku.waku_file.clone();
                 m.filter_file = waku.filter_file.clone();
             }
+            if let Some(waku) = m
+                .name_waku_no
+                .and_then(|n| usize::try_from(n).ok())
+                .and_then(|n| self.ctx.tables.waku_templates.get(n))
+            {
+                m.name_waku_file = waku.waku_file.clone();
+                m.name_filter_file = waku.filter_file.clone();
+            } else {
+                m.name_waku_file.clear();
+                m.name_filter_file.clear();
+            }
         }
         st.mwnd_lists.insert(stage_idx, windows);
         let btn_select = Self::read_short_btn_select(rd)?;
@@ -419,7 +430,13 @@ impl<'a> SceneVm<'a> {
         let key_y = rd.i32()? as i64;
         let faces = rd.fixed_items(Self::read_cpp_object)?;
         let objects = rd.fixed_items(Self::read_cpp_object)?;
-        if !name_waku {
+        if name_waku {
+            m.name_waku_no = (template_no >= 0).then_some(template_no);
+            m.name_filter_margin = Some(margin);
+            m.name_filter_color = Some((color[3], color[2], color[1], color[0]));
+            m.name_filter_config_color = filter_config_color;
+            m.name_filter_config_tr = filter_config_tr;
+        } else {
             m.msg_waku_no = Some(template_no);
             m.filter_margin = Some(margin);
             m.filter_color = Some((color[3], color[2], color[1], color[0]));

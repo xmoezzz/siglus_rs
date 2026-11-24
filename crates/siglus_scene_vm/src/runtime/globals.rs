@@ -6212,6 +6212,15 @@ pub struct MwndState {
     pub filter_color: Option<(u8, u8, u8, u8)>,
     pub filter_config_color: bool,
     pub filter_config_tr: bool,
+    /// Name window uses its own WAKU template record (NAME_WAKU_NO). The
+    /// original save stream stores it as a second mwnd-waku record.
+    pub name_waku_no: Option<i64>,
+    pub name_waku_file: String,
+    pub name_filter_file: String,
+    pub name_filter_margin: Option<(i64, i64, i64, i64)>,
+    pub name_filter_color: Option<(u8, u8, u8, u8)>,
+    pub name_filter_config_color: bool,
+    pub name_filter_config_tr: bool,
     pub waku_extend_type: i64,
     pub icon_no: i64,
     pub page_icon_no: i64,
