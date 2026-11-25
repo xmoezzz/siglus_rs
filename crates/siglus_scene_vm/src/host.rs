@@ -514,11 +514,7 @@ impl SiglusHost {
         if self.native_messagebox_pending() {
             return;
         }
-        if down {
-            self.vm.ctx.script_input.on_joypad_key_down(button);
-        } else {
-            self.vm.ctx.script_input.on_joypad_key_up(button);
-        }
+        self.vm.ctx.on_joypad_button(button, down);
         self.script_needs_pump = true;
     }
 
