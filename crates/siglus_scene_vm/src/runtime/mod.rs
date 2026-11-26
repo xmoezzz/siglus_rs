@@ -1697,6 +1697,12 @@ impl CommandContext {
     }
 
     pub(crate) fn prepare_text_font(&mut self) {
+        if self
+            .font_cache
+            .is_current_for_project(&self.project_dir, self.effective_font_name())
+        {
+            return;
+        }
         let name = self.effective_font_name().to_owned();
         self.font_cache
             .load_for_project_named(&self.project_dir, &name);

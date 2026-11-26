@@ -143,6 +143,8 @@ pub struct FontCache {
     /// the same invalidation boundary instead of pinning the first loaded face
     /// for the lifetime of the process.
     requested_name: String,
+    /// Exact spelling for the allocation-free fast path before normalization.
+    requested_name_spelling: String,
     /// Faces already resolved, by normalized request: switching back to a
     /// face neither rescans the font directories nor reads a font file
     /// again (each scan read whole files, tens of MiB, per switch).
@@ -214,6 +216,7 @@ impl FontCache {
             loaded_from: None,
             loaded_face_index: 0,
             requested_name: String::new(),
+            requested_name_spelling: String::new(),
             resolved: std::collections::HashMap::new(),
             project_dir: None,
             fallback_files: OnceLock::new(),
@@ -269,6 +272,12 @@ impl FontCache {
         self.load_for_project_named(project_dir, "")
     }
 
+    pub(crate) fn is_current_for_project(&self, project_dir: &Path, name: &str) -> bool {
+        self.font.is_some()
+            && self.project_dir.as_deref() == Some(project_dir)
+            && self.requested_name_spelling == name
+    }
+
     /// Select the effective engine font and load it if necessary.
     ///
     /// Siglus resolves the active face in this order: local SCRIPT override,
@@ -276,6 +285,11 @@ impl FontCache {
     /// original glyph manager when that face changes.  This method mirrors the
     /// same boundary and deliberately does not retain the first face forever.
     pub fn load_for_project_named(&mut self, project_dir: &Path, requested_name: &str) -> bool {
+        if self.is_current_for_project(project_dir, requested_name) {
+            return true;
+        }
+        self.requested_name_spelling.clear();
+        self.requested_name_spelling.push_str(requested_name);
         if self.project_dir.as_deref() != Some(project_dir) {
             self.font = None;
             self.resolved.clear();
@@ -3064,6 +3078,25 @@ mod fallback_tests {
             assert_ne!(cache.font.as_ref().unwrap().glyph_id('中').0, 0);
             assert!(cache.glyph_fallbacks.lock().unwrap().is_empty());
         }
+    }
+
+    #[test]
+    fn repeated_font_selection_keeps_alias_and_project_invalidation() {
+        let first = FontProject::new();
+        let second = FontProject::new();
+        let first_path = first.write("dat", "bundled.ttf", DEFAULT_FONT_BYTES);
+        let second_path = second.write("dat", "bundled.ttf", DEFAULT_FONT_BYTES);
+        let family = font_face_names(DEFAULT_FONT_BYTES)[0][0].clone();
+        let vertical = format!("@{family}");
+        let mut cache = FontCache::new();
+        for name in [&family, &family, &vertical, &vertical, &family] {
+            assert!(cache.load_for_project_named(&first.0, name));
+            assert_eq!(cache.loaded_from(), Some(first_path.as_path()));
+        }
+        assert!(cache.load_for_project_named(&second.0, &family));
+        assert_eq!(cache.loaded_from(), Some(second_path.as_path()));
+        assert!(cache.load_for_project_named(&first.0, "unavailable-font-family"));
+        assert_eq!(cache.loaded_from(), Some(first_path.as_path()));
     }
 
     #[test]
