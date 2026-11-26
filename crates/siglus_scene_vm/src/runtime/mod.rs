@@ -3,6 +3,7 @@
 //! Scene bytecode is dispatched by numeric form/owner codes. Siglus user
 //! commands are script procedures entered by `SceneVm` through Scene.pck.
 
+mod button_navigation;
 pub mod constants;
 pub mod forms;
 pub mod graphics;
@@ -570,6 +571,7 @@ pub struct CommandContext {
     /// frame would otherwise make START_REAL counters stop advancing.
     frame_clock_sub_ms_ns: u32,
     last_button_hover_sound_pos: Option<(i32, i32)>,
+    stage_button_focus: Option<button_navigation::StageButton>,
     suppress_next_right_syscom_open: bool,
 }
 
@@ -809,6 +811,7 @@ impl CommandContext {
         self.disp_because_msg_wait_cnt = 0;
         self.disp_because_msg_wait_cnt_max = 0;
         self.last_button_hover_sound_pos = None;
+        self.stage_button_focus = None;
         // The save/load menu runs as an EXCALL scene. Loading replaces that
         // script context without executing EXCALL.FREE, so its ready flag must
         // not select the menu-local stage for later game wipes.
@@ -1611,6 +1614,7 @@ impl CommandContext {
             frame_clock_last: None,
             frame_clock_sub_ms_ns: 0,
             last_button_hover_sound_pos: None,
+            stage_button_focus: None,
             suppress_next_right_syscom_open: false,
         };
         ctx.set_active_append(initial_append.dir, initial_append.name);
@@ -2400,6 +2404,7 @@ impl CommandContext {
         self.frame_clock_last = None;
         self.frame_clock_sub_ms_ns = 0;
         self.last_button_hover_sound_pos = None;
+        self.stage_button_focus = None;
 
         self.set_active_append(append_dir, append_name);
         self.apply_gameexe_runtime_defaults();
@@ -3640,11 +3645,20 @@ impl CommandContext {
     }
 
     pub fn on_key_down(&mut self, k: input::VmKey) {
+        self.on_key_down_inner(k, false);
+    }
+
+    /// Returns true only when the key was translated into stage-button pointer input.
+    pub(crate) fn on_compatibility_key_down(&mut self, k: input::VmKey) -> bool {
+        self.on_key_down_inner(k, true)
+    }
+
+    fn on_key_down_inner(&mut self, k: input::VmKey, allow_stage_button_nav: bool) -> bool {
         if self.handle_system_messagebox_key(k) {
-            return;
+            return false;
         }
         if self.handle_msg_back_key(k) {
-            return;
+            return false;
         }
         self.cancel_pending_editbox_composition();
 
@@ -3654,15 +3668,15 @@ impl CommandContext {
         let mut input_recorded = false;
         if editbox_active {
             if self.is_vm_key_disabled(k) {
-                return;
+                return false;
             }
             self.input.on_key_down(k);
             input_recorded = true;
             if Self::is_modifier_key(k) {
-                return;
+                return false;
             }
             if self.handle_editbox_key(k) {
-                return;
+                return false;
             }
         }
 
@@ -3675,13 +3689,20 @@ impl CommandContext {
             if !input_recorded {
                 self.input.on_key_down(k);
             }
-            return;
+            return false;
         }
         if self.handle_selbtn_key(k) {
-            return;
+            return false;
         }
         if self.is_vm_key_disabled(k) {
-            return;
+            return false;
+        }
+        if allow_stage_button_nav
+            && !editbox_active
+            && !self.has_active_mwnd_selection()
+            && self.handle_stage_button_navigation(k)
+        {
+            return true;
         }
         if !input_recorded {
             self.input.on_key_down(k);
@@ -3696,7 +3717,7 @@ impl CommandContext {
             _ => {}
         }
         if Self::is_modifier_key(k) {
-            return;
+            return false;
         }
 
         let handled_mwnd_selection = self.handle_mwnd_selection_key(k);
@@ -3749,6 +3770,7 @@ impl CommandContext {
                 _ => {}
             }
         }
+        false
     }
 
     pub fn on_key_up(&mut self, k: input::VmKey) {
@@ -3939,6 +3961,7 @@ impl CommandContext {
     }
 
     pub fn on_mouse_move(&mut self, x: i32, y: i32) {
+        self.stage_button_focus = None;
         self.input.on_mouse_move(x, y);
         if self.update_editbox_drag_selection() {
             return;
@@ -3968,6 +3991,7 @@ impl CommandContext {
     }
 
     pub fn on_mouse_down(&mut self, b: input::VmMouseButton) {
+        self.stage_button_focus = None;
         if sg_input_trace_enabled() {
             eprintln!(
                 "[SG_DEBUG][INPUT] mouse_down {:?} at=({}, {})",
@@ -10129,21 +10153,6 @@ fn hit_test_render_sprite(
     true
 }
 
-fn hit_test_layer_sprite(
-    images: &mut ImageManager,
-    layers: &LayerManager,
-    layer_id: LayerId,
-    sprite_id: SpriteId,
-    mx: i32,
-    my: i32,
-    alpha_test: bool,
-) -> bool {
-    let Some(spr) = layers.layer(layer_id).and_then(|l| l.sprite(sprite_id)) else {
-        return false;
-    };
-    hit_test_render_sprite(images, spr, mx, my, alpha_test)
-}
-
 fn object_button_sort_key(
     ids: &constants::RuntimeConstants,
     gfx: &graphics::GfxRuntime,
@@ -10235,7 +10244,7 @@ fn object_event_value(
     }
 }
 
-fn object_button_effective_gfx_hit(
+fn object_button_fallback_sprite(
     images: &mut ImageManager,
     layers: &LayerManager,
     gfx: &graphics::GfxRuntime,
@@ -10243,10 +10252,8 @@ fn object_button_effective_gfx_hit(
     stage_idx: i64,
     runtime_slot: usize,
     obj: &globals::ObjectState,
-    mx: i32,
-    my: i32,
     parent_state: Option<ParentRenderState>,
-) -> Option<ButtonSortKey> {
+) -> Option<Sprite> {
     let embedded_tree_object = obj.nested_runtime_slot.is_some();
     let disp = obj
         .lookup_int_prop(ids, ids.obj_disp)
@@ -10281,24 +10288,7 @@ fn object_button_effective_gfx_hit(
         && let Some((layer_id, sprite_id)) =
             gfx.object_sprite_binding(stage_idx, runtime_slot as i64)
     {
-        if hit_test_layer_sprite(
-            images,
-            layers,
-            layer_id,
-            sprite_id,
-            mx,
-            my,
-            obj.button.alpha_test,
-        ) {
-            return Some(object_button_sort_key(
-                ids,
-                gfx,
-                stage_idx,
-                runtime_slot,
-                obj,
-            ));
-        }
-        return None;
+        return layers.layer(layer_id)?.sprite(sprite_id).cloned();
     }
 
     let (base_x, base_y) = if embedded_tree_object {
@@ -10397,17 +10387,7 @@ fn object_button_effective_gfx_hit(
     sprite.y = (sprite.y as i64 + center_rep_y).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     sprite.z += center_rep_z as f32;
 
-    if !hit_test_render_sprite(images, &sprite, mx, my, obj.button.alpha_test) {
-        return None;
-    }
-
-    Some(object_button_sort_key(
-        ids,
-        gfx,
-        stage_idx,
-        runtime_slot,
-        obj,
-    ))
+    Some(sprite)
 }
 
 fn collect_standalone_button_decided_actions_recursive(
@@ -10754,16 +10734,9 @@ fn object_button_hit_sort_key_from_render(
         return None;
     }
     let runtime_slot = object_runtime_slot(obj_idx, obj);
-    let info = button_object_render_info(ids, gfx, stage_idx, obj_idx, obj);
-    let mut bound = fetch_bound_render_sprites_for_hit(layers, gfx, stage_idx, runtime_slot, obj);
-    for rs in &mut bound {
-        apply_button_object_render_info_to_sprite(&mut rs.sprite, &info);
-        apply_object_backend_sprite_local_offset(obj, rs.sprite_id, &mut rs.sprite);
-        if let Some(parent) = parent_state.clone() {
-            let dummy = ObjectRenderInfo::default();
-            apply_parent_render_state_to_sprite(&mut rs.sprite, &dummy, &parent);
-        }
-        finalize_button_object_center_rep_to_sprite(&mut rs.sprite, &info);
+    let bound =
+        object_button_bound_hit_sprites(layers, gfx, ids, stage_idx, obj_idx, obj, &parent_state);
+    for rs in &bound {
         if hit_test_render_sprite(images, &rs.sprite, mx, my, obj.button.alpha_test) {
             let sort_key = object_button_sort_key(ids, gfx, stage_idx, runtime_slot, obj);
             if sg_debug_enabled() {
@@ -10795,8 +10768,8 @@ fn object_button_hit_sort_key_from_render(
         }
     }
 
-    if bound.is_empty() {
-        return object_button_effective_gfx_hit(
+    if bound.is_empty()
+        && let Some(sprite) = object_button_fallback_sprite(
             images,
             layers,
             gfx,
@@ -10804,12 +10777,45 @@ fn object_button_hit_sort_key_from_render(
             stage_idx,
             runtime_slot,
             obj,
-            mx,
-            my,
             parent_state,
-        );
+        )
+        && hit_test_render_sprite(images, &sprite, mx, my, obj.button.alpha_test)
+    {
+        return Some(object_button_sort_key(ids, gfx, stage_idx, runtime_slot, obj));
     }
     None
+}
+
+fn object_button_bound_hit_sprites(
+    layers: &LayerManager,
+    gfx: &graphics::GfxRuntime,
+    ids: &constants::RuntimeConstants,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    parent_state: &Option<ParentRenderState>,
+) -> Vec<RenderSprite> {
+    let info = button_object_render_info(ids, gfx, stage_idx, obj_idx, obj);
+    let mut bound = fetch_bound_render_sprites_for_hit(
+        layers,
+        gfx,
+        stage_idx,
+        object_runtime_slot(obj_idx, obj),
+        obj,
+    );
+    for rs in &mut bound {
+        apply_button_object_render_info_to_sprite(&mut rs.sprite, &info);
+        apply_object_backend_sprite_local_offset(obj, rs.sprite_id, &mut rs.sprite);
+        if let Some(parent) = parent_state {
+            apply_parent_render_state_to_sprite(
+                &mut rs.sprite,
+                &ObjectRenderInfo::default(),
+                parent,
+            );
+        }
+        finalize_button_object_center_rep_to_sprite(&mut rs.sprite, &info);
+    }
+    bound
 }
 
 fn button_parent_render_state(
