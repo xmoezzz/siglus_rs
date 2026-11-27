@@ -493,6 +493,27 @@ impl SiglusHost {
         self.script_needs_pump = true;
     }
 
+    #[cfg(target_os = "horizon")]
+    pub(crate) fn controller_key_down(&mut self, key: VmKey) -> bool {
+        if self.native_messagebox_pending() {
+            return true;
+        }
+        let consumed = self.vm.ctx.on_compatibility_key_down(key);
+        self.script_needs_pump = true;
+        consumed
+    }
+
+    #[cfg(target_os = "horizon")]
+    pub(crate) fn controller_cursor(&mut self, visible: bool) {
+        self.vm.ctx.controller_cursor_visible = visible;
+    }
+
+    #[cfg(target_os = "horizon")]
+    pub(crate) fn mouse_position(&self) -> Option<(i32, i32)> {
+        let input = &self.vm.ctx.input;
+        input.has_mouse_position().then_some((input.mouse_x, input.mouse_y))
+    }
+
     pub fn key_down_code(&mut self, code: i32) {
         if let Some(key) = vm_key_from_platform_code(code) {
             self.key_down(key);

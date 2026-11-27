@@ -55,11 +55,14 @@ impl CommandContext {
             let Some(target) = focused else {
                 return false;
             };
-            self.on_mouse_move(target.point.0, target.point.1);
-            if self.stage_button_has_hit(target.button) {
-                self.on_mouse_down(VmMouseButton::Left);
-                self.on_mouse_up(VmMouseButton::Left);
+            if !self.stage_button_has_hit(target.button) {
+                self.on_mouse_move(target.point.0, target.point.1);
             }
+            if !self.stage_button_has_hit(target.button) {
+                return false;
+            }
+            self.on_mouse_down(VmMouseButton::Left);
+            self.on_mouse_up(VmMouseButton::Left);
             return true;
         }
 
@@ -88,8 +91,15 @@ impl CommandContext {
             return false;
         };
         self.on_mouse_move(next.point.0, next.point.1);
-        self.stage_button_focus = Some(next.button);
-        true
+        self.stage_button_focus = if self.stage_button_has_hit(next.button) {
+            Some(next.button)
+        } else {
+            targets
+                .iter()
+                .find(|target| self.stage_button_has_hit(target.button))
+                .map(|target| target.button)
+        };
+        self.stage_button_focus.is_some()
     }
 
     fn stage_button_targets(&mut self) -> Vec<Target> {

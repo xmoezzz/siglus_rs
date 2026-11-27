@@ -61,6 +61,7 @@ static void show_player_error(const char* message) {
 extern void* siglus_switch_engine_create(const char* project_dir, uint32_t width, uint32_t height);
 extern bool siglus_switch_engine_step(void* host, uint32_t dt_ms);
 extern void siglus_switch_engine_gamepad(void* host, uint8_t button, bool down);
+extern void siglus_switch_engine_move_pointer(void* host, int32_t x, int32_t y, double seconds);
 extern void siglus_switch_engine_touch(void* host, int32_t phase, double x, double y);
 extern void siglus_switch_engine_destroy(void* host);
 extern void siglus_switch_audio_render_i16(int16_t* dst, size_t frames);
@@ -276,18 +277,16 @@ int main(void) {
     bool first_frame = true;
     unsigned frame_count = 0;
     uint64_t period_start = armGetSystemTick();
+    uint64_t last_input_tick = period_start;
     siglus_switch_log_message("siglus_switch: main-loop enter\n");
     while (appletMainLoop()) {
         padUpdate(&pad);
         const uint64_t buttons_down = padGetButtonsDown(&pad);
         const uint64_t buttons_up = padGetButtonsUp(&pad);
-        if (engine != NULL) {
-            for (uint8_t button = 0; button < 32; ++button) {
-                const uint64_t bit = UINT64_C(1) << button;
-                if (buttons_down & bit) siglus_switch_engine_gamepad(engine, button, true);
-                if (buttons_up & bit) siglus_switch_engine_gamepad(engine, button, false);
-            }
-        }
+        const uint64_t input_tick = armGetSystemTick();
+        const double input_seconds =
+            (double)(input_tick - last_input_tick) / armGetSystemTickFreq();
+        last_input_tick = input_tick;
         HidTouchScreenState touch_state;
         const size_t touch_state_count = hidGetTouchScreenStates(&touch_state, 1);
         const bool has_touch = touch_state_count != 0 && touch_state.count > 0;
@@ -304,6 +303,26 @@ int main(void) {
             siglus_switch_engine_touch(engine, 2, last_touch_x, last_touch_y);
         }
         touch_active = has_touch;
+        if (engine != NULL) {
+            const uint64_t right_stick_directions =
+                HidNpadButton_StickRLeft | HidNpadButton_StickRRight |
+                HidNpadButton_StickRUp | HidNpadButton_StickRDown;
+            // Use the controller's existing direction bits to ignore stick drift.
+            if (padGetButtons(&pad) & right_stick_directions) {
+                const HidAnalogStickState stick = padGetStickPos(&pad, 1);
+                siglus_switch_engine_move_pointer(engine, stick.x, stick.y, input_seconds);
+            }
+            for (uint8_t button = 0; button < 32; ++button) {
+                const uint64_t bit = UINT64_C(1) << button;
+                if (buttons_down & bit) siglus_switch_engine_gamepad(engine, button, true);
+            }
+            // Presses precede releases so moving a held direction between the
+            // D-pad and left stick in one poll does not generate a second step.
+            for (uint8_t button = 0; button < 32; ++button) {
+                const uint64_t bit = UINT64_C(1) << button;
+                if (buttons_up & bit) siglus_switch_engine_gamepad(engine, button, false);
+            }
+        }
         if (first_frame) siglus_switch_log_message("siglus_switch: first-frame step begin\n");
         if (engine != NULL && siglus_switch_engine_step(engine, 16)) {
             break;

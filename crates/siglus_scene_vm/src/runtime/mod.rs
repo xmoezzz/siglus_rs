@@ -473,6 +473,10 @@ pub struct CommandContext {
     /// compact backend ids rather than cloned Sprite payloads.
     render_object_keys_scratch: HashSet<(LayerId, SpriteId)>,
     mouse_cursor_cache: HashMap<(i64, String), MouseCursorRuntime>,
+    #[cfg(target_os = "horizon")]
+    pub(crate) controller_cursor_visible: bool,
+    #[cfg(target_os = "horizon")]
+    controller_cursor_image: Option<crate::image_manager::ImageHandle>,
     failed_gfx_image_repairs: HashSet<(String, i64, usize, String, u32)>,
 
     /// Optional project-provided form handler (game-specific).
@@ -1580,6 +1584,10 @@ impl CommandContext {
             excall_state: ExcallCompatState::default(),
             render_object_keys_scratch: HashSet::default(),
             mouse_cursor_cache: HashMap::default(),
+            #[cfg(target_os = "horizon")]
+            controller_cursor_visible: false,
+            #[cfg(target_os = "horizon")]
+            controller_cursor_image: None,
             failed_gfx_image_repairs: HashSet::default(),
             external_forms: None,
             native_ui_backend: None,
@@ -2087,6 +2095,10 @@ impl CommandContext {
         let cur_time = self.globals.local_real_time.max(0) as u64;
         let frame = {
             let Some(cursor) = self.load_mouse_cursor_runtime(cursor_no) else {
+                #[cfg(target_os = "horizon")]
+                if self.controller_cursor_visible {
+                    self.append_controller_cursor(list);
+                }
                 return;
             };
             if cursor.frames.is_empty() {
@@ -2122,6 +2134,59 @@ impl CommandContext {
             i32::MAX,
             i32::MAX,
             sprite,
+        ));
+    }
+
+    #[cfg(target_os = "horizon")]
+    fn append_controller_cursor(&mut self, list: &mut Vec<RenderSprite>) {
+        let image = self.controller_cursor_image.get_or_insert_with(|| {
+            const ARROW: [&[u8; 11]; 15] = [
+                b"#..........",
+                b"##.........",
+                b"#o#........",
+                b"#oo#.......",
+                b"#ooo#......",
+                b"#oooo#.....",
+                b"#ooooo#....",
+                b"#oooooo#...",
+                b"#ooooooo#..",
+                b"#oooo####..",
+                b"#oo#o#.....",
+                b"#o##oo#....",
+                b"##..#o#....",
+                b"....#oo#...",
+                b".....##....",
+            ];
+            let rgba = ARROW
+                .iter()
+                .flat_map(|row| row.iter())
+                .flat_map(|pixel| match pixel {
+                    b'#' => [0, 0, 0, 255],
+                    b'o' => [255, 255, 255, 255],
+                    _ => [0; 4],
+                })
+                .collect();
+            self.images.insert_image(crate::assets::RgbaImage {
+                width: ARROW[0].len() as u32,
+                height: ARROW.len() as u32,
+                center_x: 0,
+                center_y: 0,
+                rgba,
+            })
+        });
+        list.push(RenderSprite::with_sorter(
+            None,
+            None,
+            i32::MAX,
+            i32::MAX,
+            Sprite {
+                image_id: Some(image.clone()),
+                visible: true,
+                x: self.input.mouse_x,
+                y: self.input.mouse_y,
+                order: i32::MAX,
+                ..Default::default()
+            },
         ));
     }
 
@@ -2256,6 +2321,10 @@ impl CommandContext {
         self.movie = MovieManager::new(self.project_dir.clone());
         self.images = ImageManager::new(self.project_dir.clone());
         self.mouse_cursor_cache.clear();
+        #[cfg(target_os = "horizon")]
+        {
+            self.controller_cursor_image = None;
+        }
         self.solid_white = self.images.solid_rgba((255, 255, 255, 255));
         self.layers.clear_all();
         self.gfx = graphics::GfxRuntime::default();
@@ -17491,6 +17560,52 @@ mod msg_back_voice_tests {
         assert_eq!(ctx.ui.mwnd.name.waku.filter_color, (10, 20, 30, 40));
         assert!(ctx.ui.mwnd.name.waku.filter_config_color);
         assert!(!ctx.ui.mwnd.name.waku.filter_config_tr);
+    }
+
+    #[test]
+    fn backlog_scrolls_with_directions_and_a_held_pointer_drag() {
+        let mut ctx = CommandContext::new(PathBuf::from("."));
+        ctx.tables.gameexe = Some(crate::formats::gameexe::GameexeConfig::from_text(
+            "#MSGBK_ITEM.SLIDER.POS=280,20,400",
+        ));
+        let mut history = globals::MsgBackState::default();
+        for index in 0..40 {
+            history.add_msg(&format!("History entry {index}"), "", 0, 0);
+            history.next();
+        }
+        ctx.globals.msgbk_forms.insert(ctx.ids.form_global_msgbk, history);
+        ctx.globals.syscom.msg_back_open = true;
+        let layout = ctx.build_msg_back_layout();
+        ctx.msg_back_initialize_open_state(&layout);
+
+        let last = ctx.globals.syscom.msg_back_target_no;
+        assert!(!ctx.on_compatibility_key_down(input::VmKey::ArrowUp));
+        assert!(ctx.globals.syscom.msg_back_target_no < last);
+        assert!(!ctx.on_compatibility_key_down(input::VmKey::ArrowDown));
+        assert_eq!(ctx.globals.syscom.msg_back_target_no, last);
+
+        let projection = ctx.build_msg_back_projection().unwrap();
+        let x = projection.window_x + projection.slider_pos.0;
+        let y = projection.window_y + projection.slider_pos.1;
+        ctx.ui.set_msg_back_projection(Some(projection));
+        ctx.ui.msg_back.slider = ui::MsgBackButtonRuntime {
+            image: Some(ctx.images.solid_rgba((255, 255, 255, 255))),
+            size: Some((12, 12)),
+            center: Some((0, 0)),
+            ..Default::default()
+        };
+
+        ctx.on_mouse_move(x, y);
+        ctx.on_mouse_down(input::VmMouseButton::Left);
+        assert!(ctx.globals.syscom.msg_back_slider_dragging);
+        ctx.on_mouse_move(x, y - 50);
+        assert!(ctx.globals.syscom.msg_back_target_no < last);
+        ctx.on_mouse_up(input::VmMouseButton::Left);
+        assert!(!ctx.globals.syscom.msg_back_slider_dragging);
+        let scroll = ctx.globals.syscom.msg_back_scroll_pos;
+        ctx.on_mouse_move(x, y - 100);
+        assert_eq!(ctx.globals.syscom.msg_back_scroll_pos, scroll);
+        assert!(ctx.globals.syscom.msg_back_open);
     }
 
     #[test]

@@ -15462,7 +15462,7 @@ mod command_dispatch_tests {
         use crate::runtime::forms::{codes, excall};
         use crate::runtime::input::VmKey;
 
-        for compatibility in [false, true] {
+        for (compatibility, overlap) in [(false, false), (true, false), (true, true)] {
             let mut vm = test_vm();
             vm.exec_command(
                 vec![codes::ELM_GLOBAL_EXCALL, codes::ELM_EXCALL_ALLOC],
@@ -15475,7 +15475,7 @@ mod command_dispatch_tests {
             vm.ctx.screen_w = 640;
             vm.ctx.screen_h = 480;
 
-            for (index, y) in [(0, 40), (1, 112), (2, 184)] {
+            for (index, y) in [(0, 40), (1, 112), (2, if overlap { 40 } else { 184 })] {
                 let mut object = vec![
                     codes::ELM_GLOBAL_EXCALL,
                     codes::ELM_EXCALL_FRONT,
@@ -15552,15 +15552,17 @@ mod command_dispatch_tests {
             send(&mut vm, VmKey::ArrowDown, true);
             assert_eq!(
                 vm.ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no,
-                1
+                if overlap { 3 } else { 1 }
             );
             send(&mut vm, VmKey::ArrowDown, false);
-            send(&mut vm, VmKey::ArrowDown, true);
-            assert_eq!(
-                vm.ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no,
-                3
-            );
-            send(&mut vm, VmKey::ArrowDown, false);
+            if !overlap {
+                send(&mut vm, VmKey::ArrowDown, true);
+                assert_eq!(
+                    vm.ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no,
+                    3
+                );
+                send(&mut vm, VmKey::ArrowDown, false);
+            }
             send(&mut vm, VmKey::Enter, true);
             send(&mut vm, VmKey::Enter, false);
             assert_eq!(

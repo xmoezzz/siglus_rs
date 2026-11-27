@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use crate::host::{SiglusHost, SiglusHostConfig};
 use crate::render::Renderer;
-use crate::runtime::input::VmKey;
+use crate::runtime::input::{VmKey, VmMouseButton};
 
 unsafe extern "C" {
     fn siglus_switch_random_fill(buffer: *mut u8, length: usize);
@@ -77,6 +77,11 @@ pub struct SwitchHost {
     dump_frames: Vec<u64>,
     /// The global save as last written (`global_save_fingerprint`).
     global_fingerprint: u64,
+    held_buttons: u32,
+    consumed_compatibility_keys: u32,
+    pointer: Option<(f64, f64)>,
+    pointer_left_down: bool,
+    touch_active: bool,
 }
 
 /// How often the global save is checked for changes. Nothing else writes
@@ -119,6 +124,11 @@ impl SwitchHost {
             frame: 0,
             dump_frames,
             global_fingerprint,
+            held_buttons: 0,
+            consumed_compatibility_keys: 0,
+            pointer: None,
+            pointer_left_down: false,
+            touch_active: false,
         })
     }
 
@@ -158,6 +168,12 @@ impl SwitchHost {
     /// A touch at display pixel (x, y), mapped into the letterboxed game
     /// screen.
     pub fn touch(&mut self, phase: i32, x: f64, y: f64) {
+        self.touch_active = matches!(phase, 0 | 1);
+        if self.pointer_left_down {
+            self.host.mouse_up(VmMouseButton::Left);
+            self.pointer_left_down = false;
+        }
+        self.leave_pointer_mode();
         let [sx, sy, sw, sh] = self.host.renderer_mut().screen_viewport();
         let (logical_w, logical_h) = self.host.renderer_mut().logical_size();
         let lx = ((x - f64::from(sx)) * f64::from(logical_w) / f64::from(sw.max(1.0)))
@@ -167,41 +183,95 @@ impl SwitchHost {
         self.host.touch(phase, lx, ly);
     }
 
+    fn leave_pointer_mode(&mut self) {
+        self.pointer = None;
+        self.host.controller_cursor(false);
+    }
+
+    pub fn move_pointer(&mut self, x: i32, y: i32, seconds: f64) {
+        if self.touch_active || (x == 0 && y == 0) || seconds <= 0.0 {
+            return;
+        }
+
+        let (width, height) = self.host.logical_size();
+        let current = self.host.mouse_position();
+        // Keep subpixel movement, but resynchronize if the game moved the mouse.
+        let (px, py) = self
+            .pointer
+            .filter(|&(px, py)| current == Some((px.round() as i32, py.round() as i32)))
+            .or_else(|| current.map(|(px, py)| (f64::from(px), f64::from(py))))
+            .unwrap_or((f64::from(width) / 2.0, f64::from(height) / 2.0));
+        // A fully tilted stick travels one logical screen height per second.
+        let distance = f64::from(height) * seconds / 32768.0;
+        let px = (px + f64::from(x) * distance).clamp(0.0, f64::from(width - 1));
+        let py = (py - f64::from(y) * distance).clamp(0.0, f64::from(height - 1));
+        self.pointer = Some((px, py));
+        self.host.controller_cursor(true);
+        if current != Some((px.round() as i32, py.round() as i32)) {
+            self.host.mouse_move(px, py);
+        }
+    }
+
     pub fn gamepad_button(&mut self, button: u8, down: bool) {
+        let previous = self.held_buttons;
+        let bit = 1u32.checked_shl(u32::from(button)).unwrap_or(0);
+        if down {
+            self.held_buttons |= bit;
+        } else {
+            self.held_buttons &= !bit;
+        }
+
         let key = match button {
-            0 => Some(VmKey::Enter),   // A
-            1 => Some(VmKey::Escape),  // B
-            2 => Some(VmKey::Space),   // X
-            3 => Some(VmKey::Tab),     // Y
-            6 => Some(VmKey::Shift),   // L
-            7 => Some(VmKey::Control), // R
-            8 => Some(VmKey::Control), // ZL
-            9 => Some(VmKey::Space),   // ZR
-            10 => Some(VmKey::Escape), // Plus
-            11 => Some(VmKey::Tab),    // Minus
-            12 => Some(VmKey::ArrowLeft),
-            13 => Some(VmKey::ArrowUp),
-            14 => Some(VmKey::ArrowRight),
-            15 => Some(VmKey::ArrowDown),
-            16 | 20 => Some(VmKey::ArrowLeft),
-            17 | 21 => Some(VmKey::ArrowUp),
-            18 | 22 => Some(VmKey::ArrowRight),
-            19 | 23 => Some(VmKey::ArrowDown),
+            0 => Some(VmKey::Enter),
+            1 | 10 => Some(VmKey::Escape),
+            2 | 9 => Some(VmKey::Space),
+            3 | 11 => Some(VmKey::Tab),
+            6 => Some(VmKey::Shift),
+            7 | 8 => Some(VmKey::Control),
+            12 | 16 => Some(VmKey::ArrowLeft),
+            13 | 17 => Some(VmKey::ArrowUp),
+            14 | 18 => Some(VmKey::ArrowRight),
+            15 | 19 => Some(VmKey::ArrowDown),
+            // Right-stick direction bits still reach JOY_BUTTON below.
             _ => None,
         };
-        // Feed the keyboard compatibility path first. `InputState::on_key_down`
-        // deliberately switches the active input family to keyboard/mouse, so
-        // recording the raw joypad edge before this call made every mapped
-        // controller press immediately cancel JOYPAD mode again.
         if let Some(key) = key {
-            if down {
-                self.host.key_down(key);
-            } else {
-                self.host.key_up(key);
+            let (logical_button, aliases) = match button {
+                12..=19 => {
+                    let direction = 12 + (button - 12) % 4;
+                    (direction, (1 << direction) | (1 << (direction + 4)))
+                }
+                _ => (button, bit),
+            };
+            let logical_bit = 1 << logical_button;
+            let was_held = previous & aliases != 0;
+            let is_held = self.held_buttons & aliases != 0;
+            if is_held && !was_held {
+                if (12..=19).contains(&button) && !self.pointer_left_down {
+                    self.leave_pointer_mode();
+                }
+                let consumed = if button == 0 && self.pointer.is_some() {
+                    self.host.mouse_down(VmMouseButton::Left);
+                    self.pointer_left_down = true;
+                    true
+                } else {
+                    self.host.controller_key_down(key)
+                };
+                if consumed {
+                    self.consumed_compatibility_keys |= logical_bit;
+                }
+            } else if !is_held && was_held {
+                if button == 0 && self.pointer_left_down {
+                    self.host.mouse_up(VmMouseButton::Left);
+                    self.pointer_left_down = false;
+                } else if self.consumed_compatibility_keys & logical_bit == 0 {
+                    self.host.key_up(key);
+                }
+                self.consumed_compatibility_keys &= !logical_bit;
             }
         }
-        // Keep the VM pump live for buttons which have no keyboard equivalent;
-        // games can consume their raw JOY_BUTTON edge directly.
+
+        // Keep the native controller edge available even when it also moves the UI.
         self.host.joypad_button(button as usize, down);
     }
 
@@ -257,6 +327,18 @@ pub unsafe extern "C" fn siglus_switch_engine_gamepad(
 ) {
     if let Some(host) = unsafe { host.as_mut() } {
         host.gamepad_button(button, down);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn siglus_switch_engine_move_pointer(
+    host: *mut SwitchHost,
+    x: i32,
+    y: i32,
+    seconds: f64,
+) {
+    if let Some(host) = unsafe { host.as_mut() } {
+        host.move_pointer(x, y, seconds);
     }
 }
 
