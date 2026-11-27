@@ -15462,7 +15462,12 @@ mod command_dispatch_tests {
         use crate::runtime::forms::{codes, excall};
         use crate::runtime::input::VmKey;
 
-        for (compatibility, overlap) in [(false, false), (true, false), (true, true)] {
+        for (compatibility, overlap, move_pointer) in [
+            (false, false, false),
+            (true, false, false),
+            (true, true, false),
+            (true, false, true),
+        ] {
             let mut vm = test_vm();
             vm.exec_command(
                 vec![codes::ELM_GLOBAL_EXCALL, codes::ELM_EXCALL_ALLOC],
@@ -15563,11 +15568,20 @@ mod command_dispatch_tests {
                 );
                 send(&mut vm, VmKey::ArrowDown, false);
             }
-            send(&mut vm, VmKey::Enter, true);
+            let expected = if move_pointer {
+                vm.ctx.on_mouse_move(80, 60);
+                assert_eq!(
+                    vm.ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no, 1
+                );
+                1
+            } else {
+                3
+            };
+            assert!(vm.ctx.on_compatibility_key_down(VmKey::Enter));
             send(&mut vm, VmKey::Enter, false);
             assert_eq!(
                 vm.ctx.globals.stage_forms[&form].group_lists[&1][0].decided_button_no,
-                3
+                expected
             );
         }
     }

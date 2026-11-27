@@ -39,7 +39,7 @@ impl CommandContext {
             VmKey::ArrowRight => (1, 0),
             VmKey::ArrowUp => (0, -1),
             VmKey::ArrowDown => (0, 1),
-            VmKey::Enter if self.stage_button_focus.is_some() => (0, 0),
+            VmKey::Enter => (0, 0),
             _ => return false,
         };
         if self.input.is_mouse_down(VmMouseButton::Left) {
@@ -47,12 +47,17 @@ impl CommandContext {
         }
 
         let targets = self.stage_button_targets();
-        let focused = targets
+        let current = targets
             .iter()
-            .find(|target| self.stage_button_focus == Some(target.button));
+            .find(|target| self.stage_button_focus == Some(target.button))
+            .or_else(|| {
+                targets
+                    .iter()
+                    .find(|target| self.stage_button_has_hit(target.button))
+            });
         if key == VmKey::Enter {
             self.stage_button_focus = None;
-            let Some(target) = focused else {
+            let Some(target) = current else {
                 return false;
             };
             if !self.stage_button_has_hit(target.button) {
@@ -66,11 +71,6 @@ impl CommandContext {
             return true;
         }
 
-        let current = focused.or_else(|| {
-            targets
-                .iter()
-                .find(|target| self.stage_button_has_hit(target.button))
-        });
         let next = if let Some(current) = current {
             targets
                 .iter()
