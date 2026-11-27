@@ -88,7 +88,6 @@ pub struct SwitchHost {
 /// it before the game's own end/return-to-menu, and closing the app from
 /// HOME never gets there: the game would start as on its first boot again.
 const GLOBAL_SAVE_INTERVAL: u64 = 300;
-const BUTTON_ZR: u8 = 9; // HidNpadButton_ZR bit index.
 
 const DUMP_DIR: &str = "sdmc:/switch/siglus_rs/dump";
 
@@ -193,12 +192,7 @@ impl SwitchHost {
         if self.touch_active || (x == 0 && y == 0) || seconds <= 0.0 {
             return;
         }
-        // A fully tilted stick travels one logical screen height per second.
-        let scale = seconds / 32768.0;
-        self.update_pointer(f64::from(x) * scale, -f64::from(y) * scale);
-    }
 
-    fn update_pointer(&mut self, dx: f64, dy: f64) {
         let (width, height) = self.host.logical_size();
         let current = self.host.mouse_position();
         // Keep subpixel movement, but resynchronize if the game moved the mouse.
@@ -207,8 +201,10 @@ impl SwitchHost {
             .filter(|&(px, py)| current == Some((px.round() as i32, py.round() as i32)))
             .or_else(|| current.map(|(px, py)| (f64::from(px), f64::from(py))))
             .unwrap_or((f64::from(width) / 2.0, f64::from(height) / 2.0));
-        let px = (px + dx * f64::from(height)).clamp(0.0, f64::from(width - 1));
-        let py = (py + dy * f64::from(height)).clamp(0.0, f64::from(height - 1));
+        // A fully tilted stick travels one logical screen height per second.
+        let distance = f64::from(height) * seconds / 32768.0;
+        let px = (px + f64::from(x) * distance).clamp(0.0, f64::from(width - 1));
+        let py = (py - f64::from(y) * distance).clamp(0.0, f64::from(height - 1));
         self.pointer = Some((px, py));
         self.host.controller_cursor(true);
         if current != Some((px.round() as i32, py.round() as i32)) {
@@ -228,7 +224,7 @@ impl SwitchHost {
         let key = match button {
             0 => Some(VmKey::Enter),
             1 | 10 => Some(VmKey::Escape),
-            2 => Some(VmKey::Space),
+            2 | 9 => Some(VmKey::Space),
             3 | 11 => Some(VmKey::Tab),
             6 => Some(VmKey::Shift),
             7 | 8 => Some(VmKey::Control),
@@ -254,23 +250,24 @@ impl SwitchHost {
                 if (12..=19).contains(&button) && !self.pointer_left_down {
                     self.leave_pointer_mode();
                 }
-                if self.host.controller_key_down(key) {
+                let consumed = if button == 0 && self.pointer.is_some() {
+                    self.host.mouse_down(VmMouseButton::Left);
+                    self.pointer_left_down = true;
+                    true
+                } else {
+                    self.host.controller_key_down(key)
+                };
+                if consumed {
                     self.consumed_compatibility_keys |= logical_bit;
                 }
             } else if !is_held && was_held {
-                if self.consumed_compatibility_keys & logical_bit == 0 {
+                if button == 0 && self.pointer_left_down {
+                    self.host.mouse_up(VmMouseButton::Left);
+                    self.pointer_left_down = false;
+                } else if self.consumed_compatibility_keys & logical_bit == 0 {
                     self.host.key_up(key);
                 }
                 self.consumed_compatibility_keys &= !logical_bit;
-            }
-        } else if button == BUTTON_ZR {
-            if down && !self.touch_active && !self.pointer_left_down {
-                self.update_pointer(0.0, 0.0);
-                self.host.mouse_down(VmMouseButton::Left);
-                self.pointer_left_down = true;
-            } else if !down && self.pointer_left_down {
-                self.host.mouse_up(VmMouseButton::Left);
-                self.pointer_left_down = false;
             }
         }
 
