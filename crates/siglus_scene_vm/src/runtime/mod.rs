@@ -629,9 +629,39 @@ mod frame_clock_tests {
     }
 }
 
+#[cfg(test)]
+mod joypad_input_tests {
+    use super::*;
+
+    #[test]
+    fn joypad_edges_survive_script_input_snapshot() {
+        let mut ctx = CommandContext::new(PathBuf::from("."));
+        ctx.on_joypad_button(0, true);
+        ctx.sync_script_input_from_runtime();
+        assert!(ctx.input.joypad_mode_active());
+        assert!(ctx.script_input.joypad_is_down(0));
+        assert!(ctx.script_input.joypad_down_stock(0));
+
+        ctx.input.next_frame();
+        ctx.on_joypad_button(0, false);
+        ctx.sync_script_input_from_runtime();
+        assert!(!ctx.script_input.joypad_is_down(0));
+        assert!(ctx.script_input.joypad_up_stock(0));
+    }
+}
+
 impl CommandContext {
     pub fn sync_script_input_from_runtime(&mut self) {
         self.script_input = self.input.clone();
+    }
+
+    pub(crate) fn on_joypad_button(&mut self, button: usize, down: bool) {
+        // Script input is refreshed from runtime input before each script frame.
+        if down {
+            self.input.on_joypad_key_down(button);
+        } else {
+            self.input.on_joypad_key_up(button);
+        }
     }
 
     pub fn proc_generation(&self) -> u64 {
