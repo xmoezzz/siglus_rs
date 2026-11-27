@@ -3,6 +3,7 @@
 //! Scene bytecode is dispatched by numeric form/owner codes. Siglus user
 //! commands are script procedures entered by `SceneVm` through Scene.pck.
 
+mod button_navigation;
 pub mod constants;
 pub mod forms;
 pub mod graphics;
@@ -472,6 +473,10 @@ pub struct CommandContext {
     /// compact backend ids rather than cloned Sprite payloads.
     render_object_keys_scratch: HashSet<(LayerId, SpriteId)>,
     mouse_cursor_cache: HashMap<(i64, String), MouseCursorRuntime>,
+    #[cfg(target_os = "horizon")]
+    pub(crate) controller_cursor_visible: bool,
+    #[cfg(target_os = "horizon")]
+    controller_cursor_image: Option<crate::image_manager::ImageHandle>,
     failed_gfx_image_repairs: HashSet<(String, i64, usize, String, u32)>,
 
     /// Optional project-provided form handler (game-specific).
@@ -570,6 +575,7 @@ pub struct CommandContext {
     /// frame would otherwise make START_REAL counters stop advancing.
     frame_clock_sub_ms_ns: u32,
     last_button_hover_sound_pos: Option<(i32, i32)>,
+    stage_button_focus: Option<button_navigation::StageButton>,
     suppress_next_right_syscom_open: bool,
 }
 
@@ -839,6 +845,7 @@ impl CommandContext {
         self.disp_because_msg_wait_cnt = 0;
         self.disp_because_msg_wait_cnt_max = 0;
         self.last_button_hover_sound_pos = None;
+        self.stage_button_focus = None;
         // The save/load menu runs as an EXCALL scene. Loading replaces that
         // script context without executing EXCALL.FREE, so its ready flag must
         // not select the menu-local stage for later game wipes.
@@ -1607,6 +1614,10 @@ impl CommandContext {
             excall_state: ExcallCompatState::default(),
             render_object_keys_scratch: HashSet::default(),
             mouse_cursor_cache: HashMap::default(),
+            #[cfg(target_os = "horizon")]
+            controller_cursor_visible: false,
+            #[cfg(target_os = "horizon")]
+            controller_cursor_image: None,
             failed_gfx_image_repairs: HashSet::default(),
             external_forms: None,
             native_ui_backend: None,
@@ -1641,6 +1652,7 @@ impl CommandContext {
             frame_clock_last: None,
             frame_clock_sub_ms_ns: 0,
             last_button_hover_sound_pos: None,
+            stage_button_focus: None,
             suppress_next_right_syscom_open: false,
         };
         ctx.set_active_append(initial_append.dir, initial_append.name);
@@ -2113,6 +2125,10 @@ impl CommandContext {
         let cur_time = self.globals.local_real_time.max(0) as u64;
         let frame = {
             let Some(cursor) = self.load_mouse_cursor_runtime(cursor_no) else {
+                #[cfg(target_os = "horizon")]
+                if self.controller_cursor_visible {
+                    self.append_controller_cursor(list);
+                }
                 return;
             };
             if cursor.frames.is_empty() {
@@ -2148,6 +2164,59 @@ impl CommandContext {
             i32::MAX,
             i32::MAX,
             sprite,
+        ));
+    }
+
+    #[cfg(target_os = "horizon")]
+    fn append_controller_cursor(&mut self, list: &mut Vec<RenderSprite>) {
+        let image = self.controller_cursor_image.get_or_insert_with(|| {
+            const ARROW: [&[u8; 11]; 15] = [
+                b"#..........",
+                b"##.........",
+                b"#o#........",
+                b"#oo#.......",
+                b"#ooo#......",
+                b"#oooo#.....",
+                b"#ooooo#....",
+                b"#oooooo#...",
+                b"#ooooooo#..",
+                b"#oooo####..",
+                b"#oo#o#.....",
+                b"#o##oo#....",
+                b"##..#o#....",
+                b"....#oo#...",
+                b".....##....",
+            ];
+            let rgba = ARROW
+                .iter()
+                .flat_map(|row| row.iter())
+                .flat_map(|pixel| match pixel {
+                    b'#' => [0, 0, 0, 255],
+                    b'o' => [255, 255, 255, 255],
+                    _ => [0; 4],
+                })
+                .collect();
+            self.images.insert_image(crate::assets::RgbaImage {
+                width: ARROW[0].len() as u32,
+                height: ARROW.len() as u32,
+                center_x: 0,
+                center_y: 0,
+                rgba,
+            })
+        });
+        list.push(RenderSprite::with_sorter(
+            None,
+            None,
+            i32::MAX,
+            i32::MAX,
+            Sprite {
+                image_id: Some(image.clone()),
+                visible: true,
+                x: self.input.mouse_x,
+                y: self.input.mouse_y,
+                order: i32::MAX,
+                ..Default::default()
+            },
         ));
     }
 
@@ -2282,6 +2351,10 @@ impl CommandContext {
         self.movie = MovieManager::new(self.project_dir.clone());
         self.images = ImageManager::new(self.project_dir.clone());
         self.mouse_cursor_cache.clear();
+        #[cfg(target_os = "horizon")]
+        {
+            self.controller_cursor_image = None;
+        }
         self.solid_white = self.images.solid_rgba((255, 255, 255, 255));
         self.layers.clear_all();
         self.gfx = graphics::GfxRuntime::default();
@@ -2430,6 +2503,7 @@ impl CommandContext {
         self.frame_clock_last = None;
         self.frame_clock_sub_ms_ns = 0;
         self.last_button_hover_sound_pos = None;
+        self.stage_button_focus = None;
 
         self.set_active_append(append_dir, append_name);
         self.apply_gameexe_runtime_defaults();
@@ -3670,11 +3744,20 @@ impl CommandContext {
     }
 
     pub fn on_key_down(&mut self, k: input::VmKey) {
+        self.on_key_down_inner(k, false);
+    }
+
+    /// Returns true only when the key was translated into stage-button pointer input.
+    pub(crate) fn on_compatibility_key_down(&mut self, k: input::VmKey) -> bool {
+        self.on_key_down_inner(k, true)
+    }
+
+    fn on_key_down_inner(&mut self, k: input::VmKey, allow_stage_button_nav: bool) -> bool {
         if self.handle_system_messagebox_key(k) {
-            return;
+            return false;
         }
         if self.handle_msg_back_key(k) {
-            return;
+            return false;
         }
         self.cancel_pending_editbox_composition();
 
@@ -3684,15 +3767,15 @@ impl CommandContext {
         let mut input_recorded = false;
         if editbox_active {
             if self.is_vm_key_disabled(k) {
-                return;
+                return false;
             }
             self.input.on_key_down(k);
             input_recorded = true;
             if Self::is_modifier_key(k) {
-                return;
+                return false;
             }
             if self.handle_editbox_key(k) {
-                return;
+                return false;
             }
         }
 
@@ -3705,13 +3788,20 @@ impl CommandContext {
             if !input_recorded {
                 self.input.on_key_down(k);
             }
-            return;
+            return false;
         }
         if self.handle_selbtn_key(k) {
-            return;
+            return false;
         }
         if self.is_vm_key_disabled(k) {
-            return;
+            return false;
+        }
+        if allow_stage_button_nav
+            && !editbox_active
+            && !self.has_active_mwnd_selection()
+            && self.handle_stage_button_navigation(k)
+        {
+            return true;
         }
         if !input_recorded {
             self.input.on_key_down(k);
@@ -3726,7 +3816,7 @@ impl CommandContext {
             _ => {}
         }
         if Self::is_modifier_key(k) {
-            return;
+            return false;
         }
 
         let handled_mwnd_selection = self.handle_mwnd_selection_key(k);
@@ -3779,6 +3869,7 @@ impl CommandContext {
                 _ => {}
             }
         }
+        false
     }
 
     pub fn on_key_up(&mut self, k: input::VmKey) {
@@ -3969,6 +4060,7 @@ impl CommandContext {
     }
 
     pub fn on_mouse_move(&mut self, x: i32, y: i32) {
+        self.stage_button_focus = None;
         self.input.on_mouse_move(x, y);
         if self.update_editbox_drag_selection() {
             return;
@@ -3998,6 +4090,7 @@ impl CommandContext {
     }
 
     pub fn on_mouse_down(&mut self, b: input::VmMouseButton) {
+        self.stage_button_focus = None;
         if sg_input_trace_enabled() {
             eprintln!(
                 "[SG_DEBUG][INPUT] mouse_down {:?} at=({}, {})",
@@ -10159,21 +10252,6 @@ fn hit_test_render_sprite(
     true
 }
 
-fn hit_test_layer_sprite(
-    images: &mut ImageManager,
-    layers: &LayerManager,
-    layer_id: LayerId,
-    sprite_id: SpriteId,
-    mx: i32,
-    my: i32,
-    alpha_test: bool,
-) -> bool {
-    let Some(spr) = layers.layer(layer_id).and_then(|l| l.sprite(sprite_id)) else {
-        return false;
-    };
-    hit_test_render_sprite(images, spr, mx, my, alpha_test)
-}
-
 fn object_button_sort_key(
     ids: &constants::RuntimeConstants,
     gfx: &graphics::GfxRuntime,
@@ -10265,7 +10343,7 @@ fn object_event_value(
     }
 }
 
-fn object_button_effective_gfx_hit(
+fn object_button_fallback_sprite(
     images: &mut ImageManager,
     layers: &LayerManager,
     gfx: &graphics::GfxRuntime,
@@ -10273,10 +10351,8 @@ fn object_button_effective_gfx_hit(
     stage_idx: i64,
     runtime_slot: usize,
     obj: &globals::ObjectState,
-    mx: i32,
-    my: i32,
     parent_state: Option<ParentRenderState>,
-) -> Option<ButtonSortKey> {
+) -> Option<Sprite> {
     let embedded_tree_object = obj.nested_runtime_slot.is_some();
     let disp = obj
         .lookup_int_prop(ids, ids.obj_disp)
@@ -10311,24 +10387,7 @@ fn object_button_effective_gfx_hit(
         && let Some((layer_id, sprite_id)) =
             gfx.object_sprite_binding(stage_idx, runtime_slot as i64)
     {
-        if hit_test_layer_sprite(
-            images,
-            layers,
-            layer_id,
-            sprite_id,
-            mx,
-            my,
-            obj.button.alpha_test,
-        ) {
-            return Some(object_button_sort_key(
-                ids,
-                gfx,
-                stage_idx,
-                runtime_slot,
-                obj,
-            ));
-        }
-        return None;
+        return layers.layer(layer_id)?.sprite(sprite_id).cloned();
     }
 
     let (base_x, base_y) = if embedded_tree_object {
@@ -10427,17 +10486,7 @@ fn object_button_effective_gfx_hit(
     sprite.y = (sprite.y as i64 + center_rep_y).clamp(i32::MIN as i64, i32::MAX as i64) as i32;
     sprite.z += center_rep_z as f32;
 
-    if !hit_test_render_sprite(images, &sprite, mx, my, obj.button.alpha_test) {
-        return None;
-    }
-
-    Some(object_button_sort_key(
-        ids,
-        gfx,
-        stage_idx,
-        runtime_slot,
-        obj,
-    ))
+    Some(sprite)
 }
 
 fn collect_standalone_button_decided_actions_recursive(
@@ -10784,16 +10833,9 @@ fn object_button_hit_sort_key_from_render(
         return None;
     }
     let runtime_slot = object_runtime_slot(obj_idx, obj);
-    let info = button_object_render_info(ids, gfx, stage_idx, obj_idx, obj);
-    let mut bound = fetch_bound_render_sprites_for_hit(layers, gfx, stage_idx, runtime_slot, obj);
-    for rs in &mut bound {
-        apply_button_object_render_info_to_sprite(&mut rs.sprite, &info);
-        apply_object_backend_sprite_local_offset(obj, rs.sprite_id, &mut rs.sprite);
-        if let Some(parent) = parent_state.clone() {
-            let dummy = ObjectRenderInfo::default();
-            apply_parent_render_state_to_sprite(&mut rs.sprite, &dummy, &parent);
-        }
-        finalize_button_object_center_rep_to_sprite(&mut rs.sprite, &info);
+    let bound =
+        object_button_bound_hit_sprites(layers, gfx, ids, stage_idx, obj_idx, obj, &parent_state);
+    for rs in &bound {
         if hit_test_render_sprite(images, &rs.sprite, mx, my, obj.button.alpha_test) {
             let sort_key = object_button_sort_key(ids, gfx, stage_idx, runtime_slot, obj);
             if sg_debug_enabled() {
@@ -10825,8 +10867,8 @@ fn object_button_hit_sort_key_from_render(
         }
     }
 
-    if bound.is_empty() {
-        return object_button_effective_gfx_hit(
+    if bound.is_empty()
+        && let Some(sprite) = object_button_fallback_sprite(
             images,
             layers,
             gfx,
@@ -10834,12 +10876,45 @@ fn object_button_hit_sort_key_from_render(
             stage_idx,
             runtime_slot,
             obj,
-            mx,
-            my,
             parent_state,
-        );
+        )
+        && hit_test_render_sprite(images, &sprite, mx, my, obj.button.alpha_test)
+    {
+        return Some(object_button_sort_key(ids, gfx, stage_idx, runtime_slot, obj));
     }
     None
+}
+
+fn object_button_bound_hit_sprites(
+    layers: &LayerManager,
+    gfx: &graphics::GfxRuntime,
+    ids: &constants::RuntimeConstants,
+    stage_idx: i64,
+    obj_idx: usize,
+    obj: &globals::ObjectState,
+    parent_state: &Option<ParentRenderState>,
+) -> Vec<RenderSprite> {
+    let info = button_object_render_info(ids, gfx, stage_idx, obj_idx, obj);
+    let mut bound = fetch_bound_render_sprites_for_hit(
+        layers,
+        gfx,
+        stage_idx,
+        object_runtime_slot(obj_idx, obj),
+        obj,
+    );
+    for rs in &mut bound {
+        apply_button_object_render_info_to_sprite(&mut rs.sprite, &info);
+        apply_object_backend_sprite_local_offset(obj, rs.sprite_id, &mut rs.sprite);
+        if let Some(parent) = parent_state {
+            apply_parent_render_state_to_sprite(
+                &mut rs.sprite,
+                &ObjectRenderInfo::default(),
+                parent,
+            );
+        }
+        finalize_button_object_center_rep_to_sprite(&mut rs.sprite, &info);
+    }
+    bound
 }
 
 fn button_parent_render_state(
@@ -17515,6 +17590,52 @@ mod msg_back_voice_tests {
         assert_eq!(ctx.ui.mwnd.name.waku.filter_color, (10, 20, 30, 40));
         assert!(ctx.ui.mwnd.name.waku.filter_config_color);
         assert!(!ctx.ui.mwnd.name.waku.filter_config_tr);
+    }
+
+    #[test]
+    fn backlog_scrolls_with_directions_and_a_held_pointer_drag() {
+        let mut ctx = CommandContext::new(PathBuf::from("."));
+        ctx.tables.gameexe = Some(crate::formats::gameexe::GameexeConfig::from_text(
+            "#MSGBK_ITEM.SLIDER.POS=280,20,400",
+        ));
+        let mut history = globals::MsgBackState::default();
+        for index in 0..40 {
+            history.add_msg(&format!("History entry {index}"), "", 0, 0);
+            history.next();
+        }
+        ctx.globals.msgbk_forms.insert(ctx.ids.form_global_msgbk, history);
+        ctx.globals.syscom.msg_back_open = true;
+        let layout = ctx.build_msg_back_layout();
+        ctx.msg_back_initialize_open_state(&layout);
+
+        let last = ctx.globals.syscom.msg_back_target_no;
+        assert!(!ctx.on_compatibility_key_down(input::VmKey::ArrowUp));
+        assert!(ctx.globals.syscom.msg_back_target_no < last);
+        assert!(!ctx.on_compatibility_key_down(input::VmKey::ArrowDown));
+        assert_eq!(ctx.globals.syscom.msg_back_target_no, last);
+
+        let projection = ctx.build_msg_back_projection().unwrap();
+        let x = projection.window_x + projection.slider_pos.0;
+        let y = projection.window_y + projection.slider_pos.1;
+        ctx.ui.set_msg_back_projection(Some(projection));
+        ctx.ui.msg_back.slider = ui::MsgBackButtonRuntime {
+            image: Some(ctx.images.solid_rgba((255, 255, 255, 255))),
+            size: Some((12, 12)),
+            center: Some((0, 0)),
+            ..Default::default()
+        };
+
+        ctx.on_mouse_move(x, y);
+        ctx.on_mouse_down(input::VmMouseButton::Left);
+        assert!(ctx.globals.syscom.msg_back_slider_dragging);
+        ctx.on_mouse_move(x, y - 50);
+        assert!(ctx.globals.syscom.msg_back_target_no < last);
+        ctx.on_mouse_up(input::VmMouseButton::Left);
+        assert!(!ctx.globals.syscom.msg_back_slider_dragging);
+        let scroll = ctx.globals.syscom.msg_back_scroll_pos;
+        ctx.on_mouse_move(x, y - 100);
+        assert_eq!(ctx.globals.syscom.msg_back_scroll_pos, scroll);
+        assert!(ctx.globals.syscom.msg_back_open);
     }
 
     #[test]

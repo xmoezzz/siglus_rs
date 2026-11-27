@@ -15458,6 +15458,215 @@ mod command_dispatch_tests {
     }
 
     #[test]
+    fn menu_arrows_skip_disabled_buttons_and_enter_decides_the_focus() {
+        use crate::runtime::forms::{codes, excall};
+        use crate::runtime::input::VmKey;
+
+        for (compatibility, overlap) in [(false, false), (true, false), (true, true)] {
+            let mut vm = test_vm();
+            vm.exec_command(
+                vec![codes::ELM_GLOBAL_EXCALL, codes::ELM_EXCALL_ALLOC],
+                0,
+                vm.cfg.fm_void,
+                &mut vec![],
+            )
+            .unwrap();
+            vm.ctx.excall_state.ex_call_flag = true;
+            vm.ctx.screen_w = 640;
+            vm.ctx.screen_h = 480;
+
+            for (index, y) in [(0, 40), (1, 112), (2, if overlap { 40 } else { 184 })] {
+                let mut object = vec![
+                    codes::ELM_GLOBAL_EXCALL,
+                    codes::ELM_EXCALL_FRONT,
+                    codes::ELM_STAGE_OBJECT,
+                    ELM_ARRAY,
+                    index,
+                    codes::ELM_OBJECT_CREATE_RECT,
+                ];
+                vm.exec_command(
+                    object.clone(),
+                    2,
+                    vm.cfg.fm_void,
+                    &mut [0, 0, 120, 40, 255, 255, 255, 255, 1, 40, y]
+                        .into_iter()
+                        .map(Value::Int)
+                        .collect(),
+                )
+                .unwrap();
+                *object.last_mut().unwrap() = codes::ELM_OBJECT_SET_BUTTON;
+                vm.exec_command(
+                    object.clone(),
+                    2,
+                    vm.cfg.fm_void,
+                    &mut [i64::from(index) + 1, 0, 15, -1]
+                        .into_iter()
+                        .map(Value::Int)
+                        .collect(),
+                )
+                .unwrap();
+                if index == 1 {
+                    *object.last_mut().unwrap() = codes::ELM_OBJECT_SET_BUTTON_STATE_DISABLE;
+                    vm.exec_command(object, 0, vm.cfg.fm_void, &mut vec![])
+                        .unwrap();
+                }
+            }
+
+            vm.exec_command(
+                vec![
+                    codes::ELM_GLOBAL_EXCALL,
+                    codes::ELM_EXCALL_FRONT,
+                    codes::STAGE_ELM_OBJBTNGROUP,
+                    ELM_ARRAY,
+                    0,
+                    constants::GROUP_START,
+                ],
+                0,
+                vm.cfg.fm_void,
+                &mut vec![],
+            )
+            .unwrap();
+            let form = excall::tick_targets(&vm.ctx).stage_form_id;
+            let send = |vm: &mut SceneVm<'_>, key: VmKey, down: bool| {
+                if compatibility {
+                    if down {
+                        vm.ctx.on_compatibility_key_down(key);
+                    } else {
+                        vm.ctx.on_key_up(key);
+                    }
+                } else if down {
+                    vm.ctx.on_key_down(key);
+                } else {
+                    vm.ctx.on_key_up(key);
+                }
+            };
+            if !compatibility {
+                send(&mut vm, VmKey::ArrowDown, true);
+                assert_eq!(
+                    vm.ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no, -1,
+                    "physical keyboard arrows must not hijack script KEY_OP"
+                );
+                assert!(vm.ctx.input.vk_down_stock(0x28));
+                continue;
+            }
+            send(&mut vm, VmKey::ArrowDown, true);
+            assert_eq!(
+                vm.ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no,
+                if overlap { 3 } else { 1 }
+            );
+            send(&mut vm, VmKey::ArrowDown, false);
+            if !overlap {
+                send(&mut vm, VmKey::ArrowDown, true);
+                assert_eq!(
+                    vm.ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no,
+                    3
+                );
+                send(&mut vm, VmKey::ArrowDown, false);
+            }
+            send(&mut vm, VmKey::Enter, true);
+            send(&mut vm, VmKey::Enter, false);
+            assert_eq!(
+                vm.ctx.globals.stage_forms[&form].group_lists[&1][0].decided_button_no,
+                3
+            );
+        }
+    }
+
+    #[test]
+    fn mwnd_selection_takes_priority_over_stage_buttons_on_gamepad() {
+        use crate::runtime::forms::{codes, excall};
+        use crate::runtime::globals::{MwndSelectionChoice, MwndSelectionState};
+        use crate::runtime::input::VmKey;
+
+        let mut vm = test_vm();
+        vm.exec_command(
+            vec![codes::ELM_GLOBAL_EXCALL, codes::ELM_EXCALL_ALLOC],
+            0,
+            vm.cfg.fm_void,
+            &mut vec![],
+        )
+        .unwrap();
+        vm.ctx.excall_state.ex_call_flag = true;
+        vm.ctx.screen_w = 640;
+        vm.ctx.screen_h = 480;
+
+        let mut object = vec![
+            codes::ELM_GLOBAL_EXCALL,
+            codes::ELM_EXCALL_FRONT,
+            codes::ELM_STAGE_OBJECT,
+            ELM_ARRAY,
+            0,
+            codes::ELM_OBJECT_CREATE_RECT,
+        ];
+        vm.exec_command(
+            object.clone(),
+            2,
+            vm.cfg.fm_void,
+            &mut [0, 0, 120, 40, 255, 255, 255, 255, 1, 40, 40]
+                .into_iter()
+                .map(Value::Int)
+                .collect(),
+        )
+        .unwrap();
+        *object.last_mut().unwrap() = codes::ELM_OBJECT_SET_BUTTON;
+        vm.exec_command(
+            object,
+            2,
+            vm.cfg.fm_void,
+            &mut [1, 0, 15, -1].into_iter().map(Value::Int).collect(),
+        )
+        .unwrap();
+        vm.exec_command(
+            vec![
+                codes::ELM_GLOBAL_EXCALL,
+                codes::ELM_EXCALL_FRONT,
+                codes::STAGE_ELM_OBJBTNGROUP,
+                ELM_ARRAY,
+                0,
+                constants::GROUP_START,
+            ],
+            0,
+            vm.cfg.fm_void,
+            &mut vec![],
+        )
+        .unwrap();
+
+        let form = excall::tick_targets(&vm.ctx).stage_form_id;
+        let stage = vm.ctx.globals.stage_forms.get_mut(&form).unwrap();
+        stage.ensure_mwnd_list(0, 1);
+        let mwnd = &mut stage.mwnd_lists.get_mut(&0).unwrap()[0];
+        mwnd.open = true;
+        mwnd.selection = Some(MwndSelectionState {
+            choices: vec![
+                MwndSelectionChoice {
+                    text: "One".into(),
+                    ..Default::default()
+                },
+                MwndSelectionChoice {
+                    text: "Two".into(),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        });
+        vm.ctx.globals.focused_stage_mwnd = Some((form, 0, 0));
+
+        assert!(!vm.ctx.on_compatibility_key_down(VmKey::ArrowDown));
+        assert_eq!(
+            vm.ctx.globals.stage_forms[&form].group_lists[&1][0].hit_button_no, -1,
+            "stage button must not steal focus during mwnd selection"
+        );
+        assert_eq!(
+            vm.ctx.globals.stage_forms[&form].mwnd_lists[&0][0]
+                .selection
+                .as_ref()
+                .unwrap()
+                .cursor,
+            1
+        );
+    }
+
+    #[test]
     fn polling_menu_group_restart_preserves_held_child_button() {
         use crate::runtime::forms::{codes, excall};
         use crate::runtime::input::VmMouseButton;
